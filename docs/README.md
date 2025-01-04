@@ -4,6 +4,8 @@
 
 ## 语言特性
 
+- [语法](LanguageGrammer.md)
+
 
 
 ## 内部实现
