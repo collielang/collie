@@ -12,6 +12,8 @@
 
 - [代码提交规范](Specification/CodeCommitSpecification.md)
 
+- [候选名称](CandidateNames.md)
+
 
 
 ## 其他
