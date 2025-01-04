@@ -1,5 +1,7 @@
 # 牧羊犬编程语言 Collie Lang
 
+*"The first step is always the hardest."*
+
 ## 快速开始
 
 ## 语言特性
