@@ -3,6 +3,7 @@
  * @Date: 2025-01-05
  */
 #include "parser.h"
+#include <iostream>
 
 namespace collie {
 
@@ -14,7 +15,8 @@ std::unique_ptr<Stmt> Parser::parse() {
         }
         // 否则返回单个声明
         return declaration();
-    } catch (const ParseError&) {
+    } catch (const ParseError& error) {
+        std::cout << "Parse error: " << error.what() << std::endl;
         had_error_ = true;
         synchronize();
         return nullptr;
@@ -191,14 +193,14 @@ std::unique_ptr<Expr> Parser::primary() {
     }
 
     if (match(TokenType::IDENTIFIER)) {
-        auto expr = std::make_unique<IdentifierExpr>(previous());
+        Token name = previous();
 
         // 如果后面是左括号，说明是函数调用
         if (match(TokenType::DELIMITER_LPAREN)) {
-            return finish_call(std::move(expr));
+            return finish_call(std::make_unique<IdentifierExpr>(name));
         }
 
-        return expr;
+        return std::make_unique<IdentifierExpr>(name);
     }
 
     if (match(TokenType::DELIMITER_LPAREN)) {
@@ -297,53 +299,64 @@ void Parser::synchronize() {
 // 添加语句解析方法的实现
 std::unique_ptr<Stmt> Parser::declaration() {
     try {
+        Token current = peek();
+        std::cout << "Current token: type=" << static_cast<int>(current.type())
+                  << ", lexeme='" << current.lexeme() << "'" << std::endl;
+
         // 检查是否是类型关键字（变量声明或函数声明）
-        if (check(TokenType::KW_NUMBER) ||
-            check(TokenType::KW_STRING) ||
-            check(TokenType::KW_BOOL) ||
-            check(TokenType::KW_CHAR) ||
-            check(TokenType::KW_CHARACTER)) {
-            Token type = advance();  // 获取类型
+        if (match(TokenType::KW_NUMBER) ||
+            match(TokenType::KW_STRING) ||
+            match(TokenType::KW_BOOL) ||
+            match(TokenType::KW_CHAR)) {
 
-            /*
-            // 添加错误检查
-            if (!check(TokenType::IDENTIFIER)) {
-                error("Expect identifier after type.");
-                return nullptr;
-            }
-            */
-
+            Token type = previous();  // 保存类型
             Token name = consume(TokenType::IDENTIFIER, "Expect name.");
 
             // 如果后面是左括号，说明是函数声明
             if (match(TokenType::DELIMITER_LPAREN)) {
-                return function_declaration();
+                return function_declaration(type, name);  // 传入已经读取的类型和名称
             }
 
             // 否则是变量声明
-            return var_declaration();
+            return var_declaration(type, name);  // 传入已经读取的类型和名称
         }
 
         return statement();
     } catch (const ParseError& error) {
+        std::cout << "Parse error in declaration: " << error.what() << std::endl;
         synchronize();
         return nullptr;
     }
 }
 
-std::unique_ptr<Stmt> Parser::var_declaration() {
-    Token type = advance();  // 获取类型
-    Token name = consume(TokenType::IDENTIFIER, "Expect variable name.");
+// 函数声明方法
+std::unique_ptr<Stmt> Parser::function_declaration(Token type, Token name) {
+    // 解析参数列表
+    auto params = parameters();
 
+    // 解析函数体
+    consume(TokenType::DELIMITER_LBRACE, "Expect '{' before function body.");
+    auto body = std::unique_ptr<BlockStmt>(
+        dynamic_cast<BlockStmt*>(block().release())
+    );
+    if (!body) {
+        throw ParseError("Function body must be a block.",
+            current_token_.line(), current_token_.column());
+    }
+
+    return std::make_unique<FunctionStmt>(
+        type,
+        name,
+        std::move(params),
+        std::move(body)
+    );
+}
+
+// 变量声明方法
+std::unique_ptr<Stmt> Parser::var_declaration(Token type, Token name) {
     std::unique_ptr<Expr> initializer = nullptr;
     if (match(TokenType::OP_ASSIGN)) {
-        try {
-            initializer = expression();
-        } catch (const ParseError&) {
-            // 如果初始化表达式解析失败，尝试同步到下一个语句
-            synchronize();
-            throw;  // 重新抛出异常以触发错误恢复
-        }
+        initializer = expression();
     }
 
     consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after variable declaration.");
@@ -434,7 +447,10 @@ std::unique_ptr<Stmt> Parser::for_statement() {
             check(TokenType::KW_BOOL) ||
             check(TokenType::KW_CHAR) ||
             check(TokenType::KW_CHARACTER)) {
-            initializer = var_declaration();
+            // 获取类型和名称
+            Token type = advance();
+            Token name = consume(TokenType::IDENTIFIER, "Expect variable name.");
+            initializer = var_declaration(type, name);
         } else {
             initializer = expression_statement();
         }
@@ -463,32 +479,6 @@ std::unique_ptr<Stmt> Parser::for_statement() {
         std::move(initializer),
         std::move(condition),
         std::move(increment),
-        std::move(body)
-    );
-}
-
-// 添加函数声明解析
-std::unique_ptr<Stmt> Parser::function_declaration() {
-    Token type = previous();  // 获取返回类型（之前已经在 declaration() 中获取）
-    Token name = previous();  // 获取函数名（之前已经在 declaration() 中获取）
-
-    // 解析参数列表
-    auto params = parameters();
-
-    // 解析函数体
-    consume(TokenType::DELIMITER_LBRACE, "Expect '{' before function body.");
-    auto body = std::unique_ptr<BlockStmt>(
-        dynamic_cast<BlockStmt*>(block().release())
-    );
-    if (!body) {
-        throw ParseError("Function body must be a block.",
-            current_token_.line(), current_token_.column());
-    }
-
-    return std::make_unique<FunctionStmt>(
-        type,
-        name,
-        std::move(params),
         std::move(body)
     );
 }

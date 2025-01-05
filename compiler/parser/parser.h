@@ -128,75 +128,75 @@ private:
      * @brief 解析声明语句
      * @return 解析得到的声明语句节点
      */
-    std::unique_ptr<Stmt> declaration();    // 声明语句
+    std::unique_ptr<Stmt> declaration();
 
     /**
      * @brief 解析变量声明
      * @return 解析得到的变量声明节点
      */
-    std::unique_ptr<Stmt> var_declaration();// 变量声明
+    std::unique_ptr<Stmt> var_declaration(Token type, Token name);
 
     /**
      * @brief 解析普通语句
      * @return 解析得到的普通语句节点
      */
-    std::unique_ptr<Stmt> statement();      // 普通语句
+    std::unique_ptr<Stmt> statement();
 
     /**
      * @brief 解析表达式语句
      * @return 解析得到的表达式语句节点
      */
-    std::unique_ptr<Stmt> expression_statement(); // 表达式语句
+    std::unique_ptr<Stmt> expression_statement();
 
     /**
      * @brief 解析块语句
      * @return 解析得到的块语句节点
      */
-    std::unique_ptr<Stmt> block();          // 块语句
+    std::unique_ptr<Stmt> block();
 
     /**
      * @brief 解析块内语句列表
      * @return 解析得到的块内语句列表
      */
-    std::vector<std::unique_ptr<Stmt>> block_statements(); // 块内语句列表
+    std::vector<std::unique_ptr<Stmt>> block_statements();
 
     /**
      * @brief 解析if语句
      * @return 解析得到的if语句节点
      */
-    std::unique_ptr<Stmt> if_statement();  // if 语句
+    std::unique_ptr<Stmt> if_statement();
 
     /**
      * @brief 解析while语句
      * @return 解析得到的while语句节点
      */
-    std::unique_ptr<Stmt> while_statement();  // while 语句
+    std::unique_ptr<Stmt> while_statement();
 
     /**
      * @brief 解析for语句
      * @return 解析得到的for语句节点
      */
-    std::unique_ptr<Stmt> for_statement();  // for 语句
+    std::unique_ptr<Stmt> for_statement();
 
     // 函数相关
     /**
      * @brief 解析函数声明
      * @return 解析得到的函数声明节点
      */
-    std::unique_ptr<Stmt> function_declaration();  // 函数声明
+    std::unique_ptr<Stmt> function_declaration(Token type, Token name);
 
     /**
      * @brief 解析函数参数列表
      * @return 解析得到的参数列表
      */
-    std::vector<Parameter> parameters();           // 解析参数列表
+    std::vector<Parameter> parameters();
 
     /**
      * @brief 完成函数调用的解析
      * @param callee 被调用的函数表达式
      * @return 解析得到的函数调用节点
      */
-    std::unique_ptr<Expr> finish_call(std::unique_ptr<Expr> callee);  // 解析函数调用
+    std::unique_ptr<Expr> finish_call(std::unique_ptr<Expr> callee);
 
     // 辅助方法
     /**
