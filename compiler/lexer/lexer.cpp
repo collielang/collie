@@ -39,6 +39,12 @@ char32_t Lexer::nextUtf8Char() {
     }
 
     unsigned char c = static_cast<unsigned char>(source_[position_]);
+
+    // 检查无效的 UTF-8 序列
+    if ((c & 0x80) != 0 && (c & 0xC0) != 0xC0) {
+        throw LexError("Invalid UTF-8 sequence", line_, column_);
+    }
+
     char32_t codepoint = 0;
     size_t bytes = 0;
 
@@ -113,18 +119,23 @@ Token Lexer::scan_identifier() {
 
     if (encoding_ == Encoding::UTF8) {
         // UTF-8 模式
+        bool first_char = true;
         while (!is_at_end()) {
             size_t current_pos = position_;
             try {
                 char32_t c = nextUtf8Char();
-                if (!isIdentifierChar(c)) {
-                    position_ = current_pos;  // 回退
+                if (first_char && !is_alpha(c) && c != '_' && c < 0x4E00) {
+                    position_ = current_pos;
                     break;
                 }
-                // 将当前字符添加到标识符中
+                if (!first_char && !isIdentifierChar(c)) {
+                    position_ = current_pos;
+                    break;
+                }
                 identifier.append(source_.substr(current_pos, position_ - current_pos));
+                first_char = false;
             } catch (const LexError&) {
-                position_ = current_pos;  // 回退
+                position_ = current_pos;
                 break;
             }
         }
@@ -418,11 +429,9 @@ Token Lexer::scan_string() {
 
     if (is_multiline) {
         // 记录第一行的缩进级别
-        if (peek() != '\n') {
-            while (peek() == ' ' || peek() == '\t') {
-                indent++;
-                advance();
-            }
+        while (peek() == ' ' || peek() == '\t') {
+            indent++;
+            advance();
         }
 
         bool first_line = true;
@@ -430,8 +439,8 @@ Token Lexer::scan_string() {
 
         while (!is_at_end()) {
             // 检查结束标记
-            if (peek() == '"' && peek_next() == '"' && source_[position_ + 2] == '"') {
-                // 检查结束引号的对齐
+            if (peek() == '"' && peek_next() == '"' &&
+                position_ + 2 < source_.length() && source_[position_ + 2] == '"') {
                 if (!line_buffer.empty()) {
                     value += line_buffer;
                 }

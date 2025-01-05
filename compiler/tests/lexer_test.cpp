@@ -63,8 +63,7 @@ TEST(LexerTest, Comments) {
     Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize(); // [tokens] number, x, =, 1, ;, number, y, =, 2, ;, EOF
-    // 注释应该被忽略
-    ASSERT_EQ(tokens.size() - 1/* 减去 EOF token */, 9);
+    ASSERT_EQ(tokens.size(), 10);  // 9个token + EOF
 }
 
 // 错误处理测试
@@ -88,20 +87,24 @@ TEST(LexerTest, LocationTracking) {
 
 // UTF-16字符测试
 TEST(LexerTest, UTF16Characters) {
-    // 测试基本的UTF-16字符
     std::string source = "character c = '世';";
     Lexer lexer(source, Encoding::UTF16);
 
     auto tokens = lexer.tokenize(); // [tokens] character, c, =, '世', ;, EOF
-    ASSERT_EQ(tokens.size() - 1/* 减去 EOF token */, 5);
+
+    ASSERT_EQ(tokens.size(), 6);
+    EXPECT_EQ(tokens[0].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[1].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[2].type(), TokenType::OP_ASSIGN);
     EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_CHARACTER);
+    EXPECT_EQ(tokens[4].type(), TokenType::DELIMITER_SEMICOLON);
 
     // 测试代理对字符
     source = "character c = '𐍈';";  // 这是一个需要代理对的字符
     lexer = Lexer(source, Encoding::UTF16);
 
     tokens = lexer.tokenize(); // [tokens] character, c, =, '𐍈', ;, EOF
-    ASSERT_EQ(tokens.size() - 1/* 减去 EOF token */, 5);
+    ASSERT_EQ(tokens.size(), 6);
     EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_CHARACTER);
 }
 
