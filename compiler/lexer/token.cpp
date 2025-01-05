@@ -43,10 +43,10 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"null", TokenType::KW_NULL},
     {"true", TokenType::KW_TRUE},
     {"false", TokenType::KW_FALSE},
-    {"unset", TokenType::KW_UNSET}
+    {"unset", TokenType::KW_UNSET},
+    {"return", TokenType::KW_RETURN}
 };
 
-// 判断标识符是否是关键字
 TokenType get_identifier_type(std::string_view identifier) {
     auto it = keywords.find(identifier);
     return it != keywords.end() ? it->second : TokenType::IDENTIFIER;

@@ -157,6 +157,13 @@ private:
 
 TokenType get_identifier_type(std::string_view identifier);
 
+/**
+ * @brief 根据标识符获取对应的 token 类型
+ * @param identifier 标识符字符串
+ * @return 如果是关键字则返回对应的 TokenType，否则返回 TokenType::IDENTIFIER
+ */
+TokenType get_keyword_type(const std::string& identifier);
+
 } // namespace collie
 
 #endif // COLLIE_TOKEN_H

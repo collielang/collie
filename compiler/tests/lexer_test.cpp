@@ -26,7 +26,7 @@ void PrintTokens(const std::vector<Token>& tokens) {
 // 基本token测试
 TEST(LexerTest, BasicTokens) {
     std::string source = "number x = 42;";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize(); // [tokens] number, x, =, 42, ;
     PrintTokens(tokens);  // 添加这行来帮助调试
@@ -42,7 +42,7 @@ TEST(LexerTest, BasicTokens) {
 // 字符串测试
 TEST(LexerTest, StringLiterals) {
     std::string source = R"("Hello, world!" 'c')";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize();
     ASSERT_EQ(tokens.size(), 3);  // "Hello, world!", 'c', EOF
@@ -60,7 +60,7 @@ TEST(LexerTest, Comments) {
         number x = 1; /* 这是多行
         注释 */ number y = 2;
     )";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize(); // [tokens] number, x, =, 1, ;, number, y, =, 2, ;, EOF
     // 注释应该被忽略
@@ -70,7 +70,7 @@ TEST(LexerTest, Comments) {
 // 错误处理测试
 TEST(LexerTest, ErrorHandling) {
     std::string source = "\"未闭合的字符串";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     auto token = lexer.next_token();
     EXPECT_EQ(token.type(), TokenType::INVALID);
@@ -79,7 +79,7 @@ TEST(LexerTest, ErrorHandling) {
 // 位置信息测试
 TEST(LexerTest, LocationTracking) {
     std::string source = "number\nx = 42;";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize();
     EXPECT_EQ(tokens[0].line(), 1);
@@ -90,7 +90,7 @@ TEST(LexerTest, LocationTracking) {
 TEST(LexerTest, UTF16Characters) {
     // 测试基本的UTF-16字符
     std::string source = "character c = '世';";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF16);
 
     auto tokens = lexer.tokenize(); // [tokens] character, c, =, '世', ;, EOF
     ASSERT_EQ(tokens.size() - 1/* 减去 EOF token */, 5);
@@ -98,7 +98,7 @@ TEST(LexerTest, UTF16Characters) {
 
     // 测试代理对字符
     source = "character c = '𐍈';";  // 这是一个需要代理对的字符
-    lexer = Lexer(source);
+    lexer = Lexer(source, Encoding::UTF16);
 
     tokens = lexer.tokenize(); // [tokens] character, c, =, '𐍈', ;, EOF
     ASSERT_EQ(tokens.size() - 1/* 减去 EOF token */, 5);
@@ -107,7 +107,7 @@ TEST(LexerTest, UTF16Characters) {
 
 TEST(LexerTest, UTF16Strings) {
     std::string source = R"("你好，世界！")";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF16);
 
     auto tokens = lexer.tokenize();
     ASSERT_EQ(tokens.size(), 2);  // "你好，世界！", EOF
@@ -127,7 +127,7 @@ TEST(LexerTest, MultilineStrings) {
             World!
             """;
     )";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize(); // [tokens] const, text, =, string_literal, ;
     ASSERT_EQ(tokens.size() - 1, 5);
@@ -141,7 +141,7 @@ TEST(LexerTest, MultilineStrings) {
                 World!
             """;
     )";
-    lexer = Lexer(source);
+    lexer = Lexer(source, Encoding::UTF8);
     tokens = lexer.tokenize();
     EXPECT_EQ(tokens[3].lexeme(), "Hello,\n    World!\n");
 
@@ -152,7 +152,7 @@ TEST(LexerTest, MultilineStrings) {
         World!
             """;
     )";
-    lexer = Lexer(source);
+    lexer = Lexer(source, Encoding::UTF8);
     auto token = lexer.next_token(); // const
     token = lexer.next_token(); // text
     token = lexer.next_token(); // =
@@ -165,7 +165,7 @@ TEST(LexerTest, MultilineStrings) {
             Hello,
             World!
     )";
-    lexer = Lexer(source);
+    lexer = Lexer(source, Encoding::UTF8);
     token = lexer.next_token(); // const
     token = lexer.next_token(); // text
     token = lexer.next_token(); // =
@@ -175,7 +175,7 @@ TEST(LexerTest, MultilineStrings) {
 
 TEST(LexerTest, Utf8Characters) {
     std::string source = "\"你好，世界！\"";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     Token token = lexer.next_token();
     EXPECT_EQ(token.type(), TokenType::LITERAL_STRING);
@@ -184,7 +184,7 @@ TEST(LexerTest, Utf8Characters) {
 
 TEST(LexerTest, InvalidUtf8) {
     std::string source = "\"\xFF\xFF\"";  // 无效的 UTF-8 序列
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     EXPECT_THROW({
         lexer.next_token();
@@ -193,7 +193,7 @@ TEST(LexerTest, InvalidUtf8) {
 
 TEST(LexerTest, ChineseIdentifiers) {
     std::string source = "变量名 = 42;";
-    Lexer lexer(source);
+    Lexer lexer(source, Encoding::UTF8);
 
     Token token = lexer.next_token();
     EXPECT_EQ(token.type(), TokenType::IDENTIFIER);

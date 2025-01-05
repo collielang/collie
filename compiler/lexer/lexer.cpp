@@ -1,6 +1,7 @@
 /*
  * @Author: Zhang Bokai <codingzhang@126.com>
  * @Date: 2025-01-05
+ * @Description: 词法分析器实现，包含 UTF-8/UTF-16 编码支持
  */
 #include "lexer.h"
 #include <stdexcept>
@@ -11,20 +12,136 @@
 
 namespace collie {
 
-Lexer::Lexer(std::string_view source)
-    : source_(source), position_(0), line_(1), column_(1) {
+Lexer::Lexer(std::string_view source, Encoding encoding)
+    : source_(source), position_(0), line_(1), column_(1), encoding_(encoding) {
+    if (encoding == Encoding::UTF16) {
 #ifdef _WIN32
-    // 使用 Windows API 进行 UTF-16 转换
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, source_.c_str(), (int)source_.size(), nullptr, 0);
-    std::wstring wstr(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, source_.c_str(), (int)source_.size(), &wstr[0], size_needed);
-    source_utf16_ = std::u16string(reinterpret_cast<const char16_t*>(wstr.c_str()), wstr.size());
+        // 使用 Windows API 进行 UTF-16 转换
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, source_.c_str(),
+            static_cast<int>(source_.size()), nullptr, 0);
+        std::wstring wstr(size_needed, 0);
+        MultiByteToWideChar(CP_UTF8, 0, source_.c_str(),
+            static_cast<int>(source_.size()), &wstr[0], size_needed);
+        source_utf16_ = std::u16string(reinterpret_cast<const char16_t*>(wstr.c_str()),
+            wstr.size());
 #else
-    // 非 Windows 平台暂时保持原样
-    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-    source_utf16_ = converter.from_bytes(std::string(source));
+        // 非 Windows 平台使用 std::codecvt
+        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+        source_utf16_ = converter.from_bytes(std::string(source));
 #endif
-    utf16_position_ = 0;
+        utf16_position_ = 0;
+    }
+}
+
+char32_t Lexer::nextUtf8Char() {
+    if (position_ >= source_.length()) {
+        return 0;
+    }
+
+    unsigned char c = static_cast<unsigned char>(source_[position_]);
+    char32_t codepoint = 0;
+    size_t bytes = 0;
+
+    // 确定 UTF-8 字符的字节数
+    if ((c & 0x80) == 0) {          // 0xxxxxxx (ASCII)
+        bytes = 1;
+        codepoint = c;
+    } else if ((c & 0xE0) == 0xC0) { // 110xxxxx 10xxxxxx
+        bytes = 2;
+        codepoint = c & 0x1F;
+    } else if ((c & 0xF0) == 0xE0) { // 1110xxxx 10xxxxxx 10xxxxxx
+        bytes = 3;
+        codepoint = c & 0x0F;
+    } else if ((c & 0xF8) == 0xF0) { // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+        bytes = 4;
+        codepoint = c & 0x07;
+    } else {
+        throw LexError("Invalid UTF-8 sequence", line_, column_);
+    }
+
+    // 检查是否有足够的字节
+    if (position_ + bytes > source_.length()) {
+        throw LexError("Incomplete UTF-8 sequence", line_, column_);
+    }
+
+    // 读取后续字节
+    for (size_t i = 1; i < bytes; ++i) {
+        c = static_cast<unsigned char>(source_[position_ + i]);
+        if ((c & 0xC0) != 0x80) { // 检查是否是合法的后续字节 (10xxxxxx)
+            throw LexError("Invalid UTF-8 continuation byte", line_, column_);
+        }
+        codepoint = (codepoint << 6) | (c & 0x3F);
+    }
+
+    // 更新位置和列号
+    position_ += bytes;
+    column_++;
+
+    return codepoint;
+}
+
+bool Lexer::isUtf8Start(char c) const {
+    return (c & 0xC0) != 0x80;  // 不是 UTF-8 后续字节
+}
+
+bool Lexer::isIdentifierChar(char32_t c) const {
+    // 基本的 ASCII 字母数字
+    if ((c >= 'a' && c <= 'z') ||
+        (c >= 'A' && c <= 'Z') ||
+        (c >= '0' && c <= '9') ||
+        c == '_') {
+        return true;
+    }
+
+    // 中文字符范围 (CJK Unified Ideographs)
+    if (c >= 0x4E00 && c <= 0x9FFF) {
+        return true;
+    }
+
+    // CJK 扩展
+    if (c >= 0x3400 && c <= 0x4DBF) {
+        return true;
+    }
+
+    return false;
+}
+
+Token Lexer::scan_identifier() {
+    size_t start_pos = position_;
+    size_t start_col = column_;
+    std::string identifier;
+
+    if (encoding_ == Encoding::UTF8) {
+        // UTF-8 模式
+        while (!is_at_end()) {
+            size_t current_pos = position_;
+            try {
+                char32_t c = nextUtf8Char();
+                if (!isIdentifierChar(c)) {
+                    position_ = current_pos;  // 回退
+                    break;
+                }
+                // 将当前字符添加到标识符中
+                identifier.append(source_.substr(current_pos, position_ - current_pos));
+            } catch (const LexError&) {
+                position_ = current_pos;  // 回退
+                break;
+            }
+        }
+    } else {
+        // 原有的 ASCII/UTF-16 处理逻辑
+        while (!is_at_end() && (is_alphanumeric(peek()) || peek() == '_')) {
+            advance();
+        }
+        identifier = std::string(source_.substr(start_pos, position_ - start_pos));
+    }
+
+    // 检查是否是关键字
+    TokenType type = get_identifier_type(identifier);
+    if (type == TokenType::IDENTIFIER) {
+        return Token(type, identifier, line_, start_col);
+    }
+    return Token(type, identifier, line_, start_col);
 }
 
 Token Lexer::next_token() {
@@ -234,21 +351,6 @@ void Lexer::skip_block_comment() {
             advance();
         }
     }
-}
-
-// 具体的扫描方法实现
-Token Lexer::scan_identifier() {
-    size_t start_pos = position_;
-    size_t start_col = column_;
-
-    while (!is_at_end() && (is_alphanumeric(peek()) || peek() == '_')) {
-        advance();
-    }
-
-    std::string_view text = std::string_view(source_).substr(start_pos, position_ - start_pos);
-    TokenType type = get_identifier_type(text);
-
-    return Token(type, text, line_, start_col);
 }
 
 Token Lexer::scan_number() {

@@ -1,6 +1,7 @@
 /*
  * @Author: Zhang Bokai <codingzhang@126.com>
  * @Date: 2025-01-05
+ * @Description: 词法分析器头文件，定义了词法分析器的接口
  */
 #pragma once
 #ifndef COLLIE_LEXER_H
@@ -15,7 +16,18 @@
 
 namespace collie {
 
-// 添加词法分析器异常类
+/**
+ * @brief 字符编码类型
+ */
+enum class Encoding {
+    UTF8,    // UTF-8 编码
+    UTF16,   // UTF-16 编码
+    ASCII    // ASCII 编码
+};
+
+/**
+ * @brief 词法分析错误异常类
+ */
 class LexError : public std::runtime_error {
 public:
     LexError(const std::string& message, size_t line = 0, size_t column = 0)
@@ -33,8 +45,12 @@ private:
 
 class Lexer {
 public:
-    // 构造函数，接收源代码字符串
-    explicit Lexer(std::string_view source);
+    /**
+     * @brief 构造词法分析器
+     * @param source 源代码字符串
+     * @param encoding 源代码编码类型，默认为 UTF8
+     */
+    explicit Lexer(std::string_view source, Encoding encoding = Encoding::UTF8);
 
     // 获取下一个 token
     Token next_token();
@@ -94,6 +110,29 @@ private:
     // 用于处理UTF-16的内部状态
     std::u16string source_utf16_;
     size_t utf16_position_;
+
+    /**
+     * @brief 获取下一个 UTF-8 字符
+     * @return 下一个字符的 Unicode 码点
+     * @throw LexError 如果遇到无效的 UTF-8 序列
+     */
+    char32_t nextUtf8Char();
+
+    /**
+     * @brief 判断字符是否是 UTF-8 字符的开始
+     * @param c 要判断的字符
+     * @return 如果是 UTF-8 字符的开始则返回 true
+     */
+    bool isUtf8Start(char c) const;
+
+    /**
+     * @brief 判断是否是合法的标识符字符
+     * @param c 要判断的 Unicode 码点
+     * @return 如果是合法的标识符字符则返回 true
+     */
+    bool isIdentifierChar(char32_t c) const;
+
+    Encoding encoding_;  // 源代码编码类型
 };
 
 } // namespace collie
