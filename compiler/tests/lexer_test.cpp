@@ -63,7 +63,20 @@ TEST(LexerTest, Comments) {
     Lexer lexer(source, Encoding::UTF8);
 
     auto tokens = lexer.tokenize(); // [tokens] number, x, =, 1, ;, number, y, =, 2, ;, EOF
-    ASSERT_EQ(tokens.size(), 10);  // 9个token + EOF
+    ASSERT_EQ(tokens.size(), 11);  // 10个token + EOF
+
+    // 验证具体的 token
+    EXPECT_EQ(tokens[0].type(), TokenType::KW_NUMBER);
+    EXPECT_EQ(tokens[1].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[2].type(), TokenType::OP_ASSIGN);
+    EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[4].type(), TokenType::DELIMITER_SEMICOLON);
+    EXPECT_EQ(tokens[5].type(), TokenType::KW_NUMBER);
+    EXPECT_EQ(tokens[6].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[7].type(), TokenType::OP_ASSIGN);
+    EXPECT_EQ(tokens[8].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[9].type(), TokenType::DELIMITER_SEMICOLON);
+    EXPECT_EQ(tokens[10].type(), TokenType::END_OF_FILE);
 }
 
 // 错误处理测试

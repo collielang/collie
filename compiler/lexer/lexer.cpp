@@ -337,6 +337,19 @@ void Lexer::skip_whitespace() {
             case '\n':
                 advance();
                 break;
+            case '/':  // 处理注释
+                if (peek_next() == '/') {
+                    advance(); // 消费第一个 '/'
+                    advance(); // 消费第二个 '/'
+                    skip_line_comment();
+                } else if (peek_next() == '*') {
+                    advance(); // 消费 '/'
+                    advance(); // 消费 '*'
+                    skip_block_comment();
+                } else {
+                    return;
+                }
+                break;
             default:
                 return;
         }
