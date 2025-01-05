@@ -104,13 +104,15 @@ TEST(LexerTest, UTF16Characters) {
     Lexer lexer(source, Encoding::UTF16);
 
     auto tokens = lexer.tokenize(); // [tokens] character, c, =, '世', ;, EOF
+    PrintTokens(tokens);  // 添加调试输出
 
     ASSERT_EQ(tokens.size(), 6);
-    EXPECT_EQ(tokens[0].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[0].type(), TokenType::KW_CHARACTER);
     EXPECT_EQ(tokens[1].type(), TokenType::IDENTIFIER);
     EXPECT_EQ(tokens[2].type(), TokenType::OP_ASSIGN);
     EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_CHARACTER);
     EXPECT_EQ(tokens[4].type(), TokenType::DELIMITER_SEMICOLON);
+    EXPECT_EQ(tokens[5].type(), TokenType::END_OF_FILE);
 
     // 测试代理对字符
     source = "character c = '𐍈';";  // 这是一个需要代理对的字符
@@ -118,6 +120,7 @@ TEST(LexerTest, UTF16Characters) {
 
     tokens = lexer.tokenize(); // [tokens] character, c, =, '𐍈', ;, EOF
     ASSERT_EQ(tokens.size(), 6);
+    EXPECT_EQ(tokens[0].type(), TokenType::KW_CHARACTER);  // 这里也要修改
     EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_CHARACTER);
 }
 

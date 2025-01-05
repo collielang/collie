@@ -15,21 +15,13 @@ namespace collie {
 Lexer::Lexer(std::string_view source, Encoding encoding)
     : source_(source), position_(0), line_(1), column_(1), encoding_(encoding) {
     if (encoding == Encoding::UTF16) {
-#ifdef _WIN32
-        // 使用 Windows API 进行 UTF-16 转换
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, source_.c_str(),
-            static_cast<int>(source_.size()), nullptr, 0);
-        std::wstring wstr(size_needed, 0);
-        MultiByteToWideChar(CP_UTF8, 0, source_.c_str(),
-            static_cast<int>(source_.size()), &wstr[0], size_needed);
-        source_utf16_ = std::u16string(reinterpret_cast<const char16_t*>(wstr.c_str()),
-            wstr.size());
-#else
-        // 非 Windows 平台使用 std::codecvt
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-        source_utf16_ = converter.from_bytes(std::string(source));
-#endif
-        utf16_position_ = 0;
+        try {
+            std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
+            source_utf16_ = converter.from_bytes(std::string(source));
+            utf16_position_ = 0;
+        } catch (const std::exception&) {
+            throw LexError("Invalid UTF-16 sequence", line_, column_);
+        }
     }
 }
 
@@ -438,24 +430,18 @@ Token Lexer::scan_string() {
     }
 
     std::string value;
-    size_t indent = 0; // 缩进级别
+    size_t base_indent = 0;  // 基准缩进级别
+    bool first_line = true;
 
     if (is_multiline) {
-        // 记录第一行的缩进级别
-        while (peek() == ' ' || peek() == '\t') {
-            indent++;
-            advance();
-        }
-
-        bool first_line = true;
-        std::string line_buffer;
+        std::string current_line;
 
         while (!is_at_end()) {
             // 检查结束标记
             if (peek() == '"' && peek_next() == '"' &&
                 position_ + 2 < source_.length() && source_[position_ + 2] == '"') {
-                if (!line_buffer.empty()) {
-                    value += line_buffer;
+                if (!current_line.empty()) {
+                    value += current_line;
                 }
                 advance(); // 消费第一个引号
                 advance(); // 消费第二个引号
@@ -465,41 +451,33 @@ Token Lexer::scan_string() {
 
             char c = peek();
             if (c == '\n') {
-                if (!first_line || !line_buffer.empty()) {
-                    value += line_buffer + '\n';
+                if (!first_line || !current_line.empty()) {
+                    value += current_line + '\n';
                 }
                 advance();
-                line_buffer.clear();
+                current_line.clear();
 
                 // 处理下一行的缩进
                 size_t current_indent = 0;
-                while (peek() == ' ' || peek() == '\t') {
+                while (!is_at_end() && (peek() == ' ' || peek() == '\t')) {
                     current_indent++;
                     advance();
                 }
 
-                // 如果不是空行，检查缩进
-                if (peek() != '\n') {
-                    if (first_line) {
-                        indent = current_indent;
-                        first_line = false;
-                    } else if (current_indent < indent) {
+                // 如果是第一个非空行，记录基准缩进
+                if (first_line && peek() != '\n' && peek() != '"') {
+                    base_indent = current_indent;
+                    first_line = false;
+                } else if (!first_line && peek() != '\n' && peek() != '"') {
+                    // 检查后续行的缩进是否正确
+                    if (current_indent < base_indent) {
                         return make_error_token("Invalid indentation in multiline string");
                     }
+                    // 保留额外的缩进
+                    current_line = std::string(current_indent - base_indent, ' ');
                 }
-            } else if (c == '\\' && !is_multiline) {
-                advance();
-                switch (peek()) {
-                    case '"': line_buffer += '"'; break;
-                    case '\\': line_buffer += '\\'; break;
-                    case 'n': line_buffer += '\n'; break;
-                    case 't': line_buffer += '\t'; break;
-                    case 'r': line_buffer += '\r'; break;
-                    default: return make_error_token("Invalid escape sequence");
-                }
-                advance();
             } else {
-                line_buffer += advance();
+                current_line += advance();
             }
         }
 
@@ -507,7 +485,7 @@ Token Lexer::scan_string() {
             return make_error_token("Unterminated multiline string");
         }
     } else {
-        // 原有的单行字符串处理逻辑
+        // 单行字符串处理逻辑
         while (!is_at_end() && peek() != '"') {
             if (peek() == '\\') {
                 advance();
@@ -542,7 +520,6 @@ Token Lexer::scan_character() {
         return scan_utf16_character();
     }
 
-    // 原有的ASCII字符处理逻辑保持不变
     size_t start_col = column_;
     advance(); // 消费开始的单引号
 
@@ -651,9 +628,14 @@ Token Lexer::scan_utf16_character() {
 
     advance_utf16(); // 消费结束的单引号
 
-    // 转换回UTF-8用于存储
+    // 转换回 UTF-8 用于存储
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-    std::string utf8_value = converter.to_bytes(value);
+    std::string utf8_value;
+    try {
+        utf8_value = converter.to_bytes(value);
+    } catch (const std::exception&) {
+        return make_error_token("Invalid UTF-16 sequence");
+    }
 
     return Token(TokenType::LITERAL_CHARACTER, utf8_value, line_, start_col);
 }
