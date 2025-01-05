@@ -4,6 +4,10 @@
  */
 #include <gtest/gtest.h>
 #include <memory>
+#ifdef _WIN32
+    #include <fcntl.h>
+#endif
+
 #include "../parser/parser.h"
 
 using namespace collie;
@@ -380,4 +384,24 @@ TEST(ParserTest, NestedFunctionCall) {
     TestStmtVisitor visitor;
     stmt->accept(visitor);
     EXPECT_EQ(visitor.result(), "print(add(1, 2), mul(3, 4));");
+}
+
+#ifdef _WIN32
+void SetupWindowsConsole() {
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+}
+#endif
+
+int main(int argc, char **argv) {
+#ifdef _WIN32
+    SetupWindowsConsole();
+#elif defined(__linux__) || defined(__APPLE__)
+    setlocale(LC_ALL, "");
+#endif
+
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }
