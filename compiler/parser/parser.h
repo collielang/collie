@@ -7,16 +7,16 @@
 #define COLLIE_PARSER_H
 
 #include <memory>
+#include <string>
 #include <vector>
-#include <stdexcept>
-#include "../lexer/lexer.h"
+#include "../lexer/token.h"
 #include "ast.h"
 
 namespace collie {
 
 /**
- * @brief 语法错误异常
- * 用于在解析过程中遇到语法错误时抛出
+ * @brief 语法错误异常类
+ * 解析过程中遇到语法错误时抛出
  */
 class ParseError : public std::runtime_error {
 public:
@@ -39,280 +39,321 @@ private:
 
 /**
  * @brief 语法分析器类
- * 实现递归下降解析算法，将token序列解析为抽象语法树
  */
 class Parser {
 public:
-    /**
-     * @brief 构造语法分析器
-     * @param lexer 词法分析器的引用
-     */
-    explicit Parser(Lexer& lexer)
-        : lexer_(lexer),
-          current_token_(TokenType::INVALID, "", 0, 0),
-          previous_token_(TokenType::INVALID, "", 0, 0)
-    {
-        advance();
-    }
+    explicit Parser(const std::vector<Token>& tokens)
+        : tokens_(tokens), current_(0), nesting_depth_(0), in_panic_mode_(false) {}
 
     /**
-     * @brief 解析入口
-     * @return 解析得到的语句
+     * @brief 解析程序
+     * @return AST根节点列表
      */
-    std::unique_ptr<Stmt> parse();
+    std::vector<std::unique_ptr<Stmt>> parse_program();
 
     /**
-     * @brief 解析整个程序
-     * 解析多个顶层声明语句，直到文件结束
-     * @return 解析得到的语句列表
+     * @brief 获取解析过程中的错误
+     * @return 错误列表
      */
-    std::vector<std::unique_ptr<Stmt>> parse_program() {
-        std::vector<std::unique_ptr<Stmt>> statements;
-        while (!is_at_end()) {
-            try {
-                auto stmt = declaration();
-                if (stmt) {
-                    statements.push_back(std::move(stmt));
-                }
-            } catch (const ParseError& error) {
-                synchronize();
-            }
-        }
-        return statements;
-    }
+    const std::vector<ParseError>& get_errors() const { return errors_; }
 
 private:
+    // 语句解析方法
     /**
-     * @brief 解析器状态枚举
-     * 用于控制错误恢复策略
+     * @brief 解析声明语句
+     * @return 声明语句的AST节点
+     * @throws ParseError 如果声明语法不正确
      */
-    enum class ParseState {
-        NORMAL,           // 正常解析
-        ERROR_RECOVERY,   // 错误恢复
-        PANIC_MODE        // 恐慌模式
-    };
-
-    ParseState parse_state_ = ParseState::NORMAL;
+    std::unique_ptr<Stmt> parse_declaration();
 
     /**
-     * @brief 函数参数结构
-     * 用于存储函数参数的类型和名称
+     * @brief 解析变量声明
+     * @return 变量声明的AST节点
+     * @throws ParseError 如果变量声明语法不正确
      */
-    struct Parameter {
-        Token type;  // 参数类型
-        Token name;  // 参数名称
-    };
+    std::unique_ptr<Stmt> parse_var_declaration();
 
     /**
-     * @brief 错误恢复辅助方法
-     * 在恐慌模式下跳过 token 直到遇到同步点
+     * @brief 解析函数声明
+     * @return 函数声明的AST节点
+     * @throws ParseError 如果函数声明语法不正确
      */
-    void panic_mode_recovery();
+    std::unique_ptr<Stmt> parse_function_declaration();
 
     /**
-     * @brief 检查是否是类型 token
-     * @param type token 类型
-     * @return 是否是类型 token
+     * @brief 解析语句
+     * @return 语句的AST节点
+     * @throws ParseError 如果语句语法不正确
+     *
+     * 可以解析的语句类型：
+     * - if 语句
+     * - while 循环
+     * - for 循环
+     * - return 语句
+     * - break 语句
+     * - continue 语句
+     * - 块语句
+     * - 表达式语句
      */
-    bool is_type_token(TokenType type) const;
+    std::unique_ptr<Stmt> parse_statement();
 
     /**
-     * @brief 检查是否是语句开始 token
-     * @param type token 类型
-     * @return 是否是语句开始 token
+     * @brief 解析if语句
+     * @return if语句的AST节点
+     * @throws ParseError 如果if语句语法不正确
+     *
+     * if语句语法：
+     * if (condition) thenBranch [else elseBranch]?
      */
-    bool is_statement_start(TokenType type) const;
+    std::unique_ptr<Stmt> parse_if_statement();
 
     /**
-     * @brief 检查是否是访问修饰符
-     * @param type token 类型
-     * @return 是否是访问修饰符
+     * @brief 解析while循环语句
+     * @return while语句的AST节点
+     * @throws ParseError 如果while语句语法不正确
+     *
+     * while语句语法：
+     * while (condition) body
      */
-    bool is_access_modifier(TokenType type) const;
+    std::unique_ptr<Stmt> parse_while_statement();
+
+    /**
+     * @brief 解析for循环语句
+     * @return for语句的AST节点
+     * @throws ParseError 如果for语句语法不正确
+     *
+     * for语句语法：
+     * for (initializer; condition; increment) body
+     */
+    std::unique_ptr<Stmt> parse_for_statement();
+
+    /**
+     * @brief 解析块语句
+     * @return 块语句的AST节点
+     * @throws ParseError 如果块语句语法不正确
+     *
+     * 块语句语法：
+     * { statements* }
+     */
+    std::unique_ptr<Stmt> parse_block_statement();
+
+    /**
+     * @brief 解析return语句
+     * @return return语句的AST节点
+     * @throws ParseError 如果return语句语法不正确
+     *
+     * return语句语法：
+     * return [expression]? ;
+     */
+    std::unique_ptr<Stmt> parse_return_statement();
+
+    /**
+     * @brief 解析break语句
+     * @return break语句的AST节点
+     * @throws ParseError 如果break语句语法不正确或在循环外使用
+     */
+    std::unique_ptr<Stmt> parse_break_statement();
+
+    /**
+     * @brief 解析continue语句
+     * @return continue语句的AST节点
+     * @throws ParseError 如果continue语句语法不正确或在循环外使用
+     */
+    std::unique_ptr<Stmt> parse_continue_statement();
+
+    /**
+     * @brief 解析表达式语句
+     * @return 表达式语句的AST节点
+     * @throws ParseError 如果表达式语句语法不正确
+     *
+     * 表达式语句语法：
+     * expression ;
+     */
+    std::unique_ptr<Stmt> parse_expression_statement();
 
     // 表达式解析方法
     /**
      * @brief 解析表达式
-     * @return 解析得到的表达式节点
+     * @return 表达式的AST节点
+     * @throws ParseError 如果表达式语法不正确
+     *
+     * 表达式解析遵循运算符优先级规则：
+     * 1. 赋值
+     * 2. 逻辑或
+     * 3. 逻辑与
+     * 4. 相等性比较
+     * 5. 关系比较
+     * 6. 加减
+     * 7. 乘除
+     * 8. 一元运算
+     * 9. 基本表达式
      */
-    std::unique_ptr<Expr> expression();
+    std::unique_ptr<Expr> parse_expression();
 
     /**
      * @brief 解析赋值表达式
-     * @return 解析得到的赋值表达式节点
+     * @return 赋值表达式的AST节点
+     * @throws ParseError 如果赋值表达式语法不正确
+     *
+     * 赋值表达式语法：
+     * IDENTIFIER "=" assignment
      */
-    std::unique_ptr<Expr> assignment();
+    std::unique_ptr<Expr> parse_assignment();
 
     /**
      * @brief 解析逻辑或表达式
-     * @return 解析得到的逻辑或表达式节点
+     * @return 逻辑或表达式的AST节点
+     * @throws ParseError 如果逻辑或表达式语法不正确
+     *
+     * 逻辑或表达式语法：
+     * logicalAnd ("||" logicalAnd)*
      */
-    std::unique_ptr<Expr> logical_or();
+    std::unique_ptr<Expr> parse_logical_or();
 
     /**
      * @brief 解析逻辑与表达式
-     * @return 解析得到的逻辑与表达式节点
+     * @return 逻辑与表达式的AST节点
+     * @throws ParseError 如果逻辑与表达式语法不正确
+     *
+     * 逻辑与表达式语法：
+     * equality ("&&" equality)*
      */
-    std::unique_ptr<Expr> logical_and();
+    std::unique_ptr<Expr> parse_logical_and();
 
     /**
-     * @brief 解析相等表达式
-     * @return 解析得到的相等表达式节点
+     * @brief 解析相等性比较表达式
+     * @return 相等性比较表达式的AST节点
+     * @throws ParseError 如果相等性比较表达式语法不正确
+     *
+     * 相等性比较表达式语法：
+     * comparison (("==" | "!=") comparison)*
      */
-    std::unique_ptr<Expr> equality();
+    std::unique_ptr<Expr> parse_equality();
 
     /**
-     * @brief 解析比较表达式
-     * @return 解析得到的比较表达式节点
+     * @brief 解析关系比较表达式
+     * @return 关系比较表达式的AST节点
+     * @throws ParseError 如果关系比较表达式语法不正确
+     *
+     * 关系比较表达式语法：
+     * term ((">" | ">=" | "<" | "<=") term)*
      */
-    std::unique_ptr<Expr> comparison();
+    std::unique_ptr<Expr> parse_comparison();
 
     /**
-     * @brief 解析项表达式
-     * @return 解析得到的项表达式节点
+     * @brief 解析加减表达式
+     * @return 加减表达式的AST节点
+     * @throws ParseError 如果加减表达式语法不正确
+     *
+     * 加减表达式语法：
+     * factor (("+" | "-") factor)*
      */
-    std::unique_ptr<Expr> term();
+    std::unique_ptr<Expr> parse_term();
 
     /**
-     * @brief 解析因子表达式
-     * @return 解析得到的因子表达式节点
+     * @brief 解析乘除表达式
+     * @return 乘除表达式的AST节点
+     * @throws ParseError 如果乘除表达式语法不正确
+     *
+     * 乘除表达式语法：
+     * unary (("*" | "/" | "%") unary)*
      */
-    std::unique_ptr<Expr> factor();
+    std::unique_ptr<Expr> parse_factor();
 
     /**
      * @brief 解析一元表达式
-     * @return 解析得到的一元表达式节点
+     * @return 一元表达式的AST节点
+     * @throws ParseError 如果一元表达式语法不正确
+     *
+     * 一元表达式语法：
+     * ("!" | "-") unary | primary
      */
-    std::unique_ptr<Expr> unary();
+    std::unique_ptr<Expr> parse_unary();
 
     /**
-     * @brief 解析基础表达式
-     * @return 解析得到的基础表达式节点
+     * @brief 解析基本表达式
+     * @return 基本表达式的AST节点
+     * @throws ParseError 如果基本表达式语法不正确
+     *
+     * 基本表达式语法：
+     * NUMBER | STRING | BOOL | IDENTIFIER | "(" expression ")"
      */
-    std::unique_ptr<Expr> primary();
-
-    // 语句解析方法
-    /**
-     * @brief 解析声明语句
-     * @return 解析得到的声明语句节点
-     */
-    std::unique_ptr<Stmt> declaration();
-
-    /**
-     * @brief 解析变量声明
-     * @return 解析得到的变量声明节点
-     */
-    std::unique_ptr<Stmt> var_declaration(Token type, Token name);
-
-    /**
-     * @brief 解析普通语句
-     * @return 解析得到的普通语句节点
-     */
-    std::unique_ptr<Stmt> statement();
-
-    /**
-     * @brief 解析表达式语句
-     * @return 解析得到的表达式语句节点
-     */
-    std::unique_ptr<Stmt> expression_statement();
-
-    /**
-     * @brief 解析块语句
-     * @return 解析得到的块语句节点
-     */
-    std::unique_ptr<Stmt> block();
-
-    /**
-     * @brief 解析块内语句列表
-     * @return 解析得到的块内语句列表
-     */
-    std::vector<std::unique_ptr<Stmt>> block_statements();
-
-    /**
-     * @brief 解析if语句
-     * @return 解析得到的if语句节点
-     */
-    std::unique_ptr<Stmt> if_statement();
-
-    /**
-     * @brief 解析while语句
-     * @return 解析得到的while语句节点
-     */
-    std::unique_ptr<Stmt> while_statement();
-
-    /**
-     * @brief 解析for语句
-     * @return 解析得到的for语句节点
-     */
-    std::unique_ptr<Stmt> for_statement();
-
-    /**
-     * @brief 解析return语句
-     * @return 解析得到的return语句节点
-     */
-    std::unique_ptr<Stmt> return_statement();
-
-    /**
-     * @brief 解析函数声明
-     * @param type 函数返回类型
-     * @param name 函数名称
-     * @return 函数声明节点
-     */
-    std::unique_ptr<Stmt> function_declaration(Token type, Token name);
-
-    /**
-     * @brief 解析函数参数列表
-     * @return 解析得到的参数列表
-     */
-    std::vector<Parameter> parameters();
+    std::unique_ptr<Expr> parse_primary();
 
     /**
      * @brief 完成函数调用的解析
-     * @param callee 被调用的函数表达式
-     * @return 解析得到的函数调用节点
+     * @param callee 函数名token
+     * @return 函数调用表达式的AST节点
+     * @throws ParseError 如果函数调用语法不正确
+     *
+     * 函数调用语法：
+     * IDENTIFIER "(" arguments? ")"
      */
-    std::unique_ptr<Expr> finish_call(std::unique_ptr<Expr> callee);
+    std::unique_ptr<Expr> finish_call(const Token& callee);
 
-    // 辅助方法
+    // 错误处理辅助方法
     /**
-     * @brief 消费一个指定类型的token
-     * @param type 期望的token类型
-     * @param message 错误信息
-     * @return 消费的token
-     * @throw ParseError 如果当前token类型不匹配
+     * @brief 记录解析错误
+     * @param error 要记录的错误
      */
-    Token consume(TokenType type, const std::string& message);
-
-    /**
-     * @brief 匹配一个指定类型的token
-     * @param type 期望的token类型
-     * @return 如果当前token类型匹配
-     */
-    bool match(TokenType type);
+    void report_error(const ParseError& error);
 
     /**
-     * @brief 匹配多个指定类型的token
-     * @param types 期望的token类型列表
-     * @return 如果当前token类型匹配
+     * @brief 进行错误恢复
+     *
+     * 尝试找到下一个安全的同步点，以便继续解析。
+     * 同步点包括：
+     * - 语句结束（分号）
+     * - 块结束（右花括号）
+     * - 新的声明开始
      */
-    bool match(const std::vector<TokenType>& types);
+    void panic_mode_error_recovery();
 
     /**
-     * @brief 检查当前token是否是指定类型
-     * @param type 期望的token类型
-     * @return 如果当前token类型匹配
+     * @brief 检查是否在语句边界
+     * @return 如果当前位置是语句边界返回true
      */
-    bool check(TokenType type) const;
+    bool is_statement_boundary() const;
 
     /**
-     * @brief 消费当前token
-     * @return 消费的token
+     * @brief 检查是否在声明边界
+     * @return 如果当前位置是声明边界返回true
      */
-    Token advance();
+    bool is_declaration_boundary() const;
 
     /**
-     * @brief 检查是否到达文件末尾
-     * @return 如果到达文件末尾
+     * @brief 格式化错误消息
+     * @param token 错误发生的token
+     * @param message 错误消息
+     * @return 格式化后的错误消息字符串
+     */
+    std::string format_error_message(const Token& token, const std::string& message) const;
+
+    /**
+     * @brief 创建解析错误
+     * @param token 错误发生的token
+     * @param message 错误消息
+     * @return ParseError对象
+     */
+    ParseError error(const Token& token, const std::string& message);
+
+    /**
+     * @brief 同步到下一个安全点
+     *
+     * 跳过当前错误的语句，直到找到一个可以继续解析的位置
+     */
+    void synchronize();
+
+    /**
+     * @brief 同步到指定类型的token
+     * @param type 目标token类型
+     */
+    void synchronize_until(TokenType type);
+
+    // Token 管理辅助方法
+    /**
+     * @brief 检查是否到达输入结束
+     * @return 如果到达输入结束返回true
      */
     bool is_at_end() const;
 
@@ -328,60 +369,49 @@ private:
      */
     Token previous() const;
 
-    // 错误处理
     /**
-     * @brief 处理错误
-     * @param message 错误信息
-     * @return 解析得到的表达式节点
+     * @brief 前进到下一个token
+     * @return 前一个token
      */
-    std::unique_ptr<Expr> error(const std::string& message);
+    Token advance();
 
     /**
-     * @brief 同步解析器
+     * @brief 匹配当前token类型
+     * @param type 要匹配的类型
+     * @return 如果匹配成功返回true并前进到下一个token
      */
-    void synchronize();
-
-    // 词法分析器
-    Lexer& lexer_;
-    Token current_token_;
-    Token previous_token_;
-    bool had_error_ = false;
+    bool match(TokenType type);
 
     /**
-     * @brief 辅助方法: 解析类成员声明
-     * @param is_public 是否是公有成员
-     * @return 成员声明节点
+     * @brief 匹配当前token类型（多个类型之一）
+     * @param types 要匹配的类型列表
+     * @return 如果匹配成功返回true并前进到下一个token
      */
-    std::unique_ptr<Stmt> member_declaration(bool is_public);
+    bool match(std::initializer_list<TokenType> types);
 
     /**
-     * @brief 解析类声明
-     * @return 类声明节点
+     * @brief 消费指定类型的token
+     * @param type 期望的token类型
+     * @param message 错误消息
+     * @return 消费的token
+     * @throws ParseError 如果当前token类型不匹配
      */
-    std::unique_ptr<Stmt> class_declaration();
+    Token consume(TokenType type, const std::string& message);
 
     /**
-     * @brief 解析 break 语句
-     * @return break 语句节点
-     * @throw ParseError 当不在循环内使用 break 时
+     * @brief 检查嵌套深度是否超过限制
+     * @throws ParseError 如果超过最大嵌套深度
      */
-    std::unique_ptr<Stmt> break_statement();
+    void check_max_nesting_depth();
 
-    /**
-     * @brief 解析 continue 语句
-     * @return continue 语句节点
-     * @throw ParseError 当不在循环内使用 continue 时
-     */
-    std::unique_ptr<Stmt> continue_statement();
+private:
+    const std::vector<Token>& tokens_;
+    size_t current_;
+    size_t nesting_depth_;
+    bool in_panic_mode_;
+    std::vector<ParseError> errors_;
 
-    /**
-     * @brief 检查是否在循环内部
-     * @return 是否在循环内部
-     */
-    bool in_loop() const { return loop_depth_ > 0; }
-
-    // 添加循环深度计数器
-    size_t loop_depth_ = 0;  ///< 当前循环嵌套深度
+    static constexpr size_t MAX_NESTING_DEPTH = 256;
 };
 
 } // namespace collie
