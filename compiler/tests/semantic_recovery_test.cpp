@@ -582,3 +582,122 @@ TEST(SemanticRecoveryTest, ComplexTypeConversionRecovery) {
     const auto& errors = analyzer.get_errors();
     EXPECT_EQ(errors.size(), 3);
 }
+
+// 测试大规模代码中的错误恢复性能
+TEST(SemanticRecoveryTest, LargeScaleRecoveryPerformance) {
+    SemanticAnalyzer analyzer;
+
+    // 构建大规模测试代码
+    std::string large_code = R"(
+        // 全局变量声明
+        number global_count = 0;
+
+        // 辅助函数声明
+        void increment() {
+            global_count = global_count + 1;
+        }
+    )";
+
+    // 添加大量的函数定义，包含正确和错误的代码
+    for (int i = 0; i < 100; ++i) {
+        large_code += "\n        number func" + std::to_string(i) + "() {\n";
+        if (i % 3 == 0) {
+            // 添加类型错误
+            large_code += "            string temp = " + std::to_string(i) + ";\n";
+        }
+        if (i % 4 == 0) {
+            // 添加未定义变量错误
+            large_code += "            number result = undefined_var + 1;\n";
+        }
+        large_code += "            return " + std::to_string(i) + ";\n";
+        large_code += "        }\n";
+    }
+
+    auto [ast, tokens] = parse_and_get_tokens(large_code);
+
+    // 记录开始时间
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    // 记录结束时间
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        end_time - start_time).count();
+
+    // 验证错误检测和恢复
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_GT(errors.size(), 0);
+
+    // 验证性能
+    EXPECT_LT(duration, 1000);  // 应该在1秒内完成
+}
+
+// 测试错误恢复的健壮性
+TEST(SemanticRecoveryTest, RecoveryRobustness) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        // 测试各种极端情况
+
+        // 1. 空语句和注释
+        ;
+        // 这是注释
+        ;;;
+
+        // 2. 无效的表达式语句
+        42;
+        "string";
+        true;
+
+        // 3. 不完整的控制流
+        if (true) {
+            // 空块
+        }
+
+        while (false) {
+            // 空循环
+        }
+
+        // 4. 嵌套的错误
+        {{{
+            string x = 42;
+            {
+                number y = "hello";
+                {
+                    bool z = 3.14;
+                }
+            }
+        }}}
+
+        // 5. 连续的错误声明
+        string s1 = 1;
+        string s2 = true;
+        string s3 = 3.14;
+
+        // 6. 混合正确和错误的代码
+        number valid1 = 1;
+        number valid2 = valid1 + 2;
+        string invalid1 = valid1;
+        number valid3 = valid2 + 3;
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_GT(errors.size(), 0);
+
+    // 验证错误恢复后的正确代码是否被正确分析
+    // 这里我们只能间接验证，通过错误数量和类型
+    bool found_valid_code = false;
+    for (const auto& error : errors) {
+        // 确保错误消息不包含 valid1、valid2、valid3
+        EXPECT_TRUE(std::string(error.what()).find("valid1") == std::string::npos);
+        EXPECT_TRUE(std::string(error.what()).find("valid2") == std::string::npos);
+        EXPECT_TRUE(std::string(error.what()).find("valid3") == std::string::npos);
+    }
+}
