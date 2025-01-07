@@ -65,6 +65,7 @@ add_test(NAME parser_tests COMMAND parser_tests)
 add_library(semantic
     semantic/symbol_table.cpp
     semantic/semantic_analyzer.cpp
+    semantic/semantic_common.cpp
 )
 target_link_libraries(semantic
     PUBLIC collie_compiler

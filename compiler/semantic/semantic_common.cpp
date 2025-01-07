@@ -26,6 +26,22 @@ bool FunctionSignature::operator==(const FunctionSignature& other) const {
     return true;
 }
 
+std::string token_type_to_string(TokenType type) {
+    switch (type) {
+        case TokenType::KW_NUMBER: return "number";
+        case TokenType::KW_STRING: return "string";
+        case TokenType::KW_BOOL: return "bool";
+        case TokenType::KW_CHAR: return "char";
+        case TokenType::KW_CHARACTER: return "character";
+        case TokenType::KW_BYTE: return "byte";
+        case TokenType::KW_WORD: return "word";
+        case TokenType::KW_DWORD: return "dword";
+        case TokenType::KW_NONE: return "none";
+        case TokenType::KW_OBJECT: return "object";
+        default: return "unknown";
+    }
+}
+
 std::string FunctionSignature::to_string() const {
     std::ostringstream oss;
     oss << name << "(";
@@ -34,11 +50,10 @@ std::string FunctionSignature::to_string() const {
         if (i > 0) {
             oss << ", ";
         }
-        // TODO: 添加类型到字符串的转换
-        oss << static_cast<int>(parameter_types[i]);
+        oss << token_type_to_string(parameter_types[i]);
     }
 
-    oss << ") -> " << static_cast<int>(return_type);
+    oss << ") -> " << token_type_to_string(return_type);
     return oss.str();
 }
 
