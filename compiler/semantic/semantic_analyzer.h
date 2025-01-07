@@ -8,13 +8,16 @@
 
 #include <memory>
 #include <string>
-#include <stdexcept>
+#include <vector>
+#include "semantic_common.h"
 #include "symbol_table.h"
 #include "../parser/ast.h"
 
 namespace collie {
 
-// 语义错误异常
+/**
+ * @brief 语义错误异常
+ */
 class SemanticError : public std::runtime_error {
 public:
     SemanticError(const std::string& message, size_t line, size_t column)
@@ -37,24 +40,51 @@ private:
     std::string error_message_;
 };
 
-// 语义分析器
+/**
+ * @brief 语义分析器类，负责类型检查和语义错误检测
+ */
 class SemanticAnalyzer : public ExprVisitor, public StmtVisitor {
 public:
     SemanticAnalyzer() = default;
 
-    // 分析入口
+    /**
+     * @brief 分析AST，执行语义检查
+     * @param statements AST根节点列表
+     */
     void analyze(const std::vector<std::unique_ptr<Stmt>>& statements);
 
-    // 表达式访问方法
+    /**
+     * @brief 设置词法分析器生成的 token 序列
+     * @param tokens token 序列
+     */
+    void set_tokens(const std::vector<Token>& tokens) {
+        tokens_ = tokens;
+        current_token_index_ = 0;
+    }
+
+    /**
+     * @brief 获取分析过程中收集的错误
+     * @return 错误列表的常量引用
+     */
+    const std::vector<SemanticError>& get_errors() const { return errors_; }
+
+    /**
+     * @brief 检查是否有错误
+     * @return 如果有错误返回true，否则返回false
+     */
+    bool has_errors() const { return !errors_.empty(); }
+
+private:
+    // -----------------------------------------------------------------------------
+    // 访问者模式实现
+    // -----------------------------------------------------------------------------
     void visitLiteral(const LiteralExpr& expr) override;
     void visitIdentifier(const IdentifierExpr& expr) override;
     void visitBinary(const BinaryExpr& expr) override;
     void visitUnary(const UnaryExpr& expr) override;
-    void visitAssign(const AssignExpr& expr) override;
     void visitCall(const CallExpr& expr) override;
+    void visitAssign(const AssignExpr& expr) override;
 
-    // 语句访问方法
-    void visitExpression(const ExpressionStmt& stmt) override;
     void visitVarDecl(const VarDeclStmt& stmt) override;
     void visitBlock(const BlockStmt& stmt) override;
     void visitIf(const IfStmt& stmt) override;
@@ -77,43 +107,42 @@ public:
      */
     void visitContinue(const ContinueStmt& stmt) override;
 
-    /**
-     * @brief 获取分析过程中收集的所有错误
-     * @return 错误列表
-     */
-    const std::vector<SemanticError>& get_errors() const { return errors_; }
+    void visitExpression(const ExpressionStmt& stmt) override;
+
+    // -----------------------------------------------------------------------------
+    // 错误处理相关方法
+    // -----------------------------------------------------------------------------
 
     /**
-     * @brief 检查是否有错误发生
-     * @return 如果有错误返回 true
+     * @brief 记录一个错误
+     * @param error 错误信息
      */
-    bool has_errors() const { return !errors_.empty(); }
+    void record_error(const SemanticError& error);
 
     /**
-     * @brief 设置词法分析器生成的 token 序列
-     * @param tokens token 序列
+     * @brief 进入错误恢复模式
      */
-    void set_tokens(const std::vector<Token>& tokens) {
-        tokens_ = tokens;
-        current_token_index_ = 0;
-    }
+    void enter_panic_mode();
 
-private:
+    /**
+     * @brief 退出错误恢复模式
+     */
+    void exit_panic_mode();
+
+    /**
+     * @brief 同步到下一个安全点
+     * 跳过当前错误的语句，直到找到一个可以继续分析的位置
+     */
+    void synchronize();
+
+    // -----------------------------------------------------------------------------
     // 类型检查辅助方法
-    TokenType check_type(const Expr& expr);
+    // -----------------------------------------------------------------------------
     bool is_numeric_type(TokenType type) const;
-    bool is_compatible_type(TokenType expected, TokenType actual) const;
-    void ensure_boolean(const Expr& expr, const std::string& context);
-
-    // 当前分析状态
-    Symbol* current_function_ = nullptr;  ///< 当前正在分析的函数
-    SymbolTable symbols_;                 ///< 符号表
-    TokenType current_type_ = TokenType::INVALID;  ///< 当前表达式的类型
-    size_t loop_depth_ = 0;              ///< 当前循环嵌套深度
-    bool has_return_ = false;            ///< 标记当前函数是否有返回值
-
-    // 类型检查和转换
+    bool is_numeric_convertible(TokenType type) const;
+    bool is_string_convertible(TokenType type) const;
     bool is_bit_type(TokenType type) const;
+
     /**
      * @brief 检查类型是否可以进行字符串连接操作
      * @param type 要检查的类型
@@ -127,16 +156,7 @@ private:
      * @return 如果类型支持比较运算则返回 true
      */
     bool is_ordered_type(TokenType type) const;
-    bool is_comparable_type(TokenType left, TokenType right) const;
-    bool is_numeric_convertible(TokenType type) const;
-    bool is_string_convertible(TokenType type) const;
-
-    /**
-     * @brief 检查两个类型是否可以进行隐式转换
-     * @param from 源类型
-     * @param to 目标类型
-     * @return 如果可以进行隐式转换则返回 true
-     */
+    bool is_compatible_type(TokenType expected, TokenType actual) const;
     bool can_implicit_convert(TokenType from, TokenType to) const;
 
     /**
@@ -146,16 +166,12 @@ private:
      * @return 共同类型，如果不存在则返回 INVALID
      */
     TokenType common_type(TokenType t1, TokenType t2) const;
+    TokenType check_type(const Expr& expr);
+    void ensure_boolean(const Expr& expr, const std::string& context);
 
-    // 辅助方法
-    bool in_loop() const { return loop_depth_ > 0; }
-
-    /**
-     * @brief 将类型转换为字符串表示
-     * @param type 要转换的类型
-     * @return 类型的字符串表示
-     */
-    std::string type_to_string(TokenType type) const;
+    // -----------------------------------------------------------------------------
+    // 函数重载相关方法
+    // -----------------------------------------------------------------------------
 
     /**
      * @brief 检查函数签名是否相同
@@ -183,43 +199,37 @@ private:
      * @param arg_types 实际参数类型列表
      * @return 匹配得分，-1 表示不匹配
      */
-    int calculate_overload_score(const Symbol& func, const std::vector<TokenType>& arg_types);
+    int calculate_overload_score(
+        const Symbol& func,
+        const std::vector<TokenType>& arg_types);
 
-    // 错误处理
-    std::vector<SemanticError> errors_;  ///< 收集的错误列表
-    bool in_panic_mode_ = false;         ///< 是否在错误恢复模式
-
-    /**
-     * @brief 记录一个错误
-     * @param error 错误信息
-     */
-    void record_error(const SemanticError& error);
-
-    /**
-     * @brief 进入错误恢复模式
-     */
-    void enter_panic_mode();
-
-    /**
-     * @brief 退出错误恢复模式
-     */
-    void exit_panic_mode();
-
-    /**
-     * @brief 同步到下一个安全点
-     * 跳过当前错误的语句，直到找到一个可以继续分析的位置
-     */
-    void synchronize();
-
-    // Token 处理
-    std::vector<Token> tokens_;              ///< token 序列
-    size_t current_token_index_ = 0;         ///< 当前 token 索引
-
-    // Token 访问辅助方法
+    // -----------------------------------------------------------------------------
+    // Token 处理相关方法
+    // -----------------------------------------------------------------------------
     const Token& current_token() const;
     const Token& previous_token() const;
     const Token& peek_next() const;
     void advance_token();
+
+    // -----------------------------------------------------------------------------
+    // 私有辅助方法
+    // -----------------------------------------------------------------------------
+    void reset_state();
+    bool in_loop() const { return loop_depth_ > 0; }
+
+private:
+    // -----------------------------------------------------------------------------
+    // 成员变量
+    // -----------------------------------------------------------------------------
+    SymbolTable symbols_;                      ///< 符号表
+    std::vector<SemanticError> errors_;        ///< 错误列表
+    bool in_panic_mode_ = false;               ///< 是否在错误恢复模式
+    TokenType current_type_ = TokenType::INVALID; ///< 当前表达式的类型
+    Symbol* current_function_ = nullptr;        ///< 当前正在分析的函数
+    bool has_return_ = false;                  ///< 当前路径是否有返回值
+    int loop_depth_ = 0;                       ///< 循环嵌套深度
+    std::vector<Token> tokens_;                ///< token 序列
+    size_t current_token_index_ = 0;           ///< 当前 token 索引
 };
 
 } // namespace collie

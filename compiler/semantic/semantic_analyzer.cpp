@@ -590,8 +590,8 @@ void SemanticAnalyzer::visitAssign(const AssignExpr& expr) {
     // 检查类型兼容性
     if (!is_compatible_type(symbol->type.type(), value_type)) {
         throw SemanticError("Cannot assign value of type '" +
-            type_to_string(value_type) + "' to variable of type '" +
-            type_to_string(symbol->type.type()) + "'",
+            token_type_to_string(value_type) + "' to variable of type '" +
+            token_type_to_string(symbol->type.type()) + "'",
             expr.name().line(), expr.name().column());
     }
 
@@ -867,7 +867,7 @@ void SemanticAnalyzer::visitContinue(const ContinueStmt& stmt) {
 }
 
 // 辅助方法：将类型转换为字符串
-std::string SemanticAnalyzer::type_to_string(TokenType type) const {
+std::string SemanticAnalyzer::token_type_to_string(TokenType type) const {
     switch (type) {
         case TokenType::KW_NUMBER: return "number";
         case TokenType::KW_STRING: return "string";
