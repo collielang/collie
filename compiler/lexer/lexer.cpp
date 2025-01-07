@@ -105,85 +105,130 @@ bool Lexer::isIdentifierChar(char32_t c) const {
 }
 
 Token Lexer::scan_identifier() {
-    size_t start_pos = position_;
-    size_t start_col = column_;
+    size_t start_pos = position_ - 1;  // 减1是因为已经调用了advance()
+    size_t start_col = column_ - 1;    // 减1是因为已经调用了advance()
     std::string identifier;
 
-    if (encoding_ == Encoding::UTF8) {
-        // UTF-8 模式
-        bool first_char = true;
-        while (!is_at_end()) {
-            size_t current_pos = position_;
-            try {
-                char32_t c = nextUtf8Char();
-                if (first_char && !is_alpha(c) && c != '_' && c < 0x4E00) {
-                    position_ = current_pos;
-                    break;
-                }
-                if (!first_char && !isIdentifierChar(c)) {
-                    position_ = current_pos;
-                    break;
-                }
-                identifier.append(source_.substr(current_pos, position_ - current_pos));
-                first_char = false;
-            } catch (const LexError&) {
-                position_ = current_pos;
-                break;
-            }
+    // 先添加第一个字符
+    identifier += source_[start_pos];
+
+    // 继续读取剩余的标识符字符
+    while (!is_at_end()) {
+        char c = peek();
+        if (!is_alphanumeric(c) && c != '_') {
+            break;
         }
-    } else {
-        // 原有的 ASCII/UTF-16 处理逻辑
-        while (!is_at_end() && (is_alphanumeric(peek()) || peek() == '_')) {
-            advance();
-        }
-        identifier = std::string(source_.substr(start_pos, position_ - start_pos));
+        identifier += advance();
     }
 
     // 检查是否是关键字
     TokenType type = get_identifier_type(identifier);
-    if (type == TokenType::IDENTIFIER) {
-        return Token(type, identifier, line_, start_col);
-    }
     return Token(type, identifier, line_, start_col);
 }
 
 Token Lexer::next_token() {
-    while (!is_at_end()) {
-        switch (current_state_) {
-            case State::START:
-                handle_start_state();
-                break;
-            case State::IN_NUMBER:
-                return handle_number_state();
-            case State::IN_IDENTIFIER:
-                return handle_identifier_state();
-            case State::IN_STRING:
-                return handle_string_state();
-            case State::IN_MULTILINE_STRING:
-                return handle_multiline_string_state();
-            case State::IN_OPERATOR:
-                return handle_operator_state();
-            case State::IN_COMMENT:
-                return handle_comment_state();
-        }
+    skip_whitespace();
+
+    if (is_at_end()) {
+        return Token(TokenType::END_OF_FILE, "", line_, column_);
     }
-    return make_token(TokenType::END_OF_FILE, "");
+
+    char c = advance();
+
+    // 标识符或关键字
+    if (is_alpha(c) || c == '_') {
+        return scan_identifier();
+    }
+
+    // 数字
+    if (is_digit(c)) {
+        return scan_number();
+    }
+
+    switch (c) {
+        // 单字符 token
+        case '(': return Token(TokenType::DELIMITER_LPAREN, "(", line_, column_);
+        case ')': return Token(TokenType::DELIMITER_RPAREN, ")", line_, column_);
+        case '{': return Token(TokenType::DELIMITER_LBRACE, "{", line_, column_);
+        case '}': return Token(TokenType::DELIMITER_RBRACE, "}", line_, column_);
+        case '[': return Token(TokenType::DELIMITER_LBRACKET, "[", line_, column_);
+        case ']': return Token(TokenType::DELIMITER_RBRACKET, "]", line_, column_);
+        case ',': return Token(TokenType::DELIMITER_COMMA, ",", line_, column_);
+        case '.': return Token(TokenType::DELIMITER_DOT, ".", line_, column_);
+        case ';': return Token(TokenType::DELIMITER_SEMICOLON, ";", line_, column_);
+        case '+': return Token(TokenType::OP_PLUS, "+", line_, column_);
+        case '-': return Token(TokenType::OP_MINUS, "-", line_, column_);
+        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, column_);
+        case '/':
+            if (match('/')) {
+                // 单行注释
+                while (peek() != '\n' && !is_at_end()) advance();
+                return next_token();
+            }
+            return Token(TokenType::OP_DIVIDE, "/", line_, column_);
+        case '%': return Token(TokenType::OP_MODULO, "%", line_, column_);
+        case '!':
+            if (match('=')) return Token(TokenType::OP_NOT_EQUAL, "!=", line_, column_);
+            return Token(TokenType::OP_NOT, "!", line_, column_);
+        case '=':
+            if (match('=')) return Token(TokenType::OP_EQUAL, "==", line_, column_);
+            if (match('?')) return Token(TokenType::OP_EQ_QUESTION, "=?", line_, column_);
+            return Token(TokenType::OP_ASSIGN, "=", line_, column_);
+        case '<':
+            if (match('=')) return Token(TokenType::OP_LESS_EQ, "<=", line_, column_);
+            if (match('<')) return Token(TokenType::OP_BIT_LSHIFT, "<<", line_, column_);
+            return Token(TokenType::OP_LESS, "<", line_, column_);
+        case '>':
+            if (match('=')) return Token(TokenType::OP_GREATER_EQ, ">=", line_, column_);
+            if (match('>')) return Token(TokenType::OP_BIT_RSHIFT, ">>", line_, column_);
+            return Token(TokenType::OP_GREATER, ">", line_, column_);
+        case '&':
+            if (match('&')) return Token(TokenType::OP_AND, "&&", line_, column_);
+            return Token(TokenType::OP_BIT_AND, "&", line_, column_);
+        case '|':
+            if (match('|')) return Token(TokenType::OP_OR, "||", line_, column_);
+            return Token(TokenType::OP_BIT_OR, "|", line_, column_);
+        case '^': return Token(TokenType::OP_BIT_XOR, "^", line_, column_);
+        case '~': return Token(TokenType::OP_BIT_NOT, "~", line_, column_);
+        case '?':
+            if (match('=')) return Token(TokenType::OP_QUESTION_EQ, "?=", line_, column_);
+            return Token(TokenType::OP_QUESTION, "?", line_, column_);
+        case ':': return Token(TokenType::OP_COLON, ":", line_, column_);
+        case '"': return scan_string();
+    }
+
+    throw LexError("Unexpected character", line_, column_);
 }
 
-void Lexer::handle_start_state() {
-    char c = peek();
-    if (is_digit(c)) {
-        current_state_ = State::IN_NUMBER;
-    } else if (is_alpha(c)) {
-        current_state_ = State::IN_IDENTIFIER;
-    } else if (c == '"') {
-        if (match('"') && match('"')) {
-            current_state_ = State::IN_MULTILINE_STRING;
-        } else {
-            current_state_ = State::IN_STRING;
+void Lexer::skip_whitespace() {
+    while (!is_at_end()) {
+        char c = peek();
+        switch (c) {
+            case ' ':
+            case '\t':
+            case '\r':
+                advance();
+                break;
+            case '\n':
+                advance();
+                break;
+            case '/':  // 处理注释
+                if (peek_next() == '/') {
+                    advance(); // 消费第一个 '/'
+                    advance(); // 消费第二个 '/'
+                    skip_line_comment();
+                } else if (peek_next() == '*') {
+                    advance(); // 消费 '/'
+                    advance(); // 消费 '*'
+                    skip_block_comment();
+                } else {
+                    return;
+                }
+                break;
+            default:
+                return;
         }
     }
-    // ... 其他状态转换
 }
 
 Token Lexer::peek_token() {
@@ -260,37 +305,6 @@ bool Lexer::is_alphanumeric(char c) const {
 
 Token Lexer::make_error_token(const std::string& message) {
     return Token(TokenType::INVALID, message, line_, column_);
-}
-
-void Lexer::skip_whitespace() {
-    while (!is_at_end()) {
-        char c = peek();
-        switch (c) {
-            case ' ':
-            case '\t':
-            case '\r':
-                advance();
-                break;
-            case '\n':
-                advance();
-                break;
-            case '/':  // 处理注释
-                if (peek_next() == '/') {
-                    advance(); // 消费第一个 '/'
-                    advance(); // 消费第二个 '/'
-                    skip_line_comment();
-                } else if (peek_next() == '*') {
-                    advance(); // 消费 '/'
-                    advance(); // 消费 '*'
-                    skip_block_comment();
-                } else {
-                    return;
-                }
-                break;
-            default:
-                return;
-        }
-    }
 }
 
 void Lexer::skip_line_comment() {
@@ -609,15 +623,8 @@ Token Lexer::handle_number_state() {
     std::string number;
     bool has_dot = false;
 
-    while (!is_at_end()) {
-        if (peek() == '.' && !has_dot) {
-            has_dot = true;
-            advance();
-        } else if (!is_digit(peek())) {
-            break;
-        } else {
-            advance();
-        }
+    while (!is_at_end() && is_digit(peek())) {
+        advance();
     }
 
     number = source_.substr(start_pos, position_ - start_pos);

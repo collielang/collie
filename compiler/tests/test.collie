@@ -1,0 +1,3 @@
+// 一个简单的 Collie 语言测试文件
+number a = 42;
+print(a);

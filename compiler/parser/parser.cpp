@@ -27,8 +27,7 @@
 #include "parser.h"
 #include <cassert>
 #include <sstream>
-
-using namespace collie;
+#include <iostream>
 
 namespace collie {
 
@@ -70,14 +69,23 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
  * @return 声明语句的AST节点
  *
  * 声明可以是：
- * 1. 变量声明（以 var 开头）
+ * 1. 变量声明（以类型名开头）
  * 2. 函数声明（以 function 开头）
  * 3. 其他语句
  */
 std::unique_ptr<Stmt> Parser::parse_declaration() {
     try {
-        if (match(TokenType::KW_VAR)) {
-            return parse_var_declaration();
+        // 检查是否是类型名开头的变量声明
+        if (match(TokenType::KW_NUMBER) ||
+            match(TokenType::KW_STRING) ||
+            match(TokenType::KW_BOOL) ||
+            match(TokenType::KW_CHARACTER) ||
+            match(TokenType::IDENTIFIER)) {  // 自定义类型
+            Token type = previous();
+            if (type.type() == TokenType::TOKEN_ERROR) {
+                throw ParseError("Unexpected token at start of declaration.", peek().line(), peek().column());
+            }
+            return parse_type_declaration();
         }
         if (match(TokenType::KW_FUNCTION)) {
             return parse_function_declaration();
@@ -90,15 +98,16 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
     }
 }
 
-std::unique_ptr<Stmt> Parser::parse_var_declaration() {
-    // 记录开始位置用于错误报告
-    Token start = previous();
+/**
+ * @brief 解析类型声明语句
+ * @return 变量声明的AST节点
+ */
+std::unique_ptr<Stmt> Parser::parse_type_declaration() {
+    // 记录类型 token
+    Token type = previous();
 
     // 解析变量名
     Token name = consume(TokenType::IDENTIFIER, "Expect variable name.");
-
-    // 解析变量类型
-    Token type = consume(TokenType::IDENTIFIER, "Expect variable type.");
 
     // 解析可选的初始化表达式
     std::unique_ptr<Expr> initializer = nullptr;
@@ -336,8 +345,10 @@ bool Parser::match(std::initializer_list<TokenType> types) {
 }
 
 Token Parser::consume(TokenType type, const std::string& message) {
-    if (check(type)) return advance();
-    throw error(peek(), message);
+    if (check(type)) {
+        return advance();
+    }
+    throw ParseError(message, peek().line(), peek().column());
 }
 
 bool Parser::check(TokenType type) const {
@@ -356,11 +367,16 @@ Token Parser::peek() const {
 }
 
 Token Parser::previous() const {
+    if (current_ <= 0 || current_ > tokens_.size()) {
+        return Token(TokenType::TOKEN_ERROR, "", 0, 0);
+    }
     return tokens_[current_ - 1];
 }
 
 Token Parser::advance() {
-    if (!is_at_end()) current_++;
+    if (!is_at_end()) {
+        current_++;
+    }
     return previous();
 }
 
@@ -369,30 +385,41 @@ Token Parser::advance() {
 // -----------------------------------------------------------------------------
 
 void Parser::report_error(const ParseError& error) {
+    if (in_panic_mode_) return;
+    in_panic_mode_ = true;
+
     errors_.push_back(error);
+    std::cerr << "Parse error at line " << error.line()
+              << ", column " << error.column()
+              << ": " << error.what() << std::endl;
 }
 
 void Parser::synchronize() {
-    advance();
+    in_panic_mode_ = false;
 
     while (!is_at_end()) {
-        // 检查是否在语句或声明边界
-        if (is_statement_boundary() || is_declaration_boundary()) {
-            return;
+        if (previous().type() == TokenType::DELIMITER_SEMICOLON) return;
+
+        switch (peek().type()) {
+            case TokenType::KW_CLASS:
+            case TokenType::KW_FUNCTION:
+            case TokenType::KW_VAR:
+            case TokenType::KW_FOR:
+            case TokenType::KW_IF:
+            case TokenType::KW_WHILE:
+            case TokenType::KW_RETURN:
+                return;
+            default:
+                advance();
         }
-        advance();
     }
 }
 
 void Parser::synchronize_until(TokenType type) {
-    while (!is_at_end()) {
-        if (previous().type() == type) return;
-        if (peek().type() == type) {
-            advance();
-            return;
-        }
+    while (!is_at_end() && peek().type() != type) {
         advance();
     }
+    if (!is_at_end()) advance(); // 消费目标 token
 }
 
 // -----------------------------------------------------------------------------
@@ -400,14 +427,7 @@ void Parser::synchronize_until(TokenType type) {
 // -----------------------------------------------------------------------------
 
 ParseError Parser::error(const Token& token, const std::string& message) {
-    std::stringstream ss;
-    if (token.type() == TokenType::END_OF_FILE) {
-        ss << "Line " << token.line() << ": Error at end: " << message;
-    } else {
-        ss << "Line " << token.line() << " at '" << token.lexeme()
-           << "': " << message;
-    }
-    return ParseError(ss.str(), token.line(), token.column());
+    return ParseError(message, token.line(), token.column());
 }
 
 void Parser::check_max_nesting_depth() {
@@ -590,8 +610,12 @@ std::unique_ptr<Stmt> Parser::parse_for_statement() {
     std::unique_ptr<Stmt> initializer;
     if (match(TokenType::DELIMITER_SEMICOLON)) {
         initializer = nullptr;
-    } else if (match(TokenType::KW_VAR)) {
-        initializer = parse_var_declaration();
+    } else if (match(TokenType::KW_NUMBER) ||
+               match(TokenType::KW_STRING) ||
+               match(TokenType::KW_BOOL) ||
+               match(TokenType::KW_CHARACTER) ||
+               match(TokenType::IDENTIFIER)) {
+        initializer = parse_type_declaration();
     } else {
         initializer = parse_expression_statement();
     }

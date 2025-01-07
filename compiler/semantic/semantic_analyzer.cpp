@@ -1017,6 +1017,10 @@ bool SemanticAnalyzer::is_synchronization_point() const {
 
 // 添加 token 访问辅助方法
 const Token& SemanticAnalyzer::current_token() const {
+    if (tokens_.empty()) {
+        static Token empty_token;  // 返回一个静态的空 token
+        return empty_token;
+    }
     if (current_token_index_ >= tokens_.size()) {
         return tokens_.back();  // 返回 EOF token
     }
@@ -1024,6 +1028,10 @@ const Token& SemanticAnalyzer::current_token() const {
 }
 
 const Token& SemanticAnalyzer::previous_token() const {
+    if (tokens_.empty()) {
+        static Token empty_token;  // 返回一个静态的空 token
+        return empty_token;
+    }
     if (current_token_index_ == 0) {
         return tokens_[0];
     }
@@ -1031,6 +1039,10 @@ const Token& SemanticAnalyzer::previous_token() const {
 }
 
 const Token& SemanticAnalyzer::peek_next() const {
+    if (tokens_.empty()) {
+        static Token empty_token;  // 返回一个静态的空 token
+        return empty_token;
+    }
     if (current_token_index_ + 1 >= tokens_.size()) {
         return tokens_.back();  // 返回 EOF token
     }

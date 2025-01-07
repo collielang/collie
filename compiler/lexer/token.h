@@ -20,6 +20,7 @@ enum class TokenType {
     // 特殊 token
     END_OF_FILE,    // 文件结束
     INVALID,        // 无效 token
+    TOKEN_ERROR,    // 错误 token
 
     // 字面量
     LITERAL_NUMBER,     // 数字字面量
@@ -136,6 +137,7 @@ public:
     size_t line() const { return line_; }
     size_t column() const { return column_; }
 
+    // Utility methods
     // 辅助方法
     bool is_eof() const { return type_ == TokenType::END_OF_FILE; }
     bool is_invalid() const { return type_ == TokenType::INVALID; }
@@ -160,10 +162,11 @@ public:
 private:
     TokenType type_;         // token 类型
     std::string lexeme_;     // token 的字面值
-    size_t line_;           // token 所在行号
-    size_t column_;         // token 所在列号
+    size_t line_;            // token 所在行号
+    size_t column_;          // token 所在列号
 };
 
+// Helper functions
 TokenType get_identifier_type(std::string_view identifier);
 
 /**

@@ -115,5 +115,12 @@ target_link_libraries(semantic_tests
 
 add_test(NAME semantic_tests COMMAND semantic_tests)
 
-# 设置 Visual Studio 启动项目
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT lexer_tests)
+# 构建主程序
+add_executable(collie main.cpp)
+target_link_libraries(collie
+    PRIVATE collie_compiler
+    PRIVATE semantic
+)
+
+# 设置 Visual Studio 启动项目为主程序
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT collie)

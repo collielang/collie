@@ -452,6 +452,12 @@ private:
      */
     bool is_literal_token(const Token& token) const;
 
+    /**
+     * @brief 解析类型声明语句
+     * @return 变量声明的AST节点
+     */
+    std::unique_ptr<Stmt> parse_type_declaration();
+
 private:
     const std::vector<Token>& tokens_;
     size_t current_;

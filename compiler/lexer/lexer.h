@@ -68,9 +68,9 @@ public:
 private:
     // 源代码相关
     std::string source_;          // 源代码
-    size_t position_;            // 当前位置
-    size_t line_;               // 当前行号
-    size_t column_;             // 当前列号
+    size_t position_;             // 当前位置
+    size_t line_;                 // 当前行号
+    size_t column_;               // 当前列号
 
     // 辅助方法
     char peek() const;           // 预览当前字符
