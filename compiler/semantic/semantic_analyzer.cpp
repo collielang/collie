@@ -139,98 +139,109 @@ void SemanticAnalyzer::visitIdentifier(const IdentifierExpr& expr) {
 }
 
 void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
-    // 分析左右操作数
-    expr.left()->accept(*this);
-    TokenType left_type = current_type_;
+    try {
+        // 分析左右操作数
+        expr.left()->accept(*this);
+        TokenType left_type = current_type_;
 
-    expr.right()->accept(*this);
-    TokenType right_type = current_type_;
+        expr.right()->accept(*this);
+        TokenType right_type = current_type_;
 
-    // 检查操作符类型兼容性
-    switch (expr.op().type()) {
-        case TokenType::OP_PLUS:
-            // 字符串连接
-            if (left_type == TokenType::KW_STRING || right_type == TokenType::KW_STRING) {
-                if (!is_string_concatenable(left_type) || !is_string_concatenable(right_type)) {
-                    throw SemanticError("Invalid operands for string concatenation",
+        // 检查操作符类型兼容性
+        switch (expr.op().type()) {
+            case TokenType::OP_PLUS:
+                // 字符串连接
+                if (left_type == TokenType::KW_STRING || right_type == TokenType::KW_STRING) {
+                    if (!is_string_concatenable(left_type) || !is_string_concatenable(right_type)) {
+                        throw SemanticError("Invalid operands for string concatenation",
+                            expr.op().line(), expr.op().column());
+                    }
+                    current_type_ = TokenType::KW_STRING;
+                    return;
+                }
+                [[fallthrough]];
+
+            case TokenType::OP_MINUS:
+            case TokenType::OP_MULTIPLY:
+            case TokenType::OP_DIVIDE:
+            case TokenType::OP_MODULO:
+                // 数值运算
+                if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
+                    throw SemanticError("Numeric operands expected for arithmetic operation",
                         expr.op().line(), expr.op().column());
                 }
-                current_type_ = TokenType::KW_STRING;
-                return;
-            }
-            [[fallthrough]];
-        case TokenType::OP_MINUS:
-        case TokenType::OP_MULTIPLY:
-        case TokenType::OP_DIVIDE:
-        case TokenType::OP_MODULO:
-            // 数值运算
-            if (!is_numeric_convertible(left_type) || !is_numeric_convertible(right_type)) {
-                throw SemanticError("Numeric operands expected for arithmetic operation",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = common_type(left_type, right_type);
-            break;
+                current_type_ = common_type(left_type, right_type);
+                break;
 
-        case TokenType::OP_EQUAL:
-        case TokenType::OP_NOT_EQUAL:
-            // 比较运算符
-            if (!is_comparable_type(left_type, right_type)) {
-                throw SemanticError("Incomparable operand types",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = TokenType::KW_BOOL;
-            break;
+            case TokenType::OP_EQUAL:
+            case TokenType::OP_NOT_EQUAL:
+                // 相等性比较
+                if (!is_comparable_type(left_type, right_type)) {
+                    throw SemanticError("Incomparable operand types",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = TokenType::KW_BOOL;
+                break;
 
-        case TokenType::OP_GREATER:
-        case TokenType::OP_GREATER_EQ:
-        case TokenType::OP_LESS:
-        case TokenType::OP_LESS_EQ:
-            if (!is_ordered_type(left_type) || !is_ordered_type(right_type) ||
-                !is_compatible_type(left_type, right_type)) {
-                throw SemanticError("Invalid operands for comparison",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = TokenType::KW_BOOL;
-            break;
+            case TokenType::OP_GREATER:
+            case TokenType::OP_GREATER_EQ:
+            case TokenType::OP_LESS:
+            case TokenType::OP_LESS_EQ:
+                // 关系比较
+                if (!is_ordered_type(left_type) || !is_ordered_type(right_type) ||
+                    !is_compatible_type(left_type, right_type)) {
+                    throw SemanticError("Invalid operands for comparison",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = TokenType::KW_BOOL;
+                break;
 
-        // 逻辑运算符
-        case TokenType::OP_AND:
-        case TokenType::OP_OR:
-            if (left_type != TokenType::KW_BOOL || right_type != TokenType::KW_BOOL) {
-                throw SemanticError("Boolean operands expected for logical operation",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = TokenType::KW_BOOL;
-            break;
+            case TokenType::OP_AND:
+            case TokenType::OP_OR:
+                // 逻辑运算
+                if (left_type != TokenType::KW_BOOL || right_type != TokenType::KW_BOOL) {
+                    throw SemanticError("Boolean operands expected for logical operation",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = TokenType::KW_BOOL;
+                break;
 
-        // 位运算符
-        case TokenType::OP_BIT_AND:
-        case TokenType::OP_BIT_OR:
-        case TokenType::OP_BIT_XOR:
-            if (!is_bit_type(left_type) || !is_bit_type(right_type) ||
-                !is_compatible_type(left_type, right_type)) {
-                throw SemanticError("Bit operands expected for bitwise operation",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = left_type;  // 保持位运算的原始类型
-            break;
+            case TokenType::OP_BIT_AND:
+            case TokenType::OP_BIT_OR:
+            case TokenType::OP_BIT_XOR:
+                // 位运算
+                if (!is_bit_type(left_type) || !is_bit_type(right_type) ||
+                    !is_compatible_type(left_type, right_type)) {
+                    throw SemanticError("Bit operands expected for bitwise operation",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = common_type(left_type, right_type);
+                break;
 
-        case TokenType::OP_BIT_LSHIFT:
-        case TokenType::OP_BIT_RSHIFT:
-            if (!is_bit_type(left_type)) {
-                throw SemanticError("Left operand must be a bit type",
-                    expr.op().line(), expr.op().column());
-            }
-            if (!is_numeric_type(right_type)) {
-                throw SemanticError("Right operand must be a number",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = left_type;
-            break;
+            case TokenType::OP_BIT_LSHIFT:
+            case TokenType::OP_BIT_RSHIFT:
+                // 位移运算
+                if (!is_bit_type(left_type)) {
+                    throw SemanticError("Left operand must be a bit type",
+                        expr.op().line(), expr.op().column());
+                }
+                if (!is_numeric_type(right_type)) {
+                    throw SemanticError("Right operand must be a number",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = left_type;
+                break;
 
-        default:
-            throw SemanticError("Unknown binary operator",
-                expr.op().line(), expr.op().column());
+            default:
+                throw SemanticError("Unknown binary operator",
+                    expr.op().line(), expr.op().column());
+        }
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
 }
 
@@ -494,38 +505,49 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
 }
 
 void SemanticAnalyzer::visitCall(const CallExpr& expr) {
-    // 先获取被调用的表达式
-    const IdentifierExpr* callee = dynamic_cast<const IdentifierExpr*>(expr.callee().get());
-    if (!callee) {
-        throw SemanticError("Invalid function call target",
-            expr.paren().line(), expr.paren().column());
+    try {
+        // 分析被调用的表达式
+        expr.callee()->accept(*this);
+
+        // 收集参数类型
+        std::vector<TokenType> arg_types;
+        for (const auto& arg : expr.arguments()) {
+            arg->accept(*this);
+            arg_types.push_back(current_type_);
+        }
+
+        // 获取函数名
+        const IdentifierExpr* callee = dynamic_cast<const IdentifierExpr*>(expr.callee());
+        if (!callee) {
+            throw SemanticError("Invalid function call target",
+                expr.paren().line(), expr.paren().column());
+        }
+
+        std::string func_name(callee->name().lexeme());
+        auto overloads = symbols_.resolve_overloads(func_name);
+
+        if (overloads.empty()) {
+            throw SemanticError("Undefined function '" + func_name + "'",
+                callee->name().line(), callee->name().column());
+        }
+
+        // 查找最匹配的重载函数
+        Symbol* best_match = find_best_overload(overloads, arg_types, expr.paren());
+        if (!best_match) {
+            std::string message = "No matching overload for function '" + func_name + "'";
+            throw SemanticError(message, expr.paren().line(), expr.paren().column());
+        }
+
+        // 设置返回值类型
+        current_type_ = best_match->type.type();
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
-
-    std::string name(callee->name().lexeme());
-
-    // 获取所有同名函数
-    std::vector<Symbol*> overloads = symbols_.resolve_overloads(name);
-    if (overloads.empty()) {
-        throw SemanticError("Undefined function '" + name + "'",
-            callee->name().line(), callee->name().column());
-    }
-
-    // 分析所有参数
-    std::vector<TokenType> arg_types;
-    for (const auto& arg : expr.arguments()) {
-        arg->accept(*this);
-        arg_types.push_back(current_type_);
-    }
-
-    // 查找最匹配的重载函数
-    Symbol* best_match = find_best_overload(overloads, arg_types, expr.paren());
-    if (!best_match) {
-        throw SemanticError("No matching overload for function '" + name + "'",
-            expr.paren().line(), expr.paren().column());
-    }
-
-    // 设置返回类型
-    current_type_ = best_match->type.type();
 }
 
 // 辅助方法：检查函数签名是否相同
@@ -553,35 +575,39 @@ Symbol* SemanticAnalyzer::find_best_overload(
     int best_score = -1;
 
     for (Symbol* overload : overloads) {
-        if (overload->parameters.size() != arg_types.size()) {
-            continue;
-        }
-
-        int score = 0;
-        bool match = true;
-        for (size_t i = 0; i < arg_types.size(); ++i) {
-            TokenType param_type = overload->parameters[i].type.type();
-            TokenType arg_type = arg_types[i];
-
-            if (is_compatible_type(param_type, arg_type)) {
-                if (param_type == arg_type) {
-                    score += 2;  // 完全匹配
-                } else {
-                    score += 1;  // 需要转换
-                }
-            } else {
-                match = false;
-                break;
-            }
-        }
-
-        if (match && score > best_score) {
+        int score = calculate_overload_score(*overload, arg_types);
+        if (score > best_score) {
             best_score = score;
             best_match = overload;
         }
     }
 
     return best_match;
+}
+
+int SemanticAnalyzer::calculate_overload_score(
+    const Symbol& func,
+    const std::vector<TokenType>& arg_types) {
+
+    if (func.parameters.size() != arg_types.size()) {
+        return -1;
+    }
+
+    int score = 0;
+    for (size_t i = 0; i < arg_types.size(); ++i) {
+        TokenType param_type = func.parameters[i].type.type();
+        TokenType arg_type = arg_types[i];
+
+        if (param_type == arg_type) {
+            score += 2;  // 完全匹配
+        } else if (can_implicit_convert(arg_type, param_type)) {
+            score += 1;  // 需要隐式转换
+        } else {
+            return -1;  // 不兼容
+        }
+    }
+
+    return score;
 }
 
 void SemanticAnalyzer::visitAssign(const AssignExpr& expr) {
@@ -620,41 +646,46 @@ void SemanticAnalyzer::visitAssign(const AssignExpr& expr) {
 }
 
 void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
-    // 分析操作数
-    expr.operand()->accept(*this);
-    TokenType operand_type = current_type_;
+    try {
+        // 分析操作数
+        expr.operand()->accept(*this);
+        TokenType operand_type = current_type_;
 
-    switch (expr.op().type()) {
-        case TokenType::OP_MINUS:
-            // 数值取反
-            if (!is_numeric_convertible(operand_type)) {
-                throw SemanticError("Numeric operand expected for unary minus",
+        switch (expr.op().type()) {
+            case TokenType::OP_MINUS:
+                if (!is_numeric_type(operand_type)) {
+                    throw SemanticError("Numeric operand expected for unary minus",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = operand_type;
+                break;
+
+            case TokenType::OP_NOT:
+                if (operand_type != TokenType::KW_BOOL) {
+                    throw SemanticError("Boolean operand expected for logical not",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = TokenType::KW_BOOL;
+                break;
+
+            case TokenType::OP_BIT_NOT:
+                if (!is_bit_type(operand_type)) {
+                    throw SemanticError("Bit operand expected for bitwise not",
+                        expr.op().line(), expr.op().column());
+                }
+                current_type_ = operand_type;
+                break;
+
+            default:
+                throw SemanticError("Unknown unary operator",
                     expr.op().line(), expr.op().column());
-            }
-            current_type_ = operand_type;
-            break;
-
-        case TokenType::OP_NOT:
-            // 逻辑取反
-            if (operand_type != TokenType::KW_BOOL) {
-                throw SemanticError("Boolean operand expected for logical not",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = TokenType::KW_BOOL;
-            break;
-
-        case TokenType::OP_BIT_NOT:
-            // 位取反
-            if (!is_bit_type(operand_type)) {
-                throw SemanticError("Bit operand expected for bitwise not",
-                    expr.op().line(), expr.op().column());
-            }
-            current_type_ = operand_type;
-            break;
-
-        default:
-            throw SemanticError("Unknown unary operator",
-                expr.op().line(), expr.op().column());
+        }
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
 }
 
@@ -664,10 +695,10 @@ void SemanticAnalyzer::visitExpression(const ExpressionStmt& stmt) {
 
 // 添加辅助方法
 bool SemanticAnalyzer::is_bit_type(TokenType type) const {
-    return type == TokenType::KW_BIT ||
-           type == TokenType::KW_BYTE ||
+    return type == TokenType::KW_BYTE ||
            type == TokenType::KW_WORD ||
-           type == TokenType::KW_DWORD;
+           type == TokenType::KW_DWORD ||
+           type == TokenType::KW_BIT;
 }
 
 // ... 其他方法的实现 ...
@@ -679,7 +710,10 @@ TokenType SemanticAnalyzer::check_type(const Expr& expr) {
 }
 
 bool SemanticAnalyzer::is_numeric_type(TokenType type) const {
-    return type == TokenType::KW_NUMBER;
+    return type == TokenType::KW_NUMBER ||
+           type == TokenType::KW_BYTE ||
+           type == TokenType::KW_WORD ||
+           type == TokenType::KW_DWORD;
 }
 
 bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) const {
@@ -710,26 +744,25 @@ bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) 
 
 void SemanticAnalyzer::ensure_boolean(const Expr& expr, const std::string& context) {
     TokenType type = check_type(expr);
+
+    size_t line = 0, column = 0;
+
+    // 获取表达式的位置信息
+    if (auto* literal = dynamic_cast<const LiteralExpr*>(&expr)) {
+        line = literal->token().line();
+        column = literal->token().column();
+    } else if (auto* identifier = dynamic_cast<const IdentifierExpr*>(&expr)) {
+        line = identifier->name().line();
+        column = identifier->name().column();
+    } else if (auto* binary = dynamic_cast<const BinaryExpr*>(&expr)) {
+        line = binary->op().line();
+        column = binary->op().column();
+    } else if (auto* unary = dynamic_cast<const UnaryExpr*>(&expr)) {
+        line = unary->op().line();
+        column = unary->op().column();
+    }
+
     if (type != TokenType::KW_BOOL) {
-        // 获取表达式的位置信息
-        size_t line = 0;
-        size_t column = 0;
-
-        // 根据不同的表达式类型获取位置信息
-        if (auto* literal = dynamic_cast<const LiteralExpr*>(&expr)) {
-            line = literal->token().line();
-            column = literal->token().column();
-        } else if (auto* identifier = dynamic_cast<const IdentifierExpr*>(&expr)) {
-            line = identifier->name().line();
-            column = identifier->name().column();
-        } else if (auto* binary = dynamic_cast<const BinaryExpr*>(&expr)) {
-            line = binary->op().line();
-            column = binary->op().column();
-        } else if (auto* unary = dynamic_cast<const UnaryExpr*>(&expr)) {
-            line = unary->op().line();
-            column = unary->op().column();
-        }
-
         std::string message = "Boolean expression expected in " + context;
         throw SemanticError(message, line, column);
     }
