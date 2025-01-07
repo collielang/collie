@@ -339,55 +339,71 @@ void SemanticAnalyzer::visitIf(const IfStmt& stmt) {
 }
 
 void SemanticAnalyzer::visitWhile(const WhileStmt& stmt) {
-    // 检查条件表达式
-    stmt.condition()->accept(*this);
-    if (current_type_ != TokenType::KW_BOOL) {
-        throw SemanticError("While condition must be a boolean expression",
-            stmt.condition()->token().line(), stmt.condition()->token().column());
+    try {
+        // 检查条件表达式
+        stmt.condition()->accept(*this);
+        if (current_type_ != TokenType::KW_BOOL) {
+            throw SemanticError("While condition must be a boolean expression",
+                stmt.condition()->token().line(), stmt.condition()->token().column());
+        }
+
+        // 记录当前的返回值状态
+        bool had_return = has_return_;
+
+        // 进入循环体
+        symbols_.begin_scope();
+        loop_depth_++;
+        stmt.body()->accept(*this);
+        loop_depth_--;
+        symbols_.end_scope();
+
+        // 循环可能不执行，所以不能保证有返回值
+        has_return_ = had_return;
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
-
-    // 记录当前的返回值状态
-    bool had_return = has_return_;
-
-    // 进入循环体
-    symbols_.begin_scope();
-    loop_depth_++;
-    stmt.body()->accept(*this);
-    loop_depth_--;
-    symbols_.end_scope();
-
-    // 循环可能不执行，所以不能保证有返回值
-    has_return_ = had_return;
 }
 
 void SemanticAnalyzer::visitFor(const ForStmt& stmt) {
-    symbols_.begin_scope();
+    try {
+        symbols_.begin_scope();
 
-    // 检查初始化语句
-    if (stmt.initializer()) {
-        stmt.initializer()->accept(*this);
-    }
+        // 检查初始化语句
+        if (stmt.initializer()) {
+            stmt.initializer()->accept(*this);
+        }
 
-    // 检查条件表达式
-    if (stmt.condition()) {
-        stmt.condition()->accept(*this);
-        if (current_type_ != TokenType::KW_BOOL) {
-            throw SemanticError("For condition must be a boolean expression",
-                stmt.condition()->token().line(), stmt.condition()->token().column());
+        // 检查条件表达式
+        if (stmt.condition()) {
+            stmt.condition()->accept(*this);
+            if (current_type_ != TokenType::KW_BOOL) {
+                throw SemanticError("For condition must be a boolean expression",
+                    stmt.condition()->token().line(), stmt.condition()->token().column());
+            }
+        }
+
+        // 检查增量表达式
+        if (stmt.increment()) {
+            stmt.increment()->accept(*this);
+        }
+
+        // 进入循环体
+        loop_depth_++;
+        stmt.body()->accept(*this);
+        loop_depth_--;
+
+        symbols_.end_scope();
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
         }
     }
-
-    // 检查增量表达式
-    if (stmt.increment()) {
-        stmt.increment()->accept(*this);
-    }
-
-    // 进入循环体
-    loop_depth_++;
-    stmt.body()->accept(*this);
-    loop_depth_--;
-
-    symbols_.end_scope();
 }
 
 void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
@@ -720,36 +736,41 @@ void SemanticAnalyzer::ensure_boolean(const Expr& expr, const std::string& conte
 }
 
 void SemanticAnalyzer::visitReturn(const ReturnStmt& stmt) {
-    // 检查是否在函数内部
-    if (!current_function_) {
-        throw SemanticError("Return statement outside function",
-            stmt.keyword().line(), stmt.keyword().column());
-    }
-
-    // 检查返回值
-    if (stmt.value()) {
-        stmt.value()->accept(*this);
-        TokenType return_type = current_function_->type.type();
-        TokenType value_type = current_type_;
-
-        if (!is_compatible_type(return_type, value_type)) {
-            std::string message = "Cannot return value of type '" +
-                token_type_to_string(value_type) + "' from function with return type '" +
-                token_type_to_string(return_type) + "'";
-            throw SemanticError(message, stmt.keyword().line(), stmt.keyword().column());
+    try {
+        // 检查是否在函数内部
+        if (!current_function_) {
+            throw SemanticError("Cannot return from global scope",
+                stmt.keyword().line(), stmt.keyword().column());
         }
-    } else {
-        // 无返回值，检查函数是否声明为 none 返回类型
-        if (current_function_->type.type() != TokenType::KW_NONE) {
-            std::string message = "Function with return type '" +
+
+        // 检查返回值类型
+        if (stmt.value()) {
+            stmt.value()->accept(*this);
+            TokenType return_type = current_function_->type.type();
+            TokenType value_type = current_type_;
+
+            if (!is_compatible_type(return_type, value_type)) {
+                throw SemanticError("Cannot return value of type '" +
+                    token_type_to_string(value_type) + "' from function with return type '" +
+                    token_type_to_string(return_type) + "'",
+                    stmt.keyword().line(), stmt.keyword().column());
+            }
+        } else if (current_function_->type.type() != TokenType::KW_NONE) {
+            throw SemanticError("Function with return type '" +
                 token_type_to_string(current_function_->type.type()) +
-                "' must return a value";
-            throw SemanticError(message, stmt.keyword().line(), stmt.keyword().column());
+                "' must return a value",
+                stmt.keyword().line(), stmt.keyword().column());
+        }
+
+        // 标记此路径已有返回值
+        has_return_ = true;
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
         }
     }
-
-    // 标记此路径已有返回值
-    has_return_ = true;
 }
 
 // 添加新的辅助方法
