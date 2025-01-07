@@ -8,9 +8,35 @@
 
 #include <string>
 #include <vector>
+#include <stdexcept>
 #include "../lexer/token.h"
 
 namespace collie {
+
+/**
+ * @brief 语义错误异常类
+ */
+class SemanticError : public std::runtime_error {
+public:
+    SemanticError(const std::string& message, size_t line, size_t column)
+        : std::runtime_error(message), line_(line), column_(column) {
+        error_message_ = "Line " + std::to_string(line) +
+                        ", Column " + std::to_string(column) +
+                        ": " + message;
+    }
+
+    const char* what() const noexcept override {
+        return error_message_.c_str();
+    }
+
+    size_t line() const { return line_; }
+    size_t column() const { return column_; }
+
+private:
+    size_t line_;
+    size_t column_;
+    std::string error_message_;
+};
 
 // 错误恢复相关常量
 constexpr size_t MAX_ERRORS = 100;         // 最大错误数量
