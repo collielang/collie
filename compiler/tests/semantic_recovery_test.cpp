@@ -15,6 +15,7 @@
 #include "../semantic/semantic_analyzer.h"
 #include "../parser/parser.h"
 #include "../lexer/lexer.h"
+#include "test_utils.h"
 
 using namespace collie;
 using namespace std::chrono;
@@ -742,13 +743,13 @@ TEST(SemanticRecoveryTest, MemoryUsageRecovery) {
     auto [ast, tokens] = parse_and_get_tokens(deep_nested_code);
 
     // 记录初始内存使用
-    size_t initial_memory = getCurrentMemoryUsage();
+    size_t initial_memory = collie::test::getCurrentMemoryUsage();
 
     analyzer.set_tokens(tokens);
     analyzer.analyze(ast);
 
     // 记录最终内存使用
-    size_t final_memory = getCurrentMemoryUsage();
+    size_t final_memory = collie::test::getCurrentMemoryUsage();
 
     // 验证错误检测
     EXPECT_TRUE(analyzer.has_errors());
@@ -792,21 +793,4 @@ TEST(SemanticRecoveryTest, ResourceCleanupRecovery) {
     // 验证符号表状态
     // 这需要添加一些辅助方法来检查符号表状态
     // EXPECT_TRUE(analyzer.isSymbolTableConsistent());
-}
-
-// 辅助函数：获取当前内存使用量
-size_t getCurrentMemoryUsage() {
-#ifdef _WIN32
-    PROCESS_MEMORY_COUNTERS pmc;
-    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
-        return pmc.WorkingSetSize;
-    }
-#else
-    // Linux/Unix 系统
-    struct rusage usage;
-    if (getrusage(RUSAGE_SELF, &usage) == 0) {
-        return usage.ru_maxrss * 1024;  // 转换为字节
-    }
-#endif
-    return 0;  // 如果无法获取内存使用量
 }
