@@ -7,8 +7,22 @@
 #include <algorithm>
 #include <cassert>
 #include <sstream>
+#include <memory>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include "semantic_common.h"
+#include "symbol_table.h"
+#include "../parser/ast.h"
+#include "../lexer/token.h"
 
 namespace collie {
+
+// 前向声明
+class Expr;
+class Stmt;
+class Symbol;
+class SymbolTable;
 
 // -----------------------------------------------------------------------------
 // 公共接口实现
@@ -256,37 +270,33 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
                 stmt.name().line(), stmt.name().column());
         }
 
-        // 检查是否是常量声明
-        bool is_const = stmt.is_const();
-
-        // 常量必须有初始化表达式
-        if (is_const && !stmt.initializer()) {
-            throw SemanticError("Constant '" + name + "' must be initialized",
-                stmt.name().line(), stmt.name().column());
-        }
-
-        // 如果有初始化表达式，检查类型匹配
+        // 检查初始化表达式
+        TokenType var_type = stmt.type().type();
         if (stmt.initializer()) {
             stmt.initializer()->accept(*this);
-            if (!is_compatible_type(stmt.type().type(), current_type_)) {
+            TokenType init_type = current_type_;
+
+            if (!is_compatible_type(var_type, init_type)) {
                 throw SemanticError("Cannot initialize variable of type '" +
-                    token_type_to_string(stmt.type().type()) +
-                    "' with expression of type '" +
-                    token_type_to_string(current_type_) + "'",
+                    token_type_to_string(var_type) + "' with value of type '" +
+                    token_type_to_string(init_type) + "'",
                     stmt.name().line(), stmt.name().column());
             }
         }
 
-        // 创建并添加符号
+        // 创建变量符号
         Symbol symbol{
             SymbolKind::VARIABLE,
             stmt.type(),
             stmt.name(),
             symbols_.current_scope_level(),
-            stmt.initializer() != nullptr,  // 如果有初始化表达式则标记为已初始化
-            is_const
+            stmt.initializer() != nullptr,  // 是否已初始化
+            stmt.is_const()                 // 是否是常量
         };
+
+        // 添加到符号表
         symbols_.define(symbol);
+
     } catch (const SemanticError& error) {
         record_error(error);
         if (!in_panic_mode_) {
@@ -297,56 +307,66 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
 }
 
 void SemanticAnalyzer::visitBlock(const BlockStmt& stmt) {
-    symbols_.begin_scope();
-    bool had_return = has_return_;
+    try {
+        // 进入新的作用域
+        symbols_.begin_scope();
 
-    for (const auto& statement : stmt.statements()) {
-        // 如果已经有返回值，后面的代码不可达
-        if (has_return_) {
-            throw SemanticError("Unreachable code after return statement",
-                statement->token().line(), statement->token().column());
+        // 分析块中的每个语句
+        for (const auto& s : stmt.statements()) {
+            s->accept(*this);
         }
-        statement->accept(*this);
+
+        // 退出作用域
+        symbols_.end_scope();
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
-
-    // 如果块中有返回语句，整个块都有返回值
-    bool block_returns = has_return_;
-    symbols_.end_scope();
-
-    // 恢复外层的返回值状态
-    has_return_ = had_return || block_returns;
 }
 
 void SemanticAnalyzer::visitIf(const IfStmt& stmt) {
-    // 检查条件表达式
-    stmt.condition()->accept(*this);
-    if (current_type_ != TokenType::KW_BOOL) {
-        throw SemanticError("If condition must be a boolean expression",
-            stmt.condition()->token().line(), stmt.condition()->token().column());
-    }
+    try {
+        // 检查条件表达式
+        stmt.condition()->accept(*this);
+        if (current_type_ != TokenType::KW_BOOL) {
+            throw SemanticError("If condition must be a boolean expression",
+                stmt.condition()->token().line(), stmt.condition()->token().column());
+        }
 
-    // 记录当前的返回值状态
-    bool had_return = has_return_;
-    bool then_returns = false;
-    bool else_returns = false;
+        // 记录当前的返回值状态
+        bool had_return = has_return_;
+        bool then_returns = false;
+        bool else_returns = false;
 
-    // 分析 then 分支
-    symbols_.begin_scope();
-    stmt.then_branch()->accept(*this);
-    then_returns = has_return_;
-    symbols_.end_scope();
-
-    // 分析 else 分支（如果存在）
-    if (stmt.else_branch()) {
-        has_return_ = had_return;  // 重置返回值状态
+        // 分析 then 分支
         symbols_.begin_scope();
-        stmt.else_branch()->accept(*this);
-        else_returns = has_return_;
+        stmt.then_branch()->accept(*this);
+        then_returns = has_return_;
         symbols_.end_scope();
-    }
 
-    // 只有当两个分支都有返回值时，整个 if 语句才有返回值
-    has_return_ = had_return || (then_returns && else_returns);
+        // 分析 else 分支（如果存在）
+        if (stmt.else_branch()) {
+            has_return_ = had_return;  // 重置返回值状态
+            symbols_.begin_scope();
+            stmt.else_branch()->accept(*this);
+            else_returns = has_return_;
+            symbols_.end_scope();
+        }
+
+        // 只有当两个分支都有返回值时，整个 if 语句才有返回值
+        has_return_ = had_return || (then_returns && else_returns);
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
 }
 
 void SemanticAnalyzer::visitWhile(const WhileStmt& stmt) {
@@ -611,38 +631,47 @@ int SemanticAnalyzer::calculate_overload_score(
 }
 
 void SemanticAnalyzer::visitAssign(const AssignExpr& expr) {
-    // 先检查变量是否存在
-    std::string name(expr.name().lexeme());
-    Symbol* symbol = symbols_.resolve(name);
-    if (!symbol) {
-        throw SemanticError("Undefined variable '" + name + "'",
-            expr.name().line(), expr.name().column());
+    try {
+        // 先检查变量是否存在
+        std::string name(expr.name().lexeme());
+        Symbol* symbol = symbols_.resolve(name);
+        if (!symbol) {
+            throw SemanticError("Undefined variable '" + name + "'",
+                expr.name().line(), expr.name().column());
+        }
+
+        // 检查是否是常量
+        if (symbol->is_const) {
+            throw SemanticError("Cannot assign to constant '" + name + "'",
+                expr.name().line(), expr.name().column());
+        }
+
+        // 分析赋值表达式
+        expr.value()->accept(*this);
+        TokenType value_type = current_type_;
+
+        // 检查类型兼容性
+        if (!is_compatible_type(symbol->type.type(), value_type)) {
+            throw SemanticError("Cannot assign value of type '" +
+                token_type_to_string(value_type) + "' to variable of type '" +
+                token_type_to_string(symbol->type.type()) + "'",
+                expr.name().line(), expr.name().column());
+        }
+
+        // 标记变量已初始化和被修改
+        symbol->is_initialized = true;
+        symbol->is_modified = true;
+
+        // 赋值表达式的类型是被赋值的变量的类型
+        current_type_ = symbol->type.type();
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
-
-    // 检查是否是常量
-    if (symbol->is_const) {
-        throw SemanticError("Cannot assign to constant '" + name + "'",
-            expr.name().line(), expr.name().column());
-    }
-
-    // 分析赋值表达式
-    expr.value()->accept(*this);
-    TokenType value_type = current_type_;
-
-    // 检查类型兼容性
-    if (!is_compatible_type(symbol->type.type(), value_type)) {
-        throw SemanticError("Cannot assign value of type '" +
-            token_type_to_string(value_type) + "' to variable of type '" +
-            token_type_to_string(symbol->type.type()) + "'",
-            expr.name().line(), expr.name().column());
-    }
-
-    // 标记变量已初始化
-    symbol->is_initialized = true;
-    symbol->is_modified = true;
-
-    // 赋值表达式的类型是被赋值的变量的类型
-    current_type_ = symbol->type.type();
 }
 
 void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
@@ -690,7 +719,15 @@ void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
 }
 
 void SemanticAnalyzer::visitExpression(const ExpressionStmt& stmt) {
-    stmt.expression()->accept(*this);
+    try {
+        stmt.expression()->accept(*this);
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
 }
 
 // 添加辅助方法
