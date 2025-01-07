@@ -404,6 +404,15 @@ private:
      */
     void check_max_nesting_depth();
 
+    /// @brief 解析元组类型
+    std::unique_ptr<Type> parse_tuple_type();
+
+    /// @brief 解析元组表达式
+    std::unique_ptr<Expr> parse_tuple_expr();
+
+    /// @brief 解析后缀表达式（包括元组成员访问）
+    std::unique_ptr<Expr> parse_postfix();
+
 private:
     const std::vector<Token>& tokens_;
     size_t current_;

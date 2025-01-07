@@ -18,7 +18,7 @@ namespace collie {
 /**
  * @brief 语义分析器类，负责类型检查和语义错误检测
  */
-class SemanticAnalyzer : public ExprVisitor, public StmtVisitor {
+class SemanticAnalyzer : public ExprVisitor, public StmtVisitor, public TypeVisitor {
 public:
     SemanticAnalyzer() = default;
 
@@ -53,13 +53,17 @@ private:
     // -----------------------------------------------------------------------------
     // 访问者模式实现
     // -----------------------------------------------------------------------------
+    // ExprVisitor 接口实现
     void visitLiteral(const LiteralExpr& expr) override;
     void visitIdentifier(const IdentifierExpr& expr) override;
     void visitBinary(const BinaryExpr& expr) override;
     void visitUnary(const UnaryExpr& expr) override;
     void visitCall(const CallExpr& expr) override;
     void visitAssign(const AssignExpr& expr) override;
+    void visitTuple(const TupleExpr& expr) override;
+    void visitTupleMember(const TupleMemberExpr& expr) override;
 
+    // StmtVisitor 接口实现
     void visitVarDecl(const VarDeclStmt& stmt) override;
     void visitBlock(const BlockStmt& stmt) override;
     void visitIf(const IfStmt& stmt) override;
@@ -83,6 +87,11 @@ private:
     void visitContinue(const ContinueStmt& stmt) override;
 
     void visitExpression(const ExpressionStmt& stmt) override;
+
+    // TypeVisitor 接口实现
+    void visitBasicType(const BasicType& type) override;
+    void visitArrayType(const ArrayType& type) override;
+    void visitTupleType(const TupleType& type) override;
 
     // -----------------------------------------------------------------------------
     // 错误处理相关方法
@@ -113,9 +122,32 @@ private:
     // -----------------------------------------------------------------------------
     // 类型检查辅助方法
     // -----------------------------------------------------------------------------
+    /**
+     * @brief 检查类型是否是数值类型
+     * @param type 要检查的类型
+     * @return 如果是数值类型返回 true
+     */
     bool is_numeric_type(TokenType type) const;
+
+    /**
+     * @brief 检查类型是否可以转换为数值类型
+     * @param type 要检查的类型
+     * @return 如果可以转换为数值类型返回 true
+     */
     bool is_numeric_convertible(TokenType type) const;
+
+    /**
+     * @brief 检查类型是否可以转换为字符串类型
+     * @param type 要检查的类型
+     * @return 如果可以转换为字符串类型返回 true
+     */
     bool is_string_convertible(TokenType type) const;
+
+    /**
+     * @brief 检查类型是否是位运算类型
+     * @param type 要检查的类型
+     * @return 如果是位运算类型返回 true
+     */
     bool is_bit_type(TokenType type) const;
 
     /**
@@ -192,7 +224,32 @@ private:
     void reset_state();
     bool in_loop() const { return loop_depth_ > 0; }
 
+    // 元组相关成员
+    std::vector<TokenType> tuple_element_types_;  // 当前元组的元素类型
+
 private:
+    // 元组相关辅助方法
+    bool is_tuple_type(TokenType type) const {
+        return type == TokenType::KW_TUPLE;
+    }
+
+    /**
+     * @brief 检查两个元组类型是否兼容
+     * @param expected 期望的元组类型
+     * @param actual 实际的元组类型
+     * @return 如果类型兼容返回 true
+     */
+    bool is_tuple_compatible(const std::vector<TokenType>& expected,
+                           const std::vector<TokenType>& actual) const {
+        if (expected.size() != actual.size()) return false;
+        for (size_t i = 0; i < expected.size(); ++i) {
+            if (!is_compatible_type(expected[i], actual[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // -----------------------------------------------------------------------------
     // 成员变量
     // -----------------------------------------------------------------------------
@@ -205,6 +262,38 @@ private:
     int loop_depth_ = 0;                       ///< 循环嵌套深度
     std::vector<Token> tokens_;                ///< token 序列
     size_t current_token_index_ = 0;           ///< 当前 token 索引
+    TokenType array_element_type_ = TokenType::INVALID; ///< 当前数组的元素类型
+
+    // -----------------------------------------------------------------------------
+    // 错误处理相关方法
+    // -----------------------------------------------------------------------------
+    template<typename Func>
+    void with_error_handling(Func&& func);
+
+    // -----------------------------------------------------------------------------
+    // 类型转换相关方法
+    // -----------------------------------------------------------------------------
+    /**
+     * @brief 将类型转换为字符串表示
+     * @param type 要转换的类型
+     * @return 类型的字符串表示
+     */
+    std::string token_type_to_string(TokenType type) const;
+
+    /**
+     * @brief 检查类型是否可以进行字符串连接操作
+     * @param type 要检查的类型
+     * @return 如果类型可以进行字符串连接则返回 true
+     */
+    bool is_string_concatenable(TokenType type) const;
+
+    /**
+     * @brief 检查类型是否支持比较运算
+     * @param left 左操作数类型
+     * @param right 右操作数类型
+     * @return 如果类型可以比较返回 true
+     */
+    bool is_comparable_type(TokenType left, TokenType right) const;
 };
 
 } // namespace collie

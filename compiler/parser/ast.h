@@ -447,6 +447,12 @@ public:
 
     /// @brief 访问函数调用表达式
     virtual void visitCall(const CallExpr& expr) = 0;
+
+    /// @brief 访问元组表达式
+    virtual void visitTuple(const TupleExpr& expr) = 0;
+
+    /// @brief 访问元组成员访问表达式
+    virtual void visitTupleMember(const TupleMemberExpr& expr) = 0;
 };
 
 /**
@@ -547,6 +553,78 @@ public:
 
 private:
     Token keyword_;
+};
+
+// 元组类型节点
+class TupleType : public Type {
+public:
+    TupleType(std::vector<std::unique_ptr<Type>> element_types)
+        : element_types_(std::move(element_types)) {}
+
+    const std::vector<std::unique_ptr<Type>>& element_types() const {
+        return element_types_;
+    }
+
+    void accept(TypeVisitor& visitor) override {
+        visitor.visitTupleType(*this);
+    }
+
+private:
+    std::vector<std::unique_ptr<Type>> element_types_;
+};
+
+// 元组表达式节点
+class TupleExpr : public Expr {
+public:
+    TupleExpr(std::vector<std::unique_ptr<Expr>> elements, const Token& paren)
+        : elements_(std::move(elements)), paren_(paren) {}
+
+    const std::vector<std::unique_ptr<Expr>>& elements() const {
+        return elements_;
+    }
+    const Token& paren() const { return paren_; }
+
+    void accept(ExprVisitor& visitor) override {
+        visitor.visitTuple(*this);
+    }
+
+private:
+    std::vector<std::unique_ptr<Expr>> elements_;
+    Token paren_;  // 左括号位置，用于错误报告
+};
+
+// 元组成员访问表达式
+class TupleMemberExpr : public Expr {
+public:
+    TupleMemberExpr(std::unique_ptr<Expr> tuple, const Token& dot, size_t index)
+        : tuple_(std::move(tuple)), dot_(dot), index_(index) {}
+
+    const Expr* tuple() const { return tuple_.get(); }
+    const Token& dot() const { return dot_; }
+    size_t index() const { return index_; }
+
+    void accept(ExprVisitor& visitor) override {
+        visitor.visitTupleMember(*this);
+    }
+
+private:
+    std::unique_ptr<Expr> tuple_;
+    Token dot_;    // 点操作符位置，用于错误报告
+    size_t index_; // 成员索引
+};
+
+class TypeVisitor {
+public:
+    virtual ~TypeVisitor() = default;
+
+    /// @brief 访问基本类型
+    virtual void visitBasicType(const BasicType& type) = 0;
+
+    /// @brief 访问数组类型
+    virtual void visitArrayType(const ArrayType& type) = 0;
+
+    /// @brief 访问元组类型
+    virtual void visitTupleType(const TupleType& type) = 0;
 };
 
 } // namespace collie

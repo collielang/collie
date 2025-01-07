@@ -269,6 +269,10 @@ std::unique_ptr<Expr> Parser::parse_primary() {
             return std::make_unique<IdentifierExpr>(name);
         }
         if (match(TokenType::DELIMITER_LPAREN)) {
+            if (check(TokenType::DELIMITER_RPAREN) || check(TokenType::IDENTIFIER) ||
+                is_literal_token(peek().type())) {
+                return parse_tuple_expr();
+            }
             auto expr = parse_expression();
             consume(TokenType::DELIMITER_RPAREN, "Expect ')' after expression.");
             return expr;
@@ -807,5 +811,66 @@ bool Parser::is_declaration_boundary() const {
         default:
             return false;
     }
+}
+
+std::unique_ptr<Type> Parser::parse_type() {
+    // ... 现有代码 ...
+
+    if (match(TokenType::DELIMITER_LPAREN)) {  // 元组类型
+        return parse_tuple_type();
+    }
+
+    // ... 现有代码 ...
+}
+
+std::unique_ptr<Type> Parser::parse_tuple_type() {
+    std::vector<std::unique_ptr<Type>> element_types;
+
+    // 解析第一个类型
+    if (!check(TokenType::DELIMITER_RPAREN)) {
+        do {
+            element_types.push_back(parse_type());
+        } while (match(TokenType::DELIMITER_COMMA));
+    }
+
+    consume(TokenType::DELIMITER_RPAREN, "Expect ')' after tuple type elements.");
+    return std::make_unique<TupleType>(std::move(element_types));
+}
+
+std::unique_ptr<Expr> Parser::parse_tuple_expr() {
+    Token left_paren = previous();
+    std::vector<std::unique_ptr<Expr>> elements;
+
+    // 解析第一个表达式
+    if (!check(TokenType::DELIMITER_RPAREN)) {
+        do {
+            elements.push_back(parse_expression());
+        } while (match(TokenType::DELIMITER_COMMA));
+    }
+
+    consume(TokenType::DELIMITER_RPAREN, "Expect ')' after tuple elements.");
+    return std::make_unique<TupleExpr>(std::move(elements), left_paren);
+}
+
+std::unique_ptr<Expr> Parser::parse_postfix() {
+    auto expr = parse_primary();
+
+    while (true) {
+        if (match(TokenType::DELIMITER_DOT)) {
+            // 元组成员访问
+            if (match(TokenType::LITERAL_NUMBER)) {
+                Token dot = previous();
+                size_t index = std::stoul(previous().lexeme());
+                expr = std::make_unique<TupleMemberExpr>(
+                    std::move(expr), dot, index);
+            } else {
+                // ... 处理其他成员访问 ...
+            }
+        } else {
+            break;
+        }
+    }
+
+    return expr;
 }
 } // namespace collie

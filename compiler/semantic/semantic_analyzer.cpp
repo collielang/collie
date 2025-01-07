@@ -572,17 +572,20 @@ void SemanticAnalyzer::visitCall(const CallExpr& expr) {
 
 // 辅助方法：检查函数签名是否相同
 bool SemanticAnalyzer::is_same_signature(const Symbol& func1, const FunctionStmt& func2) {
+    // 检查参数数量
     if (func1.parameters.size() != func2.parameters().size()) {
         return false;
     }
 
+    // 检查每个参数的类型
     for (size_t i = 0; i < func1.parameters.size(); ++i) {
         if (func1.parameters[i].type.type() != func2.parameters()[i].type.type()) {
             return false;
         }
     }
 
-    return true;
+    // 检查返回类型
+    return func1.type.type() == func2.return_type().type();
 }
 
 // 辅助方法：查找最匹配的重载函数
@@ -732,10 +735,13 @@ void SemanticAnalyzer::visitExpression(const ExpressionStmt& stmt) {
 
 // 添加辅助方法
 bool SemanticAnalyzer::is_bit_type(TokenType type) const {
-    return type == TokenType::KW_BYTE ||
-           type == TokenType::KW_WORD ||
-           type == TokenType::KW_DWORD ||
-           type == TokenType::KW_BIT;
+    switch (type) {
+        case TokenType::KW_BYTE:
+        case TokenType::KW_WORD:
+            return true;
+        default:
+            return false;
+    }
 }
 
 // ... 其他方法的实现 ...
@@ -747,10 +753,33 @@ TokenType SemanticAnalyzer::check_type(const Expr& expr) {
 }
 
 bool SemanticAnalyzer::is_numeric_type(TokenType type) const {
-    return type == TokenType::KW_NUMBER ||
-           type == TokenType::KW_BYTE ||
-           type == TokenType::KW_WORD ||
-           type == TokenType::KW_DWORD;
+    switch (type) {
+        case TokenType::KW_NUMBER:
+        case TokenType::KW_BYTE:
+        case TokenType::KW_WORD:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool SemanticAnalyzer::is_numeric_convertible(TokenType type) const {
+    return is_numeric_type(type) || type == TokenType::KW_CHAR;
+}
+
+bool SemanticAnalyzer::is_string_convertible(TokenType type) const {
+    switch (type) {
+        case TokenType::KW_STRING:
+        case TokenType::KW_CHAR:
+        case TokenType::KW_CHARACTER:
+        case TokenType::KW_NUMBER:
+        case TokenType::KW_BOOL:
+        case TokenType::KW_BYTE:
+        case TokenType::KW_WORD:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) const {
@@ -927,34 +956,24 @@ TokenType SemanticAnalyzer::common_type(TokenType t1, TokenType t2) const {
     return TokenType::INVALID;
 }
 
-bool SemanticAnalyzer::is_numeric_convertible(TokenType type) const {
-    return type == TokenType::KW_NUMBER ||
-           type == TokenType::KW_BYTE ||
-           type == TokenType::KW_WORD;
-}
-
-bool SemanticAnalyzer::is_string_convertible(TokenType type) const {
-    return type == TokenType::KW_STRING ||
-           type == TokenType::KW_CHAR ||
-           type == TokenType::KW_CHARACTER ||
-           type == TokenType::KW_NUMBER ||
-           type == TokenType::KW_BOOL ||
-           type == TokenType::KW_BYTE ||
-           type == TokenType::KW_WORD;
-}
-
 void SemanticAnalyzer::visitBreak(const BreakStmt& stmt) {
-    if (!in_loop()) {
-        throw SemanticError("Cannot use 'break' outside of a loop.",
-            stmt.keyword().line(), stmt.keyword().column());
-    }
+    with_error_handling([&]() {
+        if (!in_loop()) {
+            throw SemanticError(
+                "Cannot use 'break' outside of a loop. Break statement must be inside a loop",
+                stmt.keyword().line(), stmt.keyword().column());
+        }
+    });
 }
 
 void SemanticAnalyzer::visitContinue(const ContinueStmt& stmt) {
-    if (!in_loop()) {
-        throw SemanticError("Cannot use 'continue' outside of a loop.",
-            stmt.keyword().line(), stmt.keyword().column());
-    }
+    with_error_handling([&]() {
+        if (!in_loop()) {
+            throw SemanticError(
+                "Cannot use 'continue' outside of a loop. Continue statement must be inside a loop",
+                stmt.keyword().line(), stmt.keyword().column());
+        }
+    });
 }
 
 // 辅助方法：将类型转换为字符串
@@ -1011,21 +1030,136 @@ bool SemanticAnalyzer::is_synchronization_point(const Stmt& stmt) {
 
 // 添加 token 访问辅助方法
 const Token& SemanticAnalyzer::current_token() const {
+    if (current_token_index_ >= tokens_.size()) {
+        return tokens_.back();  // 返回 EOF token
+    }
     return tokens_[current_token_index_];
 }
 
 const Token& SemanticAnalyzer::previous_token() const {
-    return tokens_[current_token_index_ > 0 ? current_token_index_ - 1 : 0];
+    if (current_token_index_ == 0) {
+        return tokens_[0];
+    }
+    return tokens_[current_token_index_ - 1];
 }
 
 const Token& SemanticAnalyzer::peek_next() const {
-    return tokens_[current_token_index_ + 1 < tokens_.size() ?
-        current_token_index_ + 1 : current_token_index_];
+    if (current_token_index_ + 1 >= tokens_.size()) {
+        return tokens_.back();  // 返回 EOF token
+    }
+    return tokens_[current_token_index_ + 1];
 }
 
 void SemanticAnalyzer::advance_token() {
     if (current_token_index_ < tokens_.size() - 1) {
-        current_token_index_++;
+        ++current_token_index_;
+    }
+}
+
+void SemanticAnalyzer::visitTuple(const TupleExpr& expr) {
+    try {
+        std::vector<TokenType> element_types;
+
+        // 分析每个元素的类型
+        for (const auto& element : expr.elements()) {
+            element->accept(*this);
+            element_types.push_back(current_type_);
+        }
+
+        // 设置当前类型为元组类型
+        current_type_ = TokenType::KW_TUPLE;
+        tuple_element_types_ = element_types;  // 存储元组元素类型
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitTupleMember(const TupleMemberExpr& expr) {
+    try {
+        // 分析元组表达式
+        expr.tuple()->accept(*this);
+
+        // 确保是元组类型
+        if (current_type_ != TokenType::KW_TUPLE) {
+            throw SemanticError("Cannot access member of non-tuple type",
+                expr.dot().line(), expr.dot().column());
+        }
+
+        // 检查索引是否有效
+        if (expr.index() >= tuple_element_types_.size()) {
+            throw SemanticError("Tuple index out of range",
+                expr.dot().line(), expr.dot().column());
+        }
+
+        // 设置当前类型为元组成员的类型
+        current_type_ = tuple_element_types_[expr.index()];
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitTupleType(const TupleType& type) {
+    try {
+        std::vector<TokenType> element_types;
+
+        // 分析每个元素类型
+        for (const auto& element_type : type.element_types()) {
+            element_type->accept(*this);
+            element_types.push_back(current_type_);
+        }
+
+        // 存储元组元素类型
+        current_type_ = TokenType::KW_TUPLE;
+        tuple_element_types_ = element_types;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitBasicType(const BasicType& type) {
+    try {
+        // 基本类型直接设置为对应的类型
+        current_type_ = type.token().type();
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitArrayType(const ArrayType& type) {
+    try {
+        // 分析元素类型
+        type.element_type()->accept(*this);
+        TokenType element_type = current_type_;
+
+        // 设置当前类型为数组类型
+        current_type_ = TokenType::KW_ARRAY;
+        // 存储数组元素类型
+        array_element_type_ = element_type;
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
 }
 
@@ -1041,6 +1175,21 @@ void SemanticAnalyzer::reset_state() {
     current_function_ = nullptr;
     has_return_ = false;
     loop_depth_ = 0;
+    tuple_element_types_.clear();
+    array_element_type_ = TokenType::INVALID;
+}
+
+template<typename Func>
+void SemanticAnalyzer::with_error_handling(Func&& func) {
+    try {
+        func();
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
 }
 
 } // namespace collie
