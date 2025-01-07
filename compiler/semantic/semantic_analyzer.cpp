@@ -1,15 +1,24 @@
 /*
  * @Author: Zhang Bokai <codingzhang@126.com>
  * @Date: 2025-01-05
+ * @Description: 语义分析器的实现，负责类型检查和语义错误检测
  */
 #include "semantic_analyzer.h"
+#include <algorithm>
+#include <cassert>
+#include <sstream>
 
 namespace collie {
 
 void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& statements) {
+    // 清理之前的状态
     errors_.clear();
     in_panic_mode_ = false;
     current_token_index_ = 0;
+    current_type_ = TokenType::INVALID;
+    current_function_ = nullptr;
+    has_return_ = false;
+    loop_depth_ = 0;
 
     // 分析每个顶层语句
     for (const auto& stmt : statements) {
