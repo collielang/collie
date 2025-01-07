@@ -386,6 +386,84 @@ TEST(ParserTest, NestedFunctionCall) {
     EXPECT_EQ(visitor.result(), "print(add(1, 2), mul(3, 4));");
 }
 
+/**
+ * @brief 测试 break 和 continue 语句的解析
+ */
+TEST(ParserTest, BreakContinueStatements) {
+    // 测试在循环内使用 break
+    {
+        std::string source = R"(
+            while (true) {
+                if (x > 10) break;
+            }
+        )";
+        Lexer lexer(source);
+        Parser parser(lexer);
+        auto stmt = parser.parse();
+        ASSERT_NE(stmt, nullptr);
+
+        auto* while_stmt = dynamic_cast<WhileStmt*>(stmt.get());
+        ASSERT_NE(while_stmt, nullptr);
+
+        auto* block = dynamic_cast<BlockStmt*>(while_stmt->body());
+        ASSERT_NE(block, nullptr);
+        ASSERT_EQ(block->statements().size(), 1);
+
+        auto* if_stmt = dynamic_cast<IfStmt*>(block->statements()[0].get());
+        ASSERT_NE(if_stmt, nullptr);
+
+        auto* break_stmt = dynamic_cast<BreakStmt*>(if_stmt->then_branch());
+        ASSERT_NE(break_stmt, nullptr);
+    }
+
+    // 测试在循环内使用 continue
+    {
+        std::string source = R"(
+            for (number i = 0; i < 10; i = i + 1) {
+                if (i % 2 == 0) continue;
+                print(i);
+            }
+        )";
+        Lexer lexer(source);
+        Parser parser(lexer);
+        auto stmt = parser.parse();
+        ASSERT_NE(stmt, nullptr);
+
+        auto* for_stmt = dynamic_cast<ForStmt*>(stmt.get());
+        ASSERT_NE(for_stmt, nullptr);
+
+        auto* block = dynamic_cast<BlockStmt*>(for_stmt->body());
+        ASSERT_NE(block, nullptr);
+        ASSERT_EQ(block->statements().size(), 2);
+
+        auto* if_stmt = dynamic_cast<IfStmt*>(block->statements()[0].get());
+        ASSERT_NE(if_stmt, nullptr);
+
+        auto* continue_stmt = dynamic_cast<ContinueStmt*>(if_stmt->then_branch());
+        ASSERT_NE(continue_stmt, nullptr);
+    }
+
+    // 测试在循环外使用 break（应该报错）
+    {
+        std::string source = "break;";
+        Lexer lexer(source);
+        Parser parser(lexer);
+        EXPECT_THROW({
+            parser.parse();
+        }, ParseError);
+    }
+
+    // 测试在循环外使用 continue（应该报错）
+    {
+        std::string source = "continue;";
+        Lexer lexer(source);
+        Parser parser(lexer);
+        EXPECT_THROW({
+            parser.parse();
+        }, ParseError);
+    }
+}
+
 #ifdef _WIN32
 void SetupWindowsConsole() {
     SetConsoleOutputCP(CP_UTF8);

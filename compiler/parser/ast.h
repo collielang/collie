@@ -28,6 +28,15 @@ public:
 };
 
 /**
+ * @brief 访问权限枚举
+ */
+enum class AccessLevel {
+    PUBLIC,     // 公有访问权限
+    PRIVATE,    // 私有访问权限
+    PROTECTED   // 保护访问权限
+};
+
+/**
  * @brief 语句基类
  * 所有具体的语句类型都继承自这个基类
  */
@@ -35,6 +44,23 @@ class Stmt {
 public:
     virtual ~Stmt() = default;
     virtual void accept(StmtVisitor& visitor) const = 0;
+
+    /**
+     * @brief 设置语句的访问权限
+     * @param is_public 是否是公有访问权限
+     */
+    void set_access(bool is_public) {
+        access_ = is_public ? AccessLevel::PUBLIC : AccessLevel::PRIVATE;
+    }
+
+    /**
+     * @brief 获取语句的访问权限
+     * @return 访问权限
+     */
+    AccessLevel access() const { return access_; }
+
+protected:
+    AccessLevel access_ = AccessLevel::PUBLIC;  // 默认为公有访问权限
 };
 
 /**
@@ -454,6 +480,73 @@ public:
 
     /// @brief 访问 return 语句
     virtual void visitReturn(const ReturnStmt& stmt) = 0;
+
+    /**
+     * 访问类声明语句
+     * @param stmt 类声明语句节点
+     */
+    virtual void visitClass(const ClassStmt& stmt) = 0;
+
+    /// @brief 访问 break 语句
+    virtual void visitBreak(const BreakStmt& stmt) = 0;
+
+    /// @brief 访问 continue 语句
+    virtual void visitContinue(const ContinueStmt& stmt) = 0;
+};
+
+/**
+ * 类声明语句节点
+ */
+class ClassStmt : public Stmt {
+public:
+    /**
+     * 构造类声明语句节点
+     * @param name 类名
+     * @param members 类成员列表
+     */
+    ClassStmt(Token name, std::vector<std::unique_ptr<Stmt>> members)
+        : name_(name), members_(std::move(members)) {}
+
+    void accept(StmtVisitor& visitor) const override {
+        visitor.visitClass(*this);
+    }
+
+    const Token& name() const { return name_; }
+    const std::vector<std::unique_ptr<Stmt>>& members() const { return members_; }
+
+private:
+    Token name_;                                    // 类名
+    std::vector<std::unique_ptr<Stmt>> members_;   // 类成员列表
+};
+
+/**
+ * @brief break 语句节点
+ */
+class BreakStmt : public Stmt {
+public:
+    explicit BreakStmt(Token keyword) : keyword_(keyword) {}
+    void accept(StmtVisitor& visitor) const override {
+        visitor.visitBreak(*this);
+    }
+    const Token& keyword() const { return keyword_; }
+
+private:
+    Token keyword_;
+};
+
+/**
+ * @brief continue 语句节点
+ */
+class ContinueStmt : public Stmt {
+public:
+    explicit ContinueStmt(Token keyword) : keyword_(keyword) {}
+    void accept(StmtVisitor& visitor) const override {
+        visitor.visitContinue(*this);
+    }
+    const Token& keyword() const { return keyword_; }
+
+private:
+    Token keyword_;
 };
 
 } // namespace collie

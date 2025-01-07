@@ -44,7 +44,10 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"true", TokenType::KW_TRUE},
     {"false", TokenType::KW_FALSE},
     {"unset", TokenType::KW_UNSET},
-    {"return", TokenType::KW_RETURN}
+    {"return", TokenType::KW_RETURN},
+    {"void", TokenType::KW_VOID},
+    {"function", TokenType::KW_FUNCTION},
+    {"protected", TokenType::KW_PROTECTED}
 };
 
 TokenType get_identifier_type(std::string_view identifier) {

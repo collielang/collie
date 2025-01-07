@@ -61,7 +61,11 @@ public:
      */
     std::unique_ptr<Stmt> parse();
 
-    // 解析整个程序
+    /**
+     * @brief 解析整个程序
+     * 解析多个顶层声明语句，直到文件结束
+     * @return 解析得到的语句列表
+     */
     std::vector<std::unique_ptr<Stmt>> parse_program() {
         std::vector<std::unique_ptr<Stmt>> statements;
         while (!is_at_end()) {
@@ -78,6 +82,54 @@ public:
     }
 
 private:
+    /**
+     * @brief 解析器状态枚举
+     * 用于控制错误恢复策略
+     */
+    enum class ParseState {
+        NORMAL,           // 正常解析
+        ERROR_RECOVERY,   // 错误恢复
+        PANIC_MODE        // 恐慌模式
+    };
+
+    ParseState parse_state_ = ParseState::NORMAL;
+
+    /**
+     * @brief 函数参数结构
+     * 用于存储函数参数的类型和名称
+     */
+    struct Parameter {
+        Token type;  // 参数类型
+        Token name;  // 参数名称
+    };
+
+    /**
+     * @brief 错误恢复辅助方法
+     * 在恐慌模式下跳过 token 直到遇到同步点
+     */
+    void panic_mode_recovery();
+
+    /**
+     * @brief 检查是否是类型 token
+     * @param type token 类型
+     * @return 是否是类型 token
+     */
+    bool is_type_token(TokenType type) const;
+
+    /**
+     * @brief 检查是否是语句开始 token
+     * @param type token 类型
+     * @return 是否是语句开始 token
+     */
+    bool is_statement_start(TokenType type) const;
+
+    /**
+     * @brief 检查是否是访问修饰符
+     * @param type token 类型
+     * @return 是否是访问修饰符
+     */
+    bool is_access_modifier(TokenType type) const;
+
     // 表达式解析方法
     /**
      * @brief 解析表达式
@@ -194,10 +246,17 @@ private:
      */
     std::unique_ptr<Stmt> for_statement();
 
-    // 函数相关
+    /**
+     * @brief 解析return语句
+     * @return 解析得到的return语句节点
+     */
+    std::unique_ptr<Stmt> return_statement();
+
     /**
      * @brief 解析函数声明
-     * @return 解析得到的函数声明节点
+     * @param type 函数返回类型
+     * @param name 函数名称
+     * @return 函数声明节点
      */
     std::unique_ptr<Stmt> function_declaration(Token type, Token name);
 
@@ -287,6 +346,42 @@ private:
     Token current_token_;
     Token previous_token_;
     bool had_error_ = false;
+
+    /**
+     * @brief 辅助方法: 解析类成员声明
+     * @param is_public 是否是公有成员
+     * @return 成员声明节点
+     */
+    std::unique_ptr<Stmt> member_declaration(bool is_public);
+
+    /**
+     * @brief 解析类声明
+     * @return 类声明节点
+     */
+    std::unique_ptr<Stmt> class_declaration();
+
+    /**
+     * @brief 解析 break 语句
+     * @return break 语句节点
+     * @throw ParseError 当不在循环内使用 break 时
+     */
+    std::unique_ptr<Stmt> break_statement();
+
+    /**
+     * @brief 解析 continue 语句
+     * @return continue 语句节点
+     * @throw ParseError 当不在循环内使用 continue 时
+     */
+    std::unique_ptr<Stmt> continue_statement();
+
+    /**
+     * @brief 检查是否在循环内部
+     * @return 是否在循环内部
+     */
+    bool in_loop() const { return loop_depth_ > 0; }
+
+    // 添加循环深度计数器
+    size_t loop_depth_ = 0;  ///< 当前循环嵌套深度
 };
 
 } // namespace collie

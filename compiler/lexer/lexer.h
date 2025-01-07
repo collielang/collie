@@ -133,6 +133,40 @@ private:
     bool isIdentifierChar(char32_t c) const;
 
     Encoding encoding_;  // 源代码编码类型
+
+    // 添加词法分析状态枚举
+    enum class State {
+        START,              // 初始状态
+        IN_NUMBER,          // 解析数字
+        IN_IDENTIFIER,      // 解析标识符
+        IN_STRING,          // 解析字符串
+        IN_CHAR,           // 解析字符
+        IN_OPERATOR,       // 解析运算符
+        IN_COMMENT,        // 解析注释
+        IN_MULTILINE_STRING // 解析多行字符串
+    };
+
+    State current_state_ = State::START;
+
+    // 状态转换函数
+    void handle_start_state();
+    Token handle_number_state();
+    Token handle_identifier_state();
+    Token handle_string_state();
+    Token handle_char_state();
+    Token handle_operator_state();
+    Token handle_comment_state();
+    Token handle_multiline_string_state();
+
+    /**
+     * @brief 创建一个 token
+     * @param type token 类型
+     * @param lexeme token 的词素
+     * @return 创建的 token
+     */
+    Token make_token(TokenType type, const std::string& lexeme) {
+        return Token(type, lexeme, line_, column_);
+    }
 };
 
 } // namespace collie

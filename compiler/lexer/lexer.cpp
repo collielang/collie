@@ -148,97 +148,37 @@ Token Lexer::scan_identifier() {
 }
 
 Token Lexer::next_token() {
-    skip_whitespace();
-
-    if (is_at_end()) {
-        return Token(TokenType::END_OF_FILE, "", line_, column_);
+    while (!is_at_end()) {
+        switch (current_state_) {
+            case State::START:
+                handle_start_state();
+                break;
+            case State::IN_NUMBER:
+                handle_number_state();
+                break;
+            case State::IN_IDENTIFIER:
+                handle_identifier_state();
+                break;
+            // ... 其他状态处理
+        }
     }
+    return make_token();
+}
 
+void Lexer::handle_start_state() {
     char c = peek();
-
-    // 标识符或关键字
-    if (is_alpha(c) || c == '_') {
-        return scan_identifier();
-    }
-
-    // 数字
     if (is_digit(c)) {
-        return scan_number();
+        current_state_ = State::IN_NUMBER;
+    } else if (is_alpha(c)) {
+        current_state_ = State::IN_IDENTIFIER;
+    } else if (c == '"') {
+        if (match('"') && match('"')) {
+            current_state_ = State::IN_MULTILINE_STRING;
+        } else {
+            current_state_ = State::IN_STRING;
+        }
     }
-
-    // 字符串
-    if (c == '"') {
-        return scan_string();
-    }
-
-    // 字符
-    if (c == '\'') {
-        return scan_character();
-    }
-
-    // 运算符和分隔符
-    advance(); // 消费当前字符
-
-    switch (c) {
-        case '(': return Token(TokenType::DELIMITER_LPAREN, "(", line_, column_ - 1);
-        case ')': return Token(TokenType::DELIMITER_RPAREN, ")", line_, column_ - 1);
-        case '[': return Token(TokenType::DELIMITER_LBRACKET, "[", line_, column_ - 1);
-        case ']': return Token(TokenType::DELIMITER_RBRACKET, "]", line_, column_ - 1);
-        case '{': return Token(TokenType::DELIMITER_LBRACE, "{", line_, column_ - 1);
-        case '}': return Token(TokenType::DELIMITER_RBRACE, "}", line_, column_ - 1);
-        case ',': return Token(TokenType::DELIMITER_COMMA, ",", line_, column_ - 1);
-        case ';': return Token(TokenType::DELIMITER_SEMICOLON, ";", line_, column_ - 1);
-        case '.': return Token(TokenType::DELIMITER_DOT, ".", line_, column_ - 1);
-
-        // 单字符运算符
-        case '+': return Token(TokenType::OP_PLUS, "+", line_, column_ - 1);
-        case '-': return Token(TokenType::OP_MINUS, "-", line_, column_ - 1);
-        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, column_ - 1);
-        case '/':
-            if (match('/')) {
-                skip_line_comment();
-                return next_token();
-            } else if (match('*')) {
-                skip_block_comment();
-                return next_token();
-            }
-            return Token(TokenType::OP_DIVIDE, "/", line_, column_ - 1);
-        case '%': return Token(TokenType::OP_MODULO, "%", line_, column_ - 1);
-
-        // 可能的双字符运算符
-        case '=':
-            if (match('=')) return Token(TokenType::OP_EQUAL, "==", line_, column_ - 2);
-            if (match('?')) return Token(TokenType::OP_EQ_QUESTION, "=?", line_, column_ - 2);
-            return Token(TokenType::OP_ASSIGN, "=", line_, column_ - 1);
-
-        case '!':
-            if (match('=')) return Token(TokenType::OP_NOT_EQUAL, "!=", line_, column_ - 2);
-            return Token(TokenType::OP_NOT, "!", line_, column_ - 1);
-
-        case '>':
-            if (match('=')) return Token(TokenType::OP_GREATER_EQ, ">=", line_, column_ - 2);
-            if (match('>')) return Token(TokenType::OP_BIT_RSHIFT, ">>", line_, column_ - 2);
-            return Token(TokenType::OP_GREATER, ">", line_, column_ - 1);
-
-        case '<':
-            if (match('=')) return Token(TokenType::OP_LESS_EQ, "<=", line_, column_ - 2);
-            if (match('<')) return Token(TokenType::OP_BIT_LSHIFT, "<<", line_, column_ - 2);
-            return Token(TokenType::OP_LESS, "<", line_, column_ - 1);
-
-        case '&':
-            if (match('&')) return Token(TokenType::OP_AND, "&&", line_, column_ - 2);
-            return Token(TokenType::OP_BIT_AND, "&", line_, column_ - 1);
-
-        case '|':
-            if (match('|')) return Token(TokenType::OP_OR, "||", line_, column_ - 2);
-            return Token(TokenType::OP_BIT_OR, "|", line_, column_ - 1);
-
-        case '?':
-            if (match('=')) return Token(TokenType::OP_QUESTION_EQ, "?=", line_, column_ - 2);
-            return Token(TokenType::OP_QUESTION, "?", line_, column_ - 1);
-    }
-
-    return make_error_token("Unexpected character");
+    // ... 其他状态转换
 }
 
 Token Lexer::peek_token() {
@@ -651,6 +591,193 @@ std::string utf16_to_utf8(const std::u16string& utf16str) {
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
     return converter.to_bytes(utf16str);
 #endif
+}
+
+/**
+ * 数字字面量状态处理
+ * 解析整数和浮点数字面量
+ * @return 数字类型的 token
+ */
+void Lexer::handle_number_state() {
+    size_t start_pos = position_;
+    size_t start_col = column_;
+    std::string number;
+    bool has_dot = false;
+
+    while (!is_at_end()) {
+        if (peek() == '.' && !has_dot) {
+            has_dot = true;
+            advance();
+        } else if (!is_digit(peek())) {
+            break;
+        } else {
+            advance();
+        }
+    }
+
+    number = source_.substr(start_pos, position_ - start_pos);
+    current_state_ = State::START;
+    return Token(TokenType::LITERAL_NUMBER, number, line_, start_col);
+}
+
+/**
+ * 标识符状态处理
+ * 解析标识符和关键字,支持 UTF-8 编码的中文标识符
+ * @return 标识符或关键字类型的 token
+ */
+void Lexer::handle_identifier_state() {
+    size_t start_pos = position_;
+    size_t start_col = column_;
+    std::string identifier;
+
+    if (encoding_ == Encoding::UTF8) {
+        bool first_char = true;
+        while (!is_at_end()) {
+            size_t current_pos = position_;
+            try {
+                char32_t c = nextUtf8Char();
+                if (first_char && !is_alpha(c) && c != '_' && c < 0x4E00) {
+                    position_ = current_pos;
+                    break;
+                }
+                if (!first_char && !isIdentifierChar(c)) {
+                    position_ = current_pos;
+                    break;
+                }
+                identifier.append(source_.substr(current_pos, position_ - current_pos));
+                first_char = false;
+            } catch (const LexError&) {
+                position_ = current_pos;
+                break;
+            }
+        }
+    } else {
+        while (!is_at_end() && (is_alphanumeric(peek()) || peek() == '_')) {
+            advance();
+        }
+        identifier = source_.substr(start_pos, position_ - start_pos);
+    }
+
+    current_state_ = State::START;
+    TokenType type = get_identifier_type(identifier);
+    return Token(type, identifier, line_, start_col);
+}
+
+/**
+ * 字符串字面量状态处理
+ * 解析字符串字面量,支持转义序列
+ * @return 字符串类型的 token
+ */
+void Lexer::handle_string_state() {
+    size_t start_col = column_;
+    advance(); // 消费开始的引号
+    std::string value;
+
+    while (!is_at_end() && peek() != '"') {
+        if (peek() == '\\') {
+            advance();
+            switch (peek()) {
+                case '"': value += '"'; break;
+                case '\\': value += '\\'; break;
+                case 'n': value += '\n'; break;
+                case 't': value += '\t'; break;
+                case 'r': value += '\r'; break;
+                default:
+                    current_state_ = State::START;
+                    return make_error_token("Invalid escape sequence");
+            }
+            advance();
+        } else {
+            value += advance();
+        }
+    }
+
+    if (is_at_end()) {
+        current_state_ = State::START;
+        return make_error_token("Unterminated string");
+    }
+
+    advance(); // 消费结束的引号
+    current_state_ = State::START;
+    return Token(TokenType::LITERAL_STRING, value, line_, start_col);
+}
+
+/**
+ * 多行字符串状态处理
+ * 解析三引号包围的多行字符串,保持缩进对齐
+ * @return 字符串类型的 token
+ */
+void Lexer::handle_multiline_string_state() {
+    size_t start_col = column_;
+    std::string value;
+    size_t indent = column_ - 1;
+
+    while (!is_at_end()) {
+        if (peek() == '"' && peek_next() == '"' && source_[position_ + 2] == '"') {
+            // 检查结束引号的缩进
+            size_t current_indent = 0;
+            size_t pos = position_;
+            while (pos > 0 && source_[pos - 1] == ' ') {
+                current_indent++;
+                pos--;
+            }
+            if (current_indent != indent) {
+                current_state_ = State::START;
+                return make_error_token("Misaligned closing quotes in multiline string");
+            }
+            position_ += 3;
+            column_ += 3;
+            break;
+        }
+        value += advance();
+    }
+
+    if (is_at_end()) {
+        current_state_ = State::START;
+        return make_error_token("Unterminated multiline string");
+    }
+
+    current_state_ = State::START;
+    return Token(TokenType::LITERAL_STRING, value, line_, start_col);
+}
+
+/**
+ * 运算符状态处理
+ * 解析单字符和多字符运算符
+ * @return 运算符类型的 token
+ */
+void Lexer::handle_operator_state() {
+    size_t start_col = column_;
+    char c = advance();
+
+    switch (c) {
+        case '+': return Token(TokenType::OP_PLUS, "+", line_, start_col);
+        case '-': return Token(TokenType::OP_MINUS, "-", line_, start_col);
+        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, start_col);
+        case '/':
+            if (match('/')) {
+                current_state_ = State::IN_COMMENT;
+                return next_token();
+            }
+            return Token(TokenType::OP_DIVIDE, "/", line_, start_col);
+        // ... 其他运算符处理
+    }
+
+    current_state_ = State::START;
+    return make_error_token("Invalid operator");
+}
+
+/**
+ * 注释状态处理
+ * 跳过单行注释
+ * @return 下一个有效的 token
+ */
+void Lexer::handle_comment_state() {
+    while (!is_at_end() && peek() != '\n') {
+        advance();
+    }
+    current_state_ = State::START;
+    return next_token();
 }
 
 } // namespace collie

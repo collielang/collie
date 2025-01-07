@@ -113,6 +113,11 @@ enum class TokenType {
     DELIMITER_COMMA,     // ,
     DELIMITER_SEMICOLON, // ;
     DELIMITER_DOT,       // .
+
+    // 关键字
+    KW_VOID,        // void
+    KW_FUNCTION,    // function
+    KW_PROTECTED,   // protected
 };
 
 // Token 类
