@@ -7,9 +7,82 @@
 namespace collie {
 
 void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& statements) {
+    errors_.clear();
+    in_panic_mode_ = false;
+    current_token_index_ = 0;
+
     // 分析每个顶层语句
     for (const auto& stmt : statements) {
-        stmt->accept(*this);
+        try {
+            stmt->accept(*this);
+        } catch (const SemanticError& error) {
+            record_error(error);
+            if (!in_panic_mode_) {
+                enter_panic_mode();
+                synchronize();
+            }
+        }
+    }
+}
+
+void SemanticAnalyzer::record_error(const SemanticError& error) {
+    errors_.push_back(error);
+}
+
+void SemanticAnalyzer::enter_panic_mode() {
+    in_panic_mode_ = true;
+}
+
+void SemanticAnalyzer::exit_panic_mode() {
+    in_panic_mode_ = false;
+}
+
+void SemanticAnalyzer::synchronize() {
+    // 找到下一个安全点
+    while (in_panic_mode_) {
+        // 在以下位置同步：
+        // 1. 语句结束（分号）
+        // 2. 函数定义开始
+        // 3. 变量声明开始
+        // 4. 块语句开始/结束
+        // 5. 控制流语句开始
+
+        const Token& current = current_token();
+        switch (current.type()) {
+            case TokenType::DELIMITER_SEMICOLON:
+            case TokenType::DELIMITER_RBRACE:
+                exit_panic_mode();
+                return;
+
+            case TokenType::KW_FUNCTION:
+            case TokenType::KW_CLASS:
+            case TokenType::KW_IF:
+            case TokenType::KW_WHILE:
+            case TokenType::KW_FOR:
+            case TokenType::KW_RETURN:
+            case TokenType::KW_BREAK:
+            case TokenType::KW_CONTINUE:
+                if (previous_token().type() == TokenType::DELIMITER_SEMICOLON ||
+                    previous_token().type() == TokenType::DELIMITER_RBRACE) {
+                    exit_panic_mode();
+                    return;
+                }
+                break;
+
+            case TokenType::KW_NUMBER:
+            case TokenType::KW_STRING:
+            case TokenType::KW_BOOL:
+            case TokenType::KW_CHAR:
+            case TokenType::KW_BYTE:
+            case TokenType::KW_WORD:
+                if (peek_next().type() == TokenType::IDENTIFIER) {
+                    exit_panic_mode();
+                    return;
+                }
+                break;
+        }
+
+        advance_token();
     }
 }
 
@@ -152,44 +225,52 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
 
 // 语句访问方法实现
 void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
-    std::string name(stmt.name().lexeme());
+    try {
+        std::string name(stmt.name().lexeme());
 
-    // 检查变量是否已在当前作用域中定义
-    if (symbols_.is_defined_in_current_scope(name)) {
-        throw SemanticError("Variable '" + name + "' is already defined",
-            stmt.name().line(), stmt.name().column());
-    }
-
-    // 检查是否是常量声明
-    bool is_const = stmt.is_const();
-
-    // 常量必须有初始化表达式
-    if (is_const && !stmt.initializer()) {
-        throw SemanticError("Constant '" + name + "' must be initialized",
-            stmt.name().line(), stmt.name().column());
-    }
-
-    // 如果有初始化表达式，检查类型匹配
-    if (stmt.initializer()) {
-        stmt.initializer()->accept(*this);
-        if (!is_compatible_type(stmt.type().type(), current_type_)) {
-            throw SemanticError("Cannot initialize variable of type '" +
-                std::string(stmt.type().lexeme()) + "' with expression of type '" +
-                std::to_string(static_cast<int>(current_type_)) + "'",
+        // 检查变量是否已在当前作用域中定义
+        if (symbols_.is_defined_in_current_scope(name)) {
+            throw SemanticError("Variable '" + name + "' is already defined",
                 stmt.name().line(), stmt.name().column());
         }
-    }
 
-    // 创建并添加符号
-    Symbol symbol{
-        SymbolKind::VARIABLE,
-        stmt.type(),
-        stmt.name(),
-        symbols_.current_scope_level(),
-        stmt.initializer() != nullptr,  // 如果有初始化表达式则标记为已初始化
-        is_const
-    };
-    symbols_.define(symbol);
+        // 检查是否是常量声明
+        bool is_const = stmt.is_const();
+
+        // 常量必须有初始化表达式
+        if (is_const && !stmt.initializer()) {
+            throw SemanticError("Constant '" + name + "' must be initialized",
+                stmt.name().line(), stmt.name().column());
+        }
+
+        // 如果有初始化表达式，检查类型匹配
+        if (stmt.initializer()) {
+            stmt.initializer()->accept(*this);
+            if (!is_compatible_type(stmt.type().type(), current_type_)) {
+                throw SemanticError("Cannot initialize variable of type '" +
+                    std::string(stmt.type().lexeme()) + "' with expression of type '" +
+                    std::to_string(static_cast<int>(current_type_)) + "'",
+                    stmt.name().line(), stmt.name().column());
+            }
+        }
+
+        // 创建并添加符号
+        Symbol symbol{
+            SymbolKind::VARIABLE,
+            stmt.type(),
+            stmt.name(),
+            symbols_.current_scope_level(),
+            stmt.initializer() != nullptr,  // 如果有初始化表达式则标记为已初始化
+            is_const
+        };
+        symbols_.define(symbol);
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
 }
 
 void SemanticAnalyzer::visitBlock(const BlockStmt& stmt) {
@@ -298,82 +379,90 @@ void SemanticAnalyzer::visitFor(const ForStmt& stmt) {
 }
 
 void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
-    // 检查函数是否已在当前作用域中定义
-    std::string name(stmt.name().lexeme());
+    try {
+        // 检查函数是否已在当前作用域中定义
+        std::string name(stmt.name().lexeme());
 
-    // 获取所有同名函数
-    std::vector<Symbol*> overloads = symbols_.resolve_overloads(name);
+        // 获取所有同名函数
+        std::vector<Symbol*> overloads = symbols_.resolve_overloads(name);
 
-    // 检查是否有完全相同的函数签名
-    for (const auto* overload : overloads) {
-        if (is_same_signature(*overload, stmt)) {
-            throw SemanticError("Function '" + name + "' with same signature is already defined",
-                stmt.name().line(), stmt.name().column());
-        }
-    }
-
-    // 创建函数符号
-    Symbol function{
-        SymbolKind::FUNCTION,
-        stmt.return_type(),
-        stmt.name(),
-        symbols_.current_scope_level(),
-        true,  // 函数定义时就认为是已初始化的
-        false, // 不是常量
-        {}     // 参数列表先为空
-    };
-
-    // 保存当前函数以供 return 语句检查
-    Symbol* previous_function = current_function_;
-    current_function_ = &function;
-
-    // 进入函数作用域
-    symbols_.begin_scope();
-
-    // 重置返回值标记
-    has_return_ = false;
-
-    // 处理参数
-    for (const auto& param : stmt.parameters()) {
-        // 检查参数名是否重复
-        if (symbols_.is_defined_in_current_scope(std::string(param.name.lexeme()))) {
-            throw SemanticError("Duplicate parameter name '" +
-                std::string(param.name.lexeme()) + "'",
-                param.name.line(), param.name.column());
+        // 检查是否有完全相同的函数签名
+        for (const auto* overload : overloads) {
+            if (is_same_signature(*overload, stmt)) {
+                throw SemanticError("Function '" + name + "' with same signature is already defined",
+                    stmt.name().line(), stmt.name().column());
+            }
         }
 
-        // 创建参数符号
-        Symbol param_symbol{
-            SymbolKind::PARAMETER,
-            param.type,
-            param.name,
+        // 创建函数符号
+        Symbol function{
+            SymbolKind::FUNCTION,
+            stmt.return_type(),
+            stmt.name(),
             symbols_.current_scope_level(),
-            true  // 参数总是已初始化的
+            true,  // 函数定义时就认为是已初始化的
+            false, // 不是常量
+            {}     // 参数列表先为空
         };
 
-        // 添加到函数的参数列表
-        function.parameters.push_back(param_symbol);
-        // 添加到当前作用域
-        symbols_.define(param_symbol);
+        // 保存当前函数以供 return 语句检查
+        Symbol* previous_function = current_function_;
+        current_function_ = &function;
+
+        // 进入函数作用域
+        symbols_.begin_scope();
+
+        // 重置返回值标记
+        has_return_ = false;
+
+        // 处理参数
+        for (const auto& param : stmt.parameters()) {
+            // 检查参数名是否重复
+            if (symbols_.is_defined_in_current_scope(std::string(param.name.lexeme()))) {
+                throw SemanticError("Duplicate parameter name '" +
+                    std::string(param.name.lexeme()) + "'",
+                    param.name.line(), param.name.column());
+            }
+
+            // 创建参数符号
+            Symbol param_symbol{
+                SymbolKind::PARAMETER,
+                param.type,
+                param.name,
+                symbols_.current_scope_level(),
+                true  // 参数总是已初始化的
+            };
+
+            // 添加到函数的参数列表
+            function.parameters.push_back(param_symbol);
+            // 添加到当前作用域
+            symbols_.define(param_symbol);
+        }
+
+        // 分析函数体
+        stmt.body()->accept(*this);
+
+        // 检查是否所有路径都有返回值
+        if (stmt.return_type().type() != TokenType::KW_NONE && !has_return_) {
+            throw SemanticError("Function '" + name + "' must return a value in all code paths",
+                stmt.name().line(), stmt.name().column());
+        }
+
+        // 退出函数作用域
+        symbols_.end_scope();
+
+        // 恢复之前的函数上下文
+        current_function_ = previous_function;
+
+        // 将函数添加到当前作用域
+        symbols_.define(function);
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
-
-    // 分析函数体
-    stmt.body()->accept(*this);
-
-    // 检查是否所有路径都有返回值
-    if (stmt.return_type().type() != TokenType::KW_NONE && !has_return_) {
-        throw SemanticError("Function '" + name + "' must return a value in all code paths",
-            stmt.name().line(), stmt.name().column());
-    }
-
-    // 退出函数作用域
-    symbols_.end_scope();
-
-    // 恢复之前的函数上下文
-    current_function_ = previous_function;
-
-    // 将函数添加到当前作用域
-    symbols_.define(function);
 }
 
 void SemanticAnalyzer::visitCall(const CallExpr& expr) {
@@ -806,6 +895,36 @@ int SemanticAnalyzer::calculate_overload_score(
     }
 
     return score;
+}
+
+// 添加错误恢复的辅助方法
+bool SemanticAnalyzer::is_synchronization_point(const Stmt& stmt) {
+    // 判断是否是可以安全恢复的位置
+    // 例如：函数定义、类定义、变量声明等
+    if (dynamic_cast<const FunctionStmt*>(&stmt)) return true;
+    if (dynamic_cast<const VarDeclStmt*>(&stmt)) return true;
+    // ... 其他同步点 ...
+    return false;
+}
+
+// 添加 token 访问辅助方法
+const Token& SemanticAnalyzer::current_token() const {
+    return tokens_[current_token_index_];
+}
+
+const Token& SemanticAnalyzer::previous_token() const {
+    return tokens_[current_token_index_ > 0 ? current_token_index_ - 1 : 0];
+}
+
+const Token& SemanticAnalyzer::peek_next() const {
+    return tokens_[current_token_index_ + 1 < tokens_.size() ?
+        current_token_index_ + 1 : current_token_index_];
+}
+
+void SemanticAnalyzer::advance_token() {
+    if (current_token_index_ < tokens_.size() - 1) {
+        current_token_index_++;
+    }
 }
 
 } // namespace collie

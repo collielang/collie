@@ -77,6 +77,27 @@ public:
      */
     void visitContinue(const ContinueStmt& stmt) override;
 
+    /**
+     * @brief 获取分析过程中收集的所有错误
+     * @return 错误列表
+     */
+    const std::vector<SemanticError>& get_errors() const { return errors_; }
+
+    /**
+     * @brief 检查是否有错误发生
+     * @return 如果有错误返回 true
+     */
+    bool has_errors() const { return !errors_.empty(); }
+
+    /**
+     * @brief 设置词法分析器生成的 token 序列
+     * @param tokens token 序列
+     */
+    void set_tokens(const std::vector<Token>& tokens) {
+        tokens_ = tokens;
+        current_token_index_ = 0;
+    }
+
 private:
     // 类型检查辅助方法
     TokenType check_type(const Expr& expr);
@@ -163,6 +184,42 @@ private:
      * @return 匹配得分，-1 表示不匹配
      */
     int calculate_overload_score(const Symbol& func, const std::vector<TokenType>& arg_types);
+
+    // 错误处理
+    std::vector<SemanticError> errors_;  ///< 收集的错误列表
+    bool in_panic_mode_ = false;         ///< 是否在错误恢复模式
+
+    /**
+     * @brief 记录一个错误
+     * @param error 错误信息
+     */
+    void record_error(const SemanticError& error);
+
+    /**
+     * @brief 进入错误恢复模式
+     */
+    void enter_panic_mode();
+
+    /**
+     * @brief 退出错误恢复模式
+     */
+    void exit_panic_mode();
+
+    /**
+     * @brief 同步到下一个安全点
+     * 跳过当前错误的语句，直到找到一个可以继续分析的位置
+     */
+    void synchronize();
+
+    // Token 处理
+    std::vector<Token> tokens_;              ///< token 序列
+    size_t current_token_index_ = 0;         ///< 当前 token 索引
+
+    // Token 访问辅助方法
+    const Token& current_token() const;
+    const Token& previous_token() const;
+    const Token& peek_next() const;
+    void advance_token();
 };
 
 } // namespace collie
