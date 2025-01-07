@@ -20,20 +20,11 @@
 using namespace collie;
 using namespace std::chrono;
 
-// 辅助函数：解析源代码并返回AST和tokens
-std::pair<std::vector<std::unique_ptr<Stmt>>, std::vector<Token>>
-parse_and_get_tokens(const std::string& source) {
-    Lexer lexer(source);
-    auto tokens = lexer.tokenize();
-    Parser parser(tokens);
-    return {parser.parse_program(), tokens};
-}
-
 // 测试在语句边界的错误恢复
 TEST(SemanticRecoveryTest, StatementBoundaryRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误语句
         string x = 42;
 

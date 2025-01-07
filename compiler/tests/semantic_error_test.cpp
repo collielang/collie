@@ -6,24 +6,16 @@
 #include "../semantic/semantic_analyzer.h"
 #include "../parser/parser.h"
 #include "../lexer/lexer.h"
+#include "test_utils.h"
 
 using namespace collie;
-
-// 辅助函数：解析源代码并返回AST和tokens
-std::pair<std::vector<std::unique_ptr<Stmt>>, std::vector<Token>>
-parse_and_get_tokens(const std::string& source) {
-    Lexer lexer(source);
-    auto tokens = lexer.tokenize();
-    Parser parser(tokens);
-    return {parser.parse_program(), tokens};
-}
 
 // 错误恢复测试
 TEST(SemanticErrorTest, ErrorRecovery) {
     SemanticAnalyzer analyzer;
 
     // 多个错误的代码
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误1：类型不匹配
         string x = 42;
 
@@ -60,7 +52,7 @@ TEST(SemanticErrorTest, ErrorRecovery) {
 TEST(SemanticErrorTest, FunctionErrors) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误1：函数重复定义
         number add(number x, number y) {
             return x + y;
@@ -100,7 +92,7 @@ TEST(SemanticErrorTest, FunctionErrors) {
 TEST(SemanticErrorTest, ScopeAndInitializationErrors) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误1：使用未初始化的变量
         number x;
         number y = x + 1;
@@ -135,7 +127,7 @@ TEST(SemanticErrorTest, ScopeAndInitializationErrors) {
 TEST(SemanticErrorTest, TypeConversionErrors) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误1：不允许的类型转换
         number n = "42";
 
@@ -162,7 +154,7 @@ TEST(SemanticErrorTest, TypeConversionErrors) {
 TEST(SemanticErrorTest, ErrorLocation) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number x = 1;
         string y = x;  // 第2行，类型错误
     )");
@@ -183,7 +175,7 @@ TEST(SemanticErrorTest, ErrorLocation) {
 TEST(SemanticErrorTest, ContinueAfterError) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误代码
         string x = 42;
 
@@ -212,7 +204,7 @@ TEST(SemanticErrorTest, ContinueAfterError) {
 TEST(SemanticErrorTest, ErrorMessageFormat) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number x = "hello";  // 类型错误
     )");
 
@@ -234,7 +226,7 @@ TEST(SemanticErrorTest, ErrorMessageFormat) {
 TEST(SemanticErrorTest, ArrayErrors) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误1：数组越界检查
         number[] arr = [1, 2, 3];
         number x = arr[3];  // 索引超出范围

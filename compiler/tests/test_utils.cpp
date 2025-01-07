@@ -3,6 +3,8 @@
  * @Date: 2025-01-05
  */
 #include "test_utils.h"
+#include "../parser/parser.h"
+#include "../lexer/lexer.h"
 
 namespace collie {
 namespace test {
@@ -21,6 +23,14 @@ size_t getCurrentMemoryUsage() {
     }
 #endif
     return 0;  // 如果无法获取内存使用量
+}
+
+std::pair<std::vector<std::unique_ptr<Stmt>>, std::vector<Token>>
+parse_and_get_tokens(const std::string& source) {
+    Lexer lexer(source);
+    auto tokens = lexer.tokenize();
+    Parser parser(tokens);
+    return {parser.parse_program(), tokens};
 }
 
 } // namespace test
