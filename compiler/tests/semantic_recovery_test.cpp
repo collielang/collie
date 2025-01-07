@@ -478,3 +478,107 @@ TEST(SemanticRecoveryTest, ErrorRecoveryPriority) {
     EXPECT_TRUE(errors[0].what() != nullptr);
     EXPECT_TRUE(std::string(errors[0].what()).find("undefined") != std::string::npos);
 }
+
+// 测试错误恢复的状态一致性
+TEST(SemanticRecoveryTest, StateConsistencyRecovery) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        // 测试错误后的状态恢复
+        number global = 1;
+
+        void test_state() {
+            number x = 1;
+            {
+                // 错误：类型不匹配
+                string x = true;
+                number y = x + 1;  // 应该使用外层的 x
+            }
+            number z = x + global;  // 应该能正确访问 x 和 global
+        }
+
+        // 测试函数状态恢复
+        number get_value() {
+            // 错误：返回类型不匹配
+            return "error";
+        }
+
+        void caller() {
+            number val = get_value() + 1;  // 应该能继续分析
+        }
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_GE(errors.size(), 2);
+}
+
+// 测试循环和条件语句中的错误恢复
+TEST(SemanticRecoveryTest, LoopConditionRecovery) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        number count = 0;
+
+        // 测试循环中的错误恢复
+        while (count < 10) {
+            if (count % 2 == 0) {
+                // 错误：类型不匹配
+                string temp = count;
+                continue;
+            } else {
+                // 错误：未定义变量
+                count = undefined + 1;
+            }
+
+            // 这里应该能继续执行
+            count = count + 1;
+        }
+
+        // 测试条件语句中的错误恢复
+        if (count > 5) {
+            // 错误：无效运算
+            bool result = "text" + true;
+        } else if (count < 0) {
+            // 正确的代码
+            count = 0;
+        }
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_GE(errors.size(), 3);
+}
+
+// 测试复杂的类型转换错误恢复
+TEST(SemanticRecoveryTest, ComplexTypeConversionRecovery) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        // 测试隐式类型转换
+        byte b = 255;
+        word w = b;      // 正确：byte 可以转换为 word
+        number n = w;    // 正确：word 可以转换为 number
+
+        // 错误：不允许的类型转换
+        string s1 = n;   // 错误1：number 不能直接转换为 string
+        bool b1 = w;     // 错误2：word 不能转换为 bool
+        byte b2 = n;     // 错误3：number 不能自动转换为 byte（可能溢出）
+
+        // 测试运算中的类型转换
+        number result = (b + w) * n;  // 正确：自动提升为 number
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_EQ(errors.size(), 3);
+}
