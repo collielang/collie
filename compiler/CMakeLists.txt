@@ -71,16 +71,23 @@ target_link_libraries(semantic
 )
 
 # 语义分析器测试
+add_library(test_utils STATIC
+    tests/test_utils.cpp
+)
+
 add_executable(semantic_tests
     tests/semantic_analyzer_test.cpp
     tests/semantic_error_test.cpp
     tests/semantic_recovery_test.cpp
 )
+
 target_link_libraries(semantic_tests
     PRIVATE semantic
+    PRIVATE test_utils
     PRIVATE GTest::gtest
     PRIVATE GTest::gtest_main
 )
+
 add_test(NAME semantic_tests COMMAND semantic_tests)
 
 # 设置 Visual Studio 启动项目
