@@ -701,3 +701,102 @@ TEST(SemanticRecoveryTest, RecoveryRobustness) {
         EXPECT_TRUE(std::string(error.what()).find("valid3") == std::string::npos);
     }
 }
+
+// 测试错误恢复过程中的内存使用
+TEST(SemanticRecoveryTest, MemoryUsageRecovery) {
+    SemanticAnalyzer analyzer;
+
+    // 构建深度嵌套的代码
+    std::string deep_nested_code = "number x = 1;\n";
+    const int NESTING_DEPTH = 1000;  // 深度嵌套层数
+
+    // 创建深度嵌套的块结构
+    for (int i = 0; i < NESTING_DEPTH; ++i) {
+        deep_nested_code += std::string(i, ' ') + "{\n";
+        deep_nested_code += std::string(i + 1, ' ') +
+            "number var" + std::to_string(i) + " = " +
+            std::to_string(i) + ";\n";
+        // 每隔10层添加一个错误
+        if (i % 10 == 0) {
+            deep_nested_code += std::string(i + 1, ' ') +
+                "string error" + std::to_string(i) + " = " +
+                std::to_string(i) + ";\n";
+        }
+    }
+
+    // 关闭所有块
+    for (int i = NESTING_DEPTH - 1; i >= 0; --i) {
+        deep_nested_code += std::string(i, ' ') + "}\n";
+    }
+
+    auto [ast, tokens] = parse_and_get_tokens(deep_nested_code);
+
+    // 记录初始内存使用
+    size_t initial_memory = getCurrentMemoryUsage();
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    // 记录最终内存使用
+    size_t final_memory = getCurrentMemoryUsage();
+
+    // 验证错误检测
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_EQ(errors.size(), NESTING_DEPTH / 10);
+
+    // 验证内存使用是否在合理范围内（比如不超过初始内存的两倍）
+    EXPECT_LT(final_memory, initial_memory * 2);
+}
+
+// 测试资源清理和恢复
+TEST(SemanticRecoveryTest, ResourceCleanupRecovery) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        // 测试资源管理
+        {
+            number x = 1;
+            {
+                string x = "hello";  // 错误：重复声明
+                number y = 2;
+                {
+                    bool x = true;   // 错误：重复声明
+                    string z = 42;   // 错误：类型不匹配
+                }
+                // y 应该仍然可用
+                number w = y + 1;
+            }
+            // x 应该仍然可用
+            number v = x + 1;
+        }
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_GE(errors.size(), 3);
+
+    // 验证符号表状态
+    // 这需要添加一些辅助方法来检查符号表状态
+    // EXPECT_TRUE(analyzer.isSymbolTableConsistent());
+}
+
+// 辅助函数：获取当前内存使用量
+size_t getCurrentMemoryUsage() {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        return pmc.WorkingSetSize;
+    }
+#else
+    // Linux/Unix 系统
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        return usage.ru_maxrss * 1024;  // 转换为字节
+    }
+#endif
+    return 0;  // 如果无法获取内存使用量
+}
