@@ -3,11 +3,21 @@
  * @Date: 2025-01-05
  */
 #include <gtest/gtest.h>
+#include <chrono>
+#include <string>
+#ifdef _WIN32
+#include <windows.h>
+#include <psapi.h>
+#else
+#include <sys/resource.h>
+#endif
+
 #include "../semantic/semantic_analyzer.h"
 #include "../parser/parser.h"
 #include "../lexer/lexer.h"
 
 using namespace collie;
+using namespace std::chrono;
 
 // 辅助函数：解析源代码并返回AST和tokens
 std::pair<std::vector<std::unique_ptr<Stmt>>, std::vector<Token>>
