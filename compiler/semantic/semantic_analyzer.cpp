@@ -10,15 +10,13 @@
 
 namespace collie {
 
+// -----------------------------------------------------------------------------
+// 公共接口实现
+// -----------------------------------------------------------------------------
+
 void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& statements) {
     // 清理之前的状态
-    errors_.clear();
-    in_panic_mode_ = false;
-    current_token_index_ = 0;
-    current_type_ = TokenType::INVALID;
-    current_function_ = nullptr;
-    has_return_ = false;
-    loop_depth_ = 0;
+    reset_state();
 
     // 分析每个顶层语句
     for (const auto& stmt : statements) {
@@ -33,6 +31,10 @@ void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& stateme
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// 错误处理相关方法
+// -----------------------------------------------------------------------------
 
 void SemanticAnalyzer::record_error(const SemanticError& error) {
     errors_.push_back(error);
@@ -934,6 +936,20 @@ void SemanticAnalyzer::advance_token() {
     if (current_token_index_ < tokens_.size() - 1) {
         current_token_index_++;
     }
+}
+
+// -----------------------------------------------------------------------------
+// 私有辅助方法
+// -----------------------------------------------------------------------------
+
+void SemanticAnalyzer::reset_state() {
+    errors_.clear();
+    in_panic_mode_ = false;
+    current_token_index_ = 0;
+    current_type_ = TokenType::INVALID;
+    current_function_ = nullptr;
+    has_return_ = false;
+    loop_depth_ = 0;
 }
 
 } // namespace collie
