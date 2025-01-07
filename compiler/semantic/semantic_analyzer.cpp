@@ -67,7 +67,7 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
         case TokenType::OP_PLUS:
             // 字符串连接
             if (left_type == TokenType::KW_STRING || right_type == TokenType::KW_STRING) {
-                if (!is_string_convertible(left_type) || !is_string_convertible(right_type)) {
+                if (!is_string_concatenable(left_type) || !is_string_concatenable(right_type)) {
                     throw SemanticError("Invalid operands for string concatenation",
                         expr.op().line(), expr.op().column());
                 }
@@ -87,9 +87,9 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
             current_type_ = common_type(left_type, right_type);
             break;
 
-        // 比较运算符
         case TokenType::OP_EQUAL:
         case TokenType::OP_NOT_EQUAL:
+            // 比较运算符
             if (!is_comparable_type(left_type, right_type)) {
                 throw SemanticError("Incomparable operand types",
                     expr.op().line(), expr.op().column());
@@ -194,12 +194,23 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
 
 void SemanticAnalyzer::visitBlock(const BlockStmt& stmt) {
     symbols_.begin_scope();
+    bool had_return = has_return_;
 
     for (const auto& statement : stmt.statements()) {
+        // 如果已经有返回值，后面的代码不可达
+        if (has_return_) {
+            throw SemanticError("Unreachable code after return statement",
+                statement->token().line(), statement->token().column());
+        }
         statement->accept(*this);
     }
 
+    // 如果块中有返回语句，整个块都有返回值
+    bool block_returns = has_return_;
     symbols_.end_scope();
+
+    // 恢复外层的返回值状态
+    has_return_ = had_return || block_returns;
 }
 
 void SemanticAnalyzer::visitIf(const IfStmt& stmt) {
@@ -207,20 +218,31 @@ void SemanticAnalyzer::visitIf(const IfStmt& stmt) {
     stmt.condition()->accept(*this);
     if (current_type_ != TokenType::KW_BOOL) {
         throw SemanticError("If condition must be a boolean expression",
-            stmt.if_token().line(), stmt.if_token().column());
+            stmt.condition()->token().line(), stmt.condition()->token().column());
     }
+
+    // 记录当前的返回值状态
+    bool had_return = has_return_;
+    bool then_returns = false;
+    bool else_returns = false;
 
     // 分析 then 分支
     symbols_.begin_scope();
     stmt.then_branch()->accept(*this);
+    then_returns = has_return_;
     symbols_.end_scope();
 
     // 分析 else 分支（如果存在）
     if (stmt.else_branch()) {
+        has_return_ = had_return;  // 重置返回值状态
         symbols_.begin_scope();
         stmt.else_branch()->accept(*this);
+        else_returns = has_return_;
         symbols_.end_scope();
     }
+
+    // 只有当两个分支都有返回值时，整个 if 语句才有返回值
+    has_return_ = had_return || (then_returns && else_returns);
 }
 
 void SemanticAnalyzer::visitWhile(const WhileStmt& stmt) {
@@ -228,39 +250,49 @@ void SemanticAnalyzer::visitWhile(const WhileStmt& stmt) {
     stmt.condition()->accept(*this);
     if (current_type_ != TokenType::KW_BOOL) {
         throw SemanticError("While condition must be a boolean expression",
-            stmt.while_token().line(), stmt.while_token().column());
+            stmt.condition()->token().line(), stmt.condition()->token().column());
     }
 
-    // 分析循环体
+    // 记录当前的返回值状态
+    bool had_return = has_return_;
+
+    // 进入循环体
     symbols_.begin_scope();
+    loop_depth_++;
     stmt.body()->accept(*this);
+    loop_depth_--;
     symbols_.end_scope();
+
+    // 循环可能不执行，所以不能保证有返回值
+    has_return_ = had_return;
 }
 
 void SemanticAnalyzer::visitFor(const ForStmt& stmt) {
     symbols_.begin_scope();
 
-    // 分析初始化语句（如果存在）
+    // 检查初始化语句
     if (stmt.initializer()) {
         stmt.initializer()->accept(*this);
     }
 
-    // 检查条件表达式（如果存在）
+    // 检查条件表达式
     if (stmt.condition()) {
         stmt.condition()->accept(*this);
         if (current_type_ != TokenType::KW_BOOL) {
             throw SemanticError("For condition must be a boolean expression",
-                stmt.for_token().line(), stmt.for_token().column());
+                stmt.condition()->token().line(), stmt.condition()->token().column());
         }
     }
 
-    // 分析增量表达式（如果存在）
+    // 检查增量表达式
     if (stmt.increment()) {
         stmt.increment()->accept(*this);
     }
 
-    // 分析循环体
+    // 进入循环体
+    loop_depth_++;
     stmt.body()->accept(*this);
+    loop_depth_--;
 
     symbols_.end_scope();
 }
@@ -268,9 +300,16 @@ void SemanticAnalyzer::visitFor(const ForStmt& stmt) {
 void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
     // 检查函数是否已在当前作用域中定义
     std::string name(stmt.name().lexeme());
-    if (symbols_.is_defined_in_current_scope(name)) {
-        throw SemanticError("Function '" + name + "' is already defined",
-            stmt.name().line(), stmt.name().column());
+
+    // 获取所有同名函数
+    std::vector<Symbol*> overloads = symbols_.resolve_overloads(name);
+
+    // 检查是否有完全相同的函数签名
+    for (const auto* overload : overloads) {
+        if (is_same_signature(*overload, stmt)) {
+            throw SemanticError("Function '" + name + "' with same signature is already defined",
+                stmt.name().line(), stmt.name().column());
+        }
     }
 
     // 创建函数符号
@@ -279,38 +318,53 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
         stmt.return_type(),
         stmt.name(),
         symbols_.current_scope_level(),
-        true  // 函数定义时就认为是已初始化的
+        true,  // 函数定义时就认为是已初始化的
+        false, // 不是常量
+        {}     // 参数列表先为空
     };
 
-    // 保存当前函数上下文
+    // 保存当前函数以供 return 语句检查
     Symbol* previous_function = current_function_;
     current_function_ = &function;
 
     // 进入函数作用域
     symbols_.begin_scope();
 
+    // 重置返回值标记
+    has_return_ = false;
+
     // 处理参数
     for (const auto& param : stmt.parameters()) {
+        // 检查参数名是否重复
         if (symbols_.is_defined_in_current_scope(std::string(param.name.lexeme()))) {
             throw SemanticError("Duplicate parameter name '" +
                 std::string(param.name.lexeme()) + "'",
                 param.name.line(), param.name.column());
         }
 
-        Symbol parameter{
+        // 创建参数符号
+        Symbol param_symbol{
             SymbolKind::PARAMETER,
             param.type,
             param.name,
             symbols_.current_scope_level(),
-            true  // 参数在函数调用时会被初始化
+            true  // 参数总是已初始化的
         };
 
-        symbols_.define(parameter);
-        function.parameters.push_back(parameter);
+        // 添加到函数的参数列表
+        function.parameters.push_back(param_symbol);
+        // 添加到当前作用域
+        symbols_.define(param_symbol);
     }
 
     // 分析函数体
     stmt.body()->accept(*this);
+
+    // 检查是否所有路径都有返回值
+    if (stmt.return_type().type() != TokenType::KW_NONE && !has_return_) {
+        throw SemanticError("Function '" + name + "' must return a value in all code paths",
+            stmt.name().line(), stmt.name().column());
+    }
 
     // 退出函数作用域
     symbols_.end_scope();
@@ -318,7 +372,7 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
     // 恢复之前的函数上下文
     current_function_ = previous_function;
 
-    // 在当前作用域中定义函数
+    // 将函数添加到当前作用域
     symbols_.define(function);
 }
 
@@ -326,44 +380,95 @@ void SemanticAnalyzer::visitCall(const CallExpr& expr) {
     // 先获取被调用的表达式
     const IdentifierExpr* callee = dynamic_cast<const IdentifierExpr*>(expr.callee().get());
     if (!callee) {
-        std::string message = "Invalid function call target";
-        throw SemanticError(message, expr.paren().line(), expr.paren().column());
+        throw SemanticError("Invalid function call target",
+            expr.paren().line(), expr.paren().column());
     }
-
-    // 分析被调用的表达式
-    expr.callee()->accept(*this);
 
     std::string name(callee->name().lexeme());
-    Symbol* function = symbols_.resolve(std::string(callee->name().lexeme()));
-    if (!function || function->kind != SymbolKind::FUNCTION) {
-        std::string message = std::string("'") + name + "' is not a function";
-        throw SemanticError(message, callee->name().line(), callee->name().column());
+
+    // 获取所有同名函数
+    std::vector<Symbol*> overloads = symbols_.resolve_overloads(name);
+    if (overloads.empty()) {
+        throw SemanticError("Undefined function '" + name + "'",
+            callee->name().line(), callee->name().column());
     }
 
-    // 检查参数数量
-    if (expr.arguments().size() != function->parameters.size()) {
-        std::string message = std::string("Expected ") +
-                            std::to_string(function->parameters.size()) +
-                            " arguments but got " +
-                            std::to_string(expr.arguments().size());
-        throw SemanticError(message, expr.paren().line(), expr.paren().column());
+    // 分析所有参数
+    std::vector<TokenType> arg_types;
+    for (const auto& arg : expr.arguments()) {
+        arg->accept(*this);
+        arg_types.push_back(current_type_);
     }
 
-    // 检查参数类型
-    for (size_t i = 0; i < expr.arguments().size(); ++i) {
-        expr.arguments()[i]->accept(*this);
-        if (!is_compatible_type(function->parameters[i].type.type(), current_type_)) {
-            std::string message = std::string("Invalid argument type for parameter '") +
-                                std::string(function->parameters[i].name.lexeme()) + "'";
-            throw SemanticError(message, expr.paren().line(), expr.paren().column());
-        }
+    // 查找最匹配的重载函数
+    Symbol* best_match = find_best_overload(overloads, arg_types, expr.paren());
+    if (!best_match) {
+        throw SemanticError("No matching overload for function '" + name + "'",
+            expr.paren().line(), expr.paren().column());
     }
 
     // 设置返回类型
-    current_type_ = function->type.type();
+    current_type_ = best_match->type.type();
+}
+
+// 辅助方法：检查函数签名是否相同
+bool SemanticAnalyzer::is_same_signature(const Symbol& func1, const FunctionStmt& func2) {
+    if (func1.parameters.size() != func2.parameters().size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < func1.parameters.size(); ++i) {
+        if (func1.parameters[i].type.type() != func2.parameters()[i].type.type()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// 辅助方法：查找最匹配的重载函数
+Symbol* SemanticAnalyzer::find_best_overload(
+    const std::vector<Symbol*>& overloads,
+    const std::vector<TokenType>& arg_types,
+    const Token& error_location) {
+
+    Symbol* best_match = nullptr;
+    int best_score = -1;
+
+    for (Symbol* overload : overloads) {
+        if (overload->parameters.size() != arg_types.size()) {
+            continue;
+        }
+
+        int score = 0;
+        bool match = true;
+        for (size_t i = 0; i < arg_types.size(); ++i) {
+            TokenType param_type = overload->parameters[i].type.type();
+            TokenType arg_type = arg_types[i];
+
+            if (is_compatible_type(param_type, arg_type)) {
+                if (param_type == arg_type) {
+                    score += 2;  // 完全匹配
+                } else {
+                    score += 1;  // 需要转换
+                }
+            } else {
+                match = false;
+                break;
+            }
+        }
+
+        if (match && score > best_score) {
+            best_score = score;
+            best_match = overload;
+        }
+    }
+
+    return best_match;
 }
 
 void SemanticAnalyzer::visitAssign(const AssignExpr& expr) {
+    // 先检查变量是否存在
     std::string name(expr.name().lexeme());
     Symbol* symbol = symbols_.resolve(name);
     if (!symbol) {
@@ -377,42 +482,43 @@ void SemanticAnalyzer::visitAssign(const AssignExpr& expr) {
             expr.name().line(), expr.name().column());
     }
 
-    if (symbol->kind != SymbolKind::VARIABLE && symbol->kind != SymbolKind::PARAMETER) {
-        throw SemanticError("Cannot assign to '" + name + "'",
-            expr.name().line(), expr.name().column());
-    }
-
+    // 分析赋值表达式
     expr.value()->accept(*this);
-    if (!is_compatible_type(symbol->type.type(), current_type_)) {
+    TokenType value_type = current_type_;
+
+    // 检查类型兼容性
+    if (!is_compatible_type(symbol->type.type(), value_type)) {
         throw SemanticError("Cannot assign value of type '" +
-            std::to_string(static_cast<int>(current_type_)) +
-            "' to variable of type '" +
-            std::to_string(static_cast<int>(symbol->type.type())) + "'",
+            type_to_string(value_type) + "' to variable of type '" +
+            type_to_string(symbol->type.type()) + "'",
             expr.name().line(), expr.name().column());
     }
 
-    // 标记变量为已初始化和已修改
+    // 标记变量已初始化
     symbol->is_initialized = true;
     symbol->is_modified = true;
+
+    // 赋值表达式的类型是被赋值的变量的类型
     current_type_ = symbol->type.type();
 }
 
 void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
-    // 分析一元表达式的操作数
+    // 分析操作数
     expr.operand()->accept(*this);
     TokenType operand_type = current_type_;
 
-    // 检查操作符类型兼容性
     switch (expr.op().type()) {
         case TokenType::OP_MINUS:
-            if (!is_numeric_type(operand_type)) {
+            // 数值取反
+            if (!is_numeric_convertible(operand_type)) {
                 throw SemanticError("Numeric operand expected for unary minus",
                     expr.op().line(), expr.op().column());
             }
-            current_type_ = TokenType::KW_NUMBER;
+            current_type_ = operand_type;
             break;
 
         case TokenType::OP_NOT:
+            // 逻辑取反
             if (operand_type != TokenType::KW_BOOL) {
                 throw SemanticError("Boolean operand expected for logical not",
                     expr.op().line(), expr.op().column());
@@ -421,6 +527,7 @@ void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
             break;
 
         case TokenType::OP_BIT_NOT:
+            // 位取反
             if (!is_bit_type(operand_type)) {
                 throw SemanticError("Bit operand expected for bitwise not",
                     expr.op().line(), expr.op().column());
@@ -429,7 +536,7 @@ void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
             break;
 
         default:
-            throw SemanticError("Invalid unary operator",
+            throw SemanticError("Unknown unary operator",
                 expr.op().line(), expr.op().column());
     }
 }
@@ -458,12 +565,27 @@ bool SemanticAnalyzer::is_numeric_type(TokenType type) const {
     return type == TokenType::KW_NUMBER;
 }
 
-bool SemanticAnalyzer::is_compatible_type(TokenType left, TokenType right) const {
-    if (left == right) return true;
+bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) const {
+    // 相同类型总是兼容的
+    if (expected == actual) return true;
 
-    // 特殊情况：数字类型的兼容性
-    if (is_numeric_type(left) && is_numeric_type(right)) {
+    // 检查数值类型的兼容性
+    if (is_numeric_convertible(expected) && is_numeric_convertible(actual)) {
+        // 允许从小类型到大类型的隐式转换
+        if (expected == TokenType::KW_NUMBER) {
+            return true;  // 任何数值类型都可以转换为 number
+        }
+        if (expected == TokenType::KW_WORD && actual == TokenType::KW_BYTE) {
+            return true;
+        }
+    }
+
+    // 检查字符类型的兼容性
+    if (expected == TokenType::KW_CHARACTER && actual == TokenType::KW_CHAR) {
         return true;
+    }
+    if (expected == TokenType::KW_STRING) {
+        return is_string_convertible(actual);
     }
 
     return false;
@@ -507,22 +629,27 @@ void SemanticAnalyzer::visitReturn(const ReturnStmt& stmt) {
     if (stmt.value()) {
         // 有返回值，检查类型匹配
         stmt.value()->accept(*this);
-        if (!is_compatible_type(current_function_->type.type(), current_type_)) {
+        TokenType return_type = current_function_->type.type();
+        TokenType value_type = current_type_;
+
+        if (!is_compatible_type(return_type, value_type)) {
             std::string message = "Cannot return value of type '" +
-                std::to_string(static_cast<int>(current_type_)) +
-                "' from function with return type '" +
-                std::to_string(static_cast<int>(current_function_->type.type())) + "'";
+                type_to_string(value_type) + "' from function with return type '" +
+                type_to_string(return_type) + "'";
             throw SemanticError(message, stmt.keyword().line(), stmt.keyword().column());
         }
     } else {
         // 无返回值，检查函数是否声明为 none 返回类型
         if (current_function_->type.type() != TokenType::KW_NONE) {
             std::string message = "Function with return type '" +
-                std::to_string(static_cast<int>(current_function_->type.type())) +
+                type_to_string(current_function_->type.type()) +
                 "' must return a value";
             throw SemanticError(message, stmt.keyword().line(), stmt.keyword().column());
         }
     }
+
+    // 标记此路径已有返回值
+    has_return_ = true;
 }
 
 // 添加新的辅助方法
@@ -580,11 +707,12 @@ bool SemanticAnalyzer::can_implicit_convert(TokenType from, TokenType to) const 
 }
 
 TokenType SemanticAnalyzer::common_type(TokenType t1, TokenType t2) const {
-    // 如果类型相同，直接返回
+    // 相同类型直接返回
     if (t1 == t2) return t1;
 
-    // 如果都是数值类型，返回最大的类型
+    // 数值类型的共同类型
     if (is_numeric_convertible(t1) && is_numeric_convertible(t2)) {
+        // 返回最大的类型
         if (t1 == TokenType::KW_NUMBER || t2 == TokenType::KW_NUMBER)
             return TokenType::KW_NUMBER;
         if (t1 == TokenType::KW_WORD || t2 == TokenType::KW_WORD)
@@ -592,16 +720,16 @@ TokenType SemanticAnalyzer::common_type(TokenType t1, TokenType t2) const {
         return TokenType::KW_BYTE;
     }
 
+    // 字符类型的共同类型
+    if ((t1 == TokenType::KW_CHAR || t1 == TokenType::KW_CHARACTER) &&
+        (t2 == TokenType::KW_CHAR || t2 == TokenType::KW_CHARACTER)) {
+        return TokenType::KW_CHARACTER;
+    }
+
     // 如果有一个是字符串类型，且另一个可以转换为字符串
     if ((t1 == TokenType::KW_STRING && is_string_convertible(t2)) ||
         (t2 == TokenType::KW_STRING && is_string_convertible(t1))) {
         return TokenType::KW_STRING;
-    }
-
-    // 如果都是字符类型，返回最大的类型
-    if ((t1 == TokenType::KW_CHAR || t1 == TokenType::KW_CHARACTER) &&
-        (t2 == TokenType::KW_CHAR || t2 == TokenType::KW_CHARACTER)) {
-        return TokenType::KW_CHARACTER;
     }
 
     // 无法找到共同类型
@@ -622,6 +750,62 @@ bool SemanticAnalyzer::is_string_convertible(TokenType type) const {
            type == TokenType::KW_BOOL ||
            type == TokenType::KW_BYTE ||
            type == TokenType::KW_WORD;
+}
+
+void SemanticAnalyzer::visitBreak(const BreakStmt& stmt) {
+    if (!in_loop()) {
+        throw SemanticError("Cannot use 'break' outside of a loop.",
+            stmt.keyword().line(), stmt.keyword().column());
+    }
+}
+
+void SemanticAnalyzer::visitContinue(const ContinueStmt& stmt) {
+    if (!in_loop()) {
+        throw SemanticError("Cannot use 'continue' outside of a loop.",
+            stmt.keyword().line(), stmt.keyword().column());
+    }
+}
+
+// 辅助方法：将类型转换为字符串
+std::string SemanticAnalyzer::type_to_string(TokenType type) const {
+    switch (type) {
+        case TokenType::KW_NUMBER: return "number";
+        case TokenType::KW_STRING: return "string";
+        case TokenType::KW_BOOL: return "bool";
+        case TokenType::KW_CHAR: return "char";
+        case TokenType::KW_CHARACTER: return "character";
+        case TokenType::KW_BYTE: return "byte";
+        case TokenType::KW_WORD: return "word";
+        case TokenType::KW_DWORD: return "dword";
+        case TokenType::KW_NONE: return "none";
+        case TokenType::KW_OBJECT: return "object";
+        default: return "unknown";
+    }
+}
+
+int SemanticAnalyzer::calculate_overload_score(
+    const Symbol& func,
+    const std::vector<TokenType>& arg_types) {
+
+    if (func.parameters.size() != arg_types.size()) {
+        return -1;
+    }
+
+    int score = 0;
+    for (size_t i = 0; i < arg_types.size(); ++i) {
+        TokenType param_type = func.parameters[i].type.type();
+        TokenType arg_type = arg_types[i];
+
+        if (param_type == arg_type) {
+            score += 2;  // 完全匹配
+        } else if (is_compatible_type(param_type, arg_type)) {
+            score += 1;  // 需要转换
+        } else {
+            return -1;  // 不兼容
+        }
+    }
+
+    return score;
 }
 
 } // namespace collie

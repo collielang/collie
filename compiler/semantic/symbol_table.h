@@ -60,9 +60,12 @@ public:
     // 判断符号是否已在当前作用域中定义
     bool is_defined(const std::string& name) const;
 
+    // 获取所有同名的函数重载
+    std::vector<Symbol*> resolve_overloads(const std::string& name);
+
 private:
     size_t level_;  // 作用域层级
-    std::unordered_map<std::string, Symbol> symbols_;  // 符号表
+    std::unordered_multimap<std::string, Symbol> symbols_;  // 符号表，支持重载
 };
 
 // 符号表
@@ -81,6 +84,9 @@ public:
 
     // 获取当前作用域层级
     size_t current_scope_level() const { return scopes_.size() - 1; }
+
+    // 获取所有同名的函数重载
+    std::vector<Symbol*> resolve_overloads(const std::string& name);
 
 private:
     std::vector<Scope> scopes_;  // 作用域栈

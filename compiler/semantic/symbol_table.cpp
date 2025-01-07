@@ -8,7 +8,14 @@ namespace collie {
 
 void Scope::define(const Symbol& symbol) {
     std::string name(symbol.name.lexeme());
-    symbols_.insert_or_assign(name, symbol);
+
+    // 如果是函数，支持重载
+    if (symbol.kind == SymbolKind::FUNCTION) {
+        symbols_.emplace(name, symbol);
+    } else {
+        // 非函数符号，直接替换
+        symbols_.insert_or_assign(name, symbol);
+    }
 }
 
 Symbol* Scope::resolve(const std::string& name) {
@@ -54,6 +61,32 @@ bool SymbolTable::is_defined_in_current_scope(const std::string& name) const {
         return scopes_.back().is_defined(name);
     }
     return false;
+}
+
+std::vector<Symbol*> SymbolTable::resolve_overloads(const std::string& name) {
+    std::vector<Symbol*> overloads;
+
+    // 从内层作用域向外层查找
+    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+        auto symbols = it->resolve_overloads(name);
+        overloads.insert(overloads.end(), symbols.begin(), symbols.end());
+    }
+
+    return overloads;
+}
+
+std::vector<Symbol*> Scope::resolve_overloads(const std::string& name) {
+    std::vector<Symbol*> overloads;
+
+    // 在当前作用域中查找所有同名函数
+    auto range = symbols_.equal_range(name);
+    for (auto it = range.first; it != range.second; ++it) {
+        if (it->second.kind == SymbolKind::FUNCTION) {
+            overloads.push_back(&(it->second));
+        }
+    }
+
+    return overloads;
 }
 
 } // namespace collie
