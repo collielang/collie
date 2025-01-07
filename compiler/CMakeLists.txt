@@ -82,11 +82,17 @@ target_link_libraries(semantic
     PUBLIC collie_compiler
 )
 
-# 语义分析器测试
+# 测试工具库
 add_library(test_utils STATIC
     tests/test_utils.cpp
 )
+target_link_libraries(test_utils
+    PUBLIC collie_compiler
+    PUBLIC semantic
+)
+target_include_directories(test_utils PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 
+# 语义分析器测试
 add_executable(semantic_tests
     tests/semantic_analyzer_test.cpp
     tests/semantic_error_test.cpp

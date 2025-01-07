@@ -19,6 +19,8 @@
 #endif
 
 #include "../parser/ast.h"
+#include "../parser/parser.h"
+#include "../lexer/lexer.h"
 #include "../lexer/token.h"
 
 namespace collie {

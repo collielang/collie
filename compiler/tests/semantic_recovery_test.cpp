@@ -50,7 +50,7 @@ TEST(SemanticRecoveryTest, StatementBoundaryRecovery) {
 TEST(SemanticRecoveryTest, BlockRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         {
             // 错误语句
             string x = 42;
@@ -80,7 +80,7 @@ TEST(SemanticRecoveryTest, BlockRecovery) {
 TEST(SemanticRecoveryTest, FunctionRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number func1() {
             // 错误语句
             string x = 42;
@@ -112,7 +112,7 @@ TEST(SemanticRecoveryTest, FunctionRecovery) {
 TEST(SemanticRecoveryTest, ControlFlowRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number x = 1;
 
         if (x > 0) {
@@ -150,7 +150,7 @@ TEST(SemanticRecoveryTest, ControlFlowRecovery) {
 TEST(SemanticRecoveryTest, ExpressionRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number x = 1;
         number y = (x + "hello") + (x + 2);  // 第一个表达式错误，第二个正确
         number z = (true + 42) + (x + 3);    // 第一个表达式错误，第二个正确
@@ -168,7 +168,7 @@ TEST(SemanticRecoveryTest, ExpressionRecovery) {
 TEST(SemanticRecoveryTest, DeclarationRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 错误的变量声明
         string x = 42;
 
@@ -198,7 +198,7 @@ TEST(SemanticRecoveryTest, DeclarationRecovery) {
 TEST(SemanticRecoveryTest, ComplexNestedRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number outer = 1;
 
         // 复杂嵌套结构
@@ -238,7 +238,7 @@ TEST(SemanticRecoveryTest, ComplexNestedRecovery) {
 TEST(SemanticRecoveryTest, FunctionCallChainRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number add(number x, number y) {
             return x + y;
         }
@@ -277,7 +277,7 @@ TEST(SemanticRecoveryTest, FunctionCallChainRecovery) {
 TEST(SemanticRecoveryTest, ComplexExpressionRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number x = 1;
         number y = 2;
         string s = "hello";
@@ -304,7 +304,7 @@ TEST(SemanticRecoveryTest, ComplexExpressionRecovery) {
 TEST(SemanticRecoveryTest, ScopeLifetimeRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         {
             number x = 1;
             {
@@ -338,7 +338,7 @@ TEST(SemanticRecoveryTest, ScopeLifetimeRecovery) {
 TEST(SemanticRecoveryTest, SymbolTableConsistency) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 正确的声明
         number x = 1;
 
@@ -366,7 +366,7 @@ TEST(SemanticRecoveryTest, SymbolTableConsistency) {
 TEST(SemanticRecoveryTest, EdgeCaseRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 空函数体中的错误
         void empty() {
             // 错误1：空函数体中的无效语句
@@ -399,7 +399,7 @@ TEST(SemanticRecoveryTest, EdgeCaseRecovery) {
 TEST(SemanticRecoveryTest, RecursiveFunctionRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number factorial(number n) {
             if (n <= 1) {
                 // 错误1：返回类型不匹配
@@ -428,7 +428,7 @@ TEST(SemanticRecoveryTest, RecursiveFunctionRecovery) {
 TEST(SemanticRecoveryTest, TypeInferenceRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 复杂的类型推导场景
         number x = 1;
         string s = "hello";
@@ -458,7 +458,7 @@ TEST(SemanticRecoveryTest, TypeInferenceRecovery) {
 TEST(SemanticRecoveryTest, ErrorRecoveryPriority) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         void process(number x) {
             // 多个错误在同一表达式中
             string result = (
@@ -485,7 +485,7 @@ TEST(SemanticRecoveryTest, ErrorRecoveryPriority) {
 TEST(SemanticRecoveryTest, StateConsistencyRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 测试错误后的状态恢复
         number global = 1;
 
@@ -522,7 +522,7 @@ TEST(SemanticRecoveryTest, StateConsistencyRecovery) {
 TEST(SemanticRecoveryTest, LoopConditionRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         number count = 0;
 
         // 测试循环中的错误恢复
@@ -562,7 +562,7 @@ TEST(SemanticRecoveryTest, LoopConditionRecovery) {
 TEST(SemanticRecoveryTest, ComplexTypeConversionRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 测试隐式类型转换
         byte b = 255;
         word w = b;      // 正确：byte 可以转换为 word
@@ -615,7 +615,7 @@ TEST(SemanticRecoveryTest, LargeScaleRecoveryPerformance) {
         large_code += "        }\n";
     }
 
-    auto [ast, tokens] = parse_and_get_tokens(large_code);
+    auto [ast, tokens] = test::parse_and_get_tokens(large_code);
 
     // 记录开始时间
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -641,7 +641,7 @@ TEST(SemanticRecoveryTest, LargeScaleRecoveryPerformance) {
 TEST(SemanticRecoveryTest, RecoveryRobustness) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 测试各种极端情况
 
         // 1. 空语句和注释
@@ -731,7 +731,7 @@ TEST(SemanticRecoveryTest, MemoryUsageRecovery) {
         deep_nested_code += std::string(i, ' ') + "}\n";
     }
 
-    auto [ast, tokens] = parse_and_get_tokens(deep_nested_code);
+    auto [ast, tokens] = test::parse_and_get_tokens(deep_nested_code);
 
     // 记录初始内存使用
     size_t initial_memory = collie::test::getCurrentMemoryUsage();
@@ -755,7 +755,7 @@ TEST(SemanticRecoveryTest, MemoryUsageRecovery) {
 TEST(SemanticRecoveryTest, ResourceCleanupRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 测试资源管理
         {
             number x = 1;
@@ -790,7 +790,7 @@ TEST(SemanticRecoveryTest, ResourceCleanupRecovery) {
 TEST(SemanticRecoveryTest, ArrayOperationRecovery) {
     SemanticAnalyzer analyzer;
 
-    auto [ast, tokens] = parse_and_get_tokens(R"(
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 数组声明和操作
         number[] arr = [1, 2, 3];
 
