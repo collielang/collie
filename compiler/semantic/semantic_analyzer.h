@@ -12,6 +12,7 @@
 #include "semantic_common.h"
 #include "symbol_table.h"
 #include "../parser/ast.h"
+#include "../lexer/token.h"
 
 namespace collie {
 
@@ -118,6 +119,12 @@ private:
      * 跳过当前错误的语句，直到找到一个可以继续分析的位置
      */
     void synchronize();
+
+    /**
+     * @brief 检查当前 token 是否是同步点
+     * @return 如果是同步点返回 true
+     */
+    bool is_synchronization_point() const;
 
     // -----------------------------------------------------------------------------
     // 类型检查辅助方法
@@ -233,6 +240,10 @@ private:
         return type == TokenType::KW_TUPLE;
     }
 
+    bool is_array_type(TokenType type) const {
+        return type == TokenType::KW_ARRAY;
+    }
+
     /**
      * @brief 检查两个元组类型是否兼容
      * @param expected 期望的元组类型
@@ -279,13 +290,6 @@ private:
      * @return 类型的字符串表示
      */
     std::string token_type_to_string(TokenType type) const;
-
-    /**
-     * @brief 检查类型是否可以进行字符串连接操作
-     * @param type 要检查的类型
-     * @return 如果类型可以进行字符串连接则返回 true
-     */
-    bool is_string_concatenable(TokenType type) const;
 
     /**
      * @brief 检查类型是否支持比较运算

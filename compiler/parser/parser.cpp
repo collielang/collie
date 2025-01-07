@@ -28,6 +28,8 @@
 #include <cassert>
 #include <sstream>
 
+using namespace collie;
+
 namespace collie {
 
 // -----------------------------------------------------------------------------
@@ -257,7 +259,7 @@ std::unique_ptr<Expr> Parser::parse_primary() {
         if (match(TokenType::LITERAL_STRING)) {
             return std::make_unique<LiteralExpr>(previous());
         }
-        if (match(TokenType::LITERAL_BOOL)) {
+        if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE)) {
             return std::make_unique<LiteralExpr>(previous());
         }
         if (match(TokenType::IDENTIFIER)) {
@@ -270,7 +272,7 @@ std::unique_ptr<Expr> Parser::parse_primary() {
         }
         if (match(TokenType::DELIMITER_LPAREN)) {
             if (check(TokenType::DELIMITER_RPAREN) || check(TokenType::IDENTIFIER) ||
-                is_literal_token(peek().type())) {
+                is_literal_token(peek())) {
                 return parse_tuple_expr();
             }
             auto expr = parse_expression();
@@ -295,13 +297,20 @@ std::unique_ptr<Expr> Parser::finish_call(const Token& callee) {
             if (arguments.size() >= 255) {
                 throw error(peek(), "Cannot have more than 255 arguments.");
             }
-            arguments.push_back(parse_expression());
+            auto arg = parse_expression();
+            if (arg) {
+                arguments.push_back(std::move(arg));
+            }
         } while (match(TokenType::DELIMITER_COMMA));
     }
 
     Token paren = consume(TokenType::DELIMITER_RPAREN, "Expect ')' after arguments.");
 
-    return std::make_unique<CallExpr>(callee, paren, std::move(arguments));
+    return std::make_unique<CallExpr>(
+        std::make_unique<IdentifierExpr>(callee),
+        paren,
+        std::move(arguments)
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -329,6 +338,30 @@ bool Parser::match(std::initializer_list<TokenType> types) {
 Token Parser::consume(TokenType type, const std::string& message) {
     if (check(type)) return advance();
     throw error(peek(), message);
+}
+
+bool Parser::check(TokenType type) const {
+    if (is_at_end()) {
+        return false;
+    }
+    return peek().type() == type;
+}
+
+bool Parser::is_at_end() const {
+    return peek().type() == TokenType::END_OF_FILE;
+}
+
+Token Parser::peek() const {
+    return tokens_[current_];
+}
+
+Token Parser::previous() const {
+    return tokens_[current_ - 1];
+}
+
+Token Parser::advance() {
+    if (!is_at_end()) current_++;
+    return previous();
 }
 
 // -----------------------------------------------------------------------------
@@ -380,6 +413,22 @@ ParseError Parser::error(const Token& token, const std::string& message) {
 void Parser::check_max_nesting_depth() {
     if (nesting_depth_ > MAX_NESTING_DEPTH) {
         throw error(peek(), "Maximum nesting depth exceeded.");
+    }
+}
+
+bool Parser::is_literal_token(const Token& token) const {
+    switch (token.type()) {
+        case TokenType::LITERAL_NUMBER:
+        case TokenType::LITERAL_STRING:
+        case TokenType::LITERAL_CHAR:
+        case TokenType::LITERAL_CHARACTER:
+        case TokenType::LITERAL_BOOL:
+        case TokenType::KW_TRUE:
+        case TokenType::KW_FALSE:
+        case TokenType::KW_NONE:
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -673,7 +722,7 @@ std::unique_ptr<Stmt> Parser::parse_function_declaration() {
 
             Token param_name = consume(TokenType::IDENTIFIER, "Expect parameter name.");
             Token param_type = consume(TokenType::IDENTIFIER, "Expect parameter type.");
-            parameters.emplace_back(param_name, param_type);
+            parameters.emplace_back(Parameter{param_type, param_name});
         } while (match(TokenType::DELIMITER_COMMA));
     }
     consume(TokenType::DELIMITER_RPAREN, "Expect ')' after parameters.");
@@ -683,45 +732,13 @@ std::unique_ptr<Stmt> Parser::parse_function_declaration() {
 
     // 解析函数体
     consume(TokenType::DELIMITER_LBRACE, "Expect '{' before function body.");
-    auto body = parse_block_statement();
+    auto body = std::unique_ptr<BlockStmt>(dynamic_cast<BlockStmt*>(parse_block_statement().release()));
 
-    return std::make_unique<FunctionStmt>(
-        func_token,
-        name,
-        std::move(parameters),
-        return_type,
-        std::move(body)
-    );
+    return std::make_unique<FunctionStmt>(return_type, name, std::move(parameters), std::move(body));
 }
 
 // -----------------------------------------------------------------------------
-// Token 管理辅助方法
-// -----------------------------------------------------------------------------
-
-bool Parser::check(TokenType type) const {
-    if (is_at_end()) return false;
-    return peek().type() == type;
-}
-
-bool Parser::is_at_end() const {
-    return peek().type() == TokenType::END_OF_FILE;
-}
-
-Token Parser::peek() const {
-    return tokens_[current_];
-}
-
-Token Parser::previous() const {
-    return tokens_[current_ - 1];
-}
-
-Token Parser::advance() {
-    if (!is_at_end()) current_++;
-    return previous();
-}
-
-// -----------------------------------------------------------------------------
-// 错误处理辅助方法（改进）
+// 错误处理辅助方法
 // -----------------------------------------------------------------------------
 
 /**
@@ -780,8 +797,10 @@ std::string Parser::format_error_message(
     if (current_ > 0 && current_ < tokens_.size()) {
         ss << "\nContext: ... ";
         // 显示错误位置前后的 token
-        for (size_t i = std::max(size_t(0), current_ - 2);
-             i < std::min(tokens_.size(), current_ + 3); ++i) {
+        size_t start = (current_ >= 2) ? current_ - 2 : 0;
+        size_t end = (current_ + 3 < tokens_.size()) ? current_ + 3 : tokens_.size();
+
+        for (size_t i = start; i < end; ++i) {
             if (i == current_) ss << ">>> ";
             ss << tokens_[i].lexeme() << " ";
             if (i == current_) ss << "<<< ";
@@ -799,6 +818,8 @@ bool Parser::is_statement_boundary() const {
 }
 
 bool Parser::is_declaration_boundary() const {
+    if (is_at_end()) return false;
+
     switch (peek().type()) {
         case TokenType::KW_CLASS:
         case TokenType::KW_FUNCTION:
@@ -814,13 +835,12 @@ bool Parser::is_declaration_boundary() const {
 }
 
 std::unique_ptr<Type> Parser::parse_type() {
-    // ... 现有代码 ...
-
     if (match(TokenType::DELIMITER_LPAREN)) {  // 元组类型
         return parse_tuple_type();
     }
 
-    // ... 现有代码 ...
+    Token type_name = consume(TokenType::IDENTIFIER, "Expect type name.");
+    return std::make_unique<BasicType>(type_name);
 }
 
 std::unique_ptr<Type> Parser::parse_tuple_type() {
@@ -829,7 +849,10 @@ std::unique_ptr<Type> Parser::parse_tuple_type() {
     // 解析第一个类型
     if (!check(TokenType::DELIMITER_RPAREN)) {
         do {
-            element_types.push_back(parse_type());
+            auto type = parse_type();
+            if (type) {
+                element_types.push_back(std::move(type));
+            }
         } while (match(TokenType::DELIMITER_COMMA));
     }
 
@@ -844,7 +867,10 @@ std::unique_ptr<Expr> Parser::parse_tuple_expr() {
     // 解析第一个表达式
     if (!check(TokenType::DELIMITER_RPAREN)) {
         do {
-            elements.push_back(parse_expression());
+            auto expr = parse_expression();
+            if (expr) {
+                elements.push_back(std::move(expr));
+            }
         } while (match(TokenType::DELIMITER_COMMA));
     }
 
@@ -860,7 +886,8 @@ std::unique_ptr<Expr> Parser::parse_postfix() {
             // 元组成员访问
             if (match(TokenType::LITERAL_NUMBER)) {
                 Token dot = previous();
-                size_t index = std::stoul(previous().lexeme());
+                std::string num_str(previous().lexeme());
+                size_t index = std::stoul(num_str, nullptr, 10);
                 expr = std::make_unique<TupleMemberExpr>(
                     std::move(expr), dot, index);
             } else {

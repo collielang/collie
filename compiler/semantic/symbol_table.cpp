@@ -13,8 +13,10 @@ void Scope::define(const Symbol& symbol) {
     if (symbol.kind == SymbolKind::FUNCTION) {
         symbols_.emplace(name, symbol);
     } else {
-        // 非函数符号，直接替换
-        symbols_.insert_or_assign(name, symbol);
+        // 非函数符号，先删除已存在的，再插入新的
+        auto range = symbols_.equal_range(name);
+        symbols_.erase(range.first, range.second);
+        symbols_.emplace(name, symbol);
     }
 }
 

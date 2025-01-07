@@ -154,15 +154,20 @@ Token Lexer::next_token() {
                 handle_start_state();
                 break;
             case State::IN_NUMBER:
-                handle_number_state();
-                break;
+                return handle_number_state();
             case State::IN_IDENTIFIER:
-                handle_identifier_state();
-                break;
-            // ... 其他状态处理
+                return handle_identifier_state();
+            case State::IN_STRING:
+                return handle_string_state();
+            case State::IN_MULTILINE_STRING:
+                return handle_multiline_string_state();
+            case State::IN_OPERATOR:
+                return handle_operator_state();
+            case State::IN_COMMENT:
+                return handle_comment_state();
         }
     }
-    return make_token();
+    return make_token(TokenType::END_OF_FILE, "");
 }
 
 void Lexer::handle_start_state() {
@@ -598,7 +603,7 @@ std::string utf16_to_utf8(const std::u16string& utf16str) {
  * 解析整数和浮点数字面量
  * @return 数字类型的 token
  */
-void Lexer::handle_number_state() {
+Token Lexer::handle_number_state() {
     size_t start_pos = position_;
     size_t start_col = column_;
     std::string number;
@@ -625,7 +630,7 @@ void Lexer::handle_number_state() {
  * 解析标识符和关键字,支持 UTF-8 编码的中文标识符
  * @return 标识符或关键字类型的 token
  */
-void Lexer::handle_identifier_state() {
+Token Lexer::handle_identifier_state() {
     size_t start_pos = position_;
     size_t start_col = column_;
     std::string identifier;
@@ -668,7 +673,7 @@ void Lexer::handle_identifier_state() {
  * 解析字符串字面量,支持转义序列
  * @return 字符串类型的 token
  */
-void Lexer::handle_string_state() {
+Token Lexer::handle_string_state() {
     size_t start_col = column_;
     advance(); // 消费开始的引号
     std::string value;
@@ -707,7 +712,7 @@ void Lexer::handle_string_state() {
  * 解析三引号包围的多行字符串,保持缩进对齐
  * @return 字符串类型的 token
  */
-void Lexer::handle_multiline_string_state() {
+Token Lexer::handle_multiline_string_state() {
     size_t start_col = column_;
     std::string value;
     size_t indent = column_ - 1;
@@ -746,7 +751,7 @@ void Lexer::handle_multiline_string_state() {
  * 解析单字符和多字符运算符
  * @return 运算符类型的 token
  */
-void Lexer::handle_operator_state() {
+Token Lexer::handle_operator_state() {
     size_t start_col = column_;
     char c = advance();
 
@@ -772,7 +777,7 @@ void Lexer::handle_operator_state() {
  * 跳过单行注释
  * @return 下一个有效的 token
  */
-void Lexer::handle_comment_state() {
+Token Lexer::handle_comment_state() {
     while (!is_at_end() && peek() != '\n') {
         advance();
     }

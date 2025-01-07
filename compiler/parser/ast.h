@@ -16,6 +16,38 @@ namespace collie {
 // 前向声明
 class ExprVisitor;
 class StmtVisitor;
+class TypeVisitor;
+class LiteralExpr;
+class IdentifierExpr;
+class BinaryExpr;
+class UnaryExpr;
+class AssignExpr;
+class CallExpr;
+class TupleExpr;
+class TupleMemberExpr;
+class ExpressionStmt;
+class VarDeclStmt;
+class BlockStmt;
+class IfStmt;
+class WhileStmt;
+class ForStmt;
+class FunctionStmt;
+class ReturnStmt;
+class ClassStmt;
+class BreakStmt;
+class ContinueStmt;
+class BasicType;
+class ArrayType;
+class TupleType;
+
+/**
+ * @brief 类型的基类
+ */
+class Type {
+public:
+    virtual ~Type() = default;
+    virtual void accept(TypeVisitor& visitor) = 0;
+};
 
 /**
  * @brief 表达式基类
@@ -501,6 +533,23 @@ public:
 };
 
 /**
+ * @brief 类型访问者接口
+ */
+class TypeVisitor {
+public:
+    virtual ~TypeVisitor() = default;
+
+    /// @brief 访问基本类型
+    virtual void visitBasicType(const BasicType& type) = 0;
+
+    /// @brief 访问数组类型
+    virtual void visitArrayType(const ArrayType& type) = 0;
+
+    /// @brief 访问元组类型
+    virtual void visitTupleType(const TupleType& type) = 0;
+};
+
+/**
  * 类声明语句节点
  */
 class ClassStmt : public Stmt {
@@ -512,11 +561,7 @@ public:
      */
     ClassStmt(Token name, std::vector<std::unique_ptr<Stmt>> members)
         : name_(name), members_(std::move(members)) {}
-
-    void accept(StmtVisitor& visitor) const override {
-        visitor.visitClass(*this);
-    }
-
+    void accept(StmtVisitor& visitor) const override;
     const Token& name() const { return name_; }
     const std::vector<std::unique_ptr<Stmt>>& members() const { return members_; }
 
@@ -531,9 +576,7 @@ private:
 class BreakStmt : public Stmt {
 public:
     explicit BreakStmt(Token keyword) : keyword_(keyword) {}
-    void accept(StmtVisitor& visitor) const override {
-        visitor.visitBreak(*this);
-    }
+    void accept(StmtVisitor& visitor) const override;
     const Token& keyword() const { return keyword_; }
 
 private:
@@ -546,27 +589,50 @@ private:
 class ContinueStmt : public Stmt {
 public:
     explicit ContinueStmt(Token keyword) : keyword_(keyword) {}
-    void accept(StmtVisitor& visitor) const override {
-        visitor.visitContinue(*this);
-    }
+    void accept(StmtVisitor& visitor) const override;
     const Token& keyword() const { return keyword_; }
 
 private:
     Token keyword_;
 };
 
-// 元组类型节点
+/**
+ * @brief 基本类型
+ */
+class BasicType : public Type {
+public:
+    explicit BasicType(Token name) : name_(name) {}
+    void accept(TypeVisitor& visitor) override;
+    const Token& name() const { return name_; }
+
+private:
+    Token name_;
+};
+
+/**
+ * @brief 数组类型
+ */
+class ArrayType : public Type {
+public:
+    ArrayType(std::unique_ptr<Type> element_type)
+        : element_type_(std::move(element_type)) {}
+    void accept(TypeVisitor& visitor) override;
+    const Type& element_type() const { return *element_type_; }
+
+private:
+    std::unique_ptr<Type> element_type_;
+};
+
+/**
+ * @brief 元组类型
+ */
 class TupleType : public Type {
 public:
     TupleType(std::vector<std::unique_ptr<Type>> element_types)
         : element_types_(std::move(element_types)) {}
-
+    void accept(TypeVisitor& visitor) override;
     const std::vector<std::unique_ptr<Type>>& element_types() const {
         return element_types_;
-    }
-
-    void accept(TypeVisitor& visitor) override {
-        visitor.visitTupleType(*this);
     }
 
 private:
@@ -584,9 +650,7 @@ public:
     }
     const Token& paren() const { return paren_; }
 
-    void accept(ExprVisitor& visitor) override {
-        visitor.visitTuple(*this);
-    }
+    void accept(ExprVisitor& visitor) const override;
 
 private:
     std::vector<std::unique_ptr<Expr>> elements_;
@@ -603,28 +667,12 @@ public:
     const Token& dot() const { return dot_; }
     size_t index() const { return index_; }
 
-    void accept(ExprVisitor& visitor) override {
-        visitor.visitTupleMember(*this);
-    }
+    void accept(ExprVisitor& visitor) const override;
 
 private:
     std::unique_ptr<Expr> tuple_;
     Token dot_;    // 点操作符位置，用于错误报告
     size_t index_; // 成员索引
-};
-
-class TypeVisitor {
-public:
-    virtual ~TypeVisitor() = default;
-
-    /// @brief 访问基本类型
-    virtual void visitBasicType(const BasicType& type) = 0;
-
-    /// @brief 访问数组类型
-    virtual void visitArrayType(const ArrayType& type) = 0;
-
-    /// @brief 访问元组类型
-    virtual void visitTupleType(const TupleType& type) = 0;
 };
 
 } // namespace collie

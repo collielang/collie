@@ -9,10 +9,19 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <stdexcept>
 #include "../lexer/token.h"
 #include "ast.h"
 
 namespace collie {
+
+// 前向声明
+class Type;
+class Expr;
+class Stmt;
+class Token;
+class TupleType;
+class TupleExpr;
 
 /**
  * @brief 语法错误异常类
@@ -58,6 +67,9 @@ public:
     const std::vector<ParseError>& get_errors() const { return errors_; }
 
 private:
+    // 类型解析方法
+    std::unique_ptr<Type> parse_type();
+
     // 语句解析方法
     /**
      * @brief 解析声明语句
@@ -293,6 +305,11 @@ private:
 
     // 错误处理辅助方法
     /**
+     * 处理解析错误
+     */
+    void handle_error(const ParseError& error);
+
+    /**
      * @brief 记录解析错误
      * @param error 要记录的错误
      */
@@ -413,11 +430,25 @@ private:
     /// @brief 解析后缀表达式（包括元组成员访问）
     std::unique_ptr<Expr> parse_postfix();
 
+    /**
+     * @brief 检查当前 token 是否匹配预期类型
+     * @param type 预期的 token 类型
+     * @return 如果匹配返回 true
+     */
+    bool check(TokenType type) const;
+
+    /**
+     * @brief 判断是否是字面量 token
+     * @param token 要判断的 token
+     * @return 如果是字面量返回 true
+     */
+    bool is_literal_token(const Token& token) const;
+
 private:
     const std::vector<Token>& tokens_;
     size_t current_;
     size_t nesting_depth_;
-    bool in_panic_mode_;
+    bool in_panic_mode_;  // 是否处于恐慌模式
     std::vector<ParseError> errors_;
 
     static constexpr size_t MAX_NESTING_DEPTH = 256;

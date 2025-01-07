@@ -1,6 +1,7 @@
 /*
  * @Author: Zhang Bokai <codingzhang@126.com>
- * @Date: 2025-01-05
+ * @Date: 2024-01-07
+ * @Description: AST 节点的 accept 方法实现
  */
 #include "ast.h"
 
@@ -38,6 +39,22 @@ void AssignExpr::accept(ExprVisitor& visitor) const {
     visitor.visitAssign(*this);
 }
 
+void CallExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitCall(*this);
+}
+
+void ClassStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitClass(*this);
+}
+
+void FunctionStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitFunction(*this);
+}
+
+void ReturnStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitReturn(*this);
+}
+
 void IfStmt::accept(StmtVisitor& visitor) const {
     visitor.visitIf(*this);
 }
@@ -50,22 +67,35 @@ void ForStmt::accept(StmtVisitor& visitor) const {
     visitor.visitFor(*this);
 }
 
-void CallExpr::accept(ExprVisitor& visitor) const {
-    visitor.visitCall(*this);
+void BreakStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitBreak(*this);
 }
 
-void FunctionStmt::accept(StmtVisitor& visitor) const {
-    visitor.visitFunction(*this);
+void ContinueStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitContinue(*this);
 }
 
-FunctionStmt::FunctionStmt(Token type, Token name,
-                         std::vector<Parameter> parameters,
-                         std::unique_ptr<BlockStmt> body)
-    : return_type_(type),
-      name_(name),
-      parameters_(std::move(parameters)),
-      body_(std::move(body)) {}
+void ArrayType::accept(TypeVisitor& visitor) const {
+    visitor.visitArrayType(*this);
+}
 
+void BasicType::accept(TypeVisitor& visitor) const {
+    visitor.visitBasicType(*this);
+}
+
+void TupleType::accept(TypeVisitor& visitor) const {
+    visitor.visitTupleType(*this);
+}
+
+void TupleExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitTuple(*this);
+}
+
+void TupleMemberExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitTupleMember(*this);
+}
+
+// 构造函数实现
 CallExpr::CallExpr(std::unique_ptr<Expr> callee,
                    Token paren,
                    std::vector<std::unique_ptr<Expr>> arguments)
@@ -73,29 +103,12 @@ CallExpr::CallExpr(std::unique_ptr<Expr> callee,
       paren_(paren),
       arguments_(std::move(arguments)) {}
 
-IfStmt::IfStmt(std::unique_ptr<Expr> condition,
-               std::unique_ptr<Stmt> thenBranch,
-               std::unique_ptr<Stmt> elseBranch)
-    : condition_(std::move(condition)),
-      then_branch_(std::move(thenBranch)),
-      else_branch_(std::move(elseBranch)) {}
-
-WhileStmt::WhileStmt(std::unique_ptr<Expr> condition,
-                     std::unique_ptr<Stmt> body)
-    : condition_(std::move(condition)),
+FunctionStmt::FunctionStmt(Token type, Token name,
+                          std::vector<Parameter> parameters,
+                          std::unique_ptr<BlockStmt> body)
+    : return_type_(type),
+      name_(name),
+      parameters_(std::move(parameters)),
       body_(std::move(body)) {}
-
-ForStmt::ForStmt(std::unique_ptr<Stmt> initializer,
-                 std::unique_ptr<Expr> condition,
-                 std::unique_ptr<Expr> increment,
-                 std::unique_ptr<Stmt> body)
-    : initializer_(std::move(initializer)),
-      condition_(std::move(condition)),
-      increment_(std::move(increment)),
-      body_(std::move(body)) {}
-
-void ReturnStmt::accept(StmtVisitor& visitor) const {
-    visitor.visitReturn(*this);
-}
 
 } // namespace collie

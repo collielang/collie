@@ -46,6 +46,9 @@ enum class TokenType {
     KW_BYTE,        // byte
     KW_WORD,        // word
     KW_DWORD,       // dword
+    KW_VAR,         // var
+    KW_TUPLE,       // tuple
+    KW_ARRAY,       // array
 
     // 关键字 - 控制流
     KW_IF,          // if
@@ -56,6 +59,7 @@ enum class TokenType {
     KW_DO,          // do
     KW_BREAK,       // break
     KW_CONTINUE,    // continue
+    KW_RETURN,      // return
 
     // 关键字 - 其他
     KW_CLASS,       // class
@@ -66,7 +70,9 @@ enum class TokenType {
     KW_TRUE,        // true
     KW_FALSE,       // false
     KW_UNSET,       // unset
-    KW_RETURN,      // return
+    KW_VOID,        // void
+    KW_FUNCTION,    // function
+    KW_PROTECTED,   // protected
 
     // 运算符 - 算术
     OP_PLUS,        // +
@@ -114,10 +120,6 @@ enum class TokenType {
     DELIMITER_SEMICOLON, // ;
     DELIMITER_DOT,       // .
 
-    // 关键字
-    KW_VOID,        // void
-    KW_FUNCTION,    // function
-    KW_PROTECTED,   // protected
 };
 
 // Token 类

@@ -9,6 +9,7 @@
 #endif
 
 #include "../parser/parser.h"
+#include "../lexer/lexer.h"
 
 using namespace collie;
 
@@ -54,6 +55,22 @@ public:
             first = false;
         }
         result_ += ")";
+    }
+
+    void visitTuple(const TupleExpr& expr) override {
+        result_ = "(";
+        bool first = true;
+        for (const auto& element : expr.elements()) {
+            if (!first) result_ += ", ";
+            element->accept(*this);
+            first = false;
+        }
+        result_ += ")";
+    }
+
+    void visitTupleMember(const TupleMemberExpr& expr) override {
+        expr.tuple()->accept(*this);
+        result_ += "." + std::to_string(expr.index());
     }
 
     std::string result() const { return result_; }
@@ -182,6 +199,39 @@ public:
         result_ = result;
     }
 
+    void visitReturn(const ReturnStmt& stmt) override {
+        std::string result = "return";
+        if (stmt.value()) {
+            TestExprVisitor expr_visitor;
+            stmt.value()->accept(expr_visitor);
+            result += " " + expr_visitor.result();
+        }
+        result += ";";
+        last_result_ = result;
+        result_ = result;
+    }
+
+    void visitClass(const ClassStmt& stmt) override {
+        std::string result = "class " + std::string(stmt.name().lexeme()) + " {\n";
+        for (const auto& member : stmt.members()) {
+            member->accept(*this);
+            result += "  " + last_result_ + "\n";
+        }
+        result += "}";
+        last_result_ = result;
+        result_ = result;
+    }
+
+    void visitBreak(const BreakStmt& stmt) override {
+        last_result_ = "break;";
+        result_ = last_result_;
+    }
+
+    void visitContinue(const ContinueStmt& stmt) override {
+        last_result_ = "continue;";
+        result_ = last_result_;
+    }
+
     std::string result() const { return result_; }
 
 private:
@@ -193,7 +243,8 @@ private:
 TEST(ParserTest, BasicExpressions) {
     std::string source = "42 + x * 3;";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
@@ -207,7 +258,8 @@ TEST(ParserTest, BasicExpressions) {
 TEST(ParserTest, VariableDeclaration) {
     std::string source = "number x = 42;";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
@@ -221,7 +273,8 @@ TEST(ParserTest, VariableDeclaration) {
 TEST(ParserTest, BlockStatement) {
     std::string source = "{ number x = 42; x = x + 1; }";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
@@ -237,7 +290,8 @@ TEST(ParserTest, ErrorRecovery) {
     // number y = 42;  // 这条语句应该能正确解析
     std::string source = "number x = ; number y = 42;";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);  // 应该返回第二条语句
@@ -249,49 +303,55 @@ TEST(ParserTest, ErrorRecovery) {
 
 // 复杂表达式测试
 TEST(ParserTest, ComplexExpressions) {
-    std::string source = "x = 2 * (3 + 4);";
+    // std::string source = "x = 2 * (3 + 4);";
+    std::string source = "x = (a + b) * (c - d);";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
-    EXPECT_EQ(visitor.result(), "(x=(2*(3+4)));");
+    // EXPECT_EQ(visitor.result(), "(x=(2*(3+4)));");
+    EXPECT_EQ(visitor.result(), "x = ((a+b)*(c-d));");
 }
 
-// 添加 if 语句测试
+// if 语句测试
 TEST(ParserTest, IfStatement) {
+    // std::string source = "if (x > 0) { x = x - 1; } else { x = 0; }";
     std::string source = "if (x > 0) { number y = 42; } else y = 0;";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
+    // EXPECT_EQ(visitor.result(), "if (x>0) {\n  (x-1);\n} else {\n  x = 0;\n}");
     EXPECT_EQ(visitor.result(),
         "if ((x>0)) {\n  number y = 42;\n} else y = 0;");
 }
 
-// 添加 while 语句测试
+// while 语句测试
 TEST(ParserTest, WhileStatement) {
     std::string source = "while (x > 0) { x = x - 1; }";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
-    EXPECT_EQ(visitor.result(),
-        "while ((x>0)) {\n  x = (x-1);\n}");  // 修改期望输出
+    EXPECT_EQ(visitor.result(), "while ((x>0)) {\n  x = (x-1);\n}");
 }
 
-// 添加嵌套循环测试
+// 嵌套 while 语句测试
 TEST(ParserTest, NestedWhileStatement) {
     std::string source = R"(
         while (x > 0) {
@@ -302,67 +362,71 @@ TEST(ParserTest, NestedWhileStatement) {
         }
     )";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
-    EXPECT_EQ(visitor.result(),
-        "while ((x>0)) {\n  while ((y>0)) {\n    y = (y-1);\n  }\n  x = (x-1);\n}");  // 修改期望输出
+    EXPECT_EQ(visitor.result(), "while ((x>0)) {\n  while ((y>0)) {\n    y = (y-1);\n  }\n  x = (x-1);\n}");
 }
 
-// 添加 for 语句测试
+// for 语句测试
 TEST(ParserTest, ForStatement) {
     std::string source = "for (number i = 0; i < 10; i = i + 1) { x = x + i; }";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
-    EXPECT_EQ(visitor.result(),
-        "for (number i = 0; (i<10); i = (i+1)) {\n  x = (x+i);\n}");
+    EXPECT_EQ(visitor.result(), "for (number i = 0; (i<10); i = (i+1)) {\n  x = (x+i);\n}");
 }
 
-// 添加空条件 for 语句测试
+// 空 for 语句测试
 TEST(ParserTest, EmptyForStatement) {
-    std::string source = "for (;;) { x = x + 1; }";
+    // std::string source = "for (;;) { x = x + 1; }";
+    std::string source = "for (;;) { break; }";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
+    // EXPECT_EQ(visitor.result(), "for (; ; ) {\n  break;\n}");
     EXPECT_EQ(visitor.result(),
         "for (; ; ) {\n  x = (x+1);\n}");
 }
 
-// 添加函数声明测试
+// 函数声明测试
 TEST(ParserTest, FunctionDeclaration) {
     std::string source = "number add(number x, number y) { return x + y; }";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
-    EXPECT_EQ(visitor.result(),
-        "number add(number x, number y) {\n  return (x+y);\n}");
+    EXPECT_EQ(visitor.result(), "number add(number x, number y) {\n  return (x+y);\n}");
 }
 
-// 添加函数调用测试
+// 函数调用测试
 TEST(ParserTest, FunctionCall) {
     std::string source = "add(1, 2 * 3);";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
@@ -372,24 +436,55 @@ TEST(ParserTest, FunctionCall) {
     EXPECT_EQ(visitor.result(), "add(1, (2*3));");
 }
 
-// 添加嵌套函数调用测试
+// 嵌套函数调用测试
 TEST(ParserTest, NestedFunctionCall) {
-    std::string source = "print(add(1, 2), mul(3, 4));";
+    std::string source = "print(add(1, mul(2, 3)));";
     Lexer lexer(source);
-    Parser parser(lexer);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
 
     auto stmt = parser.parse();
     ASSERT_NE(stmt, nullptr);
 
     TestStmtVisitor visitor;
     stmt->accept(visitor);
-    EXPECT_EQ(visitor.result(), "print(add(1, 2), mul(3, 4));");
+    EXPECT_EQ(visitor.result(), "print(add(1, mul(2, 3)));");
 }
 
 /**
  * @brief 测试 break 和 continue 语句的解析
  */
 TEST(ParserTest, BreakContinueStatements) {
+    // break 语句测试
+    {
+        std::string source = "while (true) { break; }";
+        Lexer lexer(source);
+        std::vector<Token> tokens = lexer.tokenize();
+        Parser parser(tokens);
+
+        auto stmt = parser.parse();
+        ASSERT_NE(stmt, nullptr);
+
+        TestStmtVisitor visitor;
+        stmt->accept(visitor);
+        EXPECT_EQ(visitor.result(), "while (true) {\n  break;\n}");
+    }
+
+    // continue 语句测试
+    {
+        std::string source = "while (true) { continue; }";
+        Lexer lexer(source);
+        std::vector<Token> tokens = lexer.tokenize();
+        Parser parser(tokens);
+
+        auto stmt = parser.parse();
+        ASSERT_NE(stmt, nullptr);
+
+        TestStmtVisitor visitor;
+        stmt->accept(visitor);
+        EXPECT_EQ(visitor.result(), "while (true) {\n  continue;\n}");
+    }
+
     // 测试在循环内使用 break
     {
         std::string source = R"(
@@ -398,21 +493,23 @@ TEST(ParserTest, BreakContinueStatements) {
             }
         )";
         Lexer lexer(source);
-        Parser parser(lexer);
+        std::vector<Token> tokens = lexer.tokenize();
+        Parser parser(tokens);
+
         auto stmt = parser.parse();
         ASSERT_NE(stmt, nullptr);
 
         auto* while_stmt = dynamic_cast<WhileStmt*>(stmt.get());
         ASSERT_NE(while_stmt, nullptr);
 
-        auto* block = dynamic_cast<BlockStmt*>(while_stmt->body());
+        auto* block = dynamic_cast<const BlockStmt*>(while_stmt->body());
         ASSERT_NE(block, nullptr);
         ASSERT_EQ(block->statements().size(), 1);
 
-        auto* if_stmt = dynamic_cast<IfStmt*>(block->statements()[0].get());
+        auto* if_stmt = dynamic_cast<const IfStmt*>(block->statements()[0].get());
         ASSERT_NE(if_stmt, nullptr);
 
-        auto* break_stmt = dynamic_cast<BreakStmt*>(if_stmt->then_branch());
+        auto* break_stmt = dynamic_cast<const BreakStmt*>(if_stmt->then_branch());
         ASSERT_NE(break_stmt, nullptr);
     }
 
@@ -425,21 +522,23 @@ TEST(ParserTest, BreakContinueStatements) {
             }
         )";
         Lexer lexer(source);
-        Parser parser(lexer);
+        std::vector<Token> tokens = lexer.tokenize();
+        Parser parser(tokens);
+
         auto stmt = parser.parse();
         ASSERT_NE(stmt, nullptr);
 
         auto* for_stmt = dynamic_cast<ForStmt*>(stmt.get());
         ASSERT_NE(for_stmt, nullptr);
 
-        auto* block = dynamic_cast<BlockStmt*>(for_stmt->body());
+        auto* block = dynamic_cast<const BlockStmt*>(for_stmt->body());
         ASSERT_NE(block, nullptr);
         ASSERT_EQ(block->statements().size(), 2);
 
-        auto* if_stmt = dynamic_cast<IfStmt*>(block->statements()[0].get());
+        auto* if_stmt = dynamic_cast<const IfStmt*>(block->statements()[0].get());
         ASSERT_NE(if_stmt, nullptr);
 
-        auto* continue_stmt = dynamic_cast<ContinueStmt*>(if_stmt->then_branch());
+        auto* continue_stmt = dynamic_cast<const ContinueStmt*>(if_stmt->then_branch());
         ASSERT_NE(continue_stmt, nullptr);
     }
 
@@ -447,7 +546,8 @@ TEST(ParserTest, BreakContinueStatements) {
     {
         std::string source = "break;";
         Lexer lexer(source);
-        Parser parser(lexer);
+        std::vector<Token> tokens = lexer.tokenize();
+        Parser parser(tokens);
         EXPECT_THROW({
             parser.parse();
         }, ParseError);
@@ -457,7 +557,8 @@ TEST(ParserTest, BreakContinueStatements) {
     {
         std::string source = "continue;";
         Lexer lexer(source);
-        Parser parser(lexer);
+        std::vector<Token> tokens = lexer.tokenize();
+        Parser parser(tokens);
         EXPECT_THROW({
             parser.parse();
         }, ParseError);

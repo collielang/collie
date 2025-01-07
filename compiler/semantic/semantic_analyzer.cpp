@@ -993,39 +993,26 @@ std::string SemanticAnalyzer::token_type_to_string(TokenType type) const {
     }
 }
 
-int SemanticAnalyzer::calculate_overload_score(
-    const Symbol& func,
-    const std::vector<TokenType>& arg_types) {
-
-    if (func.parameters.size() != arg_types.size()) {
-        return -1;
-    }
-
-    int score = 0;
-    for (size_t i = 0; i < arg_types.size(); ++i) {
-        TokenType param_type = func.parameters[i].type.type();
-        TokenType arg_type = arg_types[i];
-
-        if (param_type == arg_type) {
-            score += 2;  // 完全匹配
-        } else if (is_compatible_type(param_type, arg_type)) {
-            score += 1;  // 需要转换
-        } else {
-            return -1;  // 不兼容
-        }
-    }
-
-    return score;
-}
-
 // 添加错误恢复的辅助方法
-bool SemanticAnalyzer::is_synchronization_point(const Stmt& stmt) {
+bool SemanticAnalyzer::is_synchronization_point() const {
     // 判断是否是可以安全恢复的位置
-    // 例如：函数定义、类定义、变量声明等
-    if (dynamic_cast<const FunctionStmt*>(&stmt)) return true;
-    if (dynamic_cast<const VarDeclStmt*>(&stmt)) return true;
-    // ... 其他同步点 ...
-    return false;
+    TokenType type = current_token().type();
+    switch (type) {
+        case TokenType::KW_FUNCTION:
+        case TokenType::KW_CLASS:
+        case TokenType::KW_NUMBER:
+        case TokenType::KW_STRING:
+        case TokenType::KW_BOOL:
+        case TokenType::KW_CHAR:
+        case TokenType::KW_BYTE:
+        case TokenType::KW_WORD:
+        case TokenType::KW_DWORD:
+        case TokenType::DELIMITER_SEMICOLON:
+        case TokenType::DELIMITER_RBRACE:
+            return true;
+        default:
+            return false;
+    }
 }
 
 // 添加 token 访问辅助方法
@@ -1134,7 +1121,7 @@ void SemanticAnalyzer::visitTupleType(const TupleType& type) {
 void SemanticAnalyzer::visitBasicType(const BasicType& type) {
     try {
         // 基本类型直接设置为对应的类型
-        current_type_ = type.token().type();
+        current_type_ = type.name().type();
     } catch (const SemanticError& error) {
         record_error(error);
         if (!in_panic_mode_) {
@@ -1147,7 +1134,7 @@ void SemanticAnalyzer::visitBasicType(const BasicType& type) {
 void SemanticAnalyzer::visitArrayType(const ArrayType& type) {
     try {
         // 分析元素类型
-        type.element_type()->accept(*this);
+        type.element_type().accept(*this);
         TokenType element_type = current_type_;
 
         // 设置当前类型为数组类型
