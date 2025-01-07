@@ -137,18 +137,22 @@ public:
      * @param name 变量名
      * @param initializer 初始化表达式（可选）
      */
-    VarDeclStmt(Token type, Token name, std::unique_ptr<Expr> initializer)
-        : type_(type), name_(name), initializer_(std::move(initializer)) {}
+    VarDeclStmt(Token type, Token name, std::unique_ptr<Expr> initializer = nullptr,
+                bool is_const = false)
+        : type_(type), name_(name), initializer_(std::move(initializer)),
+          is_const_(is_const) {}
 
     void accept(StmtVisitor& visitor) const override;
     const Token& type() const { return type_; }
     const Token& name() const { return name_; }
     const Expr* initializer() const { return initializer_.get(); }
+    bool is_const() const { return is_const_; }
 
 private:
     Token type_;
     Token name_;
     std::unique_ptr<Expr> initializer_;
+    bool is_const_;
 };
 
 /**
@@ -203,21 +207,29 @@ class IfStmt : public Stmt {
 public:
     /**
      * @brief 构造 if 语句
+     * @param if_token if 关键字的 token，用于错误报告
      * @param condition 条件表达式
      * @param then_branch then 分支语句
      * @param else_branch else 分支语句（可选）
      */
-    IfStmt(std::unique_ptr<Expr> condition,
+    IfStmt(Token if_token,
+           std::unique_ptr<Expr> condition,
            std::unique_ptr<Stmt> then_branch,
-           std::unique_ptr<Stmt> else_branch = nullptr);
+           std::unique_ptr<Stmt> else_branch = nullptr)
+        : if_token_(if_token),
+          condition_(std::move(condition)),
+          then_branch_(std::move(then_branch)),
+          else_branch_(std::move(else_branch)) {}
 
     void accept(StmtVisitor& visitor) const override;
 
+    const Token& if_token() const { return if_token_; }
     const Expr* condition() const { return condition_.get(); }
     const Stmt* then_branch() const { return then_branch_.get(); }
     const Stmt* else_branch() const { return else_branch_.get(); }
 
 private:
+    Token if_token_;
     std::unique_ptr<Expr> condition_;
     std::unique_ptr<Stmt> then_branch_;
     std::unique_ptr<Stmt> else_branch_;
@@ -231,18 +243,25 @@ class WhileStmt : public Stmt {
 public:
     /**
      * @brief 构造 while 语句
+     * @param while_token while 关键字的 token，用于错误报告
      * @param condition 循环条件
      * @param body 循环体
      */
-    WhileStmt(std::unique_ptr<Expr> condition,
-              std::unique_ptr<Stmt> body);
+    WhileStmt(Token while_token,
+              std::unique_ptr<Expr> condition,
+              std::unique_ptr<Stmt> body)
+        : while_token_(while_token),
+          condition_(std::move(condition)),
+          body_(std::move(body)) {}
 
     void accept(StmtVisitor& visitor) const override;
 
+    const Token& while_token() const { return while_token_; }
     const Expr* condition() const { return condition_.get(); }
     const Stmt* body() const { return body_.get(); }
 
 private:
+    Token while_token_;
     std::unique_ptr<Expr> condition_;
     std::unique_ptr<Stmt> body_;
 };
@@ -255,24 +274,33 @@ class ForStmt : public Stmt {
 public:
     /**
      * @brief 构造 for 语句
+     * @param for_token for 关键字的 token，用于错误报告
      * @param initializer 初始化语句（可以是变量声明或表达式语句）
      * @param condition 循环条件（可选）
      * @param increment 增量表达式（可选）
      * @param body 循环体
      */
-    ForStmt(std::unique_ptr<Stmt> initializer,
+    ForStmt(Token for_token,
+            std::unique_ptr<Stmt> initializer,
             std::unique_ptr<Expr> condition,
             std::unique_ptr<Expr> increment,
-            std::unique_ptr<Stmt> body);
+            std::unique_ptr<Stmt> body)
+        : for_token_(for_token),
+          initializer_(std::move(initializer)),
+          condition_(std::move(condition)),
+          increment_(std::move(increment)),
+          body_(std::move(body)) {}
 
     void accept(StmtVisitor& visitor) const override;
 
+    const Token& for_token() const { return for_token_; }
     const Stmt* initializer() const { return initializer_.get(); }
     const Expr* condition() const { return condition_.get(); }
     const Expr* increment() const { return increment_.get(); }
     const Stmt* body() const { return body_.get(); }
 
 private:
+    Token for_token_;
     std::unique_ptr<Stmt> initializer_;  // 可以是变量声明或表达式语句
     std::unique_ptr<Expr> condition_;    // 可以为空
     std::unique_ptr<Expr> increment_;    // 可以为空
@@ -346,6 +374,29 @@ private:
 };
 
 /**
+ * @brief return 语句
+ */
+class ReturnStmt : public Stmt {
+public:
+    /**
+     * @brief 构造 return 语句
+     * @param keyword return 关键字的 token，用于错误报告
+     * @param value 返回值表达式（可选）
+     */
+    ReturnStmt(Token keyword, std::unique_ptr<Expr> value)
+        : keyword_(keyword), value_(std::move(value)) {}
+
+    void accept(StmtVisitor& visitor) const override;
+
+    const Token& keyword() const { return keyword_; }
+    const Expr* value() const { return value_.get(); }
+
+private:
+    Token keyword_;
+    std::unique_ptr<Expr> value_;
+};
+
+/**
  * @brief 表达式访问者接口
  * 实现访问者模式，用于遍历和处理表达式节点
  */
@@ -400,6 +451,9 @@ public:
 
     /// @brief 访问函数声明语句
     virtual void visitFunction(const FunctionStmt& stmt) = 0;
+
+    /// @brief 访问 return 语句
+    virtual void visitReturn(const ReturnStmt& stmt) = 0;
 };
 
 } // namespace collie

@@ -118,6 +118,8 @@ enum class TokenType {
 // Token 类
 class Token {
 public:
+    Token() : type_(TokenType::INVALID), lexeme_(""), line_(0), column_(0) {}
+
     Token(TokenType type, std::string_view lexeme, size_t line, size_t column)
         : type_(type), lexeme_(lexeme), line_(line), column_(column) {}
 

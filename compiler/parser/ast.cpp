@@ -94,4 +94,8 @@ ForStmt::ForStmt(std::unique_ptr<Stmt> initializer,
       increment_(std::move(increment)),
       body_(std::move(body)) {}
 
+void ReturnStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitReturn(*this);
+}
+
 } // namespace collie

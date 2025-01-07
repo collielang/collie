@@ -61,6 +61,22 @@ public:
      */
     std::unique_ptr<Stmt> parse();
 
+    // 解析整个程序
+    std::vector<std::unique_ptr<Stmt>> parse_program() {
+        std::vector<std::unique_ptr<Stmt>> statements;
+        while (!is_at_end()) {
+            try {
+                auto stmt = declaration();
+                if (stmt) {
+                    statements.push_back(std::move(stmt));
+                }
+            } catch (const ParseError& error) {
+                synchronize();
+            }
+        }
+        return statements;
+    }
+
 private:
     // 表达式解析方法
     /**
