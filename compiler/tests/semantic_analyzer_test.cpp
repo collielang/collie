@@ -941,3 +941,44 @@ TEST(SemanticAnalyzerTest, FunctionOverloading) {
         analyzer.analyze(ast);
     });
 }
+
+// 数组类型测试
+TEST(SemanticAnalyzerTest, ArrayTypes) {
+    SemanticAnalyzer analyzer;
+
+    // 数组声明和初始化
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            number[] arr = [1, 2, 3];
+            string[] strs = ["hello", "world"];
+        )");
+        analyzer.analyze(ast);
+    });
+
+    // 数组访问
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            number[] arr = [1, 2, 3];
+            number x = arr[0];
+            arr[1] = 42;
+        )");
+        analyzer.analyze(ast);
+    });
+
+    // 数组类型错误
+    EXPECT_THROW({
+        auto ast = parse(R"(
+            number[] arr = [1, "hello", true];  // 类型不一致
+        )");
+        analyzer.analyze(ast);
+    }, SemanticError);
+
+    // 数组索引类型错误
+    EXPECT_THROW({
+        auto ast = parse(R"(
+            number[] arr = [1, 2, 3];
+            number x = arr["index"];  // 索引必须是数值类型
+        )");
+        analyzer.analyze(ast);
+    }, SemanticError);
+}

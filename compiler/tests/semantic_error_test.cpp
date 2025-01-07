@@ -229,3 +229,32 @@ TEST(SemanticErrorTest, ErrorMessageFormat) {
     EXPECT_TRUE(error_message.find("Column") != std::string::npos);
     EXPECT_TRUE(error_message.find("type") != std::string::npos);
 }
+
+// 数组错误测试
+TEST(SemanticErrorTest, ArrayErrors) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        // 错误1：数组越界检查
+        number[] arr = [1, 2, 3];
+        number x = arr[3];  // 索引超出范围
+
+        // 错误2：数组类型不匹配
+        string[] strs = ["hello"];
+        number y = strs[0];  // 类型不匹配
+
+        // 错误3：多维数组类型错误
+        number[][] matrix = [[1, 2], ["3", 4]];  // 内部数组类型不一致
+
+        // 错误4：数组操作类型错误
+        number[] nums = [1, 2];
+        nums = nums + [3, 4];  // 不支持的操作
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_EQ(errors.size(), 4);  // 应该有4个错误
+}

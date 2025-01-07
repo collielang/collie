@@ -794,3 +794,32 @@ TEST(SemanticRecoveryTest, ResourceCleanupRecovery) {
     // 这需要添加一些辅助方法来检查符号表状态
     // EXPECT_TRUE(analyzer.isSymbolTableConsistent());
 }
+
+// 测试数组操作中的错误恢复
+TEST(SemanticRecoveryTest, ArrayOperationRecovery) {
+    SemanticAnalyzer analyzer;
+
+    auto [ast, tokens] = parse_and_get_tokens(R"(
+        // 数组声明和操作
+        number[] arr = [1, 2, 3];
+
+        // 错误操作
+        arr[true] = 42;  // 错误：索引类型错误
+
+        // 正确操作，应该能继续分析
+        arr[0] = 10;
+
+        // 另一个错误操作
+        arr = arr + 5;  // 错误：不支持的操作
+
+        // 正确操作，应该能继续分析
+        number x = arr[1];
+    )");
+
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+    const auto& errors = analyzer.get_errors();
+    EXPECT_EQ(errors.size(), 2);  // 应该有2个错误
+}
