@@ -259,8 +259,9 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
             stmt.initializer()->accept(*this);
             if (!is_compatible_type(stmt.type().type(), current_type_)) {
                 throw SemanticError("Cannot initialize variable of type '" +
-                    std::string(stmt.type().lexeme()) + "' with expression of type '" +
-                    std::to_string(static_cast<int>(current_type_)) + "'",
+                    token_type_to_string(stmt.type().type()) +
+                    "' with expression of type '" +
+                    token_type_to_string(current_type_) + "'",
                     stmt.name().line(), stmt.name().column());
             }
         }
@@ -727,22 +728,21 @@ void SemanticAnalyzer::visitReturn(const ReturnStmt& stmt) {
 
     // 检查返回值
     if (stmt.value()) {
-        // 有返回值，检查类型匹配
         stmt.value()->accept(*this);
         TokenType return_type = current_function_->type.type();
         TokenType value_type = current_type_;
 
         if (!is_compatible_type(return_type, value_type)) {
             std::string message = "Cannot return value of type '" +
-                type_to_string(value_type) + "' from function with return type '" +
-                type_to_string(return_type) + "'";
+                token_type_to_string(value_type) + "' from function with return type '" +
+                token_type_to_string(return_type) + "'";
             throw SemanticError(message, stmt.keyword().line(), stmt.keyword().column());
         }
     } else {
         // 无返回值，检查函数是否声明为 none 返回类型
         if (current_function_->type.type() != TokenType::KW_NONE) {
             std::string message = "Function with return type '" +
-                type_to_string(current_function_->type.type()) +
+                token_type_to_string(current_function_->type.type()) +
                 "' must return a value";
             throw SemanticError(message, stmt.keyword().line(), stmt.keyword().column());
         }
