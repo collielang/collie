@@ -61,6 +61,14 @@ public:
     std::vector<std::unique_ptr<Stmt>> parse_program();
 
     /**
+     * @brief 解析单个语句（用于测试）
+     * @return 语句的AST节点
+     */
+    std::unique_ptr<Stmt> parse() {
+        return parse_declaration();
+    }
+
+    /**
      * @brief 获取解析过程中的错误
      * @return 错误列表
      */

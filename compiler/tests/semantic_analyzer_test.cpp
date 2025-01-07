@@ -12,7 +12,8 @@ using namespace collie;
 // 辅助函数：解析源代码并返回AST
 std::vector<std::unique_ptr<Stmt>> parse(const std::string& source) {
     Lexer lexer(source);
-    Parser parser(lexer);
+    auto tokens = lexer.tokenize();
+    Parser parser(tokens);
     return parser.parse_program();
 }
 
@@ -66,6 +67,28 @@ TEST(SemanticAnalyzerTest, Scopes) {
         analyzer.analyze(ast);
     });
 
+    // 访问外层作用域
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            number x = 1;
+            {
+                x = 2;  // 可以访问外层变量
+            }
+        )");
+        analyzer.analyze(ast);
+    });
+
+    // 访问内层作用域（应该失败）
+    EXPECT_THROW({
+        auto ast = parse(R"(
+            {
+                number x = 1;
+            }
+            x = 2;  // 错误：x 不在作用域内
+        )");
+        analyzer.analyze(ast);
+    }, SemanticError);
+
     // 未定义变量
     EXPECT_THROW({
         auto ast = parse("y = 42;");
@@ -77,7 +100,7 @@ TEST(SemanticAnalyzerTest, Scopes) {
 TEST(SemanticAnalyzerTest, Functions) {
     SemanticAnalyzer analyzer;
 
-    // 正确的函数声明和调用
+    // 基本函数定义和调用
     EXPECT_NO_THROW({
         auto ast = parse(R"(
             number add(number x, number y) {
@@ -87,6 +110,36 @@ TEST(SemanticAnalyzerTest, Functions) {
         )");
         analyzer.analyze(ast);
     });
+
+    // 返回值类型不匹配
+    EXPECT_THROW({
+        auto ast = parse(R"(
+            number getValue() {
+                return "42";  // string 不能返回为 number
+            }
+        )");
+        analyzer.analyze(ast);
+    }, SemanticError);
+
+    // 缺少返回值
+    EXPECT_THROW({
+        auto ast = parse(R"(
+            number getValue() {
+                number x = 42;
+                // 缺少 return 语句
+            }
+        )");
+        analyzer.analyze(ast);
+    }, SemanticError);
+
+    // 参数类型不匹配
+    EXPECT_THROW({
+        auto ast = parse(R"(
+            void process(number x) {}
+            process("42");  // string 不能传给 number 参数
+        )");
+        analyzer.analyze(ast);
+    }, SemanticError);
 
     // 参数类型不匹配
     EXPECT_THROW({
@@ -299,6 +352,16 @@ TEST(SemanticAnalyzerTest, ControlFlow) {
         )");
         analyzer.analyze(ast);
     });
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            if (true) {
+                number x = 1;
+            } else {
+                number x = 2;
+            }
+        )");
+        analyzer.analyze(ast);
+    });
 
     // while 语句
     EXPECT_NO_THROW({
@@ -306,6 +369,15 @@ TEST(SemanticAnalyzerTest, ControlFlow) {
             number x = 10;
             while (x > 0) {
                 x = x - 1;
+            }
+        )");
+        analyzer.analyze(ast);
+    });
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            number i = 0;
+            while (i < 10) {
+                i = i + 1;
             }
         )");
         analyzer.analyze(ast);
@@ -340,6 +412,29 @@ TEST(SemanticAnalyzerTest, ControlFlow) {
             }
             number y = x;  // x 不在作用域内
         )");
+        analyzer.analyze(ast);
+    }, SemanticError);
+
+    // break/continue 语句
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            while (true) {
+                if (true) break;
+                continue;
+            }
+        )");
+        analyzer.analyze(ast);
+    });
+
+    // 循环外使用 break
+    EXPECT_THROW({
+        auto ast = parse("break;");
+        analyzer.analyze(ast);
+    }, SemanticError);
+
+    // 循环外使用 continue
+    EXPECT_THROW({
+        auto ast = parse("continue;");
         analyzer.analyze(ast);
     }, SemanticError);
 }
@@ -486,147 +581,6 @@ TEST(SemanticAnalyzerTest, TypeConversion) {
         auto ast = parse(R"(
             bool b = 1;  // number 到 bool 的隐式转换不允许
         )");
-        analyzer.analyze(ast);
-    }, SemanticError);
-}
-
-// 函数测试
-TEST(SemanticAnalyzerTest, Functions) {
-    SemanticAnalyzer analyzer;
-
-    // 基本函数定义和调用
-    EXPECT_NO_THROW({
-        auto ast = parse(R"(
-            number add(number x, number y) {
-                return x + y;
-            }
-            number result = add(1, 2);
-        )");
-        analyzer.analyze(ast);
-    });
-
-    // 返回值类型不匹配
-    EXPECT_THROW({
-        auto ast = parse(R"(
-            number getValue() {
-                return "42";  // string 不能返回为 number
-            }
-        )");
-        analyzer.analyze(ast);
-    }, SemanticError);
-
-    // 缺少返回值
-    EXPECT_THROW({
-        auto ast = parse(R"(
-            number getValue() {
-                number x = 42;
-                // 缺少 return 语句
-            }
-        )");
-        analyzer.analyze(ast);
-    }, SemanticError);
-
-    // 参数类型不匹配
-    EXPECT_THROW({
-        auto ast = parse(R"(
-            void process(number x) {}
-            process("42");  // string 不能传给 number 参数
-        )");
-        analyzer.analyze(ast);
-    }, SemanticError);
-}
-
-// 控制流测试
-TEST(SemanticAnalyzerTest, ControlFlow) {
-    SemanticAnalyzer analyzer;
-
-    // if 语句
-    EXPECT_NO_THROW({
-        auto ast = parse(R"(
-            if (true) {
-                number x = 1;
-            } else {
-                number x = 2;
-            }
-        )");
-        analyzer.analyze(ast);
-    });
-
-    // while 循环
-    EXPECT_NO_THROW({
-        auto ast = parse(R"(
-            number i = 0;
-            while (i < 10) {
-                i = i + 1;
-            }
-        )");
-        analyzer.analyze(ast);
-    });
-
-    // break/continue 语句
-    EXPECT_NO_THROW({
-        auto ast = parse(R"(
-            while (true) {
-                if (true) break;
-                continue;
-            }
-        )");
-        analyzer.analyze(ast);
-    });
-
-    // 循环外使用 break
-    EXPECT_THROW({
-        auto ast = parse("break;");
-        analyzer.analyze(ast);
-    }, SemanticError);
-
-    // 循环外使用 continue
-    EXPECT_THROW({
-        auto ast = parse("continue;");
-        analyzer.analyze(ast);
-    }, SemanticError);
-}
-
-// 作用域测试
-TEST(SemanticAnalyzerTest, Scopes) {
-    SemanticAnalyzer analyzer;
-
-    // 不同作用域的同名变量
-    EXPECT_NO_THROW({
-        auto ast = parse(R"(
-            number x = 1;
-            {
-                number x = 2;  // 合法的遮蔽
-            }
-        )");
-        analyzer.analyze(ast);
-    });
-
-    // 访问外层作用域
-    EXPECT_NO_THROW({
-        auto ast = parse(R"(
-            number x = 1;
-            {
-                x = 2;  // 可以访问外层变量
-            }
-        )");
-        analyzer.analyze(ast);
-    });
-
-    // 访问内层作用域（应该失败）
-    EXPECT_THROW({
-        auto ast = parse(R"(
-            {
-                number x = 1;
-            }
-            x = 2;  // 错误：x 不在作用域内
-        )");
-        analyzer.analyze(ast);
-    }, SemanticError);
-
-    // 未定义变量
-    EXPECT_THROW({
-        auto ast = parse("y = 42;");
         analyzer.analyze(ast);
     }, SemanticError);
 }

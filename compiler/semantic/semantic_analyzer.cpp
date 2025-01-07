@@ -334,7 +334,7 @@ void SemanticAnalyzer::visitIf(const IfStmt& stmt) {
         stmt.condition()->accept(*this);
         if (current_type_ != TokenType::KW_BOOL) {
             throw SemanticError("If condition must be a boolean expression",
-                stmt.condition()->token().line(), stmt.condition()->token().column());
+                stmt.if_token().line(), stmt.if_token().column());
         }
 
         // 记录当前的返回值状态
@@ -375,7 +375,7 @@ void SemanticAnalyzer::visitWhile(const WhileStmt& stmt) {
         stmt.condition()->accept(*this);
         if (current_type_ != TokenType::KW_BOOL) {
             throw SemanticError("While condition must be a boolean expression",
-                stmt.condition()->token().line(), stmt.condition()->token().column());
+                stmt.while_token().line(), stmt.while_token().column());
         }
 
         // 记录当前的返回值状态
@@ -413,7 +413,7 @@ void SemanticAnalyzer::visitFor(const ForStmt& stmt) {
             stmt.condition()->accept(*this);
             if (current_type_ != TokenType::KW_BOOL) {
                 throw SemanticError("For condition must be a boolean expression",
-                    stmt.condition()->token().line(), stmt.condition()->token().column());
+                    stmt.for_token().line(), stmt.for_token().column());
             }
         }
 
@@ -1147,6 +1147,15 @@ void SemanticAnalyzer::visitArrayType(const ArrayType& type) {
             enter_panic_mode();
             synchronize();
         }
+    }
+}
+
+void SemanticAnalyzer::visitClass(const ClassStmt& stmt) {
+    // TODO: 实现类的语义分析
+    // 1. 检查类名是否已经被使用
+    // 2. 分析类成员
+    for (const auto& member : stmt.members()) {
+        member->accept(*this);
     }
 }
 

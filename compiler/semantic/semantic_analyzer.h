@@ -89,6 +89,8 @@ private:
 
     void visitExpression(const ExpressionStmt& stmt) override;
 
+    void visitClass(const ClassStmt& stmt) override;
+
     // TypeVisitor 接口实现
     void visitBasicType(const BasicType& type) override;
     void visitArrayType(const ArrayType& type) override;

@@ -15,11 +15,18 @@
 - [CMake](https://cmake.org/download/) (3.10或更高版本)
   - 安装时勾选"Add CMake to system PATH"
 
+### 所在目录
+
+以下操作都是在 compiler 目录中的
+
+```bash
+cd compiler
+```
+
 ### 编译步骤
 
 选择其中一种方式即可。
 
-#### 使用 Visual Studio
 1. 生成 Visual Studio 项目文件：
    ```bash
    # 创建并进入构建目录
@@ -30,6 +37,9 @@
    cmake .. -G "Visual Studio 17 2022" -A x64
    ```
 
+   !> 注意：在中国，可能会因网络问题无法下载 googletest 框架
+
+#### 使用 Visual Studio
 2. 打开解决方案：
    - 用 Visual Studio 打开 `build/collie_compiler.sln`
    - 在解决方案资源管理器中，`lexer_tests` 已被设置为启动项目
@@ -42,13 +52,6 @@
    - 测试结果会在输出窗口显示
 
 #### 使用命令行
-1. 生成项目：
-   ```bash
-   mkdir build
-   cd build
-   cmake .. -G "Visual Studio 17 2022" -A x64
-   ```
-
 2. 编译：
    ```bash
    cmake --build . --config Debug
@@ -58,6 +61,7 @@
 
 3. 运行测试：
    ```bash
+   # 测试
    ctest -C Debug
    ```
    ```bash

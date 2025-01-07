@@ -8,15 +8,27 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # MSVC 特定配置
 if(MSVC)
-    # 使用 MT 运行时库
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # 使用 MD 运行时库
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     # 启用 UTF-8 编码支持
     add_compile_options("/utf-8")
+    # 启用并行 PDB 写入
+    add_compile_options("/FS")
     # 禁用特定警告
     add_compile_options("/wd4251" "/wd4275")
     # 禁用 codecvt 弃用警告
     add_compile_definitions(_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)
+    # 增加堆栈大小
+    add_link_options("/STACK:8388608")
+    # 启用多处理器编译
+    add_compile_options("/MP")
 endif()
+
+# 设置 gtest 使用动态运行时库
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+# 在获取 googletest 之前设置最低 CMake 版本
+set(CMAKE_MINIMUM_REQUIRED_VERSION 3.10)
 
 # 引入 Google Test 框架
 include(FetchContent)
@@ -25,7 +37,6 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG release-1.12.1
 )
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 # 编译器核心模块源文件
@@ -81,6 +92,13 @@ add_executable(semantic_tests
     tests/semantic_error_test.cpp
     tests/semantic_recovery_test.cpp
 )
+
+# 为 semantic_tests 添加 /FS 选项
+if(MSVC)
+    target_compile_options(semantic_tests PRIVATE "/FS")
+    target_compile_options(semantic PRIVATE "/FS")
+    target_compile_options(test_utils PRIVATE "/FS")
+endif()
 
 target_link_libraries(semantic_tests
     PRIVATE semantic

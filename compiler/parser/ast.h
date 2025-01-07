@@ -46,7 +46,7 @@ class TupleType;
 class Type {
 public:
     virtual ~Type() = default;
-    virtual void accept(TypeVisitor& visitor) = 0;
+    virtual void accept(TypeVisitor& visitor) const = 0;
 };
 
 /**
@@ -602,7 +602,9 @@ private:
 class BasicType : public Type {
 public:
     explicit BasicType(Token name) : name_(name) {}
-    void accept(TypeVisitor& visitor) override;
+    void accept(TypeVisitor& visitor) const override {
+        visitor.visitBasicType(*this);
+    }
     const Token& name() const { return name_; }
 
 private:
@@ -616,7 +618,9 @@ class ArrayType : public Type {
 public:
     ArrayType(std::unique_ptr<Type> element_type)
         : element_type_(std::move(element_type)) {}
-    void accept(TypeVisitor& visitor) override;
+    void accept(TypeVisitor& visitor) const override {
+        visitor.visitArrayType(*this);
+    }
     const Type& element_type() const { return *element_type_; }
 
 private:
@@ -630,7 +634,9 @@ class TupleType : public Type {
 public:
     TupleType(std::vector<std::unique_ptr<Type>> element_types)
         : element_types_(std::move(element_types)) {}
-    void accept(TypeVisitor& visitor) override;
+    void accept(TypeVisitor& visitor) const override {
+        visitor.visitTupleType(*this);
+    }
     const std::vector<std::unique_ptr<Type>>& element_types() const {
         return element_types_;
     }
