@@ -332,8 +332,8 @@ void Lexer::skip_block_comment() {
 }
 
 Token Lexer::scan_number() {
-    size_t start_pos = position_;
-    size_t start_col = column_;
+    size_t start_pos = position_ - 1;  // 减1是因为已经调用了advance()
+    size_t start_col = column_ - 1;    // 减1是因为已经调用了advance()
     bool has_dot = false;
 
     // 整数部分

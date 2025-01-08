@@ -76,10 +76,10 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
 std::unique_ptr<Stmt> Parser::parse_declaration() {
     try {
         // 检查是否是类型名开头的变量声明
-        if (match(TokenType::KW_NUMBER) ||
-            match(TokenType::KW_STRING) ||
-            match(TokenType::KW_BOOL) ||
-            match(TokenType::KW_CHARACTER)) {
+        if (match({TokenType::KW_NUMBER,
+                  TokenType::KW_STRING,
+                  TokenType::KW_BOOL,
+                  TokenType::KW_CHARACTER})) {
             Token type = previous();
             return parse_type_declaration();
         }
