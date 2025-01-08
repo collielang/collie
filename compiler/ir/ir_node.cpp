@@ -5,121 +5,229 @@
  */
 
 #include "ir_node.h"
-#include <iostream>
 #include <sstream>
 
 namespace collie {
 namespace ir {
 
-void IRNode::dump() const {
-    std::cout << toString() << std::endl;
+std::shared_ptr<IRInstruction> IRVariable::getDefiningInstruction() const {
+    return definingInstruction_.lock();
+}
+
+IRType IRConstant::getType() const {
+    if (std::holds_alternative<bool>(value_)) {
+        return IRType::BOOL;
+    } else if (std::holds_alternative<int64_t>(value_)) {
+        return IRType::INT;
+    } else if (std::holds_alternative<double>(value_)) {
+        return IRType::FLOAT;
+    } else if (std::holds_alternative<std::string>(value_)) {
+        return IRType::STRING;
+    }
+    return IRType::VOID;
 }
 
 std::string IRConstant::toString() const {
-    std::ostringstream oss;
+    std::stringstream ss;
     std::visit([&](auto&& arg) {
         using T = std::decay_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, std::string>) {
-            oss << "\"" << arg << "\"";
+            ss << "\"" << arg << "\"";
         } else if constexpr (std::is_same_v<T, bool>) {
-            oss << (arg ? "true" : "false");
+            ss << (arg ? "true" : "false");
         } else {
-            oss << arg;
+            ss << arg;
         }
     }, value_);
-    return oss.str();
+    return ss.str();
 }
 
-std::string IRVariable::toString() const {
-    return "%" + name_;
+std::vector<std::shared_ptr<IRInstruction>> IRInstruction::getUsers() const {
+    std::vector<std::shared_ptr<IRInstruction>> result;
+    for (const auto& user : users_) {
+        if (auto inst = user.lock()) {
+            result.push_back(inst);
+        }
+    }
+    return result;
 }
 
-std::string IRLabel::toString() const {
-    return name_ + ":";
+void IRInstruction::replaceAllUsesWith(std::shared_ptr<IROperand> newOperand) {
+    for (auto& user : users_) {
+        if (auto inst = user.lock()) {
+            for (size_t i = 0; i < inst->operands_.size(); ++i) {
+                if (inst->operands_[i].get() == this) {
+                    inst->operands_[i] = newOperand;
+                }
+            }
+        }
+    }
 }
 
 std::string IRInstruction::toString() const {
-    std::ostringstream oss;
+    std::stringstream ss;
+    ss << "%" << this << " = ";
 
-    // 添加操作类型
     switch (opType_) {
-        case IROpType::ADD: oss << "add"; break;
-        case IROpType::SUB: oss << "sub"; break;
-        case IROpType::MUL: oss << "mul"; break;
-        case IROpType::DIV: oss << "div"; break;
-        case IROpType::MOD: oss << "mod"; break;
-        case IROpType::AND: oss << "and"; break;
-        case IROpType::OR:  oss << "or";  break;
-        case IROpType::XOR: oss << "xor"; break;
-        case IROpType::NOT: oss << "not"; break;
-        case IROpType::SHL: oss << "shl"; break;
-        case IROpType::SHR: oss << "shr"; break;
-        case IROpType::EQ:  oss << "eq";  break;
-        case IROpType::NE:  oss << "ne";  break;
-        case IROpType::LT:  oss << "lt";  break;
-        case IROpType::LE:  oss << "le";  break;
-        case IROpType::GT:  oss << "gt";  break;
-        case IROpType::GE:  oss << "ge";  break;
-        case IROpType::JMP: oss << "jmp"; break;
-        case IROpType::CJMP: oss << "cjmp"; break;
-        case IROpType::RET: oss << "ret"; break;
-        case IROpType::CALL: oss << "call"; break;
-        case IROpType::ALLOCA: oss << "alloca"; break;
-        case IROpType::LOAD: oss << "load"; break;
-        case IROpType::STORE: oss << "store"; break;
+        case IROpType::ADD:
+            ss << "add ";
+            break;
+        case IROpType::SUB:
+            ss << "sub ";
+            break;
+        case IROpType::MUL:
+            ss << "mul ";
+            break;
+        case IROpType::DIV:
+            ss << "div ";
+            break;
+        case IROpType::MOD:
+            ss << "mod ";
+            break;
+        case IROpType::NEG:
+            ss << "neg ";
+            break;
+        case IROpType::EQ:
+            ss << "eq ";
+            break;
+        case IROpType::NE:
+            ss << "ne ";
+            break;
+        case IROpType::LT:
+            ss << "lt ";
+            break;
+        case IROpType::LE:
+            ss << "le ";
+            break;
+        case IROpType::GT:
+            ss << "gt ";
+            break;
+        case IROpType::GE:
+            ss << "ge ";
+            break;
+        case IROpType::AND:
+            ss << "and ";
+            break;
+        case IROpType::OR:
+            ss << "or ";
+            break;
+        case IROpType::NOT:
+            ss << "not ";
+            break;
+        case IROpType::BR:
+            ss << "br ";
+            break;
+        case IROpType::JMP:
+            ss << "jmp ";
+            break;
+        case IROpType::RET:
+            ss << "ret ";
+            break;
+        case IROpType::LOAD:
+            ss << "load ";
+            break;
+        case IROpType::STORE:
+            ss << "store ";
+            break;
+        case IROpType::ALLOCA:
+            ss << "alloca ";
+            break;
+        case IROpType::CALL:
+            ss << "call ";
+            break;
+        case IROpType::CAST:
+            ss << "cast ";
+            break;
+        case IROpType::PHI:
+            ss << "phi ";
+            break;
+        case IROpType::NOP:
+            ss << "nop";
+            break;
     }
 
-    // 添加操作数
-    for (const auto& operand : operands_) {
-        oss << " " << operand->toString();
+    for (size_t i = 0; i < operands_.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << operands_[i]->toString();
     }
 
-    return oss.str();
+    return ss.str();
+}
+
+std::shared_ptr<IRInstruction> IRBasicBlock::getTerminator() const {
+    if (instructions_.empty()) return nullptr;
+    auto& last = instructions_.back();
+    switch (last->getOpType()) {
+        case IROpType::BR:
+        case IROpType::JMP:
+        case IROpType::RET:
+            return last;
+        default:
+            return nullptr;
+    }
+}
+
+std::vector<std::shared_ptr<IRBasicBlock>> IRBasicBlock::getSuccessors() const {
+    std::vector<std::shared_ptr<IRBasicBlock>> result;
+    auto term = getTerminator();
+    if (!term) return result;
+
+    switch (term->getOpType()) {
+        case IROpType::BR: {
+            // 条件跳转有两个目标
+            auto trueBlock = std::dynamic_pointer_cast<IRBasicBlock>(term->getOperands()[1]);
+            auto falseBlock = std::dynamic_pointer_cast<IRBasicBlock>(term->getOperands()[2]);
+            if (trueBlock) result.push_back(trueBlock);
+            if (falseBlock) result.push_back(falseBlock);
+            break;
+        }
+        case IROpType::JMP: {
+            // 无条件跳转只有一个目标
+            auto target = std::dynamic_pointer_cast<IRBasicBlock>(term->getOperands()[0]);
+            if (target) result.push_back(target);
+            break;
+        }
+        default:
+            break;
+    }
+
+    return result;
+}
+
+std::vector<std::shared_ptr<IRBasicBlock>> IRBasicBlock::getPredecessors() const {
+    std::vector<std::shared_ptr<IRBasicBlock>> result;
+    for (const auto& pred : predecessors_) {
+        if (auto block = pred.lock()) {
+            result.push_back(block);
+        }
+    }
+    return result;
+}
+
+void IRBasicBlock::setInstructions(const std::vector<std::shared_ptr<IRInstruction>>& instructions) {
+    instructions_ = instructions;
+    for (auto& inst : instructions_) {
+        inst->setParent(shared_from_this());
+    }
 }
 
 std::string IRBasicBlock::toString() const {
-    std::ostringstream oss;
-
-    // 添加基本块标签
-    oss << label_ << ":\n";
-
-    // 添加指令
+    std::stringstream ss;
+    ss << "block_" << this << ":\n";
     for (const auto& inst : instructions_) {
-        oss << "    " << inst->toString() << "\n";
+        ss << "  " << inst->toString() << "\n";
     }
-
-    return oss.str();
+    return ss.str();
 }
 
 std::string IRFunction::toString() const {
-    std::ostringstream oss;
-
-    // 添加函数声明
-    oss << "function " << name_ << " {\n";
-
-    // 添加基本块
+    std::stringstream ss;
+    ss << "function " << name_ << " {\n";
     for (const auto& block : blocks_) {
-        oss << block->toString();
+        ss << block->toString();
     }
-
-    oss << "}\n";
-    return oss.str();
-}
-
-void IRBasicBlock::addInstruction(std::shared_ptr<IRInstruction> inst) {
-    instructions_.push_back(inst);
-}
-
-const std::vector<std::shared_ptr<IRInstruction>>& IRBasicBlock::getInstructions() const {
-    return instructions_;
-}
-
-void IRFunction::addBasicBlock(std::shared_ptr<IRBasicBlock> block) {
-    blocks_.push_back(block);
-}
-
-const std::vector<std::shared_ptr<IRBasicBlock>>& IRFunction::getBasicBlocks() const {
-    return blocks_;
+    ss << "}\n";
+    return ss.str();
 }
 
 } // namespace ir

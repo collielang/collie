@@ -9,27 +9,50 @@
 
 #include <memory>
 #include <vector>
-#include "ir_node.h"
+#include <unordered_map>
 #include <unordered_set>
-#include <stack>
+#include <string>
 #include <optional>
+#include <stack>
+#include "ir_node.h"
 
 namespace collie {
 namespace ir {
 
-// IR 优化器基类
+// 前向声明
+class IRNode;
+class IRFunction;
+class IRBasicBlock;
+class IRInstruction;
+class IROperand;
+class IRVariable;
+class IRConstant;
+
+/**
+ * 循环结构
+ */
+struct Loop {
+    std::shared_ptr<IRBasicBlock> header;  // 循环头基本块
+    std::unordered_set<std::shared_ptr<IRBasicBlock>> blocks;  // 循环中的所有基本块
+};
+
+/**
+ * IR优化器基类
+ */
 class IROptimizer {
 public:
     virtual ~IROptimizer() = default;
 
     // 对给定的 IR 节点进行优化，返回是否进行了修改
-    virtual bool optimize(std::shared_ptr<IRNode> ir) = 0;
+    virtual bool optimize(std::shared_ptr<IRNode> node) = 0;
 };
 
-// 常量折叠优化器
+/**
+ * 常量折叠优化器
+ */
 class ConstantFoldingOptimizer : public IROptimizer {
 public:
-    bool optimize(std::shared_ptr<IRNode> ir) override;
+    bool optimize(std::shared_ptr<IRNode> node) override;
 
 private:
     // 对单个指令进行常量折叠
@@ -46,10 +69,12 @@ private:
     );
 };
 
-// 死代码消除优化器
+/**
+ * 死代码消除优化器
+ */
 class DeadCodeEliminationOptimizer : public IROptimizer {
 public:
-    bool optimize(std::shared_ptr<IRNode> ir) override;
+    bool optimize(std::shared_ptr<IRNode> node) override;
 
 private:
     // 消除基本块中的死代码
@@ -59,10 +84,12 @@ private:
     bool isDeadInstruction(const std::shared_ptr<IRInstruction>& inst) const;
 };
 
-// 基本块合并优化器
+/**
+ * 基本块合并优化器
+ */
 class BlockMergingOptimizer : public IROptimizer {
 public:
-    bool optimize(std::shared_ptr<IRNode> ir) override;
+    bool optimize(std::shared_ptr<IRNode> node) override;
 
 private:
     // 合并函数中的基本块
@@ -75,10 +102,12 @@ private:
     ) const;
 };
 
-// 循环优化器
+/**
+ * 循环优化器
+ */
 class LoopOptimizer : public IROptimizer {
 public:
-    bool optimize(std::shared_ptr<IRNode> ir) override;
+    bool optimize(std::shared_ptr<IRNode> node) override;
 
 private:
     // 优化循环
@@ -100,7 +129,7 @@ public:
     explicit LoopUnrollingOptimizer(size_t unrollFactor = 4)
         : unrollFactor_(unrollFactor) {}
 
-    std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override;
+    bool optimize(std::shared_ptr<IRNode> node) override;
 
 private:
     /**
@@ -155,7 +184,7 @@ private:
  */
 class LoopInvariantMotionOptimizer : public IROptimizer {
 public:
-    std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override;
+    bool optimize(std::shared_ptr<IRNode> node) override;
 
 private:
     /**
@@ -217,7 +246,57 @@ private:
     bool hasSideEffects(std::shared_ptr<IRInstruction> inst);
 };
 
-// 优化级别
+/**
+ * 循环强度削弱优化器
+ */
+class LoopStrengthReductionOptimizer : public IROptimizer {
+public:
+    bool optimize(std::shared_ptr<IRNode> node) override;
+
+private:
+    struct InductionVariable {
+        std::shared_ptr<IRVariable> var;      // 归纳变量
+        std::shared_ptr<IRInstruction> init;  // 初始值指令
+        std::shared_ptr<IRInstruction> step;  // 步长指令
+        std::vector<std::shared_ptr<IRInstruction>> uses;  // 使用该变量的指令
+    };
+
+    bool optimizeFunction(std::shared_ptr<IRFunction> func);
+    bool optimizeLoop(const Loop& loop);
+    std::vector<InductionVariable> collectInductionVariables(const Loop& loop);
+    std::shared_ptr<IRVariable> isInductionVariableUpdate(
+        std::shared_ptr<IRInstruction> inst,
+        const Loop& loop
+    );
+    std::shared_ptr<IRInstruction> findInitialValue(
+        std::shared_ptr<IRVariable> var,
+        const Loop& loop
+    );
+    std::vector<std::shared_ptr<IRInstruction>> findVariableUses(
+        std::shared_ptr<IRVariable> var,
+        const Loop& loop
+    );
+    bool isDefinedInLoop(
+        std::shared_ptr<IRVariable> var,
+        const Loop& loop
+    );
+    bool reduceStrength(const InductionVariable& iv, const Loop& loop);
+    bool convertMultiplicationToAddition(
+        std::shared_ptr<IRInstruction> mulInst,
+        const InductionVariable& iv,
+        std::shared_ptr<IROperand> factor,
+        const Loop& loop
+    );
+    bool isLoopInvariant(
+        std::shared_ptr<IROperand> operand,
+        const Loop& loop
+    );
+    std::vector<Loop> identifyLoops(std::shared_ptr<IRFunction> func);
+};
+
+/**
+ * 优化级别
+ */
 enum class OptimizationLevel {
     O0 = 0,  // 无优化
     O1 = 1,  // 基本优化
@@ -225,7 +304,9 @@ enum class OptimizationLevel {
     O3 = 3   // 激进优化
 };
 
-// 优化管理器
+/**
+ * 优化管理器
+ */
 class OptimizationManager {
 public:
     OptimizationManager(OptimizationLevel level = OptimizationLevel::O1)
@@ -253,116 +334,13 @@ private:
     int maxIterations_;
 };
 
-/**
- * 控制流图
- */
-class ControlFlowGraph {
-public:
-    using BlockSet = std::unordered_set<std::shared_ptr<IRBasicBlock>>;
-    using BlockVector = std::vector<std::shared_ptr<IRBasicBlock>>;
-
-    void addEdge(std::shared_ptr<IRBasicBlock> from,
-                std::shared_ptr<IRBasicBlock> to) {
-        successors_[from].insert(to);
-        predecessors_[to].insert(from);
-    }
-
-    const BlockSet& getSuccessors(std::shared_ptr<IRBasicBlock> block) const {
-        static const BlockSet empty;
-        auto it = successors_.find(block);
-        return it != successors_.end() ? it->second : empty;
-    }
-
-    const BlockSet& getPredecessors(std::shared_ptr<IRBasicBlock> block) const {
-        static const BlockSet empty;
-        auto it = predecessors_.find(block);
-        return it != predecessors_.end() ? it->second : empty;
-    }
-
-private:
-    std::unordered_map<std::shared_ptr<IRBasicBlock>, BlockSet> successors_;
-    std::unordered_map<std::shared_ptr<IRBasicBlock>, BlockSet> predecessors_;
-};
-
-/**
- * 循环结构
- */
-struct Loop {
-    std::shared_ptr<IRBasicBlock> header;  // 循环头
-    std::unordered_set<std::shared_ptr<IRBasicBlock>> blocks;  // 循环体中的基本块
-};
-
-/**
- * 构建函数的控制流图
- */
-inline ControlFlowGraph buildCFG(std::shared_ptr<IRFunction> func) {
-    ControlFlowGraph cfg;
-
-    for (auto& block : func->getBasicBlocks()) {
-        auto term = block->getTerminator();
-        if (!term) continue;
-
-        // 根据终止指令类型添加边
-        switch (term->getOpType()) {
-            case IROpType::BR: {
-                // 条件跳转有两个目标
-                auto trueBlock = std::dynamic_pointer_cast<IRBasicBlock>(
-                    term->getOperand(1));
-                auto falseBlock = std::dynamic_pointer_cast<IRBasicBlock>(
-                    term->getOperand(2));
-                if (trueBlock) cfg.addEdge(block, trueBlock);
-                if (falseBlock) cfg.addEdge(block, falseBlock);
-                break;
-            }
-            case IROpType::JMP: {
-                // 无条件跳转只有一个目标
-                auto target = std::dynamic_pointer_cast<IRBasicBlock>(
-                    term->getOperand(0));
-                if (target) cfg.addEdge(block, target);
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    return cfg;
-}
-
-/**
- * 判断一个基本块是否支配另一个基本块
- */
-inline bool dominates(std::shared_ptr<IRBasicBlock> dominator,
-                     std::shared_ptr<IRBasicBlock> block,
-                     const ControlFlowGraph& cfg) {
-    if (dominator == block) return true;
-
-    std::unordered_set<std::shared_ptr<IRBasicBlock>> visited;
-    std::stack<std::shared_ptr<IRBasicBlock>> workList;
-
-    // 从 block 开始反向遍历
-    workList.push(block);
-
-    while (!workList.empty()) {
-        auto current = workList.top();
-        workList.pop();
-
-        if (visited.count(current) > 0) continue;
-        visited.insert(current);
-
-        // 如果找到了 dominator，说明它不支配 block
-        if (current == dominator) return false;
-
-        // 将所有前驱加入工作列表
-        for (auto pred : cfg.getPredecessors(current)) {
-            if (visited.count(pred) == 0) {
-                workList.push(pred);
-            }
-        }
-    }
-
-    return true;
-}
+// 辅助函数声明
+std::optional<int64_t> getInitialValue(std::shared_ptr<IROperand> var);
+std::optional<int64_t> getStepValue(std::shared_ptr<IROperand> var, const Loop& loop);
+bool dominates(std::shared_ptr<IRBasicBlock> a, std::shared_ptr<IRBasicBlock> b, const ControlFlowGraph& cfg);
+Loop analyzeLoop(std::shared_ptr<IRBasicBlock> header, const ControlFlowGraph& cfg);
+bool isLoopHeader(std::shared_ptr<IRBasicBlock> block, const ControlFlowGraph& cfg);
+std::shared_ptr<IRBasicBlock> createLoopPreheader(const Loop& loop);
 
 } // namespace ir
 } // namespace collie
