@@ -27,9 +27,6 @@ endif()
 # 设置 gtest 使用动态运行时库
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-# 在获取 googletest 之前设置最低 CMake 版本
-set(CMAKE_MINIMUM_REQUIRED_VERSION 3.10)
-
 # 引入 Google Test 框架
 include(FetchContent)
 FetchContent_Declare(
@@ -39,93 +36,30 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
-# 编译器核心模块源文件
-set(COMPILER_SOURCES
-    lexer/token.cpp
-    lexer/lexer.cpp
-    parser/ast.cpp
-    parser/parser.cpp
-)
-
-# 添加子目录
-add_subdirectory(utils)
-
-# 构建编译器核心库
-add_library(collie_compiler ${COMPILER_SOURCES})
-target_include_directories(collie_compiler PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(collie_compiler
-    PUBLIC utils
-)
-
 # 启用测试
 enable_testing()
 
-# 词法分析器测试
-add_executable(lexer_tests tests/lexer_test.cpp)
-target_link_libraries(lexer_tests
-    collie_compiler
-    gtest
-    gtest_main
-)
-add_test(NAME lexer_tests COMMAND lexer_tests)
-
-# 语法分析器测试
-add_executable(parser_tests tests/parser_test.cpp)
-target_link_libraries(parser_tests
-    collie_compiler
-    gtest
-    gtest_main
-)
-add_test(NAME parser_tests COMMAND parser_tests)
-
-# 语义分析模块
-add_library(semantic
-    semantic/symbol_table.cpp
-    semantic/semantic_analyzer.cpp
-    semantic/semantic_common.cpp
-)
-target_link_libraries(semantic
-    PUBLIC collie_compiler
-)
-
-# 测试工具库
-add_library(test_utils STATIC
-    tests/test_utils.cpp
-)
-target_link_libraries(test_utils
-    PUBLIC collie_compiler
-    PUBLIC semantic
-)
-target_include_directories(test_utils PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-
-# 语义分析器测试
-add_executable(semantic_tests
-    tests/semantic_analyzer_test.cpp
-    tests/semantic_error_test.cpp
-    tests/semantic_recovery_test.cpp
-)
-
-# 为 semantic_tests 添加 /FS 选项
-if(MSVC)
-    target_compile_options(semantic_tests PRIVATE "/FS")
-    target_compile_options(semantic PRIVATE "/FS")
-    target_compile_options(test_utils PRIVATE "/FS")
-endif()
-
-target_link_libraries(semantic_tests
-    PRIVATE semantic
-    PRIVATE test_utils
-    PRIVATE GTest::gtest
-    PRIVATE GTest::gtest_main
-)
-
-add_test(NAME semantic_tests COMMAND semantic_tests)
+# 添加子目录
+add_subdirectory(utils)
+add_subdirectory(lexer)
+add_subdirectory(parser)
+add_subdirectory(semantic)
+add_subdirectory(ir)
+add_subdirectory(tests)
 
 # 构建主程序
-add_executable(collie main.cpp)
+add_executable(collie
+    main.cpp
+)
+
+# 链接库
 target_link_libraries(collie
-    PRIVATE collie_compiler
-    PRIVATE semantic
+    PRIVATE
+        utils
+        lexer
+        parser
+        semantic
+        ir
 )
 
 # 设置 Visual Studio 启动项目为主程序
