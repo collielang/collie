@@ -9,13 +9,14 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <memory>
 #include <codecvt>
 #include <locale>
 #include <Windows.h>
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "semantic/semantic_analyzer.h"
-#include "semantic/semantic_common.h"
+#include "utils/token_utils.h"
 
 void flush_output() {
     std::cout.flush();

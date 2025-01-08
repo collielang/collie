@@ -45,6 +45,7 @@ set(COMPILER_SOURCES
     lexer/lexer.cpp
     parser/ast.cpp
     parser/parser.cpp
+    utils/token_utils.cpp
 )
 
 # 构建编译器核心库

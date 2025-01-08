@@ -67,13 +67,6 @@ struct FunctionSignature {
     std::string to_string() const;
 };
 
-/**
- * @brief 将 TokenType 转换为可读的字符串
- * @param type 要转换的类型
- * @return 类型的字符串表示
- */
-std::string token_type_to_string(TokenType type);
-
 } // namespace collie
 
 #endif // COLLIE_SEMANTIC_COMMON_H

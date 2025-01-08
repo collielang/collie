@@ -28,6 +28,7 @@
 #include <cassert>
 #include <sstream>
 #include <iostream>
+#include "../utils/token_utils.h"
 
 namespace collie {
 
@@ -43,6 +44,9 @@ namespace collie {
  * 每个声明或语句都可能产生错误，但解析器会尝试继续处理后续内容。
  */
 std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
+    std::cout << "Entering parse_program..." << std::endl;
+    std::cout.flush();
+
     std::vector<std::unique_ptr<Stmt>> statements;
 
     while (!is_at_end()) {
@@ -50,12 +54,19 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
             auto stmt = parse_declaration();
             if (stmt) {
                 statements.push_back(std::move(stmt));
+            } else {
+                synchronize();
             }
         } catch (const ParseError& error) {
             report_error(error);
             synchronize();
         }
     }
+
+    std::cout << "Final statements count: " << statements.size() << std::endl;
+    std::cout << "finish parse_program" << std::endl;
+    std::cout << std::endl;
+    std::cout.flush();
 
     return statements;
 }
@@ -74,15 +85,28 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
  * 3. 其他语句
  */
 std::unique_ptr<Stmt> Parser::parse_declaration() {
+    std::cout << "Entering parse_declaration..." << std::endl;
+    std::cout.flush();
+
     try {
         // 检查是否是类型名开头的变量声明
         if (match({TokenType::KW_NUMBER,
                   TokenType::KW_STRING,
                   TokenType::KW_BOOL,
-                  TokenType::KW_CHARACTER})) {
-            Token type = previous();
+                  TokenType::KW_CHARACTER,
+                  TokenType::KW_CHAR,
+                  TokenType::KW_BYTE,
+                  TokenType::KW_WORD,
+                  TokenType::KW_DWORD,
+                  TokenType::KW_NONE,
+                  TokenType::KW_OBJECT,
+                  TokenType::KW_INTEGER,
+                  TokenType::KW_DECIMAL,
+                  TokenType::KW_TRIBOOL,
+                  TokenType::KW_BIT})) {
             return parse_type_declaration();
         }
+
         // 自定义类型需要特殊处理
         if (check(TokenType::IDENTIFIER)) {
             // 看看下一个 token 是不是也是标识符，如果是，那这是一个类型声明
@@ -93,10 +117,22 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
                 return parse_type_declaration();
             }
         }
+
         if (match(TokenType::KW_FUNCTION)) {
             return parse_function_declaration();
         }
-        return parse_statement();
+
+        auto stmt = parse_statement();
+        if (!stmt) {
+            throw error(peek(), "Expected declaration or statement.");
+        }
+
+        std::cout << "finish parse_declaration" << std::endl;
+        std::cout << std::endl;
+        std::cout.flush();
+
+        return stmt;
+
     } catch (const ParseError& error) {
         report_error(error);
         synchronize();
@@ -109,27 +145,44 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
  * @return 变量声明的AST节点
  */
 std::unique_ptr<Stmt> Parser::parse_type_declaration() {
-    // 记录类型 token
-    Token type = previous();
+    std::cout << "Entering parse_type_declaration..." << std::endl;
+    std::cout.flush();
 
-    // 解析变量名
-    Token name = consume(TokenType::IDENTIFIER, "Expect variable name.");
+    try {
+        // 记录类型 token
+        Token type = previous();
 
-    // 解析可选的初始化表达式
-    std::unique_ptr<Expr> initializer = nullptr;
-    if (match(TokenType::OP_ASSIGN)) {
-        try {
-            initializer = parse_expression();
-        } catch (const ParseError& error) {
-            report_error(error);
-            synchronize_until(TokenType::DELIMITER_SEMICOLON);
+        // 解析变量名
+        Token name = consume(TokenType::IDENTIFIER, "Expect variable name.");
+
+        // 解析可选的初始化表达式
+        std::unique_ptr<Expr> initializer = nullptr;
+        if (match(TokenType::OP_ASSIGN)) {
+            try {
+                initializer = parse_expression();
+                if (!initializer) {
+                    throw error(peek(), "Expected expression after '='.");
+                }
+            } catch (const ParseError& error) {
+                report_error(error);
+                synchronize_until(TokenType::DELIMITER_SEMICOLON);
+            }
         }
+
+        // 确保语句以分号结束
+        consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after variable declaration.");
+
+        std::cout << "finish parse_type_declaration" << std::endl;
+        std::cout << std::endl;
+        std::cout.flush();
+
+        return std::make_unique<VarDeclStmt>(type, name, std::move(initializer));
+
+    } catch (const ParseError& error) {
+        report_error(error);
+        synchronize();
+        return nullptr;
     }
-
-    // 确保语句以分号结束
-    consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after variable declaration.");
-
-    return std::make_unique<VarDeclStmt>(name, type, std::move(initializer));
 }
 
 // -----------------------------------------------------------------------------
@@ -152,11 +205,20 @@ std::unique_ptr<Stmt> Parser::parse_type_declaration() {
  * 9. 基本表达式
  */
 std::unique_ptr<Expr> Parser::parse_expression() {
+    std::cout << "Entering parse_expression..." << std::endl;
+    std::cout.flush();
+
     try {
         auto expr = parse_assignment();
         if (!expr) {
             throw error(peek(), "Expect expression.");
         }
+
+        std::cout << "Expression parsed successfully" << std::endl;
+        std::cout << "finish parse_expression" << std::endl;
+        std::cout << std::endl;
+        std::cout.flush();
+
         return expr;
     } catch (const ParseError& error) {
         report_error(error);
@@ -320,60 +382,64 @@ std::unique_ptr<Expr> Parser::parse_unary() {
 }
 
 std::unique_ptr<Expr> Parser::parse_primary() {
-    try {
-        if (match(TokenType::LITERAL_NUMBER)) {
-            return std::make_unique<LiteralExpr>(previous());
-        }
-        if (match(TokenType::LITERAL_STRING)) {
-            return std::make_unique<LiteralExpr>(previous());
-        }
-        if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE)) {
-            return std::make_unique<LiteralExpr>(previous());
-        }
-        if (match(TokenType::IDENTIFIER)) {
-            Token name = previous();
-            // 检查是否是函数调用
-            if (check(TokenType::DELIMITER_LPAREN)) {
-                consume(TokenType::DELIMITER_LPAREN, "Expect '(' after function name.");  // 使用 consume 而不是 match
-                std::vector<std::unique_ptr<Expr>> arguments;
-                // 解析参数列表
-                if (!check(TokenType::DELIMITER_RPAREN)) {
-                    do {
-                        if (arguments.size() >= 255) {
-                            throw error(peek(), "Cannot have more than 255 arguments.");
-                        }
-                        auto arg = parse_expression();
-                        if (!arg) {
-                            throw error(peek(), "Expect expression in function arguments.");
-                        }
-                        arguments.push_back(std::move(arg));
-                    } while (match(TokenType::DELIMITER_COMMA));
-                }
-                Token paren = consume(TokenType::DELIMITER_RPAREN, "Expect ')' after arguments.");
-                return std::make_unique<CallExpr>(
-                    std::make_unique<IdentifierExpr>(name),
-                    paren,
-                    std::move(arguments)
-                );
+    std::cout << "Entering parse_primary..." << std::endl;
+    std::cout.flush();
+
+    if (match(TokenType::LITERAL_NUMBER)) {
+        return std::make_unique<LiteralExpr>(previous());
+    }
+
+    if (match(TokenType::LITERAL_STRING)) {
+        return std::make_unique<LiteralExpr>(previous());
+    }
+
+    if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE)) {
+        return std::make_unique<LiteralExpr>(previous());
+    }
+
+    if (match(TokenType::IDENTIFIER)) {
+        Token name = previous();
+        // 检查是否是函数调用
+        if (check(TokenType::DELIMITER_LPAREN)) {
+            consume(TokenType::DELIMITER_LPAREN, "Expect '(' after function name.");
+            std::vector<std::unique_ptr<Expr>> arguments;
+
+            // 解析参数列表
+            if (!check(TokenType::DELIMITER_RPAREN)) {
+                do {
+                    if (arguments.size() >= 255) {
+                        throw error(peek(), "Cannot have more than 255 arguments.");
+                    }
+                    auto arg = parse_expression();
+                    if (!arg) {
+                        throw error(peek(), "Expect expression in function arguments.");
+                    }
+                    arguments.push_back(std::move(arg));
+                } while (match(TokenType::DELIMITER_COMMA));
             }
-            return std::make_unique<IdentifierExpr>(name);
-        }
-        if (match(TokenType::DELIMITER_LPAREN)) {
-            if (check(TokenType::DELIMITER_RPAREN) || check(TokenType::IDENTIFIER) ||
-                is_literal_token(peek())) {
-                return parse_tuple_expr();
-            }
-            auto expr = parse_expression();
-            consume(TokenType::DELIMITER_RPAREN, "Expect ')' after expression.");
-            return expr;
+
+            Token paren = consume(TokenType::DELIMITER_RPAREN, "Expect ')' after arguments.");
+            return std::make_unique<CallExpr>(
+                std::make_unique<IdentifierExpr>(name),
+                paren,
+                std::move(arguments)
+            );
         }
 
-        throw error(peek(), "Expect expression.");
-    } catch (const ParseError& error) {
-        report_error(error);
-        synchronize();
-        return nullptr;
+        return std::make_unique<IdentifierExpr>(name);
     }
+
+    if (match(TokenType::DELIMITER_LPAREN)) {
+        if (check(TokenType::DELIMITER_RPAREN) || check(TokenType::IDENTIFIER) ||
+            is_literal_token(peek())) {
+            return parse_tuple_expr();
+        }
+        auto expr = parse_expression();
+        consume(TokenType::DELIMITER_RPAREN, "Expect ')' after expression.");
+        return expr;
+    }
+
+    throw error(peek(), "Expect expression.");
 }
 
 std::unique_ptr<Expr> Parser::finish_call(const Token& callee) {
@@ -435,10 +501,14 @@ bool Parser::check(TokenType type) const {
     if (is_at_end()) {
         return false;
     }
-    return peek().type() == type;
+    bool result = peek().type() == type;
+    return result;
 }
 
 bool Parser::is_at_end() const {
+    if (current_ >= tokens_.size()) {
+        return true;
+    }
     return peek().type() == TokenType::END_OF_FILE;
 }
 

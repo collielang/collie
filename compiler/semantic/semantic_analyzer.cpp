@@ -7,11 +7,12 @@
 #include <algorithm>
 #include <cassert>
 #include <sstream>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include "semantic_common.h"
+#include "../utils/token_utils.h"
 #include "symbol_table.h"
 #include "../parser/ast.h"
 #include "../lexer/token.h"
@@ -29,14 +30,26 @@ class SymbolTable;
 // -----------------------------------------------------------------------------
 
 void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& statements) {
+    std::cout << "Starting semantic analysis..." << std::endl;
+    std::cout << "Number of statements to analyze: " << statements.size() << std::endl;
+    std::cout.flush();
+
     // 清理之前的状态
     reset_state();
+    std::cout << "State reset completed" << std::endl;
+    std::cout.flush();
 
     // 分析每个顶层语句
     for (const auto& stmt : statements) {
         try {
+            std::cout << "Analyzing statement..." << std::endl;
+            std::cout.flush();
             stmt->accept(*this);
+            std::cout << "Statement analysis completed" << std::endl;
+            std::cout.flush();
         } catch (const SemanticError& error) {
+            std::cout << "Caught semantic error: " << error.what() << std::endl;
+            std::cout.flush();
             record_error(error);
             if (!in_panic_mode_) {
                 enter_panic_mode();
@@ -44,6 +57,14 @@ void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& stateme
             }
         }
     }
+
+    std::cout << "Semantic analysis completed" << std::endl;
+    if (has_errors()) {
+        std::cout << "Found " << errors_.size() << " semantic errors" << std::endl;
+    } else {
+        std::cout << "No semantic errors found" << std::endl;
+    }
+    std::cout.flush();
 }
 
 // -----------------------------------------------------------------------------
@@ -262,42 +283,88 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
 // 语句访问方法实现
 void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
     try {
+        std::cout << "Analyzing variable declaration..." << std::endl;
+        std::cout << "Variable name: " << stmt.name().lexeme() << std::endl;
+        std::cout << "Variable type token: " << token_type_to_string(stmt.type().type()) << std::endl;
+        std::cout << "Variable type lexeme: " << stmt.type().lexeme() << std::endl;
+        std::cout.flush();
+
         std::string name(stmt.name().lexeme());
 
         // 检查变量是否已在当前作用域中定义
         if (symbols_.is_defined_in_current_scope(name)) {
-            throw SemanticError("Variable '" + name + "' is already defined",
-                stmt.name().line(), stmt.name().column());
+            std::cout << "Error: Variable already defined in current scope" << std::endl;
+            std::cout.flush();
+            throw SemanticError(
+                std::string("Variable '") + name + "' is already defined in this scope",
+                stmt.name().line(), stmt.name().column()
+            );
         }
 
-        // 检查初始化表达式
-        TokenType var_type = stmt.type().type();
-        if (stmt.initializer()) {
-            stmt.initializer()->accept(*this);
-            TokenType init_type = current_type_;
-
-            if (!is_compatible_type(var_type, init_type)) {
-                throw SemanticError("Cannot initialize variable of type '" +
-                    token_type_to_string(var_type) + "' with value of type '" +
-                    token_type_to_string(init_type) + "'",
-                    stmt.name().line(), stmt.name().column());
-            }
+        // 检查类型是否是有效的类型标识符
+        TokenType type_token = stmt.type().type();
+        if (type_token == TokenType::IDENTIFIER) {
+            // 如果是标识符，尝试将其解析为类型
+            type_token = get_identifier_type(stmt.type().lexeme());
+            std::cout << "Resolved type token: " << token_type_to_string(type_token) << std::endl;
+            std::cout.flush();
         }
 
-        // 创建变量符号
+        // 检查是否是有效的类型
+        if (!is_valid_type(type_token)) {
+            std::cout << "Error: Invalid type" << std::endl;
+            std::cout.flush();
+            throw SemanticError(
+                std::string("Invalid type '") + std::string(stmt.type().lexeme()) + "'",
+                stmt.type().line(), stmt.type().column()
+            );
+        }
+
+        // 创建新的符号
         Symbol symbol{
             SymbolKind::VARIABLE,
-            stmt.type(),
+            Token(type_token, stmt.type().lexeme(), stmt.type().line(), stmt.type().column()),
             stmt.name(),
             symbols_.current_scope_level(),
-            stmt.initializer() != nullptr,  // 是否已初始化
-            stmt.is_const()                 // 是否是常量
+            false  // 初始时未初始化
         };
 
-        // 添加到符号表
+        // 如果有初始化表达式，分析它
+        if (stmt.initializer()) {
+            std::cout << "Analyzing initializer expression..." << std::endl;
+            std::cout.flush();
+            stmt.initializer()->accept(*this);
+            TokenType init_type = current_type_;
+            std::cout << "Initializer type: " << token_type_to_string(init_type) << std::endl;
+            std::cout.flush();
+
+            // 检查类型兼容性
+            if (!is_compatible_type(type_token, init_type)) {
+                std::cout << "Error: Type mismatch in initialization" << std::endl;
+                std::cout.flush();
+                throw SemanticError(
+                    std::string("Cannot initialize variable of type '") +
+                    token_type_to_string(type_token) +
+                    "' with value of type '" +
+                    token_type_to_string(init_type) + "'",
+                    stmt.name().line(), stmt.name().column()
+                );
+            }
+
+            // 标记变量已初始化
+            symbol.is_initialized = true;
+            std::cout << "Variable successfully initialized" << std::endl;
+            std::cout.flush();
+        }
+
+        // 将符号添加到符号表
         symbols_.define(symbol);
+        std::cout << "Variable declaration analysis completed" << std::endl;
+        std::cout.flush();
 
     } catch (const SemanticError& error) {
+        std::cout << "Error in variable declaration: " << error.what() << std::endl;
+        std::cout.flush();
         record_error(error);
         if (!in_panic_mode_) {
             enter_panic_mode();
@@ -1180,6 +1247,28 @@ void SemanticAnalyzer::with_error_handling(Func&& func) {
             enter_panic_mode();
             synchronize();
         }
+    }
+}
+
+bool SemanticAnalyzer::is_valid_type(TokenType type) const {
+    switch (type) {
+        case TokenType::KW_NUMBER:
+        case TokenType::KW_STRING:
+        case TokenType::KW_BOOL:
+        case TokenType::KW_CHAR:
+        case TokenType::KW_CHARACTER:
+        case TokenType::KW_BYTE:
+        case TokenType::KW_WORD:
+        case TokenType::KW_DWORD:
+        case TokenType::KW_NONE:
+        case TokenType::KW_OBJECT:
+        case TokenType::KW_INTEGER:
+        case TokenType::KW_DECIMAL:
+        case TokenType::KW_TRIBOOL:
+        case TokenType::KW_BIT:
+            return true;
+        default:
+            return false;
     }
 }
 

@@ -293,6 +293,9 @@ private:
      * @return 如果类型可以比较返回 true
      */
     bool is_comparable_type(TokenType left, TokenType right) const;
+
+    // 类型检查辅助函数
+    bool is_valid_type(TokenType type) const;
 };
 
 } // namespace collie
