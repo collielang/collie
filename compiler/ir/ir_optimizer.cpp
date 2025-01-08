@@ -6,9 +6,17 @@
 
 #include "ir_optimizer.h"
 #include <stdexcept>
+#include <stack>
+#include <sstream>
+#include <algorithm>
+#include <optional>
 
 namespace collie {
 namespace ir {
+
+// 辅助函数声明
+std::optional<int64_t> getInitialValue(std::shared_ptr<IROperand> var);
+std::optional<int64_t> getStepValue(std::shared_ptr<IROperand> var, const Loop& loop);
 
 // ConstantFoldingOptimizer 实现
 bool ConstantFoldingOptimizer::optimize(std::shared_ptr<IRNode> ir) {
@@ -408,9 +416,10 @@ class LoopInvariantMotionOptimizer : public IROptimizer {
 public:
     std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override {
         if (auto func = std::dynamic_pointer_cast<IRFunction>(node)) {
-            return optimizeFunction(func);
+            auto result = optimizeFunction(func);
+            return result != nullptr;
         }
-        return node;
+        return false;
     }
 
 private:
@@ -823,6 +832,331 @@ void LoopUnrollingOptimizer::updateInductionVariable(
         }
     }
 }
+
+// 辅助函数实现
+std::optional<int64_t> getInitialValue(std::shared_ptr<IROperand> var) {
+    // TODO: 实现获取循环变量初始值的逻辑
+    return std::nullopt;
+}
+
+std::optional<int64_t> getStepValue(std::shared_ptr<IROperand> var, const Loop& loop) {
+    // TODO: 实现获取循环步长的逻辑
+    return std::nullopt;
+}
+
+// 添加 IRBasicBlock 的成员函数实现
+std::vector<std::shared_ptr<IRBasicBlock>> IRBasicBlock::getSuccessors() const {
+    std::vector<std::shared_ptr<IRBasicBlock>> successors;
+    auto term = getTerminator();
+    if (!term) return successors;
+
+    for (const auto& op : term->getOperands()) {
+        if (auto block = std::dynamic_pointer_cast<IRBasicBlock>(op)) {
+            successors.push_back(block);
+        }
+    }
+    return successors;
+}
+
+std::vector<std::shared_ptr<IRBasicBlock>> IRBasicBlock::getPredecessors() const {
+    // TODO: 实现获取前驱基本块的逻辑
+    return std::vector<std::shared_ptr<IRBasicBlock>>();
+}
+
+std::shared_ptr<IRInstruction> IRBasicBlock::getTerminator() const {
+    if (instructions_.empty()) return nullptr;
+    auto& last = instructions_.back();
+    if (last->getOpType() == IROpType::BR ||
+        last->getOpType() == IROpType::JMP ||
+        last->getOpType() == IROpType::RET) {
+        return last;
+    }
+    return nullptr;
+}
+
+void IRBasicBlock::setInstructions(const std::vector<std::shared_ptr<IRInstruction>>& instructions) {
+    instructions_ = instructions;
+}
+
+// 添加 IRInstruction 的成员函数实现
+std::shared_ptr<IRBasicBlock> IRInstruction::getParent() const {
+    return parent_.lock();
+}
+
+void IRInstruction::setParent(std::shared_ptr<IRBasicBlock> parent) {
+    parent_ = parent;
+}
+
+std::vector<std::shared_ptr<IRInstruction>> IRInstruction::getUsers() const {
+    // TODO: 实现获取使用该指令的指令列表的逻辑
+    return std::vector<std::shared_ptr<IRInstruction>>();
+}
+
+// 添加 IROperand 的成员函数实现
+std::shared_ptr<IRInstruction> IROperand::getDefiningInstruction() const {
+    // TODO: 实现获取定义该操作数的指令的逻辑
+    return nullptr;
+}
+
+/**
+ * 循环强度削弱优化器实现
+ */
+class LoopStrengthReductionOptimizer : public IROptimizer {
+public:
+    bool optimize(std::shared_ptr<IRNode> node) override {
+        if (auto func = std::dynamic_pointer_cast<IRFunction>(node)) {
+            return optimizeFunction(func);
+        }
+        return false;
+    }
+
+private:
+    bool optimizeFunction(std::shared_ptr<IRFunction> func) {
+        bool changed = false;
+
+        // 识别循环结构
+        auto loops = identifyLoops(func);
+
+        // 对每个循环进行强度削弱优化
+        for (auto& loop : loops) {
+            changed |= optimizeLoop(loop);
+        }
+
+        return changed;
+    }
+
+    bool optimizeLoop(const Loop& loop) {
+        bool changed = false;
+
+        // 收集归纳变量
+        auto inductionVars = collectInductionVariables(loop);
+
+        // 对每个归纳变量进行强度削弱
+        for (const auto& var : inductionVars) {
+            changed |= reduceStrength(var, loop);
+        }
+
+        return changed;
+    }
+
+    struct InductionVariable {
+        std::shared_ptr<IRVariable> var;      // 归纳变量
+        std::shared_ptr<IRInstruction> init;  // 初始值指令
+        std::shared_ptr<IRInstruction> step;  // 步长指令
+        std::vector<std::shared_ptr<IRInstruction>> uses;  // 使用该变量的指令
+    };
+
+    std::vector<InductionVariable> collectInductionVariables(const Loop& loop) {
+        std::vector<InductionVariable> result;
+
+        // 遍历循环中的所有指令
+        for (auto block : loop.blocks) {
+            for (auto& inst : block->getInstructions()) {
+                // 查找循环中的加法指令
+                if (inst->getOpType() == IROpType::ADD) {
+                    // 检查是否是归纳变量的更新
+                    if (auto var = isInductionVariableUpdate(inst, loop)) {
+                        InductionVariable iv;
+                        iv.var = var;
+                        iv.step = inst;
+                        iv.init = findInitialValue(var, loop);
+                        iv.uses = findVariableUses(var, loop);
+                        result.push_back(iv);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    std::shared_ptr<IRVariable> isInductionVariableUpdate(
+        std::shared_ptr<IRInstruction> inst,
+        const Loop& loop
+    ) {
+        // 检查是否是形如 i = i + c 的指令
+        auto lhs = inst->getOperand(0);
+        auto rhs = inst->getOperand(1);
+
+        if (auto var = std::dynamic_pointer_cast<IRVariable>(lhs)) {
+            if (auto constant = std::dynamic_pointer_cast<IRConstant>(rhs)) {
+                // 确保变量在循环中被定义
+                if (isDefinedInLoop(var, loop)) {
+                    return var;
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
+    std::shared_ptr<IRInstruction> findInitialValue(
+        std::shared_ptr<IRVariable> var,
+        const Loop& loop
+    ) {
+        // 在循环前查找变量的初始值定义
+        auto header = loop.header;
+        auto& function = header->getParent();
+
+        for (auto& block : function->getBasicBlocks()) {
+            // 只查找循环前的基本块
+            if (loop.blocks.count(block) > 0) continue;
+
+            for (auto& inst : block->getInstructions()) {
+                if (inst->getOpType() == IROpType::STORE) {
+                    if (inst->getOperand(1) == var) {
+                        return inst;
+                    }
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
+    std::vector<std::shared_ptr<IRInstruction>> findVariableUses(
+        std::shared_ptr<IRVariable> var,
+        const Loop& loop
+    ) {
+        std::vector<std::shared_ptr<IRInstruction>> uses;
+
+        // 遍历循环中的所有指令，查找使用该变量的指令
+        for (auto block : loop.blocks) {
+            for (auto& inst : block->getInstructions()) {
+                for (auto& operand : inst->getOperands()) {
+                    if (operand == var) {
+                        uses.push_back(inst);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return uses;
+    }
+
+    bool isDefinedInLoop(
+        std::shared_ptr<IRVariable> var,
+        const Loop& loop
+    ) {
+        // 检查变量是否在循环中被定义
+        for (auto block : loop.blocks) {
+            for (auto& inst : block->getInstructions()) {
+                if (inst->getOpType() == IROpType::STORE &&
+                    inst->getOperand(1) == var) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool reduceStrength(const InductionVariable& iv, const Loop& loop) {
+        bool changed = false;
+
+        // 遍历归纳变量的所有使用
+        for (auto& use : iv.uses) {
+            // 检查是否是乘法运算
+            if (use->getOpType() == IROpType::MUL) {
+                // 检查另一个操作数是否是循环不变量
+                auto otherOp = (use->getOperand(0) == iv.var) ?
+                              use->getOperand(1) : use->getOperand(0);
+
+                if (isLoopInvariant(otherOp, loop)) {
+                    // 将乘法转换为加法
+                    changed |= convertMultiplicationToAddition(use, iv, otherOp, loop);
+                }
+            }
+        }
+
+        return changed;
+    }
+
+    bool convertMultiplicationToAddition(
+        std::shared_ptr<IRInstruction> mulInst,
+        const InductionVariable& iv,
+        std::shared_ptr<IROperand> factor,
+        const Loop& loop
+    ) {
+        // 创建新的基本变量来保存累加结果
+        auto basicVar = std::make_shared<IRVariable>(
+            "str_" + iv.var->getName(),
+            iv.var->getType()
+        );
+
+        // 在循环前初始化基本变量
+        auto initValue = std::make_shared<IRInstruction>(IROpType::MUL);
+        initValue->addOperand(iv.init->getOperand(0));
+        initValue->addOperand(factor);
+
+        auto storeInit = std::make_shared<IRInstruction>(IROpType::STORE);
+        storeInit->addOperand(initValue);
+        storeInit->addOperand(basicVar);
+
+        // 在循环中使用加法更新基本变量
+        auto stepValue = std::make_shared<IRInstruction>(IROpType::MUL);
+        stepValue->addOperand(iv.step->getOperand(1));
+        stepValue->addOperand(factor);
+
+        auto addInst = std::make_shared<IRInstruction>(IROpType::ADD);
+        addInst->addOperand(basicVar);
+        addInst->addOperand(stepValue);
+
+        auto storeResult = std::make_shared<IRInstruction>(IROpType::STORE);
+        storeResult->addOperand(addInst);
+        storeResult->addOperand(basicVar);
+
+        // 替换原乘法指令的使用
+        mulInst->replaceAllUsesWith(basicVar);
+
+        // 插入新指令
+        auto preheader = createLoopPreheader(loop);
+        preheader->addInstruction(storeInit);
+
+        auto body = *std::next(loop.blocks.begin());
+        body->addInstruction(storeResult);
+
+        return true;
+    }
+
+    bool isLoopInvariant(
+        std::shared_ptr<IROperand> operand,
+        const Loop& loop
+    ) {
+        if (auto constant = std::dynamic_pointer_cast<IRConstant>(operand)) {
+            return true;  // 常量是循环不变量
+        }
+
+        if (auto var = std::dynamic_pointer_cast<IRVariable>(operand)) {
+            // 检查变量是否在循环中被修改
+            for (auto block : loop.blocks) {
+                for (auto& inst : block->getInstructions()) {
+                    if (inst->getOpType() == IROpType::STORE &&
+                        inst->getOperand(1) == var) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    std::vector<Loop> identifyLoops(std::shared_ptr<IRFunction> func) {
+        std::vector<Loop> loops;
+        auto cfg = buildCFG(func);
+
+        for (auto& block : func->getBasicBlocks()) {
+            if (isLoopHeader(block, cfg)) {
+                auto loop = analyzeLoop(block, cfg);
+                loops.push_back(loop);
+            }
+        }
+
+        return loops;
+    }
+};
 
 } // namespace ir
 } // namespace collie
