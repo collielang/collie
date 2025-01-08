@@ -513,14 +513,14 @@ bool Parser::is_at_end() const {
 }
 
 Token Parser::peek() const {
-    if (is_at_end()) {
+    if (current_ >= tokens_.size()) {
         return Token(TokenType::END_OF_FILE, "", 0, 0);
     }
     return tokens_[current_];
 }
 
 Token Parser::previous() const {
-    if (current_ == 0 || current_ > tokens_.size()) {
+    if (current_ <= 0 || current_ > tokens_.size()) {
         return Token(TokenType::TOKEN_ERROR, "", 0, 0);
     }
     return tokens_[current_ - 1];
