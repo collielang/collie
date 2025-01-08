@@ -617,5 +617,178 @@ private:
     }
 };
 
+std::shared_ptr<IRNode> LoopUnrollingOptimizer::optimize(std::shared_ptr<IRNode> node) {
+    if (auto func = std::dynamic_pointer_cast<IRFunction>(node)) {
+        bool changed = false;
+
+        // 识别循环
+        auto cfg = buildCFG(func);
+        std::vector<Loop> loops;
+
+        // 查找循环头
+        for (auto& block : func->getBasicBlocks()) {
+            if (isLoopHeader(block, cfg)) {
+                auto loop = analyzeLoop(block, cfg);
+                loops.push_back(loop);
+            }
+        }
+
+        // 对每个循环尝试展开
+        for (auto& loop : loops) {
+            if (shouldUnroll(loop)) {
+                if (auto tripCount = getTripCount(loop)) {
+                    changed |= unrollLoop(loop, *tripCount);
+                }
+            }
+        }
+
+        return changed ? func : nullptr;
+    }
+    return node;
+}
+
+bool LoopUnrollingOptimizer::shouldUnroll(const Loop& loop) const {
+    // 检查循环是否适合展开：
+    // 1. 循环体不能太大（指令数量限制）
+    size_t instructionCount = 0;
+    for (auto block : loop.blocks) {
+        instructionCount += block->getInstructions().size();
+    }
+    if (instructionCount > 50) return false;  // 循环体太大，不展开
+
+    // 2. 循环必须是规范形式（有一个入口，一个出口）
+    if (loop.blocks.size() != 2) return false;  // 只有循环头和循环体
+
+    // 3. 循环变量必须是简单的递增或递减
+    auto header = loop.header;
+    auto terminator = header->getTerminator();
+    if (!terminator || terminator->getOpType() != IROpType::BR) return false;
+
+    return true;
+}
+
+std::optional<int64_t> LoopUnrollingOptimizer::getTripCount(const Loop& loop) const {
+    // 分析循环的迭代次数：
+    // 1. 找到循环变量和边界条件
+    auto header = loop.header;
+    auto terminator = header->getTerminator();
+    auto condition = terminator->getOperand(0);
+
+    // 检查条件指令
+    auto condInst = std::dynamic_pointer_cast<IRInstruction>(condition);
+    if (!condInst || condInst->getOpType() != IROpType::LT) return std::nullopt;
+
+    // 获取循环变量和边界值
+    auto inductionVar = condInst->getOperand(0);
+    auto boundVar = condInst->getOperand(1);
+
+    // 2. 检查循环变量的初始值和步长
+    auto initValue = getInitialValue(inductionVar);
+    auto stepValue = getStepValue(inductionVar, loop);
+
+    if (!initValue || !stepValue) return std::nullopt;
+
+    // 3. 如果边界值是常量，计算迭代次数
+    if (auto boundConst = std::dynamic_pointer_cast<IRConstant>(boundVar)) {
+        auto bound = std::get<int64_t>(boundConst->getValue());
+        auto init = *initValue;
+        auto step = *stepValue;
+
+        // 计算迭代次数：(bound - init + step - 1) / step
+        return (bound - init + step - 1) / step;
+    }
+
+    return std::nullopt;
+}
+
+bool LoopUnrollingOptimizer::unrollLoop(Loop& loop, int64_t tripCount) {
+    // 如果迭代次数太少，不展开
+    if (tripCount <= 2) return false;
+
+    // 计算实际展开次数（不超过迭代次数和展开因子）
+    size_t actualUnrollFactor = std::min(static_cast<size_t>(tripCount), unrollFactor_);
+
+    // 1. 复制循环体
+    std::vector<std::shared_ptr<IRBasicBlock>> unrolledBlocks;
+    std::unordered_map<std::shared_ptr<IRNode>, std::shared_ptr<IRNode>> oldToNew;
+
+    for (size_t i = 0; i < actualUnrollFactor - 1; ++i) {
+        auto newBlock = cloneLoopBody(loop, oldToNew);
+        unrolledBlocks.push_back(newBlock);
+    }
+
+    // 2. 更新循环变量
+    updateInductionVariable(loop, actualUnrollFactor);
+
+    // 3. 更新循环头的条件
+    auto header = loop.header;
+    auto terminator = header->getTerminator();
+    auto condition = terminator->getOperand(0);
+
+    // 4. 连接展开的基本块
+    auto originalBody = *std::next(loop.blocks.begin());
+    auto& function = header->getParent();
+
+    // 在原循环体后插入展开的基本块
+    auto it = std::find(function->getBasicBlocks().begin(),
+                       function->getBasicBlocks().end(),
+                       originalBody);
+    if (it != function->getBasicBlocks().end()) {
+        ++it;  // 移到下一个位置
+        function->getBasicBlocks().insert(it, unrolledBlocks.begin(), unrolledBlocks.end());
+    }
+
+    return true;
+}
+
+std::shared_ptr<IRBasicBlock> LoopUnrollingOptimizer::cloneLoopBody(
+    const Loop& loop,
+    std::unordered_map<std::shared_ptr<IRNode>, std::shared_ptr<IRNode>>& oldToNew
+) {
+    auto newBlock = std::make_shared<IRBasicBlock>();
+
+    // 获取原循环体（第二个基本块）
+    auto originalBody = *std::next(loop.blocks.begin());
+
+    // 复制指令
+    for (auto& inst : originalBody->getInstructions()) {
+        auto newInst = std::make_shared<IRInstruction>(inst->getOpType());
+
+        // 复制操作数，更新引用
+        for (auto& operand : inst->getOperands()) {
+            auto it = oldToNew.find(operand);
+            if (it != oldToNew.end()) {
+                newInst->addOperand(it->second);
+            } else {
+                newInst->addOperand(operand);
+            }
+        }
+
+        newBlock->addInstruction(newInst);
+        oldToNew[inst] = newInst;
+    }
+
+    return newBlock;
+}
+
+void LoopUnrollingOptimizer::updateInductionVariable(
+    const Loop& loop,
+    int64_t increment
+) {
+    // 找到循环变量的递增指令
+    auto body = *std::next(loop.blocks.begin());
+    for (auto& inst : body->getInstructions()) {
+        if (inst->getOpType() == IROpType::ADD) {
+            auto operand = inst->getOperand(1);
+            if (auto constant = std::dynamic_pointer_cast<IRConstant>(operand)) {
+                // 更新递增值
+                auto newValue = std::get<int64_t>(constant->getValue()) * increment;
+                inst->setOperand(1, std::make_shared<IRConstant>(newValue));
+                break;
+            }
+        }
+    }
+}
+
 } // namespace ir
 } // namespace collie

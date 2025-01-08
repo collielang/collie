@@ -12,6 +12,7 @@
 #include "ir_node.h"
 #include <unordered_set>
 #include <stack>
+#include <optional>
 
 namespace collie {
 namespace ir {
@@ -88,6 +89,64 @@ private:
 
     // 检查指令是否可以提升出循环
     bool canHoistInstruction(const std::shared_ptr<IRInstruction>& inst) const;
+};
+
+/**
+ * 循环展开优化器
+ * 通过复制循环体来减少循环控制开销，提高指令级并行性
+ */
+class LoopUnrollingOptimizer : public IROptimizer {
+public:
+    explicit LoopUnrollingOptimizer(size_t unrollFactor = 4)
+        : unrollFactor_(unrollFactor) {}
+
+    std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override;
+
+private:
+    /**
+     * 判断循环是否适合展开
+     * @param loop 要分析的循环
+     * @return 是否适合展开
+     */
+    bool shouldUnroll(const Loop& loop) const;
+
+    /**
+     * 获取循环的迭代次数
+     * @param loop 要分析的循环
+     * @return 如果能确定迭代次数，返回迭代次数；否则返回 std::nullopt
+     */
+    std::optional<int64_t> getTripCount(const Loop& loop) const;
+
+    /**
+     * 展开循环
+     * @param loop 要展开的循环
+     * @param tripCount 循环迭代次数
+     * @return 是否成功展开
+     */
+    bool unrollLoop(Loop& loop, int64_t tripCount);
+
+    /**
+     * 复制循环体
+     * @param loop 循环信息
+     * @param oldToNew 旧指令到新指令的映射
+     * @return 复制的基本块
+     */
+    std::shared_ptr<IRBasicBlock> cloneLoopBody(
+        const Loop& loop,
+        std::unordered_map<std::shared_ptr<IRNode>, std::shared_ptr<IRNode>>& oldToNew
+    );
+
+    /**
+     * 更新循环变量
+     * @param loop 循环信息
+     * @param increment 每次迭代的增量
+     */
+    void updateInductionVariable(
+        const Loop& loop,
+        int64_t increment
+    );
+
+    size_t unrollFactor_;  // 展开因子
 };
 
 // 优化级别
