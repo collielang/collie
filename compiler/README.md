@@ -120,3 +120,6 @@ ctest
 - lexer: 词法分析器，负责将源代码转换为 token 序列
 - parser: 语法分析器，负责将 token 序列转换为抽象语法树(AST)
 - semantic: 语义分析器，负责类型检查和语义错误检测
+- utils: 通用工具函数
+  - token_utils: Token 相关的辅助函数
+  - version_info: 编译器版本和环境信息显示功能
