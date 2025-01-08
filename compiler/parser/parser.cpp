@@ -44,7 +44,7 @@ namespace collie {
  * 每个声明或语句都可能产生错误，但解析器会尝试继续处理后续内容。
  */
 std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
-    std::cout << "Entering parse_program..." << std::endl;
+    std::cout << "[Entering] parse_program..." << std::endl;
     std::cout.flush();
 
     std::vector<std::unique_ptr<Stmt>> statements;
@@ -63,9 +63,7 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
         }
     }
 
-    std::cout << "Final statements count: " << statements.size() << std::endl;
-    std::cout << "finish parse_program" << std::endl;
-    std::cout << std::endl;
+    std::cout << "[Finish] parse_program" << ". " << "Final statements count: " << statements.size() << std::endl;
     std::cout.flush();
 
     return statements;
@@ -85,7 +83,7 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
  * 3. 其他语句
  */
 std::unique_ptr<Stmt> Parser::parse_declaration() {
-    std::cout << "Entering parse_declaration..." << std::endl;
+    std::cout << "[Entering] parse_declaration..." << std::endl;
     std::cout.flush();
 
     try {
@@ -127,8 +125,7 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
             throw error(peek(), "Expected declaration or statement.");
         }
 
-        std::cout << "finish parse_declaration" << std::endl;
-        std::cout << std::endl;
+        std::cout << "[Finish] parse_declaration" << std::endl;
         std::cout.flush();
 
         return stmt;
@@ -145,7 +142,7 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
  * @return 变量声明的AST节点
  */
 std::unique_ptr<Stmt> Parser::parse_type_declaration() {
-    std::cout << "Entering parse_type_declaration..." << std::endl;
+    std::cout << "[Entering] parse_type_declaration..." << std::endl;
     std::cout.flush();
 
     try {
@@ -172,8 +169,7 @@ std::unique_ptr<Stmt> Parser::parse_type_declaration() {
         // 确保语句以分号结束
         consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after variable declaration.");
 
-        std::cout << "finish parse_type_declaration" << std::endl;
-        std::cout << std::endl;
+        std::cout << "[Finish] parse_type_declaration" << std::endl;
         std::cout.flush();
 
         return std::make_unique<VarDeclStmt>(type, name, std::move(initializer));
@@ -205,7 +201,7 @@ std::unique_ptr<Stmt> Parser::parse_type_declaration() {
  * 9. 基本表达式
  */
 std::unique_ptr<Expr> Parser::parse_expression() {
-    std::cout << "Entering parse_expression..." << std::endl;
+    std::cout << "[Entering] parse_expression..." << std::endl;
     std::cout.flush();
 
     try {
@@ -214,9 +210,7 @@ std::unique_ptr<Expr> Parser::parse_expression() {
             throw error(peek(), "Expect expression.");
         }
 
-        std::cout << "Expression parsed successfully" << std::endl;
-        std::cout << "finish parse_expression" << std::endl;
-        std::cout << std::endl;
+        std::cout << "[Finish] parse_expression" << std::endl;
         std::cout.flush();
 
         return expr;
@@ -382,7 +376,7 @@ std::unique_ptr<Expr> Parser::parse_unary() {
 }
 
 std::unique_ptr<Expr> Parser::parse_primary() {
-    std::cout << "Entering parse_primary..." << std::endl;
+    std::cout << "[Entering] parse_primary..." << std::endl;
     std::cout.flush();
 
     if (match(TokenType::LITERAL_NUMBER)) {

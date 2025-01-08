@@ -81,7 +81,15 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::cout << "Source code:\n" << source << std::endl;
+        std::cout << std::endl;
+        flush_output();
+
+        std::string equalSigns(20, '=');
+        std::cout << "Source code:" << std::endl;
+        std::cout << equalSigns << " START OF FILE " << equalSigns << std::endl;
+        std::cout << source << std::endl;
+        std::cout << equalSigns << "  END OF FILE  " << equalSigns << std::endl;
+        std::cout << std::endl;
         flush_output();
 
         // 词法分析
@@ -117,6 +125,7 @@ int main(int argc, char* argv[]) {
             flush_output();
         }
         std::cout << "Lexical analysis completed." << std::endl;
+        std::cout << std::endl;
         flush_output();
 
         // 语法分析
@@ -139,6 +148,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Syntax analysis completed." << std::endl;
+        std::cout << std::endl;
         flush_output();
 
         // 语义分析
@@ -155,6 +165,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "Semantic analysis completed." << std::endl;
+        std::cout << std::endl;
         flush_output();
 
         std::cout << "Compilation successful!" << std::endl;

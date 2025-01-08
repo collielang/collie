@@ -30,7 +30,7 @@ class SymbolTable;
 // -----------------------------------------------------------------------------
 
 void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& statements) {
-    std::cout << "Starting semantic analysis..." << std::endl;
+    // std::cout << "Starting semantic analysis..." << std::endl;
     std::cout << "Number of statements to analyze: " << statements.size() << std::endl;
     std::cout.flush();
 
