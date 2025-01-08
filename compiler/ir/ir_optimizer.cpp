@@ -214,5 +214,408 @@ bool OptimizationManager::runOptimizations(std::shared_ptr<IRNode> ir) {
     return modified;
 }
 
+// BlockMergingOptimizer 实现
+bool BlockMergingOptimizer::optimize(std::shared_ptr<IRNode> ir) {
+    bool modified = false;
+
+    // 如果是函数，对其基本块进行合并优化
+    if (auto func = std::dynamic_pointer_cast<IRFunction>(ir)) {
+        modified |= mergeBlocks(func);
+    }
+
+    return modified;
+}
+
+bool BlockMergingOptimizer::mergeBlocks(std::shared_ptr<IRFunction> func) {
+    bool modified = false;
+    auto& blocks = func->getBasicBlocks();
+
+    // 从前向后遍历基本块
+    for (auto it = blocks.begin(); it != blocks.end(); ) {
+        auto current = *it;
+        auto next = std::next(it);
+
+        // 如果已经到达最后一个基本块，退出循环
+        if (next == blocks.end()) {
+            break;
+        }
+
+        // 检查当前基本块和下一个基本块是否可以合并
+        if (canMergeBlocks(current, *next)) {
+            // 将下一个基本块的所有指令移动到当前基本块
+            auto& currentInsts = current->getInstructions();
+            auto& nextInsts = (*next)->getInstructions();
+
+            // 移除当前基本块末尾的跳转指令（如果有）
+            if (!currentInsts.empty() &&
+                currentInsts.back()->getOpType() == IROpType::JMP) {
+                currentInsts.pop_back();
+            }
+
+            // 将下一个基本块的指令追加到当前基本块
+            currentInsts.insert(
+                currentInsts.end(),
+                nextInsts.begin(),
+                nextInsts.end()
+            );
+
+            // 更新所有使用下一个基本块的指令，将其替换为当前基本块
+            for (auto user : (*next)->getUsers()) {
+                user->replaceOperand(*next, current);
+            }
+
+            // 删除已合并的基本块
+            it = blocks.erase(next);
+            modified = true;
+        } else {
+            ++it;
+        }
+    }
+
+    return modified;
+}
+
+bool BlockMergingOptimizer::canMergeBlocks(
+    const std::shared_ptr<IRBasicBlock>& first,
+    const std::shared_ptr<IRBasicBlock>& second
+) const {
+    // 检查两个基本块是否可以合并的条件：
+
+    // 1. 第一个基本块只能有一个后继（即只能跳转到第二个基本块）
+    if (first->getSuccessors().size() != 1) {
+        return false;
+    }
+
+    // 2. 第二个基本块只能有一个前驱（即只能从第一个基本块跳转过来）
+    if (second->getPredecessors().size() != 1) {
+        return false;
+    }
+
+    // 3. 第一个基本块的最后一条指令如果是跳转指令，必须跳转到第二个基本块
+    const auto& firstInsts = first->getInstructions();
+    if (!firstInsts.empty()) {
+        auto lastInst = firstInsts.back();
+        if (lastInst->getOpType() == IROpType::JMP) {
+            auto target = std::dynamic_pointer_cast<IRBasicBlock>(
+                lastInst->getOperands()[0]
+            );
+            if (target != second) {
+                return false;
+            }
+        }
+    }
+
+    // 4. 第一个基本块不能以条件跳转指令结束
+    if (!firstInsts.empty() &&
+        firstInsts.back()->getOpType() == IROpType::BR) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * 公共子表达式消除优化器
+ */
+class CommonSubexpressionEliminationOptimizer : public IROptimizer {
+public:
+    std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override {
+        if (auto func = std::dynamic_pointer_cast<IRFunction>(node)) {
+            return optimizeFunction(func);
+        }
+        return node;
+    }
+
+private:
+    std::shared_ptr<IRNode> optimizeFunction(std::shared_ptr<IRFunction> func) {
+        bool changed = false;
+        for (auto& block : func->getBasicBlocks()) {
+            changed |= optimizeBasicBlock(block);
+        }
+        return changed ? func : nullptr;
+    }
+
+    bool optimizeBasicBlock(std::shared_ptr<IRBasicBlock> block) {
+        bool changed = false;
+        std::unordered_map<std::string, std::shared_ptr<IRInstruction>> expressions;
+
+        auto& instructions = block->getInstructions();
+        std::vector<std::shared_ptr<IRInstruction>> newInstructions;
+
+        for (auto& inst : instructions) {
+            // 只处理二元运算指令
+            if (!isBinaryOperation(inst->getOpType())) {
+                newInstructions.push_back(inst);
+                continue;
+            }
+
+            // 生成表达式的哈希键
+            std::string key = getExpressionKey(inst);
+
+            // 检查是否存在相同的表达式
+            auto it = expressions.find(key);
+            if (it != expressions.end()) {
+                // 找到相同的表达式，用之前的结果替换当前指令
+                replaceInstruction(inst, it->second);
+                changed = true;
+                continue;
+            }
+
+            // 将新表达式添加到映射中
+            expressions[key] = inst;
+            newInstructions.push_back(inst);
+        }
+
+        if (changed) {
+            block->setInstructions(newInstructions);
+        }
+        return changed;
+    }
+
+    bool isBinaryOperation(IROpType opType) {
+        return opType == IROpType::ADD || opType == IROpType::SUB ||
+               opType == IROpType::MUL || opType == IROpType::DIV;
+    }
+
+    std::string getExpressionKey(std::shared_ptr<IRInstruction> inst) {
+        std::stringstream ss;
+        ss << static_cast<int>(inst->getOpType());
+
+        for (const auto& operand : inst->getOperands()) {
+            if (auto constant = std::dynamic_pointer_cast<IRConstant>(operand)) {
+                ss << "C" << std::get<int64_t>(constant->getValue());
+            } else if (auto var = std::dynamic_pointer_cast<IRVariable>(operand)) {
+                ss << "V" << var->getName();
+            }
+        }
+
+        return ss.str();
+    }
+
+    void replaceInstruction(std::shared_ptr<IRInstruction> oldInst,
+                          std::shared_ptr<IRInstruction> newInst) {
+        // 将所有使用 oldInst 结果的指令更新为使用 newInst 的结果
+        for (auto user : oldInst->getUsers()) {
+            user->replaceOperand(oldInst, newInst);
+        }
+    }
+};
+
+/**
+ * 循环优化器 - 循环不变量外提
+ */
+class LoopInvariantMotionOptimizer : public IROptimizer {
+public:
+    std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override {
+        if (auto func = std::dynamic_pointer_cast<IRFunction>(node)) {
+            return optimizeFunction(func);
+        }
+        return node;
+    }
+
+private:
+    std::shared_ptr<IRNode> optimizeFunction(std::shared_ptr<IRFunction> func) {
+        bool changed = false;
+
+        // 识别循环结构
+        auto loops = identifyLoops(func);
+
+        // 对每个循环进行优化
+        for (auto& loop : loops) {
+            changed |= optimizeLoop(loop);
+        }
+
+        return changed ? func : nullptr;
+    }
+
+    /**
+     * 识别函数中的循环结构
+     */
+    std::vector<Loop> identifyLoops(std::shared_ptr<IRFunction> func) {
+        std::vector<Loop> loops;
+
+        // 构建控制流图
+        auto cfg = buildCFG(func);
+
+        // 查找循环头（具有回边的基本块）
+        for (auto& block : func->getBasicBlocks()) {
+            if (isLoopHeader(block, cfg)) {
+                auto loop = analyzeLoop(block, cfg);
+                loops.push_back(loop);
+            }
+        }
+
+        return loops;
+    }
+
+    /**
+     * 判断基本块是否是循环头
+     */
+    bool isLoopHeader(std::shared_ptr<IRBasicBlock> block,
+                     const ControlFlowGraph& cfg) {
+        // 循环头有一条指向自己的回边
+        for (auto pred : cfg.getPredecessors(block)) {
+            if (dominates(block, pred, cfg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 分析循环结构
+     */
+    Loop analyzeLoop(std::shared_ptr<IRBasicBlock> header,
+                    const ControlFlowGraph& cfg) {
+        Loop loop;
+        loop.header = header;
+
+        // 收集循环体中的基本块
+        std::stack<std::shared_ptr<IRBasicBlock>> workList;
+        workList.push(header);
+
+        while (!workList.empty()) {
+            auto block = workList.top();
+            workList.pop();
+
+            if (loop.blocks.count(block) > 0) {
+                continue;
+            }
+
+            loop.blocks.insert(block);
+
+            // 将后继基本块加入工作列表
+            for (auto succ : cfg.getSuccessors(block)) {
+                if (dominates(header, succ, cfg)) {
+                    workList.push(succ);
+                }
+            }
+        }
+
+        return loop;
+    }
+
+    /**
+     * 优化单个循环
+     */
+    bool optimizeLoop(const Loop& loop) {
+        bool changed = false;
+
+        // 收集循环不变量
+        std::vector<std::shared_ptr<IRInstruction>> invariants;
+        for (auto block : loop.blocks) {
+            for (auto& inst : block->getInstructions()) {
+                if (isLoopInvariant(inst, loop)) {
+                    invariants.push_back(inst);
+                }
+            }
+        }
+
+        // 将循环不变量移到循环前
+        if (!invariants.empty()) {
+            auto preheader = createLoopPreheader(loop);
+            for (auto& inst : invariants) {
+                moveInstructionToBlock(inst, preheader);
+            }
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /**
+     * 判断指令是否是循环不变量
+     */
+    bool isLoopInvariant(std::shared_ptr<IRInstruction> inst,
+                        const Loop& loop) {
+        // 检查指令的所有操作数是否都是循环不变量
+        for (auto& operand : inst->getOperands()) {
+            if (auto defInst = operand->getDefiningInstruction()) {
+                // 如果操作数是在循环内定义的，且不是循环不变量，则当前指令不是循环不变量
+                if (loop.blocks.count(defInst->getParent()) > 0 &&
+                    !isLoopInvariant(defInst, loop)) {
+                    return false;
+                }
+            }
+        }
+
+        // 检查指令是否有副作用
+        return !hasSideEffects(inst);
+    }
+
+    /**
+     * 创建循环前导基本块
+     */
+    std::shared_ptr<IRBasicBlock> createLoopPreheader(const Loop& loop) {
+        auto preheader = std::make_shared<IRBasicBlock>();
+
+        // 将所有指向循环头的非回边重定向到前导块
+        auto header = loop.header;
+        std::vector<std::shared_ptr<IRBasicBlock>> predecessors;
+        for (auto pred : header->getPredecessors()) {
+            if (!loop.blocks.count(pred)) {
+                predecessors.push_back(pred);
+            }
+        }
+
+        for (auto pred : predecessors) {
+            redirectTerminator(pred, header, preheader);
+        }
+
+        // 添加跳转到循环头的指令
+        auto jmp = std::make_shared<IRInstruction>(IROpType::JMP);
+        jmp->addOperand(header);
+        preheader->addInstruction(jmp);
+
+        return preheader;
+    }
+
+    /**
+     * 将指令移动到指定基本块
+     */
+    void moveInstructionToBlock(std::shared_ptr<IRInstruction> inst,
+                              std::shared_ptr<IRBasicBlock> block) {
+        // 从原基本块中移除指令
+        auto oldBlock = inst->getParent();
+        oldBlock->removeInstruction(inst);
+
+        // 添加到新基本块
+        block->addInstruction(inst);
+    }
+
+    /**
+     * 重定向基本块的终止指令
+     */
+    void redirectTerminator(std::shared_ptr<IRBasicBlock> block,
+                          std::shared_ptr<IRBasicBlock> oldTarget,
+                          std::shared_ptr<IRBasicBlock> newTarget) {
+        auto term = block->getTerminator();
+        if (!term) return;
+
+        // 更新终止指令的目标
+        for (size_t i = 0; i < term->getOperands().size(); ++i) {
+            if (term->getOperand(i) == oldTarget) {
+                term->setOperand(i, newTarget);
+            }
+        }
+    }
+
+    /**
+     * 检查指令是否有副作用
+     */
+    bool hasSideEffects(std::shared_ptr<IRInstruction> inst) {
+        switch (inst->getOpType()) {
+            case IROpType::STORE:
+            case IROpType::CALL:
+            case IROpType::BR:
+            case IROpType::JMP:
+            case IROpType::RET:
+                return true;
+            default:
+                return false;
+        }
+    }
+};
+
 } // namespace ir
 } // namespace collie

@@ -1,7 +1,33 @@
+/*
+ * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Date: 2024-01-08
+ * @Description: IR 公共子表达式消除优化器测试
+ */
+
+#include <gtest/gtest.h>
+#include "../ir/ir_optimizer.h"
+#include "../ir/ir_node.h"
+
+namespace collie {
+namespace ir {
+namespace test {
+
 /**
  * 公共子表达式消除优化器测试
  */
-TEST_F(IROptimizerTest, CommonSubexpressionElimination) {
+class IRCSEOptimizerTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        optimizer_ = std::make_unique<CommonSubexpressionEliminationOptimizer>();
+    }
+
+    std::unique_ptr<CommonSubexpressionEliminationOptimizer> optimizer_;
+};
+
+/**
+ * 基本的公共子表达式消除测试
+ */
+TEST_F(IRCSEOptimizerTest, BasicCSE) {
     // 创建一个基本块，包含重复的表达式：
     // t1 = a + b
     // t2 = c * d
@@ -43,8 +69,7 @@ TEST_F(IROptimizerTest, CommonSubexpressionElimination) {
     func->addBasicBlock(block);
 
     // 运行 CSE 优化
-    auto optimizer = std::make_shared<CommonSubexpressionEliminationOptimizer>();
-    auto result = optimizer->optimize(func);
+    auto result = optimizer_->optimize(func);
 
     // 验证优化结果
     ASSERT_NE(result, nullptr);
@@ -65,3 +90,21 @@ TEST_F(IROptimizerTest, CommonSubexpressionElimination) {
     EXPECT_EQ(operands[0], mul);
     EXPECT_EQ(operands[1], add1);  // 应该使用第一个 a + b 的结果
 }
+
+/**
+ * 跨基本块的公共子表达式消除测试
+ */
+TEST_F(IRCSEOptimizerTest, CrossBlockCSE) {
+    // TODO: 添加跨基本块的测试用例
+}
+
+/**
+ * 带有副作用的公共子表达式消除测试
+ */
+TEST_F(IRCSEOptimizerTest, CSEWithSideEffects) {
+    // TODO: 添加带有副作用的测试用例
+}
+
+} // namespace test
+} // namespace ir
+} // namespace collie

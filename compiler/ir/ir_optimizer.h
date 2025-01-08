@@ -10,6 +10,8 @@
 #include <memory>
 #include <vector>
 #include "ir_node.h"
+#include <unordered_set>
+#include <stack>
 
 namespace collie {
 namespace ir {
@@ -123,6 +125,117 @@ private:
     OptimizationLevel optimizationLevel_;
     int maxIterations_;
 };
+
+/**
+ * 控制流图
+ */
+class ControlFlowGraph {
+public:
+    using BlockSet = std::unordered_set<std::shared_ptr<IRBasicBlock>>;
+    using BlockVector = std::vector<std::shared_ptr<IRBasicBlock>>;
+
+    void addEdge(std::shared_ptr<IRBasicBlock> from,
+                std::shared_ptr<IRBasicBlock> to) {
+        successors_[from].insert(to);
+        predecessors_[to].insert(from);
+    }
+
+    const BlockSet& getSuccessors(std::shared_ptr<IRBasicBlock> block) const {
+        static const BlockSet empty;
+        auto it = successors_.find(block);
+        return it != successors_.end() ? it->second : empty;
+    }
+
+    const BlockSet& getPredecessors(std::shared_ptr<IRBasicBlock> block) const {
+        static const BlockSet empty;
+        auto it = predecessors_.find(block);
+        return it != predecessors_.end() ? it->second : empty;
+    }
+
+private:
+    std::unordered_map<std::shared_ptr<IRBasicBlock>, BlockSet> successors_;
+    std::unordered_map<std::shared_ptr<IRBasicBlock>, BlockSet> predecessors_;
+};
+
+/**
+ * 循环结构
+ */
+struct Loop {
+    std::shared_ptr<IRBasicBlock> header;  // 循环头
+    std::unordered_set<std::shared_ptr<IRBasicBlock>> blocks;  // 循环体中的基本块
+};
+
+/**
+ * 构建函数的控制流图
+ */
+inline ControlFlowGraph buildCFG(std::shared_ptr<IRFunction> func) {
+    ControlFlowGraph cfg;
+
+    for (auto& block : func->getBasicBlocks()) {
+        auto term = block->getTerminator();
+        if (!term) continue;
+
+        // 根据终止指令类型添加边
+        switch (term->getOpType()) {
+            case IROpType::BR: {
+                // 条件跳转有两个目标
+                auto trueBlock = std::dynamic_pointer_cast<IRBasicBlock>(
+                    term->getOperand(1));
+                auto falseBlock = std::dynamic_pointer_cast<IRBasicBlock>(
+                    term->getOperand(2));
+                if (trueBlock) cfg.addEdge(block, trueBlock);
+                if (falseBlock) cfg.addEdge(block, falseBlock);
+                break;
+            }
+            case IROpType::JMP: {
+                // 无条件跳转只有一个目标
+                auto target = std::dynamic_pointer_cast<IRBasicBlock>(
+                    term->getOperand(0));
+                if (target) cfg.addEdge(block, target);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    return cfg;
+}
+
+/**
+ * 判断一个基本块是否支配另一个基本块
+ */
+inline bool dominates(std::shared_ptr<IRBasicBlock> dominator,
+                     std::shared_ptr<IRBasicBlock> block,
+                     const ControlFlowGraph& cfg) {
+    if (dominator == block) return true;
+
+    std::unordered_set<std::shared_ptr<IRBasicBlock>> visited;
+    std::stack<std::shared_ptr<IRBasicBlock>> workList;
+
+    // 从 block 开始反向遍历
+    workList.push(block);
+
+    while (!workList.empty()) {
+        auto current = workList.top();
+        workList.pop();
+
+        if (visited.count(current) > 0) continue;
+        visited.insert(current);
+
+        // 如果找到了 dominator，说明它不支配 block
+        if (current == dominator) return false;
+
+        // 将所有前驱加入工作列表
+        for (auto pred : cfg.getPredecessors(current)) {
+            if (visited.count(pred) == 0) {
+                workList.push(pred);
+            }
+        }
+    }
+
+    return true;
+}
 
 } // namespace ir
 } // namespace collie
