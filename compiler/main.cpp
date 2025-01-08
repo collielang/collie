@@ -17,6 +17,7 @@
 #include "parser/parser.h"
 #include "semantic/semantic_analyzer.h"
 #include "utils/token_utils.h"
+#include "utils/version_info.h"
 
 void flush_output() {
     std::cout.flush();
@@ -24,6 +25,18 @@ void flush_output() {
 }
 
 int main(int argc, char* argv[]) {
+    // 打印版本信息 & 环境信息
+    std::cout << collie::utils::get_version_info();
+    std::cout << collie::utils::get_environment_info();
+    std::cout << std::endl;
+
+    // 检查命令行参数
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <source_file>" << std::endl;
+        std::cerr << "Example: " << argv[0] << " example.collie" << std::endl;
+        return 1;
+    }
+
     try {
         // 设置控制台输出为 UTF-8 编码
         #ifdef _WIN32

@@ -45,12 +45,17 @@ set(COMPILER_SOURCES
     lexer/lexer.cpp
     parser/ast.cpp
     parser/parser.cpp
-    utils/token_utils.cpp
 )
+
+# 添加子目录
+add_subdirectory(utils)
 
 # 构建编译器核心库
 add_library(collie_compiler ${COMPILER_SOURCES})
 target_include_directories(collie_compiler PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(collie_compiler
+    PUBLIC utils
+)
 
 # 启用测试
 enable_testing()
