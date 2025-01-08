@@ -15,6 +15,7 @@
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "semantic/semantic_analyzer.h"
+#include "semantic/semantic_common.h"
 
 void flush_output() {
     std::cout.flush();
@@ -108,6 +109,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Tokens:" << std::endl;
         for (const auto& token : tokens) {
             std::cout << "  Type: " << static_cast<int>(token.type())
+                     << " (" << token_type_to_string(token.type()) << ")"
                      << ", Lexeme: '" << token.lexeme()
                      << "', Line: " << token.line()
                      << ", Column: " << token.column() << std::endl;

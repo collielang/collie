@@ -21,7 +21,7 @@ namespace collie {
 // 前向声明
 class Expr;
 class Stmt;
-class Symbol;
+struct Symbol;
 class SymbolTable;
 
 // -----------------------------------------------------------------------------
@@ -974,23 +974,6 @@ void SemanticAnalyzer::visitContinue(const ContinueStmt& stmt) {
                 stmt.keyword().line(), stmt.keyword().column());
         }
     });
-}
-
-// 辅助方法：将类型转换为字符串
-std::string SemanticAnalyzer::token_type_to_string(TokenType type) const {
-    switch (type) {
-        case TokenType::KW_NUMBER: return "number";
-        case TokenType::KW_STRING: return "string";
-        case TokenType::KW_BOOL: return "bool";
-        case TokenType::KW_CHAR: return "char";
-        case TokenType::KW_CHARACTER: return "character";
-        case TokenType::KW_BYTE: return "byte";
-        case TokenType::KW_WORD: return "word";
-        case TokenType::KW_DWORD: return "dword";
-        case TokenType::KW_NONE: return "none";
-        case TokenType::KW_OBJECT: return "object";
-        default: return "unknown";
-    }
 }
 
 // 添加错误恢复的辅助方法

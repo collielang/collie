@@ -287,13 +287,6 @@ private:
     // 类型转换相关方法
     // -----------------------------------------------------------------------------
     /**
-     * @brief 将类型转换为字符串表示
-     * @param type 要转换的类型
-     * @return 类型的字符串表示
-     */
-    std::string token_type_to_string(TokenType type) const;
-
-    /**
      * @brief 检查类型是否支持比较运算
      * @param left 左操作数类型
      * @param right 右操作数类型
