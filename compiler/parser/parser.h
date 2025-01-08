@@ -458,6 +458,12 @@ private:
      */
     std::unique_ptr<Stmt> parse_type_declaration();
 
+    /**
+     * @brief 获取下一个token
+     * @return 下一个token
+     */
+    Token peek_next() const;
+
 private:
     const std::vector<Token>& tokens_;
     size_t current_;

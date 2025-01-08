@@ -79,13 +79,19 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
         if (match(TokenType::KW_NUMBER) ||
             match(TokenType::KW_STRING) ||
             match(TokenType::KW_BOOL) ||
-            match(TokenType::KW_CHARACTER) ||
-            match(TokenType::IDENTIFIER)) {  // 自定义类型
+            match(TokenType::KW_CHARACTER)) {
             Token type = previous();
-            if (type.type() == TokenType::TOKEN_ERROR) {
-                throw ParseError("Unexpected token at start of declaration.", peek().line(), peek().column());
-            }
             return parse_type_declaration();
+        }
+        // 自定义类型需要特殊处理
+        if (check(TokenType::IDENTIFIER)) {
+            // 看看下一个 token 是不是也是标识符，如果是，那这是一个类型声明
+            Token potential_type = peek();
+            Token next = peek_next();
+            if (next.type() == TokenType::IDENTIFIER) {
+                advance(); // 消费类型名
+                return parse_type_declaration();
+            }
         }
         if (match(TokenType::KW_FUNCTION)) {
             return parse_function_declaration();
@@ -147,7 +153,11 @@ std::unique_ptr<Stmt> Parser::parse_type_declaration() {
  */
 std::unique_ptr<Expr> Parser::parse_expression() {
     try {
-        return parse_assignment();
+        auto expr = parse_assignment();
+        if (!expr) {
+            throw error(peek(), "Expect expression.");
+        }
+        return expr;
     } catch (const ParseError& error) {
         report_error(error);
         synchronize();
@@ -157,10 +167,16 @@ std::unique_ptr<Expr> Parser::parse_expression() {
 
 std::unique_ptr<Expr> Parser::parse_assignment() {
     auto expr = parse_logical_or();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     if (match(TokenType::OP_ASSIGN)) {
         Token equals = previous();
         auto value = parse_assignment();
+        if (!value) {
+            throw error(peek(), "Expect expression after '='.");
+        }
 
         if (auto* identifier = dynamic_cast<IdentifierExpr*>(expr.get())) {
             Token name = identifier->name();
@@ -175,10 +191,16 @@ std::unique_ptr<Expr> Parser::parse_assignment() {
 
 std::unique_ptr<Expr> Parser::parse_logical_or() {
     auto expr = parse_logical_and();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     while (match(TokenType::OP_OR)) {
         Token op = previous();
         auto right = parse_logical_and();
+        if (!right) {
+            throw error(peek(), "Expect expression after '||'.");
+        }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
 
@@ -187,10 +209,16 @@ std::unique_ptr<Expr> Parser::parse_logical_or() {
 
 std::unique_ptr<Expr> Parser::parse_logical_and() {
     auto expr = parse_equality();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     while (match(TokenType::OP_AND)) {
         Token op = previous();
         auto right = parse_equality();
+        if (!right) {
+            throw error(peek(), "Expect expression after '&&'.");
+        }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
 
@@ -199,10 +227,16 @@ std::unique_ptr<Expr> Parser::parse_logical_and() {
 
 std::unique_ptr<Expr> Parser::parse_equality() {
     auto expr = parse_comparison();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     while (match({TokenType::OP_EQUAL, TokenType::OP_NOT_EQUAL})) {
         Token op = previous();
         auto right = parse_comparison();
+        if (!right) {
+            throw error(peek(), "Expect expression after equality operator.");
+        }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
 
@@ -211,6 +245,9 @@ std::unique_ptr<Expr> Parser::parse_equality() {
 
 std::unique_ptr<Expr> Parser::parse_comparison() {
     auto expr = parse_term();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     while (match({
         TokenType::OP_GREATER,
@@ -220,6 +257,9 @@ std::unique_ptr<Expr> Parser::parse_comparison() {
     })) {
         Token op = previous();
         auto right = parse_term();
+        if (!right) {
+            throw error(peek(), "Expect expression after comparison operator.");
+        }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
 
@@ -228,10 +268,16 @@ std::unique_ptr<Expr> Parser::parse_comparison() {
 
 std::unique_ptr<Expr> Parser::parse_term() {
     auto expr = parse_factor();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     while (match({TokenType::OP_PLUS, TokenType::OP_MINUS})) {
         Token op = previous();
         auto right = parse_factor();
+        if (!right) {
+            throw error(peek(), "Expect expression after '+' or '-'.");
+        }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
 
@@ -240,10 +286,16 @@ std::unique_ptr<Expr> Parser::parse_term() {
 
 std::unique_ptr<Expr> Parser::parse_factor() {
     auto expr = parse_unary();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
 
     while (match({TokenType::OP_MULTIPLY, TokenType::OP_DIVIDE, TokenType::OP_MODULO})) {
         Token op = previous();
         auto right = parse_unary();
+        if (!right) {
+            throw error(peek(), "Expect expression after '*', '/' or '%'.");
+        }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
 
@@ -254,10 +306,17 @@ std::unique_ptr<Expr> Parser::parse_unary() {
     if (match({TokenType::OP_NOT, TokenType::OP_MINUS})) {
         Token op = previous();
         auto right = parse_unary();
+        if (!right) {
+            throw error(peek(), "Expect expression after unary operator.");
+        }
         return std::make_unique<UnaryExpr>(op, std::move(right));
     }
 
-    return parse_primary();
+    auto expr = parse_primary();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
+    return expr;
 }
 
 std::unique_ptr<Expr> Parser::parse_primary() {
@@ -274,8 +333,28 @@ std::unique_ptr<Expr> Parser::parse_primary() {
         if (match(TokenType::IDENTIFIER)) {
             Token name = previous();
             // 检查是否是函数调用
-            if (match(TokenType::DELIMITER_LPAREN)) {
-                return finish_call(name);
+            if (check(TokenType::DELIMITER_LPAREN)) {
+                consume(TokenType::DELIMITER_LPAREN, "Expect '(' after function name.");  // 使用 consume 而不是 match
+                std::vector<std::unique_ptr<Expr>> arguments;
+                // 解析参数列表
+                if (!check(TokenType::DELIMITER_RPAREN)) {
+                    do {
+                        if (arguments.size() >= 255) {
+                            throw error(peek(), "Cannot have more than 255 arguments.");
+                        }
+                        auto arg = parse_expression();
+                        if (!arg) {
+                            throw error(peek(), "Expect expression in function arguments.");
+                        }
+                        arguments.push_back(std::move(arg));
+                    } while (match(TokenType::DELIMITER_COMMA));
+                }
+                Token paren = consume(TokenType::DELIMITER_RPAREN, "Expect ')' after arguments.");
+                return std::make_unique<CallExpr>(
+                    std::make_unique<IdentifierExpr>(name),
+                    paren,
+                    std::move(arguments)
+                );
             }
             return std::make_unique<IdentifierExpr>(name);
         }
@@ -298,6 +377,7 @@ std::unique_ptr<Expr> Parser::parse_primary() {
 }
 
 std::unique_ptr<Expr> Parser::finish_call(const Token& callee) {
+    consume(TokenType::DELIMITER_LPAREN, "Expect '(' after function name.");
     std::vector<std::unique_ptr<Expr>> arguments;
 
     // 解析参数列表
@@ -307,14 +387,14 @@ std::unique_ptr<Expr> Parser::finish_call(const Token& callee) {
                 throw error(peek(), "Cannot have more than 255 arguments.");
             }
             auto arg = parse_expression();
-            if (arg) {
-                arguments.push_back(std::move(arg));
+            if (!arg) {
+                throw error(peek(), "Expect expression in function arguments.");
             }
+            arguments.push_back(std::move(arg));
         } while (match(TokenType::DELIMITER_COMMA));
     }
 
     Token paren = consume(TokenType::DELIMITER_RPAREN, "Expect ')' after arguments.");
-
     return std::make_unique<CallExpr>(
         std::make_unique<IdentifierExpr>(callee),
         paren,
@@ -363,6 +443,9 @@ bool Parser::is_at_end() const {
 }
 
 Token Parser::peek() const {
+    if (is_at_end()) {
+        return Token(TokenType::END_OF_FILE, "", 0, 0);
+    }
     return tokens_[current_];
 }
 
@@ -708,6 +791,9 @@ std::unique_ptr<Stmt> Parser::parse_continue_statement() {
  */
 std::unique_ptr<Stmt> Parser::parse_expression_statement() {
     auto expr = parse_expression();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
     consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after expression.");
     return std::make_unique<ExpressionStmt>(std::move(expr));
 }
@@ -923,5 +1009,12 @@ std::unique_ptr<Expr> Parser::parse_postfix() {
     }
 
     return expr;
+}
+
+Token Parser::peek_next() const {
+    if (current_ + 1 >= tokens_.size()) {
+        return Token(TokenType::END_OF_FILE, "", 0, 0);
+    }
+    return tokens_[current_ + 1];
 }
 } // namespace collie

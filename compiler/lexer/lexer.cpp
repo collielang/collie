@@ -133,6 +133,7 @@ Token Lexer::next_token() {
         return Token(TokenType::END_OF_FILE, "", line_, column_);
     }
 
+    size_t start_column = column_;  // 记录 token 开始的列号
     char c = advance();
 
     // 标识符或关键字
@@ -147,53 +148,53 @@ Token Lexer::next_token() {
 
     switch (c) {
         // 单字符 token
-        case '(': return Token(TokenType::DELIMITER_LPAREN, "(", line_, column_);
-        case ')': return Token(TokenType::DELIMITER_RPAREN, ")", line_, column_);
-        case '{': return Token(TokenType::DELIMITER_LBRACE, "{", line_, column_);
-        case '}': return Token(TokenType::DELIMITER_RBRACE, "}", line_, column_);
-        case '[': return Token(TokenType::DELIMITER_LBRACKET, "[", line_, column_);
-        case ']': return Token(TokenType::DELIMITER_RBRACKET, "]", line_, column_);
-        case ',': return Token(TokenType::DELIMITER_COMMA, ",", line_, column_);
-        case '.': return Token(TokenType::DELIMITER_DOT, ".", line_, column_);
-        case ';': return Token(TokenType::DELIMITER_SEMICOLON, ";", line_, column_);
-        case '+': return Token(TokenType::OP_PLUS, "+", line_, column_);
-        case '-': return Token(TokenType::OP_MINUS, "-", line_, column_);
-        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, column_);
+        case '(': return Token(TokenType::DELIMITER_LPAREN, "(", line_, start_column);
+        case ')': return Token(TokenType::DELIMITER_RPAREN, ")", line_, start_column);
+        case '{': return Token(TokenType::DELIMITER_LBRACE, "{", line_, start_column);
+        case '}': return Token(TokenType::DELIMITER_RBRACE, "}", line_, start_column);
+        case '[': return Token(TokenType::DELIMITER_LBRACKET, "[", line_, start_column);
+        case ']': return Token(TokenType::DELIMITER_RBRACKET, "]", line_, start_column);
+        case ',': return Token(TokenType::DELIMITER_COMMA, ",", line_, start_column);
+        case '.': return Token(TokenType::DELIMITER_DOT, ".", line_, start_column);
+        case ';': return Token(TokenType::DELIMITER_SEMICOLON, ";", line_, start_column);
+        case '+': return Token(TokenType::OP_PLUS, "+", line_, start_column);
+        case '-': return Token(TokenType::OP_MINUS, "-", line_, start_column);
+        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, start_column);
         case '/':
             if (match('/')) {
                 // 单行注释
                 while (peek() != '\n' && !is_at_end()) advance();
                 return next_token();
             }
-            return Token(TokenType::OP_DIVIDE, "/", line_, column_);
-        case '%': return Token(TokenType::OP_MODULO, "%", line_, column_);
+            return Token(TokenType::OP_DIVIDE, "/", line_, start_column);
+        case '%': return Token(TokenType::OP_MODULO, "%", line_, start_column);
         case '!':
-            if (match('=')) return Token(TokenType::OP_NOT_EQUAL, "!=", line_, column_);
-            return Token(TokenType::OP_NOT, "!", line_, column_);
+            if (match('=')) return Token(TokenType::OP_NOT_EQUAL, "!=", line_, start_column);
+            return Token(TokenType::OP_NOT, "!", line_, start_column);
         case '=':
-            if (match('=')) return Token(TokenType::OP_EQUAL, "==", line_, column_);
-            if (match('?')) return Token(TokenType::OP_EQ_QUESTION, "=?", line_, column_);
-            return Token(TokenType::OP_ASSIGN, "=", line_, column_);
+            if (match('=')) return Token(TokenType::OP_EQUAL, "==", line_, start_column);
+            if (match('?')) return Token(TokenType::OP_EQ_QUESTION, "=?", line_, start_column);
+            return Token(TokenType::OP_ASSIGN, "=", line_, start_column);
         case '<':
-            if (match('=')) return Token(TokenType::OP_LESS_EQ, "<=", line_, column_);
-            if (match('<')) return Token(TokenType::OP_BIT_LSHIFT, "<<", line_, column_);
-            return Token(TokenType::OP_LESS, "<", line_, column_);
+            if (match('=')) return Token(TokenType::OP_LESS_EQ, "<=", line_, start_column);
+            if (match('<')) return Token(TokenType::OP_BIT_LSHIFT, "<<", line_, start_column);
+            return Token(TokenType::OP_LESS, "<", line_, start_column);
         case '>':
-            if (match('=')) return Token(TokenType::OP_GREATER_EQ, ">=", line_, column_);
-            if (match('>')) return Token(TokenType::OP_BIT_RSHIFT, ">>", line_, column_);
-            return Token(TokenType::OP_GREATER, ">", line_, column_);
+            if (match('=')) return Token(TokenType::OP_GREATER_EQ, ">=", line_, start_column);
+            if (match('>')) return Token(TokenType::OP_BIT_RSHIFT, ">>", line_, start_column);
+            return Token(TokenType::OP_GREATER, ">", line_, start_column);
         case '&':
-            if (match('&')) return Token(TokenType::OP_AND, "&&", line_, column_);
-            return Token(TokenType::OP_BIT_AND, "&", line_, column_);
+            if (match('&')) return Token(TokenType::OP_AND, "&&", line_, start_column);
+            return Token(TokenType::OP_BIT_AND, "&", line_, start_column);
         case '|':
-            if (match('|')) return Token(TokenType::OP_OR, "||", line_, column_);
-            return Token(TokenType::OP_BIT_OR, "|", line_, column_);
-        case '^': return Token(TokenType::OP_BIT_XOR, "^", line_, column_);
-        case '~': return Token(TokenType::OP_BIT_NOT, "~", line_, column_);
+            if (match('|')) return Token(TokenType::OP_OR, "||", line_, start_column);
+            return Token(TokenType::OP_BIT_OR, "|", line_, start_column);
+        case '^': return Token(TokenType::OP_BIT_XOR, "^", line_, start_column);
+        case '~': return Token(TokenType::OP_BIT_NOT, "~", line_, start_column);
         case '?':
-            if (match('=')) return Token(TokenType::OP_QUESTION_EQ, "?=", line_, column_);
-            return Token(TokenType::OP_QUESTION, "?", line_, column_);
-        case ':': return Token(TokenType::OP_COLON, ":", line_, column_);
+            if (match('=')) return Token(TokenType::OP_QUESTION_EQ, "?=", line_, start_column);
+            return Token(TokenType::OP_QUESTION, "?", line_, start_column);
+        case ':': return Token(TokenType::OP_COLON, ":", line_, start_column);
         case '"': return scan_string();
     }
 
@@ -270,8 +271,10 @@ char Lexer::peek_next() const {
 }
 
 char Lexer::advance() {
-    char c = peek();
-    position_++;
+    if (is_at_end()) {
+        return '\0';
+    }
+    char c = source_[position_++];
     if (c == '\n') {
         line_++;
         column_ = 1;
