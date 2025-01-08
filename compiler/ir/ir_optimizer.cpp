@@ -451,8 +451,10 @@ private:
     /**
      * 判断基本块是否是循环头
      */
-    bool isLoopHeader(std::shared_ptr<IRBasicBlock> block,
-                     const ControlFlowGraph& cfg) {
+    bool isLoopHeader(
+        std::shared_ptr<IRBasicBlock> block,
+        const ControlFlowGraph& cfg
+    ) {
         // 循环头有一条指向自己的回边
         for (auto pred : cfg.getPredecessors(block)) {
             if (dominates(block, pred, cfg)) {
@@ -465,8 +467,10 @@ private:
     /**
      * 分析循环结构
      */
-    Loop analyzeLoop(std::shared_ptr<IRBasicBlock> header,
-                    const ControlFlowGraph& cfg) {
+    Loop analyzeLoop(
+        std::shared_ptr<IRBasicBlock> header,
+        const ControlFlowGraph& cfg
+    ) {
         Loop loop;
         loop.header = header;
 
@@ -511,7 +515,7 @@ private:
             }
         }
 
-        // 将循环不变量移到循环前
+        // 如果找到了循环不变量，创建前导基本块并移动指令
         if (!invariants.empty()) {
             auto preheader = createLoopPreheader(loop);
             for (auto& inst : invariants) {
@@ -526,8 +530,10 @@ private:
     /**
      * 判断指令是否是循环不变量
      */
-    bool isLoopInvariant(std::shared_ptr<IRInstruction> inst,
-                        const Loop& loop) {
+    bool isLoopInvariant(
+        std::shared_ptr<IRInstruction> inst,
+        const Loop& loop
+    ) {
         // 检查指令的所有操作数是否都是循环不变量
         for (auto& operand : inst->getOperands()) {
             if (auto defInst = operand->getDefiningInstruction()) {
@@ -546,11 +552,14 @@ private:
     /**
      * 创建循环前导基本块
      */
-    std::shared_ptr<IRBasicBlock> createLoopPreheader(const Loop& loop) {
+    std::shared_ptr<IRBasicBlock> createLoopPreheader(
+        const Loop& loop
+    ) {
         auto preheader = std::make_shared<IRBasicBlock>();
+        auto header = loop.header;
+        auto& function = header->getParent();
 
         // 将所有指向循环头的非回边重定向到前导块
-        auto header = loop.header;
         std::vector<std::shared_ptr<IRBasicBlock>> predecessors;
         for (auto pred : header->getPredecessors()) {
             if (!loop.blocks.count(pred)) {
@@ -558,6 +567,15 @@ private:
             }
         }
 
+        // 在循环头之前插入前导块
+        auto it = std::find(function->getBasicBlocks().begin(),
+                           function->getBasicBlocks().end(),
+                           header);
+        if (it != function->getBasicBlocks().end()) {
+            function->getBasicBlocks().insert(it, preheader);
+        }
+
+        // 重定向前驱块到前导块
         for (auto pred : predecessors) {
             redirectTerminator(pred, header, preheader);
         }
@@ -573,22 +591,38 @@ private:
     /**
      * 将指令移动到指定基本块
      */
-    void moveInstructionToBlock(std::shared_ptr<IRInstruction> inst,
-                              std::shared_ptr<IRBasicBlock> block) {
+    void moveInstructionToBlock(
+        std::shared_ptr<IRInstruction> inst,
+        std::shared_ptr<IRBasicBlock> block
+    ) {
         // 从原基本块中移除指令
         auto oldBlock = inst->getParent();
-        oldBlock->removeInstruction(inst);
+        auto& oldInsts = oldBlock->getInstructions();
+        auto it = std::find(oldInsts.begin(), oldInsts.end(), inst);
+        if (it != oldInsts.end()) {
+            oldInsts.erase(it);
+        }
 
-        // 添加到新基本块
-        block->addInstruction(inst);
+        // 添加到新基本块的末尾（在跳转指令之前）
+        auto& newInsts = block->getInstructions();
+        if (!newInsts.empty() && newInsts.back()->getOpType() == IROpType::JMP) {
+            newInsts.insert(--newInsts.end(), inst);
+        } else {
+            newInsts.push_back(inst);
+        }
+
+        // 更新指令的父基本块
+        inst->setParent(block);
     }
 
     /**
      * 重定向基本块的终止指令
      */
-    void redirectTerminator(std::shared_ptr<IRBasicBlock> block,
-                          std::shared_ptr<IRBasicBlock> oldTarget,
-                          std::shared_ptr<IRBasicBlock> newTarget) {
+    void redirectTerminator(
+        std::shared_ptr<IRBasicBlock> block,
+        std::shared_ptr<IRBasicBlock> oldTarget,
+        std::shared_ptr<IRBasicBlock> newTarget
+    ) {
         auto term = block->getTerminator();
         if (!term) return;
 

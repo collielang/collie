@@ -149,6 +149,74 @@ private:
     size_t unrollFactor_;  // 展开因子
 };
 
+/**
+ * 循环不变量外提优化器
+ * 识别循环中不变的计算并将其移动到循环外部，减少循环内的计算开销
+ */
+class LoopInvariantMotionOptimizer : public IROptimizer {
+public:
+    std::shared_ptr<IRNode> optimize(std::shared_ptr<IRNode> node) override;
+
+private:
+    /**
+     * 优化单个函数
+     * @param func 要优化的函数
+     * @return 如果进行了优化返回优化后的函数，否则返回nullptr
+     */
+    std::shared_ptr<IRNode> optimizeFunction(std::shared_ptr<IRFunction> func);
+
+    /**
+     * 优化单个循环
+     * @param loop 要优化的循环
+     * @return 是否进行了优化
+     */
+    bool optimizeLoop(const Loop& loop);
+
+    /**
+     * 判断指令是否是循环不变量
+     * @param inst 要分析的指令
+     * @param loop 循环信息
+     * @return 是否是循环不变量
+     */
+    bool isLoopInvariant(std::shared_ptr<IRInstruction> inst, const Loop& loop);
+
+    /**
+     * 创建循环前导基本块
+     * @param loop 循环信息
+     * @return 创建的前导基本块
+     */
+    std::shared_ptr<IRBasicBlock> createLoopPreheader(const Loop& loop);
+
+    /**
+     * 将指令移动到指定基本块
+     * @param inst 要移动的指令
+     * @param block 目标基本块
+     */
+    void moveInstructionToBlock(
+        std::shared_ptr<IRInstruction> inst,
+        std::shared_ptr<IRBasicBlock> block
+    );
+
+    /**
+     * 重定向基本块的终止指令
+     * @param block 要更新的基本块
+     * @param oldTarget 原目标基本块
+     * @param newTarget 新目标基本块
+     */
+    void redirectTerminator(
+        std::shared_ptr<IRBasicBlock> block,
+        std::shared_ptr<IRBasicBlock> oldTarget,
+        std::shared_ptr<IRBasicBlock> newTarget
+    );
+
+    /**
+     * 检查指令是否有副作用
+     * @param inst 要检查的指令
+     * @return 是否有副作用
+     */
+    bool hasSideEffects(std::shared_ptr<IRInstruction> inst);
+};
+
 // 优化级别
 enum class OptimizationLevel {
     O0 = 0,  // 无优化
