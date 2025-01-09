@@ -3,27 +3,203 @@
 	"name": "Collie",
 	"patterns": [
 		{
+			"include": "#comments"
+		},
+		{
 			"include": "#keywords"
 		},
 		{
+			"include": "#storage"
+		},
+		{
+			"include": "#declarations"
+		},
+		{
 			"include": "#strings"
+		},
+		{
+			"include": "#characters"
+		},
+		{
+			"include": "#numbers"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#constants"
+		},
+		{
+			"include": "#annotations"
 		}
 	],
 	"repository": {
-		"keywords": {
-			"patterns": [{
-				"name": "keyword.control.collie",
-				"match": "\\b(if|while|for|return)\\b"
-			}]
-		},
-		"strings": {
-			"name": "string.quoted.double.collie",
-			"begin": "\"",
-			"end": "\"",
+		"comments": {
 			"patterns": [
 				{
-					"name": "constant.character.escape.collie",
-					"match": "\\\\."
+					"name": "comment.line.double-slash.collie",
+					"match": "//.*$"
+				},
+				{
+					"name": "comment.block.collie",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control.collie",
+					"match": "\\b(if|else|switch|case|default|for|while|do|break|continue|return|try|catch|finally|throw|instanceof|is|in)\\b"
+				},
+				{
+					"name": "keyword.other.collie",
+					"match": "\\b(class|interface|enum|extends|implements|package|import|new|this|super|base|proxy)\\b"
+				},
+				{
+					"name": "storage.modifier.collie",
+					"match": "\\b(public|private|protected|static|final|const|abstract|synchronized|transient|volatile|native)\\b"
+				}
+			]
+		},
+		"storage": {
+			"patterns": [
+				{
+					"name": "storage.type.primitive.collie",
+					"match": "\\b(object|none|char|character|string|number|integer|decimal|bool|tribool|bit|byte|word|dword|buffer|var)\\b"
+				},
+				{
+					"name": "storage.type.collection.collie",
+					"match": "\\b(list|set|map)\\b"
+				}
+			]
+		},
+		"declarations": {
+			"patterns": [
+				{
+					"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+					"name": "entity.name.function.collie"
+				},
+				{
+					"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=[=;\\[\\],]|$)",
+					"name": "variable.other.collie"
+				}
+			]
+		},
+		"strings": {
+			"patterns": [
+				{
+					"name": "string.quoted.double.collie",
+					"begin": "\"",
+					"end": "\"",
+					"patterns": [
+						{
+							"name": "constant.character.escape.collie",
+							"match": "\\\\([\"\\\\bfnrt]|u[0-9A-Fa-f]{4})"
+						}
+					]
+				},
+				{
+					"name": "string.quoted.triple.collie",
+					"begin": "\"\"\"\n?\\s*",
+					"end": "\\s*\"\"\"",
+					"patterns": [
+						{
+							"name": "constant.character.escape.collie",
+							"match": "\\\\([\"\\\\bfnrt]|u[0-9A-Fa-f]{4})"
+						}
+					]
+				},
+				{
+					"name": "string.interpolated.collie",
+					"begin": "@\"",
+					"end": "\"",
+					"patterns": [
+						{
+							"name": "variable.interpolated.collie",
+							"match": "\\{[^}]*\\}"
+						},
+						{
+							"name": "constant.character.escape.collie",
+							"match": "\\\\([\"\\\\bfnrt]|u[0-9A-Fa-f]{4})"
+						}
+					]
+				}
+			]
+		},
+		"characters": {
+			"patterns": [
+				{
+					"name": "string.quoted.single.collie",
+					"begin": "'",
+					"end": "'",
+					"patterns": [
+						{
+							"name": "constant.character.escape.collie",
+							"match": "\\\\(['\\\\bfnrt]|u[0-9A-Fa-f]{4})"
+						}
+					]
+				}
+			]
+		},
+		"numbers": {
+			"patterns": [
+				{
+					"name": "constant.numeric.hex.collie",
+					"match": "\\b0[xX][0-9a-fA-F]+\\b"
+				},
+				{
+					"name": "constant.numeric.binary.collie",
+					"match": "\\b0[bB][01]+\\b"
+				},
+				{
+					"name": "constant.numeric.decimal.collie",
+					"match": "\\b([0-9]+\\.[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?[fF]?\\b"
+				},
+				{
+					"name": "constant.numeric.integer.collie",
+					"match": "\\b[0-9]+\\b"
+				}
+			]
+		},
+		"operators": {
+			"patterns": [
+				{
+					"name": "keyword.operator.arithmetic.collie",
+					"match": "\\+\\+|\\-\\-|\\+|\\-|\\*|\\/|%"
+				},
+				{
+					"name": "keyword.operator.assignment.collie",
+					"match": "=|\\+=|\\-=|\\*=|\\/=|%="
+				},
+				{
+					"name": "keyword.operator.comparison.collie",
+					"match": "==|!=|>|<|>=|<="
+				},
+				{
+					"name": "keyword.operator.logical.collie",
+					"match": "!|&&|\\|\\||\\?|:"
+				},
+				{
+					"name": "keyword.operator.bitwise.collie",
+					"match": "\\&|\\||\\^|~|<<|>>"
+				}
+			]
+		},
+		"constants": {
+			"patterns": [
+				{
+					"name": "constant.language.collie",
+					"match": "\\b(true|false|null|unset|Infinity|NaN)\\b"
+				}
+			]
+		},
+		"annotations": {
+			"patterns": [
+				{
+					"name": "storage.type.annotation.collie",
+					"match": "@\\w+"
 				}
 			]
 		}

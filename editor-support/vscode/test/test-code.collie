@@ -1,0 +1,20 @@
+number a = 23;
+
+[number] b = [1, 2];
+
+number[] arr = [a, b];
+
+number function() {
+
+}
+
+number number = 1;
+
+
+
+// python code
+/*
+a = [1,23]
+
+b = a
+*/
