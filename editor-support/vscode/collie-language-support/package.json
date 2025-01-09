@@ -1,0 +1,25 @@
+{
+  "name": "collie-language-support",
+  "displayName": "Collie Language Support",
+  "description": "Collie language support for Visual Studio Code.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "collie",
+      "aliases": ["Collie", "collie"],
+      "extensions": [".collie",".co"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "collie",
+      "scopeName": "source.collie",
+      "path": "./syntaxes/collie.tmLanguage.json"
+    }]
+  }
+}
