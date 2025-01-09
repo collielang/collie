@@ -14,5 +14,13 @@
   "sidebar.contributeSidebar.category.贡献代码": {
     "message": "贡献代码",
     "description": "The label for category 贡献代码 in sidebar contributeSidebar"
+  },
+  "sidebar.ecoSidebar.category.开发工具支持": {
+    "message": "开发工具支持",
+    "description": "The label for category 开发工具支持 in sidebar ecoSidebar"
+  },
+  "sidebar.ecoSidebar.category.VSCode": {
+    "message": "VSCode",
+    "description": "The label for category VSCode in sidebar ecoSidebar"
   }
 }

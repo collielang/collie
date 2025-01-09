@@ -67,3 +67,113 @@ string str3 = @"Hello {name}";
 #       ^^^^ variable.other.collie
 #             ^^^^^^^^^^^^^ string.interpolated.collie
 #                    ^^^^ variable.interpolated.collie
+
+// 数字类型测试
+number n1 = 0xFF;
+#^^^^^^ storage.type.primitive.collie
+#          ^^^^ constant.numeric.hex.collie
+
+number n2 = 0b1010;
+#^^^^^^ storage.type.primitive.collie
+#          ^^^^^^ constant.numeric.binary.collie
+
+number n3 = 3.14;
+#^^^^^^ storage.type.primitive.collie
+#          ^^^^ constant.numeric.decimal.collie
+
+// 布尔类型测试
+bool flag = true;
+#^^^ storage.type.primitive.collie
+#          ^^^^ constant.language.collie
+
+tribool state = unset;
+#^^^^^^ storage.type.primitive.collie
+#              ^^^^^ constant.language.collie
+
+// 位类型测试
+bit b = 1;
+#^^ storage.type.primitive.collie
+#      ^ constant.numeric.integer.collie
+
+byte byteVal = 0xFF;
+#^^^ storage.type.primitive.collie
+#             ^^^^ constant.numeric.hex.collie
+
+// 运算符测试
+a += 1;
+# ^^ keyword.operator.compound_assignment.collie
+a -= 1;
+# ^^ keyword.operator.compound_assignment.collie
+a *= 1;
+# ^^ keyword.operator.compound_assignment.collie
+a /= 1;
+# ^^ keyword.operator.compound_assignment.collie
+
+a++;
+# ^^ keyword.operator.arithmetic.collie
+++a;
+#^^ keyword.operator.arithmetic.collie
+a--;
+# ^^ keyword.operator.arithmetic.collie
+--a;
+#^^ keyword.operator.arithmetic.collie
+
+a == b;
+# ^^ keyword.operator.comparison.collie
+a != b;
+# ^^ keyword.operator.comparison.collie
+a > b;
+# ^ keyword.operator.comparison.collie
+a < b;
+# ^ keyword.operator.comparison.collie
+a >= b;
+# ^^ keyword.operator.comparison.collie
+a <= b;
+# ^^ keyword.operator.comparison.collie
+
+// 逻辑运算符测试
+!flag;
+#^ keyword.operator.logical.collie
+flag && true;
+#    ^^ keyword.operator.logical.collie
+flag || false;
+#    ^^ keyword.operator.logical.collie
+
+// 位运算符测试
+a & b;
+# ^ keyword.operator.bitwise.collie
+a | b;
+# ^ keyword.operator.bitwise.collie
+a ^ b;
+# ^ keyword.operator.bitwise.collie
+~a;
+#^ keyword.operator.bitwise.collie
+a << 1;
+# ^^ keyword.operator.bitwise.collie
+a >> 1;
+# ^^ keyword.operator.bitwise.collie
+
+// 容器类型测试
+list[number] numbers = [1, 2, 3];
+#^^^ storage.type.collection.collie
+#    ^^^^^^ storage.type.primitive.collie
+
+set[string] strings = ["a", "b"];
+#^^ storage.type.collection.collie
+#   ^^^^^^ storage.type.primitive.collie
+
+map[string: number] scores = {"John": 85};
+#^^ storage.type.collection.collie
+#   ^^^^^^ storage.type.primitive.collie
+#           ^^^^^^ storage.type.primitive.collie
+
+// 注解测试
+@deprecated
+#^^^^^^^^^ storage.type.annotation.collie
+class OldClass {
+}
+
+@override
+#^^^^^^^^ storage.type.annotation.collie
+public void method() {
+}
