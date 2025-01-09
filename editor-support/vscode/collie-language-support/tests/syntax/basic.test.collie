@@ -1,0 +1,69 @@
+# SYNTAX TEST "source.collie"
+
+// 这是一个单行注释
+#^^ comment.line.double-slash.collie
+
+/* 这是一个
+   多行注释 */
+#^^ comment.block.collie
+
+// 变量声明测试
+number a = 23;
+#^^^^^^ storage.type.primitive.collie
+#       ^ variable.other.collie
+#         ^ keyword.operator.assignment.collie
+#           ^^ constant.numeric.integer.collie
+
+[number] b = [1, 2];
+#^^^^^^^ storage.type.primitive.collie
+#         ^ variable.other.collie
+#             ^ constant.numeric.integer.collie
+#                ^ constant.numeric.integer.collie
+
+// 函数声明测试
+number function() {
+#^^^^^^ storage.type.primitive.collie
+#       ^^^^^^^^ entity.name.function.collie
+    return 42;
+#   ^^^^^^ keyword.control.collie
+#          ^^ constant.numeric.integer.collie
+}
+
+// 类声明测试
+class MyClass {
+#^^^^^ keyword.other.collie
+#      ^^^^^^^ entity.name.type.class.collie
+    public number value;
+#   ^^^^^^ storage.modifier.collie
+#          ^^^^^^ storage.type.primitive.collie
+#                 ^^^^^ variable.other.collie
+
+    public MyClass(number val) {
+#   ^^^^^^ storage.modifier.collie
+#          ^^^^^^^ entity.name.function.collie
+#                  ^^^^^^ storage.type.primitive.collie
+#                         ^^^ variable.parameter.collie
+        this.value = val;
+#       ^^^^ keyword.other.collie
+    }
+}
+
+// 字符串测试
+string str1 = "Hello World";
+#^^^^^^ storage.type.primitive.collie
+#       ^^^^ variable.other.collie
+#              ^^^^^^^^^^^^ string.quoted.double.collie
+
+string str2 = """
+#^^^^^^ storage.type.primitive.collie
+#       ^^^^ variable.other.collie
+    Hello
+    World
+    """;
+#   ^^^ string.quoted.triple.collie
+
+string str3 = @"Hello {name}";
+#^^^^^^ storage.type.primitive.collie
+#       ^^^^ variable.other.collie
+#             ^^^^^^^^^^^^^ string.interpolated.collie
+#                    ^^^^ variable.interpolated.collie
