@@ -4,6 +4,8 @@ on:
   # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
+    paths:  # 路径过滤条件
+      - 'document/**'  # 匹配 document 目录及其子目录下的所有文件
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
