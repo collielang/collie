@@ -1,0 +1,38 @@
+{
+  "title": {
+    "message": "牧羊犬编程语言 Collie Lang",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "牧羊犬编程语言 Logo",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.Tutorial": {
+    "message": "教程",
+    "description": "Navbar item with label Tutorial"
+  },
+  "item.label.Grammer": {
+    "message": "语法",
+    "description": "Navbar item with label Grammer"
+  },
+  "item.label.Community": {
+    "message": "社区",
+    "description": "Navbar item with label Community"
+  },
+  "item.label.Blog": {
+    "message": "博客",
+    "description": "Navbar item with label Blog"
+  },
+  "item.label.Open Source": {
+    "message": "开源",
+    "description": "Navbar item with label Open Source"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  },
+  "item.label.Gitee": {
+    "message": "码云 (Gitee)",
+    "description": "Navbar item with label Gitee"
+  }
+}

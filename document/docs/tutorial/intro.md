@@ -1,8 +1,8 @@
 ---
 sidebar_position: 1
-# sidebar_label: 快速开始
+sidebar_label: Introduction
 ---
 
-# 快速开始
+# Introduction
 
 TODO

@@ -1,6 +1,6 @@
 ---
 sidebar_position: 99
-sidebar_label: 贡献
+sidebar_label: Contribute
 ---
 
 # Contribute

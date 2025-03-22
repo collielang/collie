@@ -1,6 +1,8 @@
 ---
 sidebar_position: 1
-# sidebar_label:
+sidebar_label: Introduction
 ---
+
+# Introduction
 
 TODO

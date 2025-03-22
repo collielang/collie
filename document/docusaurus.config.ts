@@ -85,21 +85,25 @@ const config: Config = {
           type: 'docSidebar',
           sidebarId: 'tutorialSidebar',
           position: 'left',
-          label: '教程 Tutorial',
+          label: 'Tutorial',
         },
         {
           type: 'docSidebar',
           sidebarId: 'grammerSidebar',
           position: 'left',
-          label: '语法 Grammer',
+          label: 'Grammer',
         },
         {
           type: 'docSidebar',
           sidebarId: 'communitySidebar',
           position: 'left',
-          label: '社区 Community',
+          label: 'Community',
         },
-        { to: '/blog', label: 'Blog', position: 'left' },
+        {
+          to: '/blog',
+          label: 'Blog',
+          position: 'left',
+        },
 
         {
           type: 'localeDropdown',
@@ -107,16 +111,16 @@ const config: Config = {
         },
         {
           type: 'dropdown',
-          label: '开源 Open Source',
+          label: 'Open Source',
           position: 'right',
           items: [
             {
-              href: 'https://github.com/CollieLang/CollieLang',
               label: 'GitHub',
+              href: 'https://github.com/CollieLang/CollieLang',
             },
             {
-              href: 'https://gitee.com/CollieLang/CollieLang',
               label: 'Gitee',
+              href: 'https://gitee.com/CollieLang/CollieLang',
             },
           ],
         },
@@ -170,7 +174,11 @@ const config: Config = {
             },
             {
               label: 'GitHub',
-              href: 'https://github.com/facebook/docusaurus',
+              href: 'https://github.com/CollieLang/CollieLang',
+            },
+            {
+              label: 'Gitee',
+              href: 'https://gitee.com/CollieLang/CollieLang',
             },
           ],
         },
