@@ -92,9 +92,9 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
-          sidebarId: 'communitySidebar',
+          sidebarId: 'contributeSidebar',
           position: 'left',
-          label: 'Community',
+          label: 'Contribute',
         },
         {
           to: '/blog',

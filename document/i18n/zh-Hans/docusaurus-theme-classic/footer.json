@@ -17,7 +17,7 @@
   },
   "link.item.label.Community": {
     "message": "社区",
-    "description": "The label of footer link with label=Community linking to /docs/community/intro"
+    "description": "The label of footer link with label=Community linking to /docs/contribute/intro"
   },
   "link.item.label.Blog": {
     "message": "博客",

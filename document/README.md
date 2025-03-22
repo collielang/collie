@@ -5,4 +5,4 @@
 
 ## 贡献
 
-- [贡献文档](./docs/community/contribute.md)
+- [贡献文档](./docs/contribute/contribute.md)

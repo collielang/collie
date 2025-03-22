@@ -20,16 +20,16 @@ Collie 是一个静态类型的编程语言，旨在提供简洁的语法和强�
 
 欢迎提交 Issue 和 Pull Request！
 
-- [贡献指南](../community/contribute.md)
+- [贡献指南](../contribute/contribute.md)
 
 ### 指南
 
-- [开发指南(TODO)](../community/development-guide.md)
-- [代码提交规范](../community/code-commit-specification.md)
+- [开发指南(TODO)](../contribute/development-guide.md)
+- [代码提交规范](../contribute/code-commit-specification.md)
 
 ### 编译与运行
 
-请参考 [编译和运行指南](../community/compile-and-run.md)
+请参考 [编译和运行指南](../contribute/compile-and-run.md)
 
 ### 项目结构
 
