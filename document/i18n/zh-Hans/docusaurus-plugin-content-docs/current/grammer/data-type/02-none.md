@@ -1,6 +1,6 @@
 ---
 sidebar_position: 2
-sidebar_label: None Type
+sidebar_label: 空类型（None Type）
 ---
 
 # 空类型（None Type）

@@ -1,6 +1,6 @@
 ---
 sidebar_position: 07
-sidebar_label: Buffer Type (TODO)
+sidebar_label: 缓冲区 / 字节数组类型（Buffer Type）（TODO）
 ---
 
 # 缓冲区 / 字节数组类型（Buffer Type）（TODO）

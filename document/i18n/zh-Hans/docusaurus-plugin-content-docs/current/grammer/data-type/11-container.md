@@ -1,6 +1,6 @@
 ---
 sidebar_position: 11
-sidebar_label: Container Type
+sidebar_label: 容器类型（Container Type）
 ---
 
 import Tabs from '@theme/Tabs';

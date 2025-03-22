@@ -1,6 +1,6 @@
 ---
 sidebar_position: 2
-sidebar_label: Data Type
+sidebar_label: 数据类型
 ---
 
 # 数据类型

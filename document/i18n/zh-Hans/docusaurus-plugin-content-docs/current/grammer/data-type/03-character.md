@@ -1,6 +1,6 @@
 ---
 sidebar_position: 3
-sidebar_label: Character Type
+sidebar_label: 字符类型（Character Type）
 ---
 
 # 字符类型（Character Type）

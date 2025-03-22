@@ -1,6 +1,6 @@
 ---
 sidebar_position: 6
-sidebar_label: Bitwise Type
+sidebar_label: 位类型（Bitwise Type）
 ---
 
 # 位类型（Bitwise Type）
