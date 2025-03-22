@@ -92,6 +92,12 @@ const config: Config = {
           position: 'left',
           label: '语法 Grammer',
         },
+        {
+          type: 'docSidebar',
+          sidebarId: 'communitySidebar',
+          position: 'left',
+          label: '社区 Community',
+        },
         {to: '/blog', label: 'Blog', position: 'left'},
         {
           href: 'https://github.com/facebook/docusaurus',
