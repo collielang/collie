@@ -1,0 +1,9 @@
+collie:
+  label: Collie
+  permalink: /collie
+  description: Collie Lang
+
+release:
+  label: Release
+  permalink: /release
+  description: New version release

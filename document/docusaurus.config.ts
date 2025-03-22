@@ -47,7 +47,6 @@ const config: Config = {
           editUrl:
             'https://github.com/CollieLang/CollieLang/tree/main/document/',
         },
-        /*
         blog: {
           showReadingTime: true,
           feedOptions: {
@@ -63,7 +62,6 @@ const config: Config = {
           onInlineAuthors: 'warn',
           onUntruncatedBlogPosts: 'warn',
         },
-        */
         theme: {
           customCss: './src/css/custom.css',
         },
