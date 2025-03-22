@@ -24,26 +24,22 @@ Collie is a statically typed programming language designed to offer concise synt
 
 Issues and Pull Requests are welcome!
 
-- [Contributions](../contribute/contribute.md)
+- [Contributions](../contribute/contribute/contribute.md)
 
 ### Guidelines
 
-- [Development Guide (TODO)](../contribute/development-guide.md)
-- [Code Submission Specification](../contribute/code-commit-specification.md)
+- [Development Guide (TODO)](../contribute/contribute/contribute-code/development-guide.md)
+- [Code Submission Specification](../contribute/contribute/code-commit-specification.md)
 
 ### Compilation and Execution
 
-Please refer to the [Compile and Run Guide](../contribute/compile-and-run.md)
+Please refer to the [Compile and Run Guide](../contribute/contribute/contribute-code/compile-and-run.md)
 
 ### Project Structure
 
 - [Project Structure](../contribute/project-structure.md)
 
 <ProjectStructure/>
-
-## Others
-
-- [Miscellaneous](Others/index.md)
 
 ## License
 

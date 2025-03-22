@@ -97,6 +97,12 @@ const config: Config = {
           label: 'Contribute',
         },
         {
+          type: 'docSidebar',
+          sidebarId: 'othersSidebar',
+          position: 'left',
+          label: '[DEBUG]',
+        },
+        {
           to: '/blog',
           label: 'Blog',
           position: 'left',

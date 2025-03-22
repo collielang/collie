@@ -1,5 +1,3 @@
-[HOME](/)
-
 # 候选名称
 
 | Chinese Name   | English Name |
