@@ -5,8 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  // 牧羊犬编程语言文档 Collie Lang Document
-  title: '牧羊犬编程语言 Collie Lang',
+  title: 'Collie Lang',
   tagline: '"The first step is always the hardest."',
   favicon: 'img/favicon.ico',
 
@@ -73,10 +72,10 @@ const config: Config = {
     // Replace with your project's social card
     image: 'img/docusaurus-social-card.jpg',
     navbar: {
-      title: '牧羊犬编程语言 Collie Lang',
+      title: 'Collie Lang',
       logo: {
         alt: 'Collie Lang Logo',
-        src: 'img/logo.svg',
+        src: 'img/logo.png',
       },
       items: [
         {

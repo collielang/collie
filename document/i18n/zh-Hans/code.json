@@ -309,5 +309,17 @@
   "theme.tags.tagsPageTitle": {
     "message": "标签",
     "description": "The title of the tag list page"
+  },
+  "homepage.header.button.document": {
+    "message": "文档",
+    "description": "Homepage header [document] button"
+  },
+  "homepage.header.title": {
+    "message": "牧羊犬编程语言",
+    "description": "Homepage header title"
+  },
+  "homepage.header.tagline": {
+    "message": "万事开头难",
+    "description": "Homepage header tagline"
   }
 }
