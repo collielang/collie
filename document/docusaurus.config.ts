@@ -143,10 +143,14 @@ const config: Config = {
             },
           ],
         },
-        /*
         {
           title: 'Community',
           items: [
+            {
+              label: 'Github Discussions',
+              href: 'https://github.com/CollieLang/CollieLang/discussions',
+            },
+            /*
             {
               label: 'Stack Overflow',
               href: 'https://stackoverflow.com/questions/tagged/docusaurus',
@@ -159,9 +163,9 @@ const config: Config = {
               label: 'X',
               href: 'https://x.com/docusaurus',
             },
+            */
           ],
         },
-        */
         {
           title: 'More',
           items: [
