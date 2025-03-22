@@ -1,25 +1,19 @@
 ---
-sidebar_position: 99
-sidebar_label: Contribute
+sidebar_position: 1
+sidebar_label: Contribute Document
 ---
 
-# Contribute
-
-## Contribute Code
-
-TODO
-
-## Contribute Document
+# Contribute Document
 
 This document site is built using [Docusaurus](https://docusaurus.io/).
 
-### Installation
+## Installation
 
 ```sh
 $ npm install
 ```
 
-### Local Development
+## Local Development
 
 ```sh
 $ npm run start
@@ -27,7 +21,7 @@ $ npm run start
 
 This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
 
-### Build
+## Build
 
 ```sh
 $ npm run build

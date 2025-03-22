@@ -1,15 +1,9 @@
 ---
-sidebar_position: 99
-sidebar_label: 参与贡献
+sidebar_position: 1
+sidebar_label: 贡献文档
 ---
 
-# 参与贡献
-
-## 贡献代码
-
-TODO
-
-## 贡献文档
+# 贡献文档
 
 本文档站点是使用 [Docusaurus](https://docusaurus.io/) 构建的。
 
