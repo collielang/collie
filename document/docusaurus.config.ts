@@ -1,5 +1,5 @@
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
+import { themes as prismThemes } from 'prism-react-renderer';
+import type { Config } from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
@@ -28,10 +28,11 @@ const config: Config = {
   // useful metadata like html lang. For example, if your site is Chinese, you
   // may want to replace "en" with "zh-Hans".
   i18n: {
-    defaultLocale: 'zh-Hans',
+    defaultLocale: 'en',
     locales: [
-      'zh-Hans',
+      // refer: https://docusaurus.io/zh-CN/docs/i18n/git
       'en',
+      'zh-Hans',
     ],
   },
 
@@ -98,11 +99,26 @@ const config: Config = {
           position: 'left',
           label: '社区 Community',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
+        { to: '/blog', label: 'Blog', position: 'left' },
+
         {
-          href: 'https://github.com/facebook/docusaurus',
-          label: 'GitHub',
+          type: 'localeDropdown',
           position: 'right',
+        },
+        {
+          type: 'dropdown',
+          label: '开源 Open Source',
+          position: 'right',
+          items: [
+            {
+              href: 'https://github.com/CollieLang/CollieLang',
+              label: 'GitHub',
+            },
+            {
+              href: 'https://gitee.com/CollieLang/CollieLang',
+              label: 'Gitee',
+            },
+          ],
         },
       ],
     },
@@ -114,10 +130,19 @@ const config: Config = {
           items: [
             {
               label: 'Tutorial',
-              to: '/docs/intro',
+              to: '/docs/tutorial/intro',
+            },
+            {
+              label: 'Grammer',
+              to: '/docs/grammer/intro',
+            },
+            {
+              label: 'Community',
+              to: '/docs/community/intro',
             },
           ],
         },
+        /*
         {
           title: 'Community',
           items: [
@@ -135,6 +160,7 @@ const config: Config = {
             },
           ],
         },
+        */
         {
           title: 'More',
           items: [
@@ -149,7 +175,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} My Project, Inc.`,
+      copyright: `Collie Lang`,
     },
     prism: {
       theme: prismThemes.github,
