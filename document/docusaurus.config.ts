@@ -138,8 +138,8 @@ const config: Config = {
               to: '/docs/grammer/intro',
             },
             {
-              label: 'Community',
-              to: '/docs/community/intro',
+              label: 'Contribute',
+              to: '/docs/contribute/intro',
             },
           ],
         },

@@ -20,8 +20,8 @@ sidebar_label: Character Type
 |  `string`   |        动态调整        | 字符串。等价于 `character[]`, `[character]`<br />也就是说，`character` 组成的一维数组，天然支持所有 `string` 的操作方式，你可完全将其当作 `string` 对象使用。 |
 
 > 注意：
-> - Collie 使用的 [Unicode 编码标准](ImplementationDetails/Unicode.md) 为 [**UTF-16 编码**](ImplementationDetails/Unicode.md?id=utf-16)。
-> - 在[不同语言和操作系统中，所采用的默认编码格式不同](ImplementationDetails/EncodingUsedByDifferentLanguagesOrOperatingSystems.md)。因此，`char` 类型占用空间不完全相同。
+> - Collie 使用的 [Unicode 编码标准](../../implementation-details/unicode.md) 为 [**UTF-16 编码**](../../implementation-details/unicode.md#utf-16)。
+> - 在[不同语言和操作系统中，所采用的默认编码格式不同](../../implementation-details/encoding-used-by-different-languages-or-operating-systems.md)。因此，`char` 类型占用空间不完全相同。
 
 ## 🏅语法示例 {#syntax-example}
 

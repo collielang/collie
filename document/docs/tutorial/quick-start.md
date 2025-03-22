@@ -37,7 +37,7 @@ Please refer to the [Compile and Run Guide](../contribute/compile-and-run.md)
 
 ## Others
 
-• [Miscellaneous](Others/index.md)
+- [Miscellaneous](Others/index.md)
 
 ## License
 
