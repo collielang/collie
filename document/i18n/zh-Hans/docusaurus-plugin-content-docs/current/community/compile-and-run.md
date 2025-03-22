@@ -1,3 +1,8 @@
+---
+sidebar_position: 4
+sidebar_label: 编译和运行指南
+---
+
 # 编译和运行指南
 
 本文档介绍如何在不同操作系统上编译和运行项目。
@@ -37,7 +42,9 @@ cd compiler
    cmake .. -G "Visual Studio 17 2022" -A x64
    ```
 
-   !> 注意：在中国，可能会因网络问题无法下载 googletest 框架
+   :::danger
+   注意：在中国，可能会因网络问题无法下载 googletest 框架
+   :::
 
 #### 使用 Visual Studio
 2. 打开解决方案：
