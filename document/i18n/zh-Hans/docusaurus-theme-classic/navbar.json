@@ -34,5 +34,9 @@
   "item.label.Gitee": {
     "message": "码云 (Gitee)",
     "description": "Navbar item with label Gitee"
+  },
+  "item.label.[DEBUG]": {
+    "message": "[DEBUG]",
+    "description": "Navbar item with label [DEBUG]"
   }
 }

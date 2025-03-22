@@ -37,12 +37,13 @@ jobs:
         working-directory: ./document
         run: |
           npm ci
+          npm run clear
           npm run build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: document/   # Path of the directory containing the static assets.
-          retention-days: 1 # optional, default is 1
+          path: document/build/ # Path of the directory containing the static assets.
+          retention-days: 1     # optional, default is 1
 
   # Deployment job
   deploy:

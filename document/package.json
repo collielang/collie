@@ -5,6 +5,7 @@
   "scripts": {
     "en": "docusaurus start --locale en",
     "zh": "docusaurus start --locale zh-Hans",
+    "write-translations-zh": "docusaurus write-translations --locale zh-Hans",
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
     "build": "docusaurus build",
