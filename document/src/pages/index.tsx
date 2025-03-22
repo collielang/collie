@@ -20,7 +20,7 @@ function HomepageHeader() {
             id="homepage.header.title"
             description="Homepage header title"
           >
-            Collie Lang
+            Collie Lang Documentation
           </Translate>
         </Heading>
         <p className="hero__subtitle" style={{ fontStyle: "oblique" }}>

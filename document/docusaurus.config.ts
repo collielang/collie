@@ -190,7 +190,19 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
     },
+    mermaid: {
+      // refer: https://mermaid.js.org/config/theming.html
+      theme: {
+        light: 'neutral', // default
+        dark: 'dark',
+      },
+    },
   } satisfies Preset.ThemeConfig,
+
+  markdown: {
+    mermaid: true,
+  },
+  themes: ['@docusaurus/theme-mermaid'],
 };
 
 export default config;
