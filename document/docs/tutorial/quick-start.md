@@ -2,7 +2,11 @@
 sidebar_position: 2
 sidebar_label: Quick Start
 ---
+
 import LanguageFeature from './_includes/_LanguageFeature.md'
+import ProjectStructure from '../contribute/_includes/_ProjectStructure.md'
+import CodeBlock from '@theme/CodeBlock'
+import LICENSE from '!!raw-loader!@site/../LICENSE'
 
 # Quick Start
 
@@ -33,7 +37,9 @@ Please refer to the [Compile and Run Guide](../contribute/compile-and-run.md)
 
 ### Project Structure
 
-[Project Structure](Includes/ProjectStructure.md ':include')
+- [Project Structure](../contribute/project-structure.md)
+
+<ProjectStructure/>
 
 ## Others
 
@@ -42,3 +48,5 @@ Please refer to the [Compile and Run Guide](../contribute/compile-and-run.md)
 ## License
 
 BSD-3-Clause License
+
+<CodeBlock language="plaintext">{LICENSE}</CodeBlock>

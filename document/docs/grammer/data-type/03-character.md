@@ -16,7 +16,7 @@ sidebar_label: Character Type
 |    类型     | 占用空间<br />（字节） | 描述                                                         |
 | :---------: | :--------------------: | ------------------------------------------------------------ |
 |   `char`    |         2 byte         | 单个字符。主要用作框架的底层逻辑实现等，**一般不建议直接使用 `char` 类型**。 |
-| `character` |       2 / 4 byte       | 单字，对字符串中的每一项来说。1 个 `character` 为 1 个 `char` 或 1 个 **代理对**（具体细节可参考 [UTF-16 编码](ImplementationDetails/Unicode.md?id=utf-16) ） |
+| `character` |       2 / 4 byte       | 单字，对字符串中的每一项来说。1 个 `character` 为 1 个 `char` 或 1 个 **代理对**（具体细节可参考 [UTF-16 编码](../../implementation-details/unicode.md#utf-16) ） |
 |  `string`   |        动态调整        | 字符串。等价于 `character[]`, `[character]`<br />也就是说，`character` 组成的一维数组，天然支持所有 `string` 的操作方式，你可完全将其当作 `string` 对象使用。 |
 
 > 注意：

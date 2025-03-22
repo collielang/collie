@@ -15,9 +15,9 @@
     "message": "语法",
     "description": "Navbar item with label Grammer"
   },
-  "item.label.Community": {
-    "message": "社区",
-    "description": "Navbar item with label Community"
+  "item.label.Contribute": {
+    "message": "贡献",
+    "description": "Navbar item with label Contribute"
   },
   "item.label.Blog": {
     "message": "博客",

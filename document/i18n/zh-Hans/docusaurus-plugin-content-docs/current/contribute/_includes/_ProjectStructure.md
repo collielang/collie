@@ -1,8 +1,8 @@
 <!-- 项目结构 -->
 
-```
+```plaintext showLineNumbers
 root/
-├── compiler/           # 编译器源代码
+├── compiler/          # 编译器源代码
 │   ├── lexer/         # 词法分析器
 │   ├── parser/        # 语法分析器
 │   └── tests/         # 单元测试

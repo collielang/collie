@@ -15,9 +15,9 @@
     "message": "语法",
     "description": "The label of footer link with label=Grammer linking to /docs/grammer/intro"
   },
-  "link.item.label.Community": {
-    "message": "社区",
-    "description": "The label of footer link with label=Community linking to /docs/contribute/intro"
+  "link.item.label.Contribute": {
+    "message": "参与贡献",
+    "description": "The label of footer link with label=Contribute linking to /docs/contribute/intro"
   },
   "link.item.label.Blog": {
     "message": "博客",

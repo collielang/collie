@@ -1,10 +1,14 @@
 ---
 sidebar_position: 2
-sidebar_label: Quick Start
+sidebar_label: 快速开始
 ---
-import LanguageFeature from './_includes/_LanguageFeature.md'
 
-## 快速开始
+import LanguageFeature from './_includes/_LanguageFeature.md'
+import ProjectStructure from '../contribute/_includes/_ProjectStructure.md'
+import CodeBlock from '@theme/CodeBlock'
+import LICENSE from '!!raw-loader!@site/../LICENSE'
+
+# 快速开始
 
 Collie 是一个静态类型的编程语言，旨在提供简洁的语法和强大的类型系统。
 
@@ -33,11 +37,16 @@ Collie 是一个静态类型的编程语言，旨在提供简洁的语法和强�
 
 ### 项目结构
 
-[项目结构](Includes/ProjectStructure.md ':include')
+- [项目结构](../contribute/project-structure.md)
+
+<ProjectStructure/>
 
 ## 其他
 
 - [其他](Others/index.md)
 
 ## 许可证
-BSD-3-Clause license
+
+BSD-3-Clause License
+
+<CodeBlock language="plaintext">{LICENSE}</CodeBlock>
