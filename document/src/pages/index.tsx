@@ -35,6 +35,18 @@ function HomepageHeader() {
         <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg"
+            to="/docs/tutorial/quick-start"
+            style={{ marginRight: "15px" }}
+          >
+            <Translate
+              id="homepage.header.button.quick-start"
+              description="Homepage header [Quick Start] button"
+            >
+              Quick Start
+            </Translate>
+          </Link>
+          <Link
+            className="button button--primary button--lg"
             to="/docs/tutorial/intro"
           >
             <Translate

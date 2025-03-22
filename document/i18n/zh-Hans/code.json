@@ -310,6 +310,10 @@
     "message": "标签",
     "description": "The title of the tag list page"
   },
+  "homepage.header.button.quick-start": {
+    "message": "快速开始",
+    "description": "Homepage header [Quick Start] button"
+  },
   "homepage.header.button.document": {
     "message": "文档",
     "description": "Homepage header [document] button"
