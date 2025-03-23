@@ -45,6 +45,7 @@ const config: Config = {
           // Remove this to remove the "edit this page" links.
           editUrl:
             'https://github.com/CollieLang/CollieLang/tree/main/document/',
+          showLastUpdateTime: true,
         },
         blog: {
           showReadingTime: true,
