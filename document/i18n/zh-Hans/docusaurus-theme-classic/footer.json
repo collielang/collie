@@ -29,11 +29,11 @@
   },
   "link.item.label.GitHub": {
     "message": "GitHub",
-    "description": "The label of footer link with label=GitHub linking to https://github.com/CollieLang/CollieLang"
+    "description": "The label of footer link with label=GitHub linking to https://github.com/collielang/collie"
   },
   "link.item.label.Gitee": {
     "message": "码云 (Gitee)",
-    "description": "The label of footer link with label=Gitee linking to https://gitee.com/CollieLang/CollieLang"
+    "description": "The label of footer link with label=Gitee linking to https://gitee.com/collielang/collie"
   },
   "copyright": {
     "message": "牧羊犬编程语言",
@@ -45,6 +45,6 @@
   },
   "link.item.label.Github Discussions": {
     "message": "Github Discussions",
-    "description": "The label of footer link with label=Github Discussions linking to https://github.com/CollieLang/CollieLang/discussions"
+    "description": "The label of footer link with label=Github Discussions linking to https://github.com/collielang/collie/discussions"
   }
 }

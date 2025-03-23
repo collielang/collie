@@ -13,7 +13,7 @@ const config: Config = {
   url: 'https://docs.example.com',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/CollieLang/',
+  baseUrl: '/collie/',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
@@ -44,7 +44,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/CollieLang/CollieLang/tree/main/document/',
+            'https://github.com/collielang/collie/tree/main/document/',
           showLastUpdateTime: true,
         },
         blog: {
@@ -56,7 +56,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/CollieLang/CollieLang/tree/main/document/',
+            'https://github.com/collielang/collie/tree/main/document/',
           // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
@@ -125,11 +125,11 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/CollieLang/CollieLang',
+              href: 'https://github.com/collielang/collie',
             },
             {
               label: 'Gitee',
-              href: 'https://gitee.com/CollieLang/CollieLang',
+              href: 'https://gitee.com/collielang/collie',
             },
           ],
         },
@@ -164,7 +164,7 @@ const config: Config = {
           items: [
             {
               label: 'Github Discussions',
-              href: 'https://github.com/CollieLang/CollieLang/discussions',
+              href: 'https://github.com/collielang/collie/discussions',
             },
             /*
             {
@@ -191,11 +191,11 @@ const config: Config = {
             },
             {
               label: 'GitHub',
-              href: 'https://github.com/CollieLang/CollieLang',
+              href: 'https://github.com/collielang/collie',
             },
             {
               label: 'Gitee',
-              href: 'https://gitee.com/CollieLang/CollieLang',
+              href: 'https://gitee.com/collielang/collie',
             },
           ],
         },
