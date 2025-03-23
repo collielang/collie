@@ -14,7 +14,14 @@ function HomepageHeader() {
   return (
     <header className={clsx("hero hero--primary", styles.heroBanner)}>
       <div className="container">
-        <img src="img/logo.png" style={{ width: "240px", margin: "15px" }} />
+        <img
+          src="img/logo.png"
+          style={{
+            width: "240px",
+            height: "240px",
+            margin: "15px",
+          }}
+        />
         <Heading as="h1" className="hero__title">
           {/* {siteConfig.title} */}
           <Translate
