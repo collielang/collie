@@ -24,7 +24,7 @@
     "description": "Navbar item with label Blog"
   },
   "item.label.Roadmap": {
-    "message": "Roadmap",
+    "message": "路线图",
     "description": "Navbar item with label Roadmap"
   },
   "item.label.Open Source": {
