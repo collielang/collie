@@ -1,9 +1,13 @@
 # 其他语言实现
 
 ### Python
+
+- Website: https://www.python.org/
 - GitHub Repo: https://github.com/python/cpython
 
 ### Java
+
+- Website: https://www.java.com/, https://dev.java/
 
 #### OpenJDK
 - GitHub Repo: https://github.com/openjdk/jdk
@@ -11,6 +15,7 @@
 
 ### Go
 
+- Website: https://go.dev/
 - GitHub Repo: https://github.com/golang/go
   > *The Go programming language.*
 

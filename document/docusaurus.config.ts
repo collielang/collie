@@ -107,6 +107,11 @@ const config: Config = {
           label: 'Blog',
           position: 'left',
         },
+        {
+          to: '/docs/contribute/roadmap',
+          label: 'Roadmap',
+          position: 'right',
+        },
 
         {
           type: 'localeDropdown',
@@ -146,6 +151,10 @@ const config: Config = {
             {
               label: 'Contribute',
               to: '/docs/contribute/intro',
+            },
+            {
+              label: 'Roadmap',
+              to: '/docs/contribute/roadmap',
             },
           ],
         },

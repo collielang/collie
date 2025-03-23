@@ -5,6 +5,8 @@ import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import Layout from "@theme/Layout";
 import Heading from "@theme/Heading";
 import Translate, { translate } from "@docusaurus/Translate";
+import MDXContent from "@theme/MDXContent";
+import IndexContent from "./_index-content.md";
 
 import styles from "./index.module.css";
 
@@ -36,7 +38,7 @@ function HomepageHeader() {
           <Link
             className="button button--secondary button--lg"
             to="/docs/tutorial/quick-start"
-            style={{ marginRight: "15px" }}
+            style={buttonStyle}
           >
             <Translate
               id="homepage.header.button.quick-start"
@@ -48,6 +50,7 @@ function HomepageHeader() {
           <Link
             className="button button--primary button--lg"
             to="/docs/tutorial/intro"
+            style={buttonStyle}
           >
             <Translate
               id="homepage.header.button.document"
@@ -61,6 +64,41 @@ function HomepageHeader() {
     </header>
   );
 }
+const buttonStyle: React.CSSProperties = {
+  marginRight: "15px",
+};
+
+export function HomepageContent() {
+  return (
+    <div
+      className="homepage-Content-Container"
+      style={{
+        width: "100%",
+        maxWidth: "960px",
+        margin: "0 auto",
+        backgroundColor: "pink",
+        marginTop: "10px",
+      }}
+    >
+      <MDXContent>
+        <IndexContent />
+      </MDXContent>
+      <div style={{ textAlign: "center" }}>
+        <Link
+          className="button button--secondary button--lg"
+          to="/docs/contribute/roadmap"
+        >
+          <Translate
+            id="homepage.header.button.roadmap"
+            description="Homepage header [Roadmap] button"
+          >
+            Roadmap
+          </Translate>
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 export default function Home(): ReactNode {
   const { siteConfig } = useDocusaurusContext();
@@ -70,6 +108,7 @@ export default function Home(): ReactNode {
       description="Description will go into a meta tag in <head />"
     >
       <HomepageHeader />
+      <HomepageContent />
     </Layout>
   );
 }

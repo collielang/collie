@@ -318,6 +318,10 @@
     "message": "文档",
     "description": "Homepage header [document] button"
   },
+  "homepage.header.button.roadmap": {
+    "message": "Roadmap",
+    "description": "Homepage header [Roadmap] button"
+  },
   "homepage.header.title": {
     "message": "Collie 编程语言官方文档",
     "description": "Homepage header title"
