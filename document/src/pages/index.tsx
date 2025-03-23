@@ -85,10 +85,10 @@ export function HomepageContent() {
       className="homepage-Content-Container"
       style={{
         width: "100%",
-        maxWidth: "960px",
+        maxWidth: "780px",
+        // maxWidth: "960px",
         margin: "0 auto",
-        // backgroundColor: "pink",
-        marginTop: "32px",
+        padding: "32px 20px", // Browse on mobile
       }}
     >
       <MDXContent>
