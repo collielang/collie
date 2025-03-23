@@ -6,7 +6,6 @@ import Layout from "@theme/Layout";
 import Heading from "@theme/Heading";
 import Translate, { translate } from "@docusaurus/Translate";
 import MDXContent from "@theme/MDXContent";
-import IndexContent from "./_index-content.md";
 
 import styles from "./index.module.css";
 
@@ -69,6 +68,11 @@ const buttonStyle: React.CSSProperties = {
 };
 
 export function HomepageContent() {
+  const { i18n } = useDocusaurusContext();
+  const locale = i18n.currentLocale;
+
+  const IndexContent = require(`./_index-content.${locale}.md`).default;
+
   return (
     <div
       className="homepage-Content-Container"
@@ -76,14 +80,14 @@ export function HomepageContent() {
         width: "100%",
         maxWidth: "960px",
         margin: "0 auto",
-        backgroundColor: "pink",
-        marginTop: "10px",
+        // backgroundColor: "pink",
+        marginTop: "32px",
       }}
     >
       <MDXContent>
         <IndexContent />
       </MDXContent>
-      <div style={{ textAlign: "center" }}>
+      <div style={{ textAlign: "center", marginTop: "24px" }}>
         <Link
           className="button button--secondary button--lg"
           to="/docs/contribute/roadmap"
