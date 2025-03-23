@@ -1,7 +1,7 @@
 <div align="center">
 
 <p>
-    <img width="240" src="./document/static/img/logo.png" alt="Collie Lang Logo" />
+    <img width="240" height="240" src="./document/static/img/logo.png" alt="Collie Lang Logo" />
 </p>
 
 # 牧羊犬编程语言 Collie Lang
