@@ -96,14 +96,27 @@ export function HomepageContent() {
       </MDXContent>
       <div style={{ textAlign: "center", marginTop: "24px" }}>
         <Link
-          className="button button--secondary button--lg"
+          className="button button--primary button--lg"
           to="/docs/contribute/roadmap"
+          style={buttonStyle}
         >
           <Translate
             id="homepage.header.button.roadmap"
             description="Homepage header [Roadmap] button"
           >
             Roadmap
+          </Translate>
+        </Link>
+        <Link
+          className="button button--secondary button--lg"
+          to="/docs/contribute/work-progress"
+          style={buttonStyle}
+        >
+          <Translate
+            id="homepage.header.button.work-progress"
+            description="Homepage header [Work Progress] button"
+          >
+            Work Progress
           </Translate>
         </Link>
       </div>

@@ -1,3 +1,8 @@
+---
+sidebar_position: 6
+title: 开发进度
+---
+
 # 当前开发进度
 
 ## 项目状态
