@@ -156,8 +156,12 @@ const config: Config = {
           title: 'Eco',
           items: [
             {
-              label: 'Package Manager',
+              label: 'CoUp - Package Manager',
               to: '/docs/eco/package-manager',
+            },
+            {
+              label: 'CollObf - Code Obfuscation',
+              to: '/docs/eco/code-obfuscation',
             },
             {
               html: `<hr style="margin: 10px 0; width: 80%; opacity: .2;">`

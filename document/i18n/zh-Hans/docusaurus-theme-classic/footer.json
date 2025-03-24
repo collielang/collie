@@ -59,9 +59,13 @@
     "message": "开源",
     "description": "The title of the footer links column with title=Open Source in the footer"
   },
-  "link.item.label.Package Manager": {
-    "message": "包管理器",
-    "description": "The label of footer link with label=Package Manager linking to /docs/eco/package-manager"
+  "link.item.label.CoUp - Package Manager": {
+    "message": "CoUp - 包管理器",
+    "description": "The label of footer link with label=CoUp - Package Manager linking to /docs/eco/package-manager"
+  },
+  "link.item.label.CollObf - Code Obfuscation": {
+    "message": "CollObf - 代码混淆",
+    "description": "The label of footer link with label=CollObf - Code Obfuscation linking to /docs/eco/code-obfuscation"
   },
   "link.item.label.License": {
     "message": "许可证 License",
