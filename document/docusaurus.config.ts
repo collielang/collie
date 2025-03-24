@@ -100,7 +100,7 @@ const config: Config = {
         {
           type: 'docSidebar',
           sidebarId: 'othersSidebar',
-          position: 'left',
+          position: 'right',
           label: '[DEBUG]',
         },
         {
