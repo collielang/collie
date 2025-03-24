@@ -1,3 +1,7 @@
+---
+title: 候选名称
+---
+
 <head>
   <meta name="robots" content="noindex, nofollow" />
 </head>
