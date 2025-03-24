@@ -144,9 +144,17 @@ const config: Config = {
               label: 'Grammer',
               to: '/docs/grammer/intro',
             },
+          ],
+        },
+        {
+          title: 'Eco',
+          items: [
             {
-              label: 'Contribute',
-              to: '/docs/contribute/intro',
+              label: 'Package Manager （TODO）',
+              to: '/docs/grammer/intro',
+            },
+            {
+              html: `<hr style="margin: 10px 0; width: 80%; opacity: .2;">`
             },
             {
               label: 'Roadmap',
@@ -178,12 +186,30 @@ const config: Config = {
           ],
         },
         {
+          title: 'Developer\'s Guide',
+          items: [
+            {
+              label: 'Contribute',
+              to: '/docs/contribute/intro',
+            },
+          ],
+        },
+        {
           title: 'More',
           items: [
             {
               label: 'Blog',
               to: '/blog',
             },
+            {
+              label: 'License',
+              to: '/docs/contribute/license',
+            },
+          ],
+        },
+        {
+          title: 'Open Source',
+          items: [
             {
               label: 'GitHub',
               href: 'https://github.com/collielang/collie',
@@ -195,6 +221,13 @@ const config: Config = {
           ],
         },
       ],
+      logo: {
+        alt: 'Logo',
+        src: 'img/logo.png',
+        // href: '',
+        width: 120,
+        height: 120,
+      },
       copyright: `Collie Lang`,
     },
     prism: {
