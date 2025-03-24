@@ -206,3 +206,10 @@ for (item : list2) {
 var set = set(1, 2, 3);       // var 自动推断类型为 set[number]
 var map = map({ apple: 5, banana: 6 }); // var 自动推断类型为 map[string: number]
 ```
+
+- TODO
+
+```collie
+- 提供方法 `last()`：获取最后一个元素
+- 提供转换方法 `toMap()`：将 List 转换为 Map
+```
