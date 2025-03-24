@@ -233,6 +233,9 @@ const config: Config = {
         // href: '',
         width: 120,
         height: 120,
+        style: {
+          filter: "drop-shadow(black 4px 3px 2px)",
+        },
       },
       copyright: `Collie Lang`,
     },

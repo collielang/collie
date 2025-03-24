@@ -20,6 +20,7 @@ function HomepageHeader() {
             width: "240px",
             height: "240px",
             margin: "15px",
+            filter: "drop-shadow(4px 3px 2px black)",
           }}
         />
         <Heading as="h1" className="hero__title">
