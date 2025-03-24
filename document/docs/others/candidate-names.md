@@ -1,5 +1,5 @@
 ---
-title: 候选名称
+title: 候选名称 Candidate Names
 ---
 
 <head>
