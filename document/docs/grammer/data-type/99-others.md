@@ -1,9 +1,9 @@
 ---
-sidebar_position: 7
-sidebar_label: Buffer Type
+sidebar_position: 99
+sidebar_label: Others
 ---
 
-# Buffer Type
+# Others
 
 :::danger
 There is no English version of the document, please check the Chinese version
