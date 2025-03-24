@@ -15,6 +15,10 @@
     "message": "语法",
     "description": "Navbar item with label Grammer"
   },
+  "item.label.Eco": {
+    "message": "生态",
+    "description": "Navbar item with label Eco"
+  },
   "item.label.Contribute": {
     "message": "贡献",
     "description": "Navbar item with label Contribute"

@@ -93,6 +93,12 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
+          sidebarId: 'ecoSidebar',
+          position: 'left',
+          label: 'Eco',
+        },
+        {
+          type: 'docSidebar',
           sidebarId: 'contributeSidebar',
           position: 'left',
           label: 'Contribute',
@@ -150,8 +156,8 @@ const config: Config = {
           title: 'Eco',
           items: [
             {
-              label: 'Package Manager （TODO）',
-              to: '/docs/grammer/intro',
+              label: 'Package Manager',
+              to: '/docs/eco/package-manager',
             },
             {
               html: `<hr style="margin: 10px 0; width: 80%; opacity: .2;">`
