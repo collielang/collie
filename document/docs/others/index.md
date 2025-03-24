@@ -2,6 +2,10 @@
 sidebar_position: 1
 ---
 
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # 其他
 
 - [开发进度](./WorkProgress.md)

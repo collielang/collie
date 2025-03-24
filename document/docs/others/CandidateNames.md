@@ -1,3 +1,7 @@
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # 候选名称
 
 | Chinese Name   | English Name |

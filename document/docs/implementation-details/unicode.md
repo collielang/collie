@@ -3,6 +3,10 @@ title: Unicode Encoding Standards
 hide_table_of_contents: true
 ---
 
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # Introduction to Unicode Encoding Standards
 
 UTF-8, UTF-16, and UTF-32 are different implementations of **Unicode encoding**, each with its own design philosophy and suited for different storage and transmission scenarios. Let’s examine their encoding designs at the bit level.

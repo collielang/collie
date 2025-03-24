@@ -3,6 +3,10 @@ title: Default Encoding
 hide_table_of_contents: true
 ---
 
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # Default Encoding in Different Programming Languages / Operating Systems
 
 | Programming Language / Operating System                     | Default Unicode Encoding | Space Occupancy <br />(Bytes) | Description                                                  |

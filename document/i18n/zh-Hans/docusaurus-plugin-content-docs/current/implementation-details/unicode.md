@@ -3,6 +3,10 @@ title: Unicode 编码标准
 hide_table_of_contents: true
 ---
 
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # Unicode 编码标准介绍
 
 UTF-8、UTF-16 和 UTF-32 都是 **Unicode 编码** 的不同实现方式，它们各自有不同的设计思想，适用于不同的存储和传输场景。我们可以从比特（bit）层面仔细看一下它们的编码设计。

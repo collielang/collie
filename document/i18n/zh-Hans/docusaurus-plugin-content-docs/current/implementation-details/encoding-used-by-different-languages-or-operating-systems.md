@@ -3,6 +3,10 @@ title: 默认编码
 hide_table_of_contents: true
 ---
 
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # 不同编程语言 / 操作系统的默认编码
 
 | 编程语言 / 操作系统                                        | 默认 Unicode 编码 | 占用空间 <br />（字节） | 描述                                                         |

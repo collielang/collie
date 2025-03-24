@@ -1,3 +1,7 @@
+<head>
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+
 # 实用工具
 
 ## 在线工具
