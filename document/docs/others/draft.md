@@ -60,7 +60,9 @@ a.addToLast()
 a.addToIndex(index)
 
 解构赋值
+```collie
 const [a,b,c] =[1,2,3]
+```
 
 未初始化 unset (需要跟三态布尔类型区分一下)
 
@@ -71,18 +73,21 @@ const [a,b,c] =[1,2,3]
 .../
 
 位运算
+```collie
 <<
 >>
 &
 ^
 |
+```
 
-改写赋值：+= -= *= /= %= &= |= ^= <<= >>=
+改写赋值：`+= -= *= /= %= &= |= ^= <<= >>=`
 
 运算符优先级
 
 字符串插值
 
+```collie
 [1, 2, 3][-1] == 3
 [1, 2, 3][-4] // ❌ 数组越界
 
@@ -94,6 +99,7 @@ a += [4, 5] // result: [1, 2, 3, 4, 5]
 
 [].slice
 [].flat
+```
 
 listToMap
 mapToList
@@ -102,16 +108,19 @@ sort
 
 Lambda 匿名函数
 
-泛型 （类似 Java 的 ArrayList<String>）
+泛型 （类似 Java 的 `ArrayList<String>`）
 
 模块化导入 import
 
 异步操作 / 同步操作
 
-抛出异常 throw XxxError("");
+抛出异常 `throw XxxError("");`
 
+```collie
 if (1 <= i < 4) {} // 等价于: i >=1 && i < 4
+```
 
+```collie
 match(value) {
    >= 1 && <= 4 { // 等价于: value >=1 && value <= 4
 
@@ -120,9 +129,11 @@ match(value) {
 
    }
 }
+```
 
 获取系统全局变量
 
+```collie
 定义变量
 number a, b = 1, 2;
 number a, number b = 1, 2;
@@ -143,11 +154,13 @@ a, b = a, b+1 // 本质上是先计算出 b+1， 然后再变成引用赋值
 数组解包
 a = [1, 2, 3]
 b = [...a]
+```
 
 函数注释
 
+```collie
 [].concat([])
-
+```
 
 图像处理：BitMap
 
@@ -179,6 +192,7 @@ collie：传参，数组定义支持最后一个元素后面带逗号
 对于可能丢失精度的情况，不支持不同数字类型的隐式转换，必须显式转换。
 不区分数组Array和列表List, 可以在 List 初始化函数通过构造函数进行区分。
 
+```
 整数：short(16位整数), int(32位整数), long(64位整数) => 负整数: -short 正整数: +short
 小数：float(32位浮动小数), double(64位浮动小数), decimal(高精度小数)
 数字：number(支持保存整数和小数，方便使用，但是运算效率不如整数和小数)
@@ -191,18 +205,20 @@ collie：传参，数组定义支持最后一个元素后面带逗号
 List<object> array = new List<object>();
 array.add(1);
 array.add(2);
+```
 
 可以为空的类型：object?
 
 自定类型推断：var
 
-代理对象：Proxy<object> (代理对象可以在访问对象，修改对象中值的时候，做一些自定义操作)
+代理对象：`Proxy<object>` (代理对象可以在访问对象，修改对象中值的时候，做一些自定义操作)
 
-数组：List<object>, Set<object> => 父类为 Collection<object>
-字典：Map<object>
+数组：`List<object>`, `Set<object>` => 父类为 `Collection<object>`
+字典：`Map<object>`
 提供：取最后一个元素的方法：last()，提供List->Map转换方法toMap()
 
 元组：主要用于函数返回，或者函数调用的时候，需要将多个变量打包传递的情况
+```collie
 Tuple a = (name: "Alice", age: 18);
 string name = a.name;
 int age = a.age;
@@ -216,51 +232,65 @@ a,b = b,a;
 const int MAX_SIZE = 100;
 const string NAME = "Alice";
 ...
+```
 
 函数：
+```collie
 <Access Specifier> <Return Type1>,<Return Type2> <Method Name>(Parameter List)
 {
    Method Body
    return <Object Type1>, <Object Type2>;
 }
+```
 多返回类型函数，编译时隐式转换为元组的方式进行返回
 
 函数也可以像js那样当作变量进行传递（像js那样）
 
 例如：
+```collie
 public int,string getAge() {
    return 18, "Alice";
 }
+```
 
 可以像类似 python 那样，通过元组调用函数
+```collie
 private void fooBar(int? age, string? name) {
     // ...
 }
 fooBar(18, "Alice"); 或 fooBar(18, null); 或 fooBar(null, "Alice");
 fooBar(age: 18, name: "Alice"); 或 fooBar(name: "Alice", age: 18); 或 fooBar(age: 18); 或 fooBar(name: "Alice");
+```
 
 异名函数：
+```collie
 public number add(int delta1)AndThenMinus(int delta2) {
    return this.num + delta1 - delta2;
 }
+```
 调用时，
 NumberObject no = new NumberObject();
 no.add(10)AndThenMinus(20);
-编译时优化为：add{int[1]}AndThenMinus{int[1]}(int delta1, int delta2)
+编译时优化为：`add{int[1]}AndThenMinus{int[1]}(int delta1, int delta2)`
 
+```collie
 public number sum(...int num1, int lastNum)AndThenMinus(int delta) {
     // num1 为 int[]
    return this.num + delta1.sum() + lastNum - delta;
 }
+```
 调用时，
+```collie
 NumberObject no = new NumberObject();
 no.add(10, 11, 12)AndThenMinus(20);
-编译时优化为：add{int[n],int[1]}AndThenMinus{int[1]}(int delta1, int delta2)
+```
+编译时优化为：`add{int[n],int[1]}AndThenMinus{int[1]}(int delta1, int delta2)`
 
 创建对象：
 Animal a = new Animal();
 
 类：
+```collie
 class <Class Name> {
    <Access Specifier> <Return Type1>,<Return Type2> <Method Name>(Parameter List)
    {
@@ -268,27 +298,33 @@ class <Class Name> {
       return <Object Type1>, <Object Type2>;
    }
 }
+```
 
 枚举：
+```collie
 enum <Enum Name> {
    <Value1>, <Value2>, <Value3>
 }
+```
 
 注解：
 @deprecated
 @override
 
 运算符：
+```
 + - * / %
 i++ i-- ++i --i
 i+=1 i*=1 i/=1 i%=1
 == != > < >= <= !
 && ||
+```
 
 三目运算符：condition ? value1 : value2
 
 条件判断：
 
+```collie
 if (条件1 && (条件2 || 条件3)) {
    // 执行代码块 1
 } else if (条件2) {
@@ -296,9 +332,11 @@ if (条件1 && (条件2 || 条件3)) {
 } else {
    // 执行代码块 3
 }
+```
 
 循环：
 
+```collie
 for (初始化; 条件; 更新) {
    // 执行代码块
 }
@@ -349,6 +387,7 @@ if (对象,对象 instanceof 类型) {
 if (对象 is 类型) {
    // 执行代码块
 }
+```
 
 举例：
 class Animal
@@ -388,15 +427,19 @@ try (try-with-resources) {
 for-else：对于每一个循环，如果没有被 break 中断，则执行 else 代码块。
 for-in：用于遍历数组、集合、字典等可迭代对象。
 
+```collie
 List<object> array = new List<object>();
 for (item in array) {
    // 执行代码块
 }
+```
 
+```collie
 Map<string, object> array = new Map<string, object>();
 for (item in array) {
    // 执行代码块
 }
+```
 
 # 常用模块
 
