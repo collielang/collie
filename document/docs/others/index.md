@@ -11,4 +11,4 @@ sidebar_position: 1
 
 - [实用工具](./helpful-tools.md)
 - [候选名称](./candidate-names.md)
-- [其他语言实现](./other-language-impliments.md)
+- [其他语言实现](./other-language-implements.md)
