@@ -1,8 +1,10 @@
 <div align="center">
 
 <p>
-    <img width="240" height="240" src="./document/static/img/logo.png" alt="Collie Lang Logo" />
+    <img src="./document/static/img/logo.png" width="240" height="240" alt="The Collie Programming Language Logo" />
 </p>
+
+**_"The Collie Programming Language"_**
 
 # 牧羊犬编程语言 Collie Lang
 
