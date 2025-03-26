@@ -9,7 +9,7 @@ title: 其他语言实现 Other Language Impliments
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
-export const expand = true
+export const expand = false
 
 <!--
 
