@@ -51,20 +51,6 @@ nullableNumber + 1; // result: 4
 
 
 
-### 联合类型（Union Type）
-
-```collie
-string | number obj = 'aaa';
-obj = 3.14;
-
-string | character separator = ',';
-[1, 2, 3].join(separator); // result: "1,2,3"
-separator = " and ";
-[1, 2, 3].join(separator); // result: "1 and 2 and 3"
-```
-
-
-
 ### 常量（Constant）
 
 **const**：静态类型常量。一旦定义，不能再修改其值。
