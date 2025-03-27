@@ -139,6 +139,7 @@ export const expand = false
 ### Java
 
 - Website: https://www.java.com/, https://dev.java/
+- JDK 24 Documentation: https://docs.oracle.com/en/java/javase/24/
 
 <details open={expand}>
 <summary>Java Ecosystem</summary>

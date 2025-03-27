@@ -38,6 +38,11 @@ sidebar_label: 流程控制
   }
   ```
 
+  如果需要使用 index
+  ```collie
+  for (item, index : ArrayOrList) {}
+  ```
+
 - **for-map** 循环
 
   ```collie
@@ -50,6 +55,17 @@ sidebar_label: 流程控制
       // 执行代码块
   }
   ```
+
+  如果需要使用 index
+  ```collie
+  for (key, value, index : map) {}
+  ```
+
+  :::warning 注意！没有这种写法：
+  ```collie title="❌ 错误示范"
+  for (entry, index : map) {} // entry 和 index 实际为 key 和 value
+  ```
+  :::
 
 - **for-number** 循环
 
@@ -118,8 +134,20 @@ sidebar_label: 流程控制
 
 
 
+#### 嵌套循环跳过 / 跳出指定循环
+
+可通过 label 指定跳出 / 跳过的循环，参考[嵌套循环跳出指定循环(本页)](#label-break-out-of-nested-loops) 和 [嵌套循环跳过指定循环(本页)](#label-break-out-of-nested-loops)
+
+
+
+#### 跳过相邻多次循环【TODO】
+
+:::danger TODO
+似乎这个特性容易让人误解，需要考虑是否保留
+:::
+
 :::tip
-如果需要连续跳过多次循环，可以使用 `continue(integer);` 语句。
+如果需要跳过相邻多次的循环，可以使用 `continue(integer);` 语句。传入 continue 的值必须是正整数（大于0的整数）。
 
 例如：
 ```collie
@@ -136,10 +164,52 @@ for (fruit : fruitList) {
 }
 // resultList: [ "Apple", "Watermelon", "Peach", "Papaya" ]
 ```
+
+也可以在每次循环中，动态指定跳过的次数
+
+```collie
+[list] list = [ 1, 2, 4, 8, 16, 32, 64, 128, 356, 512, 1024, 2048 ]
+for (item, index : list) {
+    log('item: {item}, index: {index}')
+    continue(index + 1);
+}
+// result:
+// item: 1, index: 0
+// TODO
+```
 :::
 
-::::tip
-如果需要连续跳出多次循环，可以使用 `break(integer);` 语句。
+### 迭代
+
+## label 语句
+
+与 JavaScript, Java 等语言类似，Collie 语言支持通过 label 进行逻辑跳转。
+
+:::note 查阅其它语言的 Label 语法
+- [JavaScript](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Loops_and_iteration#label_%E8%AF%AD%E5%8F%A5)
+- [Java](https://docs.oracle.com/javase/specs/jls/se24/html/jls-14.html#d5e25652)
+:::
+
+##### 跳出嵌套代码块
+
+```collie
+function foo() {
+    logic1: {
+        // some code here
+        logic2: {
+            // some code here
+            if (condition) {
+                break logic1;
+            }
+        }
+    }
+    // after `break logic1`, we came here
+}
+```
+
+##### 嵌套循环跳出指定循环 {#label-break-out-of-nested-loops}
+
+如果需要连续跳出多次循环，可以使用 `break label;` 语句。
 
 ```collie
 // 定义5个不同类别的水果列表
@@ -150,30 +220,36 @@ const origins = ['domestic', 'imported'];
 const qualities = ['A', 'B', 'C'];
 
 // 5层嵌套循环
-for (const color of colors) { // level 1
-    for (const fruit of fruits) { // level 2
-        for (const size of sizes) { // level 3
-            for (const origin of origins) {  // level 4
-                for (const quality of qualities) { // level 5
+for (const color of colors) {
+    fruits_loop: for (const fruit of fruits) {
+        for (const size of sizes) {
+            for (const origin of origins) {
+                for (const quality of qualities) {
                     log(`A ${color} ${size} ${fruit} from ${origin} origin, quality ${quality}`);
 
                     if (fruit == "grape") {
                         log("Oh! I hate $fruit$!")
-                        // When fruit is "grape", we jump out of the loop one by one
-                        // in order: level 5, level 4, level 3
-                        break(4);
+                        // When fruit is "grape", we break out of the loop to `fruits_loop`
+                        break fruits_loop;
                     }
                 }
             }
         }
     }
-    // after `break(4)`, we came here with fruit="grape"
+    // after `break fruits_loop`, we came here with fruit="grape"
 }
 ```
 
-:::warning 注意
-如果 break 传入数字超过循环嵌套层级，那么将无法通过编译
-:::
-::::
+##### 嵌套循环跳出指定循环 {#label-skip-loop-in-nested-loops}
 
-### 迭代
+与跳出类似，跳过使用 continue关键字：
+
+```collie
+outer_loop: for (x : 10) {
+    for (y : 10) {
+        if (x + y > 12) {
+            continue outer_loop;
+        }
+    }
+}
+```
