@@ -7,6 +7,10 @@
     "message": "数据类型",
     "description": "The label for category 数据类型 in sidebar referenceSidebar"
   },
+  "sidebar.referenceSidebar.category.语法": {
+    "message": "语法",
+    "description": "The label for category 语法 in sidebar referenceSidebar"
+  },
   "sidebar.contributeSidebar.category.参与贡献": {
     "message": "参与贡献",
     "description": "The label for category 参与贡献 in sidebar contributeSidebar"
