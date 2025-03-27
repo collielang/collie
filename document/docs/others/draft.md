@@ -1,5 +1,9 @@
 反射
 
+字符串插值
+- "bb$xx$b$yy$aaa"
+- "bb{xx}b{yy}aaa"
+
 ```collie
 class AppleTree {
 

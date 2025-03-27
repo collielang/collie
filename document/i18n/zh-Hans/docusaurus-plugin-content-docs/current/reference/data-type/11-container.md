@@ -107,19 +107,69 @@ import TabItem from '@theme/TabItem';
 
 ## 数组与集合类型
 
-|      类型      | 描述                           |
-| :------------: | ------------------------------ |
-| `list[object]` | 数组类型。无序的不重复元素序列 |
-| `set[object]`  | 集合类型。无序的不重复元素序列 |
+|      类型      | 描述                          |
+| :------------: | ----------------------------- |
+| `list[object]` | 元素**可重复**的**有序**集合   |
+| `set[object]`  | 元素**不可重复**的**无序**集合 |
+
+:::danger TODO
+refer:
+- JDK
+- C++ STL: https://www.cnblogs.com/cscshi/p/15612343.html
+
+集合 Collection
+- add(): boolean 返回是否真正添加成功（对于 set 插入已有元素时，返回 false）
+- remove(element)
+- removeByIndex()
+- removeFirst() / removeFirstOrThrow()
+- removeLast() / removeLastOrThrow()
+
+队列 Queue
+- push()
+- pop()
+- popOrThrow() // 如果没有元素，则调用报错
+
+栈 Stack
+- push()
+- pop()
+- popOrThrow() // 如果没有元素，则调用报错
+
+双向队列
+- poll()/popIfExists(): 从最前面取出一个元素，空集合返回 null
+- pop()/removeFirst()
+- peakFirst(): 获取第一个元素，但不从集合中移除
+
+---
+
+- List
+  - 数组：ArrayList
+  - 链表：LinkedList
+  - 不可修改数组：UnmodifiableList
+  - 无序数组：UnorderedList
+  - 不可重复无序：ArraySet
+- Set
+- 先进先出列表（队列）：FifoList / Queue
+- 后进先出列表（栈）：LifoList / Stack
+- 双向进出列表（双向队列）：Deque
+:::
 
 ### 🏅基础方法 {#method}
 
 | 方法                                                      | 描述                                                         |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
 | collection.toString()                                     | 将数组 / 集合对象转为字符串。以 `','` 连接所有元素。对每个元素都会调用其 `.toString()` 方法 |
-| collection.join(string\|character str)                    |                                                              |
+| collection.join(string\|character str)                    | 对每个元素调用其 `.toString()` 方法，并将所得字符串使用 `str` 进行拼接 |
 | collection.valueEquals(collection? anotherCollection)     | 比较两个数组 / 集合对象元素个数及每个元素的值是否相等。对每个元素都会调用其 `.valueEquals()` 方法 |
 | collection.referenceEquals(collection? anotherCollection) | 比较两个数组 / 集合对象元素个数及每个元素的引用是否相等。对每个元素都会调用其 `.referenceEquals()` 方法 |
+
+<!--
+#### 数组基础方法
+
+| 方法                                                      | 描述                                                         |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| collection.addFirst/addLast(object object1[, object object2[, ...]]) | 向 collection 对象最前面 / 最后面添加若干个元素 |
+| collection.addAllFirst/addAllLast([object] objectList1[, object objectList2[, ...]]) | 将传入的若干数组元素按先后次序，逐一添加到 collection 对象最前面 / 最后面 |
+-->
 
 ### 🏅语法示例 {#syntax-example}
 
