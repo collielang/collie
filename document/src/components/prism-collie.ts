@@ -9,6 +9,7 @@ import type * as PrismNamespace from 'prismjs';
  * - JavaScript: https://github.com/PrismJS/prism/blob/master/components/prism-javascript.js
  */
 const addColliePrismLanguageSupport = function (PrismObject: typeof PrismNamespace): void {
+
   const PrismLanguagesCollie = PrismObject.languages.extend('clike', {
     'comment': [
       // 匹配以 /... 开头，.../ 结尾的块注释
@@ -71,15 +72,44 @@ const addColliePrismLanguageSupport = function (PrismObject: typeof PrismNamespa
     ],
 
     // 关键字列表
-    'keyword': /\b(?:if|else|while|for|function|return)\b/,
+    'keyword': [
+      // logic
+      /\b(?:if|else|while|for|return)\b/,
+      // class and function
+      /\b(?:function|class)\b/,
+      // declarations
+      // /\b(?:let|const|var|new|this)\b/,
+      /\b(?:const|var)\b/,
+      // basic
+      /\b(?:object|none)\b/,
+      // number
+      /\b(?:number|integer|decimal)\b/,
+      // string
+      /\b(?:char|character|string)\b/,
+      // boolean
+      /\b(?:bool|tribool)\b/,
+      // bitwise
+      /\b(?:bit|byte|word|dword)\b/,
+      // container
+      /\b(?:list|set|map)\b/,
+      //
+      /\b(?:public|private)\b/,
+    ],
 
     // 其他规则
-    // 'string': {
-    //   pattern: /(["'])(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,
-    //   greedy: true
-    // },
+    'string': [
+      {
+        // 'triple-quoted-string'
+        pattern: /"""[ \t]*[\r\n](?:(?:"|"")?(?:\\.|[^"\\]))*"""/,
+        greedy: true,
+      },
+      {
+        pattern: /(["'])(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,
+        greedy: true,
+      },
+    ],
     // 'keyword': /\b(?:if|else|while|for|function|return|class|let|const|var|new|this)\b/,
-    // 'boolean': /\b(?:true|false)\b/,
+    'boolean': /\b(?:true|false|unset)\b/,
     // 'number': /\b0x[\da-f]+\b|(?:\b\d+\.?\d*|\B\.\d+)(?:e[+-]?\d+)?/i,
     // 'operator': /[<>]=?|[!=]=?=?|--?|\+\+?|&&?|\|\|?|[?*/~^%]/,
     // 'punctuation': /[{}[\];(),.:]/
