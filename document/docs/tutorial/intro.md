@@ -18,7 +18,7 @@ Collie is a statically typed programming language designed to offer concise synt
 
 ## Documentation
 
-- [Grammer](../grammer/intro.md)
+- [Reference Manual](../reference/intro.md)
 
 ## Contributions
 

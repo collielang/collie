@@ -87,9 +87,9 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
-          sidebarId: 'grammerSidebar',
+          sidebarId: 'referenceSidebar',
           position: 'left',
-          label: 'Grammer',
+          label: 'Reference',
         },
         {
           type: 'docSidebar',
@@ -147,8 +147,8 @@ const config: Config = {
               to: '/docs/tutorial/intro',
             },
             {
-              label: 'Grammer',
-              to: '/docs/grammer/intro',
+              label: 'Reference',
+              to: '/docs/reference/intro',
             },
           ],
         },

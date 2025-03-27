@@ -3,9 +3,9 @@
     "message": "Next",
     "description": "The label for version current"
   },
-  "sidebar.grammerSidebar.category.数据类型": {
+  "sidebar.referenceSidebar.category.数据类型": {
     "message": "数据类型",
-    "description": "The label for category 数据类型 in sidebar grammerSidebar"
+    "description": "The label for category 数据类型 in sidebar referenceSidebar"
   },
   "sidebar.contributeSidebar.category.参与贡献": {
     "message": "参与贡献",

@@ -1,9 +1,13 @@
 ---
 sidebar_position: 1
-sidebar_label: Introduction
+sidebar_label: 介绍
 ---
 
-# 语言设计概述
+# 介绍
+
+《Collie 语言参考手册》
+
+## 语言设计概述
 
 Collie 是一种 AOT（Ahead Of Time; 先编译后运行）的编程语言，设计灵感来源于 C# 和 Java，并借鉴了其他编程语言（如：JavaScript, Python）的特性。该语言旨在降低编程难度，同时保持高效的运算能力，并提供良好的类型系统。
 

@@ -11,9 +11,9 @@
     "message": "教程",
     "description": "Navbar item with label Tutorial"
   },
-  "item.label.Grammer": {
-    "message": "语法",
-    "description": "Navbar item with label Grammer"
+  "item.label.Reference": {
+    "message": "参考手册",
+    "description": "Navbar item with label Reference"
   },
   "item.label.Eco": {
     "message": "生态",
