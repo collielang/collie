@@ -9,7 +9,13 @@ sidebar_label: 流程控制
 
 ## 条件语句
 
-### if ... else ... 语句
+### if ... else 语句
+
+### switch 语句
+
+:::warning 注意
+与其它语言不同，Collie 语言中，`switch` 代码块中 `case` 无需使用 `break` 跳出。
+:::
 
 ## 循环与迭代
 
@@ -115,7 +121,7 @@ sidebar_label: 流程控制
 
 
 
-#### while
+#### while 与 do ... while
 
 - **while** 循环
 
@@ -133,6 +139,23 @@ sidebar_label: 流程控制
   ```
 
 
+
+#### break
+
+使用 break 语句来终止循环，或者链接到 label 语句。
+
+```collie
+break [label-identifier];
+```
+
+
+#### continue
+
+continue 语句可以用来在循环中跳过代码块的剩余部分并进入下一次循环。
+
+```collie
+continue [label-identifier];
+```
 
 #### 嵌套循环跳过 / 跳出指定循环
 
