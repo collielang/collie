@@ -1,12 +1,14 @@
 ---
-sidebar_position: 3
-sidebar_label: 语法
+sidebar_position: 1
+sidebar_label: 基础语法
 ---
 
-# 语法
+# 基础语法
 
-> 本文档参考：
-> https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Grammar_and_types
+:::note
+本文档撰写过程中，参考了以下文档：
+- https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Grammar_and_types
+:::
 
 ## 基础
 
