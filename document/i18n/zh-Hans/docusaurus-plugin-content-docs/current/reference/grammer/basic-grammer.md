@@ -12,7 +12,7 @@ sidebar_label: 基础语法
 
 ## 基础
 
-区分大小写，并使用 Unicode 字符集。
+Collie 语言区分大小写，并使用 Unicode 字符集。
 
 ## 注释
 
