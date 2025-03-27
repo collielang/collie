@@ -247,6 +247,10 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
     },
+    tableOfContents: {
+      minHeadingLevel: 2,  // 最小显示的标题级别 (H2)
+      maxHeadingLevel: 4,  // 最大显示的标题级别 (H4)
+    },
     mermaid: {
       // refer: https://mermaid.js.org/config/theming.html
       theme: {
