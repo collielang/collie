@@ -4,8 +4,11 @@ root = true
 end_of_line = lf
 insert_final_newline = true
 charset = utf-8
+# 缩进
 indent_size = 4
 indent_style = space
+# 不保留行末的空格
+trim_trailing_whitespace = true
 
 [*.{js,ts,mjs,mts,jsx,tsx}]
 indent_size = 2
