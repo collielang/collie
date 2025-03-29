@@ -10,7 +10,7 @@ sidebar_position: 1
 # 其他
 
 :::danger 正在进行中的文档
-- [语法定义 (99-others.md)](../reference/data-type/others)
+- [语法定义 (99-others.md)](../reference/others)
 - [Draft](./draft.md)
 :::
 
