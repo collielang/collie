@@ -12,4 +12,5 @@ sidebar_label: 元组类型（Tuple Type）（TODO）
 ## 🏅语法示例 {#syntax-example}
 
 ```collie
+Tuple a = (name: "Alice", age: 18);
 ```
