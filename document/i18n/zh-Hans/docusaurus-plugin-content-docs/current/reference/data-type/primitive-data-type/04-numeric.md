@@ -4,12 +4,6 @@ sidebar_label: 数字类型（Numeric Type）
 
 # 数字类型（Numeric Type）
 
-:::info
-
-数字类型为[不可变类型](./#immutable-data-type)。
-
-:::
-
 ## 🐳类型简介 {#intro}
 
 ## 整数 & 小数类型（Number Type）

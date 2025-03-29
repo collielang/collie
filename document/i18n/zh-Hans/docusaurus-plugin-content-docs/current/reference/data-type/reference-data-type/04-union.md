@@ -1,16 +1,12 @@
 ---
-sidebar_label: 联合类型（Union Type）
+sidebar_label: 联合类型（Union Type）（TODO）
 ---
 
 # 联合类型（Union Type）
 
-:::info
-
-联合类型为[不可变类型](./#immutable-data-type)。
-
-:::
-
 ## 🐳类型简介 {#intro}
+
+## 🏅语法示例 {#syntax-example}
 
 ```collie
 string | number obj = 'aaa';

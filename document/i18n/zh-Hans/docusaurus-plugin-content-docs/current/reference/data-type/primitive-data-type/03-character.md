@@ -1,26 +1,20 @@
 ---
-sidebar_label: 字符与字符串类型（Character and String Type）
+sidebar_label: 字符类型（Character Type）
 ---
 
-# 字符与字符串类型（Character and String Type）
-
-:::info
-
-字符类型为[不可变类型](./#immutable-data-type)。
-
-:::
+# 字符类型（Character Type）
 
 ## 🐳类型简介 {#intro}
 
 |    类型     | 占用空间<br />（字节） | 描述                                                         |
 | :---------: | :--------------------: | ------------------------------------------------------------ |
 |   `char`    |         2 byte         | 单个字符。主要用作框架的底层逻辑实现等，**一般不建议直接使用 `char` 类型**。 |
-| `character` |       2 / 4 byte       | 单字，对字符串中的每一项来说。1 个 `character` 为 1 个 `char` 或 1 个 **代理对**（具体细节可参考 [UTF-16 编码](../../implementation-details/unicode.md#utf-16) ） |
+| `character` |       2 / 4 byte       | 单字，对字符串中的每一项来说。1 个 `character` 为 1 个 `char` 或 1 个 **代理对**（具体细节可参考 [UTF-16 编码](../../../implementation-details/unicode.md#utf-16) ） |
 |  `string`   |        动态调整        | 字符串。等价于 `character[]`, `[character]`<br />也就是说，`character` 组成的一维数组，天然支持所有 `string` 的操作方式，你可完全将其当作 `string` 对象使用。 |
 
 > 注意：
-> - Collie 使用的 [Unicode 编码标准](../../implementation-details/unicode.md) 为 [**UTF-16 编码**](../../implementation-details/unicode.md#utf-16)。
-> - 在[不同语言和操作系统中，所采用的默认编码格式不同](../../implementation-details/encoding-used-by-different-languages-or-operating-systems.md)。因此，`char` 类型占用空间不完全相同。
+> - Collie 使用的 [Unicode 编码标准](../../../implementation-details/unicode.md) 为 [**UTF-16 编码**](../../../implementation-details/unicode.md#utf-16)。
+> - 在[不同语言和操作系统中，所采用的默认编码格式不同](../../../implementation-details/encoding-used-by-different-languages-or-operating-systems.md)。因此，`char` 类型占用空间不完全相同。
 
 ## 🏅语法示例 {#syntax-example}
 

@@ -4,12 +4,6 @@ sidebar_label: 数组与集合类型（Collection Type）（TODO）
 
 # 数组与集合类型（Collection Type）
 
-:::info
-
-数组与集合类型为[可变类型](./#mutable-data-type)。
-
-:::
-
 :::danger TODO
 refer:
 - JDK

@@ -4,12 +4,6 @@ sidebar_label: 位类型（Bitwise Type）
 
 # 位类型（Bitwise Type）
 
-:::info
-
-位类型为[不可变类型](./#immutable-data-type)。
-
-:::
-
 ## 🐳类型简介 {#intro}
 
 | 类型   | 占用空间 | 取值范围 | 最小值<br/>object.MIN_VALUE | 最大值<br />object.MAX_VALUE | 描述                  |

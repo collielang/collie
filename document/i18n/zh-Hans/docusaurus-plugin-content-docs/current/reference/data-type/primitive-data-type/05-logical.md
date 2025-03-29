@@ -4,12 +4,6 @@ sidebar_label: 逻辑类型​（Logical Type）
 
 # 逻辑类型​（Logical Type）
 
-:::info
-
-逻辑类型为[不可变类型](./#immutable-data-type)。
-
-:::
-
 ## 🐳类型简介 {#intro}
 
 |   类型    | 描述                                                        |

@@ -1,8 +1,8 @@
 ---
-sidebar_label: Character and String Type
+sidebar_label: Tuple Type
 ---
 
-# Character and String Type
+# Tuple Type
 
 :::danger
 There is no English version of the document, please check the Chinese version

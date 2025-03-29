@@ -4,12 +4,6 @@ sidebar_label: 缓冲区 / 字节数组类型（Buffer Type）（TODO）
 
 # 缓冲区 / 字节数组类型（Buffer Type）
 
-:::info
-
-缓冲区 / 字节数组类型为[不可变类型](./#immutable-data-type)。即：长度固定不能改变，但可以改变其中某项的值。
-
-:::
-
 :::danger
 需要确认下 buffer 叫做缓冲区是否合适
 :::
@@ -20,3 +14,8 @@ sidebar_label: 缓冲区 / 字节数组类型（Buffer Type）（TODO）
 | :------: | :---------------: | ------------------------------------------------------------ |
 |  `byte`  |      1 byte       | 1 字节                                                       |
 | `buffer` |      不固定       | 缓冲区 / 字节数组。等价于 `byte[]`, `[byte]` <br />也就是说，`byte` 组成的一维数组，天然支持所有 `buffer` 的操作方式，你可完全将其当作 `buffer` 对象使用。 |
+
+## 🏅语法示例 {#syntax-example}
+
+```collie
+```
