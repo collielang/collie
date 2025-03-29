@@ -1,5 +1,4 @@
 ---
-sidebar_position: 5
 sidebar_label: 逻辑类型​（Logical Type）
 ---
 

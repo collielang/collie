@@ -1,8 +1,8 @@
 ---
-sidebar_label: Logical Type
+sidebar_label: Container Type
 ---
 
-# Logical Type
+# Container Type
 
 :::danger
 There is no English version of the document, please check the Chinese version

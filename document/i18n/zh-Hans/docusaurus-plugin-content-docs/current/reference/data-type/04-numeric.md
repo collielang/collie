@@ -1,5 +1,4 @@
 ---
-sidebar_position: 4
 sidebar_label: 数字类型（Numeric Type）
 ---
 

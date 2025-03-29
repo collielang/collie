@@ -1,116 +1,14 @@
 ---
-sidebar_position: 11
-sidebar_label: 容器类型（Container Type）
+sidebar_label: 数组与集合类型（Collection Type）（TODO）
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
-
-# 容器类型（Container Type）
+# 数组与集合类型（Collection Type）
 
 :::info
 
-容器类型为[可变类型](./#mutable-data-type)。
+数组与集合类型为[可变类型](./#mutable-data-type)。
 
 :::
-
-## 🐳类型简介 {#intro}
-
-数据容器支持动态添加、删除、修改、获取元素。
-
-<Tabs>
-  <TabItem value="mermaid" label="Mermaid" default>
-    <!-- https://mermaid.js.org/syntax/classDiagram.html#define-namespace -->
-    ```mermaid
-    classDiagram
-    namespace Collections {
-        class Collection
-
-        class AbstractListCollection
-        class AbstractSetCollection
-
-        class list
-        class set
-    }
-
-    namespace Dictionarys {
-        class Dictionary
-        class AbstractDictionary
-
-        class map
-    }
-
-    object <|-- Collection
-    object <|-- Dictionary
-
-    Collection <|-- AbstractListCollection : implements
-    Collection <|-- AbstractSetCollection : implements
-    Dictionary <|-- AbstractDictionary : implements
-
-    AbstractListCollection <|-- list : extends
-    AbstractSetCollection <|-- set : extends
-    AbstractDictionary <|-- map : extends
-
-    <<interface>> Collection
-    <<abstract>> AbstractListCollection
-    <<abstract>> AbstractSetCollection
-    <<abstract>> AbstractDictionary
-    <<clazz>> list
-    <<clazz>> set
-    <<clazz>> map
-    <<interface>> Dictionary
-    object : equals()
-    ```
-  </TabItem>
-  <TabItem value="plantuml" label="Plantuml (not support)">
-    ```plantuml
-    @startuml
-
-    class object
-
-    package "Collections" #EEEEEE {
-        interface Collection
-        object <|-- Collection
-
-        abstract AbstractListCollection
-        abstract AbstractSetCollection
-        Collection <|-- AbstractListCollection
-        Collection <|-- AbstractSetCollection
-
-        class list
-        class set
-
-        AbstractListCollection <|-- list
-
-        AbstractSetCollection <|-- set
-        ' list <|-- set
-    }
-
-    package "Dictionarys" #EEEEEE {
-        interface Dictionary
-        object <|-- Dictionary
-
-        abstract AbstractDictionary
-        Dictionary <|-- AbstractDictionary
-
-        class map
-
-        AbstractDictionary <|-- map
-    }
-
-    object : equals()
-
-    @enduml
-    ```
-  </TabItem>
-</Tabs>
-
-## 数组与集合类型
-
-|      类型      | 描述                          |
-| :------------: | ----------------------------- |
-| `list[object]` | 元素**可重复**的**有序**集合   |
-| `set[object]`  | 元素**不可重复**的**无序**集合 |
 
 :::danger TODO
 refer:
@@ -153,7 +51,14 @@ refer:
 - 双向进出列表（双向队列）：Deque
 :::
 
-### 🏅基础方法 {#method}
+## 🐳类型简介 {#intro}
+
+|      类型      | 描述                          |
+| :------------: | ----------------------------- |
+| `list[object]` | 元素**可重复**的**有序**集合   |
+| `set[object]`  | 元素**不可重复**的**无序**集合 |
+
+## 🏅基础方法 {#method}
 
 | 方法                                                      | 描述                                                         |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
@@ -171,7 +76,7 @@ refer:
 | collection.addAllFirst/addAllLast([object] objectList1[, object objectList2[, ...]]) | 将传入的若干数组元素按先后次序，逐一添加到 collection 对象最前面 / 最后面 |
 -->
 
-### 🏅语法示例 {#syntax-example}
+## 🏅语法示例 {#syntax-example}
 
 - 定义
 
@@ -240,26 +145,4 @@ for (item : list2) {
 	item *= 2;
 }
 // 此时 list2 的值为: ["11", [2, 3, 2, 3], "44"];
-```
-
-
-
-## 字典类型
-
-|         类型          | 描述                     |
-| :-------------------: | ------------------------ |
-| `map[string: number]` | 字典类型。支持键值对存储 |
-
-### 🏅语法示例
-
-```collie
-var set = set(1, 2, 3);       // var 自动推断类型为 set[number]
-var map = map({ apple: 5, banana: 6 }); // var 自动推断类型为 map[string: number]
-```
-
-- TODO
-
-```collie
-- 提供方法 `last()`：获取最后一个元素
-- 提供转换方法 `toMap()`：将 List 转换为 Map
 ```

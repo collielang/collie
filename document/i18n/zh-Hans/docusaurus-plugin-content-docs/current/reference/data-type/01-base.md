@@ -1,5 +1,4 @@
 ---
-sidebar_position: 1
 sidebar_label: 基类型（Base Type）
 ---
 

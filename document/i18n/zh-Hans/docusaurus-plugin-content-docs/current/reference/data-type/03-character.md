@@ -1,9 +1,8 @@
 ---
-sidebar_position: 3
-sidebar_label: 字符类型（Character Type）
+sidebar_label: 字符与字符串类型（Character and String Type）
 ---
 
-# 字符类型（Character Type）
+# 字符与字符串类型（Character and String Type）
 
 :::info
 

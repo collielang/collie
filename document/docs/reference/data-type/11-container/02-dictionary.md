@@ -1,9 +1,8 @@
 ---
-sidebar_position: 11
-sidebar_label: Container Type
+sidebar_label: Dictionary Type
 ---
 
-# Container Type
+# Dictionary Type
 
 :::danger
 There is no English version of the document, please check the Chinese version

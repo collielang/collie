@@ -1,5 +1,4 @@
 ---
-sidebar_position: 12
 sidebar_label: 联合类型（Union Type）
 ---
 

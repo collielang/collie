@@ -1,5 +1,4 @@
 ---
-sidebar_position: 2
 sidebar_label: 空类型（None Type）
 ---
 
