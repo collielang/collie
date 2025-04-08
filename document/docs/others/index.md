@@ -19,3 +19,4 @@ sidebar_position: 1
 - [其他语言实现](./other-language-implements.md)
 - [语法设计临时稿](../reference/uncategorized-documents/index.md)
 - [参考其他语言文档](./reference-docs.md)
+- [域名 Domain](./domain.md)

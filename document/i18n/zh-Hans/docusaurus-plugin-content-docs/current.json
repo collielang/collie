@@ -7,9 +7,9 @@
     "message": "构建",
     "description": "The label for category 构建 in sidebar tutorialSidebar"
   },
-  "sidebar.referenceSidebar.category.数据类型": {
-    "message": "数据类型",
-    "description": "The label for category 数据类型 in sidebar referenceSidebar"
+  "sidebar.referenceSidebar.category.类型系统（数据类型）": {
+    "message": "类型系统（数据类型）",
+    "description": "The label for category 类型系统（数据类型） in sidebar referenceSidebar"
   },
   "sidebar.referenceSidebar.category.基本数据类型": {
     "message": "基本数据类型",
