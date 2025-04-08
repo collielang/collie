@@ -7,17 +7,25 @@
     "message": "数据类型",
     "description": "The label for category 数据类型 in sidebar referenceSidebar"
   },
+  "sidebar.referenceSidebar.category.基本数据类型": {
+    "message": "基本数据类型",
+    "description": "The label for category 基本数据类型 in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.引用数据类型": {
+    "message": "引用数据类型",
+    "description": "The label for category 引用数据类型 in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.数据容器类型（Container Type）": {
+    "message": "数据容器类型（Container Type）",
+    "description": "The label for category 数据容器类型（Container Type） in sidebar referenceSidebar"
+  },
   "sidebar.referenceSidebar.category.语法": {
     "message": "语法",
     "description": "The label for category 语法 in sidebar referenceSidebar"
   },
-  "sidebar.contributeSidebar.category.参与贡献": {
-    "message": "参与贡献",
-    "description": "The label for category 参与贡献 in sidebar contributeSidebar"
-  },
-  "sidebar.contributeSidebar.category.贡献代码": {
-    "message": "贡献代码",
-    "description": "The label for category 贡献代码 in sidebar contributeSidebar"
+  "sidebar.referenceSidebar.category.未分类文档": {
+    "message": "未分类文档",
+    "description": "The label for category 未分类文档 in sidebar referenceSidebar"
   },
   "sidebar.ecoSidebar.category.开发工具支持": {
     "message": "开发工具支持",
@@ -26,5 +34,13 @@
   "sidebar.ecoSidebar.category.VSCode": {
     "message": "VSCode",
     "description": "The label for category VSCode in sidebar ecoSidebar"
+  },
+  "sidebar.contributeSidebar.category.参与贡献": {
+    "message": "参与贡献",
+    "description": "The label for category 参与贡献 in sidebar contributeSidebar"
+  },
+  "sidebar.contributeSidebar.category.贡献代码": {
+    "message": "贡献代码",
+    "description": "The label for category 贡献代码 in sidebar contributeSidebar"
   }
 }
