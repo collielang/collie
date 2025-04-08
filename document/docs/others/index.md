@@ -10,11 +10,11 @@ sidebar_position: 1
 # 其他
 
 :::danger 正在进行中的文档
-- [语法定义 (99-others.md)](../reference/others)
-- [Draft](./draft.md)
+- [语法定义 Draft](../reference/uncategorized-documents)
+- [标准库](../reference/standard-library)
 :::
 
 - [实用工具](./helpful-tools.md)
 - [候选名称](./candidate-names.md)
 - [其他语言实现](./other-language-implements.md)
-- [语法设计临时稿](./draft.md)
+- [语法设计临时稿](../reference/uncategorized-documents/index.md)
