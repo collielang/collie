@@ -7,7 +7,7 @@
     font-family: var(--ifm-font-family-monospace);
     line-height: 1;
     transition: opacity 0.2s ease;
-    margin-bottom: 1em;
+    margin-bottom: var(--ifm-leading);
 }
 
 .badge:hover {
