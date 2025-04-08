@@ -1,4 +1,4 @@
-.badge {
+.sinceBadge {
     display: inline-flex;
     align-items: center;
     background: var(--ifm-color-primary-lightest);
@@ -10,21 +10,21 @@
     margin-bottom: var(--ifm-leading);
 }
 
-.badge:hover {
+.sinceBadge:hover {
     opacity: 0.9;
 }
 
-.badge--sm {
+.sinceBadge--sm {
     padding: 0.15rem 0.5rem;
     font-size: 0.75rem;
 }
 
-.badge--md {
+.sinceBadge--md {
     padding: 0.25rem 0.75rem;
     font-size: 0.85rem;
 }
 
-.badge--lg {
+.sinceBadge--lg {
     padding: 0.35rem 1rem;
     font-size: 1rem;
 }

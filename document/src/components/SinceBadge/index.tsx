@@ -1,7 +1,7 @@
-import React from 'react';
-import clsx from 'clsx';
+import { ReactNode } from "react";
+import clsx from "clsx";
 
-import styles from './styles.module.css';
+import styles from "./styles.module.css";
 
 interface SinceBadgeProps {
   /**​
@@ -17,7 +17,7 @@ interface SinceBadgeProps {
    * 尺寸规格
    * @default 'md'
    */
-  size?: 'sm' | 'md' | 'lg';
+  size?: "sm" | "md" | "lg";
   /**​
    * 自定义类名
    */
@@ -27,22 +27,24 @@ interface SinceBadgeProps {
 /**​
  * 版本标记组件
  *
+ * 注意：避免将其放在大标题之后（会在网页 title 显示出来）
+ *
  * @example
  * ```tsx
  * <SinceBadge version="v2.1.0" size="lg" />
  * ```
  */
-const SinceBadge: React.FC<SinceBadgeProps> = ({
+function SinceBadge({
   version,
   prefix = "Since: ",
-  size = 'md',
-  className
-}) => {
+  size = "md",
+  className,
+}: SinceBadgeProps): ReactNode {
   return (
     <span
       className={clsx(
-        styles.badge,
-        styles[`badge--${size}`],
+        styles.sinceBadge,
+        styles[`sinceBadge--${size}`],
         className
       )}
       aria-label={`Introduced in version ${version}`}
@@ -51,6 +53,6 @@ const SinceBadge: React.FC<SinceBadgeProps> = ({
       <span className={styles.version}>{version}</span>
     </span>
   );
-};
+}
 
 export default SinceBadge;
