@@ -1,3 +1,7 @@
+---
+sidebar_label: Collie.Math
+---
+
 # Collie.Math
 
 :::danger

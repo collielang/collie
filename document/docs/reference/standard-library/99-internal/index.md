@@ -1,3 +1,7 @@
+---
+sidebar_label: Collie.Internal
+---
+
 # Collie.Internal
 
 :::danger

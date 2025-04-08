@@ -23,6 +23,18 @@
     "message": "语法",
     "description": "The label for category 语法 in sidebar referenceSidebar"
   },
+  "sidebar.referenceSidebar.category.标准库": {
+    "message": "标准库",
+    "description": "The label for category 标准库 in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.Collie.Lang（语言基础包）": {
+    "message": "Collie.Lang（语言基础包）",
+    "description": "The label for category Collie.Lang（语言基础包） in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.Collie.Internal（内部实现包）": {
+    "message": "Collie.Internal（内部实现包）",
+    "description": "The label for category Collie.Internal（内部实现包） in sidebar referenceSidebar"
+  },
   "sidebar.referenceSidebar.category.未分类文档": {
     "message": "未分类文档",
     "description": "The label for category 未分类文档 in sidebar referenceSidebar"
