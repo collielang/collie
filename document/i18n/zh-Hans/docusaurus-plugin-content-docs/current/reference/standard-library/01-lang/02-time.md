@@ -1,5 +1,5 @@
 ---
-sidebar_label: .Time（日期时间）
+sidebar_label: ···.Time（日期时间）
 ---
 
 # Collie.Lang.Time（日期时间）

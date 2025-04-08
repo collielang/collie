@@ -1,5 +1,5 @@
 ---
-sidebar_label: .Json
+sidebar_label: ···.Json
 ---
 
 # Collie.Serialization.Json

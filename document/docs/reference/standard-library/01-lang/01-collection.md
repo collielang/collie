@@ -1,5 +1,5 @@
 ---
-sidebar_label: .Collection
+sidebar_label: ···.Collection
 ---
 
 # Collie.Lang.Collection

@@ -1,5 +1,5 @@
 ---
-sidebar_label: .Xml（XML 处理模块）
+sidebar_label: ···.Xml（XML 处理模块）
 ---
 
 # Collie.Serialization.Xml（XML 处理模块）

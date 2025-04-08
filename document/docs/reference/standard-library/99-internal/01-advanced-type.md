@@ -1,5 +1,5 @@
 ---
-sidebar_label: .AdvancedType
+sidebar_label: ···.AdvancedType
 ---
 
 # Collie.Internal.AdvancedType

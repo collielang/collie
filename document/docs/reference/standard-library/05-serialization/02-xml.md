@@ -1,5 +1,5 @@
 ---
-sidebar_label: .Xml
+sidebar_label: ···.Xml
 ---
 
 # Collie.Serialization.Xml
