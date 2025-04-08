@@ -48,6 +48,8 @@ const config: Config = {
           showLastUpdateTime: true,
           // The edit URL will target the localized file, instead of the original unlocalized file. Ignored when `editUrl` is a function.
           editLocalizedFiles: true,
+          //
+          sidebarCollapsed: false,
         },
         blog: {
           showReadingTime: true,
