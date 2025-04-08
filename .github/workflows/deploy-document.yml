@@ -6,6 +6,7 @@ on:
     branches: ["main"]
     paths:  # 路径过滤条件
       - 'document/**'  # 匹配 document 目录及其子目录下的所有文件
+      - '.github/workflows/deploy-document.yml' # 修改 GitHub Actions 文件时也触发文档部署
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
