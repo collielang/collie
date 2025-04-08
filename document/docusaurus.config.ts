@@ -46,6 +46,8 @@ const config: Config = {
           editUrl:
             'https://github.com/collielang/collie/tree/main/document/',
           showLastUpdateTime: true,
+          // The edit URL will target the localized file, instead of the original unlocalized file. Ignored when `editUrl` is a function.
+          editLocalizedFiles: true,
         },
         blog: {
           showReadingTime: true,
@@ -61,6 +63,8 @@ const config: Config = {
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
           onUntruncatedBlogPosts: 'warn',
+          // The edit URL will target the localized file, instead of the original unlocalized file. Ignored when `editUrl` is a function.
+          editLocalizedFiles: true,
         },
         theme: {
           customCss: './src/css/custom.css',
