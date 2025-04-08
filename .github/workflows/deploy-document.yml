@@ -29,6 +29,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+            # Use `fetch-depth: 0` to ensure Docusaurus's last update time displays correctly.
+            fetch-depth: 0
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Setup Node.js
