@@ -1,3 +1,8 @@
+与其他语言不同, Collie 的基础类型作为通用类型，比如数字只区分整数 or 小数（类似 Python 支持内部自动扩容，无需担心精度问题）
+然后如果要使用精确类型（比如 int, short, long 等），使用
+
+枚举类
+
 
 后置类型，方便类型推断
 （语义重于语法）
@@ -17,10 +22,12 @@ if (obj is Type) {
 
 ```kotlin
 // kotlin 语法
-    for (i in 1..4 step 2) print(i) // 输出“13”
-    for (i in 4 downTo 1 step 2) print(i) // 输出“42”
-    for (i in 1 until 4) {   // i in [1, 4) 排除了 4
+for (i in 1..4 step 2) print(i) // 输出“13”
+for (i in 4 downTo 1 step 2) print(i) // 输出“42”
+for (i in 1 until 4) {   // i in [1, 4) 排除了 4
 ```
+
+(如果 Collie 要借鉴，那么 `..`, `downTo`, `until` 或许可以简化为 `to`)
 
 枚举
 
