@@ -1,0 +1,35 @@
+.badge {
+    display: inline-flex;
+    align-items: center;
+    background: var(--ifm-color-primary-lightest);
+    color: var(--ifm-color-primary-darkest);
+    border-radius: 12px;
+    font-family: var(--ifm-font-family-monospace);
+    line-height: 1;
+    transition: opacity 0.2s ease;
+    margin-bottom: 1em;
+}
+
+.badge:hover {
+    opacity: 0.9;
+}
+
+.badge--sm {
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+}
+
+.badge--md {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.badge--lg {
+    padding: 0.35rem 1rem;
+    font-size: 1rem;
+}
+
+.version {
+    font-weight: bold;
+    margin-left: 0.2rem;
+}
