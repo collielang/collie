@@ -171,6 +171,15 @@ export const expand = false
 
 
 
+#### Kotlin
+
+>
+- Website: https://kotlinlang.org/
+- Documentation: https://kotlinlang.org/docs/home.html
+- GitHub Repo: https://github.com/JetBrains/kotlin
+
+
+
 ### Go
 
 > *The Go programming language.*
@@ -298,6 +307,28 @@ export const expand = false
     > The Microsoft Build Engine (MSBuild) is the build platform for .NET and Visual Studio.
     - Documentation: https://learn.microsoft.com/visualstudio/msbuild/msbuild
     - GitLab Repo: https://github.com/dotnet/msbuild
+  </TabItem>
+</Tabs>
+</details>
+
+
+
+### Dart
+
+> Dart 是一个易用、可移植且高效的语言，适用于在全平台开发高质量的应用程序。
+- Website: https://dart.dev/, https://dart.cn/
+- Documentation: https://dart.cn/language/
+- GitHub Repo: https://github.com/dart-lang/
+
+<details open={expand}>
+<summary>Dart Ecosystem</summary>
+<Tabs>
+  <TabItem value="Dependency Management" label="Dependency Management" default>
+    #### package
+
+    > Dart 生态系统使用 package 来管理共享软件
+    - Website: https://dart.cn/tools/pub/packages/
+    - Documentation: https://dart.cn/tools/pub/cmd/
   </TabItem>
 </Tabs>
 </details>
