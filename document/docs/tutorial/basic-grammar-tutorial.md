@@ -1,9 +1,9 @@
 ---
-sidebar_position: 2
-sidebar_label: Quick Start
+sidebar_position: 3
+sidebar_label: Basic Grammar Tutorial
 ---
 
-# Quick Start
+# Basic Grammar Tutorial
 
 :::danger
 There is no English version of the document, please check the Chinese version

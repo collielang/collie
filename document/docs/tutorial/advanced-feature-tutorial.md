@@ -1,9 +1,9 @@
 ---
-sidebar_position: 2
-sidebar_label: Quick Start
+sidebar_position: 4
+sidebar_label: Advanced Feature Tutorial
 ---
 
-# Quick Start
+# Advanced Feature Tutorial
 
 :::danger
 There is no English version of the document, please check the Chinese version
