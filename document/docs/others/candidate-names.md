@@ -18,10 +18,10 @@ title: 候选名称 Candidate Names
 
 ## 包管理器名称
 
-|          | English Name | 含义                                    |
-| :------: | ------------ | --------------------------------------- |
-| :trophy: | coup         | 【collie + up】意想不到的成功；军事政变 |
-|          | collup       | collie + up                             |
+|          | English Name | Short Name | 含义                                    |
+| :------: | ------------ | ---------- | --------------------------------------- |
+| :trophy: | coup         |            | 【collie + up】意想不到的成功；军事政变 |
+|          | collup       | cop        | collie + up                             |
 
 ## 其他备选名称
 
