@@ -4,6 +4,11 @@ sidebar_label: 逻辑类型​（Logical Type）
 
 # 逻辑类型​（Logical Type）
 
+:::danger 是否值得改为 yes, no? (但是 json 转换时可能会不一致)
+- 答：不值得。
+- 结论：使用 true, false
+:::
+
 ## 🐳类型简介 {#intro}
 
 |   类型    | 描述                                                        |
@@ -11,7 +16,10 @@ sidebar_label: 逻辑类型​（Logical Type）
 |  `bool`   | 二值逻辑（布尔类型），值为 `true` 或 `false`，默认值为 `false`          |
 | `tribool` | ​三值逻辑（三元类型），值为 `true`，`false` 或 `unset`，默认值为 `unset` |
 
-!> *TODO 需要确认是否设计默认值（看是否可以实现类似 Java 那样的不初始化就不允许使用）*
+
+:::warning TODO
+需要确认是否设计默认值（看是否可以实现类似 Java 那样的不初始化就不允许使用）
+:::
 
 ## 布尔类型（Boolean Type） {#anthor-boolean-type}
 

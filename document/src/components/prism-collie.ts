@@ -92,6 +92,8 @@ const addColliePrismLanguageSupport = function (PrismObject: typeof PrismNamespa
       /\b(?:bit|byte|word|dword)\b/,
       // container
       /\b(?:list|set|map)\b/,
+      // enum
+      /\b(?:enum)\b/,
       //
       /\b(?:public|private)\b/,
     ],
