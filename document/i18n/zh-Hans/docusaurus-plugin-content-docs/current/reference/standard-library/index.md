@@ -9,12 +9,6 @@ import SinceBadge from '@site/src/components/SinceBadge';
 
 <SinceBadge version="0.1.0-not-release" />
 
-:::note 标准库设计参考
-- Hutools:
-- Lombok
-- Apache Commons Collections: https://github.com/apache/commons-collections
-:::
-
 :::danger 【注意】考虑扩展性
 
 先定义通用接口，再进行实现。
