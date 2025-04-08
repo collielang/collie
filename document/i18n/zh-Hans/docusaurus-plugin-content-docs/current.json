@@ -3,6 +3,10 @@
     "message": "Next",
     "description": "The label for version current"
   },
+  "sidebar.tutorialSidebar.category.构建": {
+    "message": "构建",
+    "description": "The label for category 构建 in sidebar tutorialSidebar"
+  },
   "sidebar.referenceSidebar.category.数据类型": {
     "message": "数据类型",
     "description": "The label for category 数据类型 in sidebar referenceSidebar"
@@ -31,9 +35,25 @@
     "message": "Collie.Lang（语言基础包）",
     "description": "The label for category Collie.Lang（语言基础包） in sidebar referenceSidebar"
   },
+  "sidebar.referenceSidebar.category.Collie.Serialization（序列化包）": {
+    "message": "Collie.Serialization（序列化包）",
+    "description": "The label for category Collie.Serialization（序列化包） in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.Collie.Database（数据库连接包）": {
+    "message": "Collie.Database（数据库连接包）",
+    "description": "The label for category Collie.Database（数据库连接包） in sidebar referenceSidebar"
+  },
   "sidebar.referenceSidebar.category.Collie.Internal（内部实现包）": {
     "message": "Collie.Internal（内部实现包）",
     "description": "The label for category Collie.Internal（内部实现包） in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.嵌入其他语言代码": {
+    "message": "嵌入其他语言代码",
+    "description": "The label for category 嵌入其他语言代码 in sidebar referenceSidebar"
+  },
+  "sidebar.referenceSidebar.category.嵌入器 API": {
+    "message": "嵌入器 API",
+    "description": "The label for category 嵌入器 API in sidebar referenceSidebar"
   },
   "sidebar.referenceSidebar.category.未分类文档": {
     "message": "未分类文档",
