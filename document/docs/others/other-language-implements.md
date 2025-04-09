@@ -539,6 +539,16 @@ export const expand = false
 
 
 
+## 个人练手语言
+
+### SimpleLang (China)（半成品；已停更）
+
+> A compiler for SimpleLang which is a modern language.
+
+- GitHub Repo: https://github.com/jadedrip/simpleLang
+
+
+
 ## 新兴编程语言
 
 ### 方舟编程语言 / ArkTS (China)

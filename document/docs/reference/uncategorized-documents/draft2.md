@@ -1,6 +1,10 @@
 与其他语言不同, Collie 的基础类型作为通用类型，比如数字只区分整数 or 小数（类似 Python 支持内部自动扩容，无需担心精度问题）
 然后如果要使用精确类型（比如 int, short, long 等），使用
 
+EBNF表达式
+https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form
+https://zh.wikipedia.org/wiki/%E6%89%A9%E5%B1%95%E5%B7%B4%E7%A7%91%E6%96%AF%E8%8C%83%E5%BC%8F
+
 枚举类
 
 
