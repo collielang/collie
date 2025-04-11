@@ -1,12 +1,12 @@
 ---
-sidebar_position: 4
-sidebar_label: collobf - Code Obfuscation
+sidebar_position: 5
+sidebar_label: Coob - Code Obfuscation
 ---
 
-# CollObf
+# Coob
 
 :::note Introduction
-`collobf` is the default code obfuscation tool for the Collie language.
+`coob` is the default code obfuscation tool for the Collie language.
 :::
 
 TODO

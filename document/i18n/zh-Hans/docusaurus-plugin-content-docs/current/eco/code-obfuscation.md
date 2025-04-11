@@ -1,12 +1,16 @@
 ---
-sidebar_position: 4
-sidebar_label: collobf - 代码混淆
+sidebar_position: 5
+sidebar_label: Coob - 代码混淆
 ---
 
-# CollObf
+# Coob
 
 :::note 简介
-`collobf` 是 Collie 语言默认的代码混淆工具
+`coob` 是 Collie 语言默认的代码混淆工具
 :::
 
 TODO
+
+:::danger 其他候选名称
+CollObf
+:::

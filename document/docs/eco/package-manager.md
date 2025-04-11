@@ -1,12 +1,12 @@
 ---
-sidebar_position: 3
-sidebar_label: coup - Package Manager
+sidebar_position: 4
+sidebar_label: CoPack - Package Manager
 ---
 
-# CoUp
+# CoPack
 
 :::note Introduction
-`coup` is the default package manager for the Collie language.
+`copack` is the default package manager for the Collie language.
 :::
 
 TODO
