@@ -556,6 +556,11 @@ export const expand = false
 
 ## 个人练手语言
 
+### Rio (China)（半成品）
+
+- 小红书: https://www.xiaohongshu.com/user/profile/61b75b860000000010004bdd
+- GitHub Repo: https://github.com/RestRegular/RVM
+
 ### SimpleLang (China)（半成品；已停更）
 
 > A compiler for SimpleLang which is a modern language.
