@@ -20,6 +20,7 @@ std::string get_version_info() {
 std::string get_environment_info() {
     std::stringstream ss;
 
+    ss << "[Environment]" << std::endl;
     // 编译器版本信息
     #ifdef _MSC_VER
         ss << "MSVC Version: " << _MSC_VER << std::endl;

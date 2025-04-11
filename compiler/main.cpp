@@ -27,6 +27,7 @@ void flush_output() {
 int main(int argc, char* argv[]) {
     // 打印版本信息 & 环境信息
     std::cout << collie::utils::get_version_info();
+    std::cout << std::endl;
     std::cout << collie::utils::get_environment_info();
     std::cout << std::endl;
 
@@ -130,8 +131,8 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Tokens:" << std::endl;
         for (const auto& token : tokens) {
-            std::cout << "  Type: " << static_cast<int>(token.type())
-                     << " (" << token_type_to_string(token.type()) << ")"
+            std::cout << "  Type: " << token_type_to_string(token.type())
+                     << " (" << static_cast<int>(token.type()) << ")"
                      << ", Lexeme: '" << token.lexeme()
                      << "', Line: " << token.line()
                      << ", Column: " << token.column() << std::endl;
