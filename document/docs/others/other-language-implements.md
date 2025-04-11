@@ -284,11 +284,25 @@ export const expand = false
 
 
 
-### .NET Runtime (C#)
+### .NET Runtime
 
 > *.NET is a cross-platform runtime for cloud, mobile, desktop, and IoT apps.*
 - Documentation: docs.microsoft.com/dotnet/core/
 - GitHub Repo: https://github.com/dotnet/runtime
+
+#### C#
+
+> 用于生成所有应用的现代化、创新开放源代码编程语言。
+- Website: https://dotnet.microsoft.com/zh-cn/languages/csharp
+- Documentation: https://learn.microsoft.com/zh-cn/dotnet/csharp/
+- GitHub Repo: https://github.com/dotnet/csharplang
+
+#### F#
+
+> 一种开放源代码语言，利用它可轻松编写简洁、可靠且性能出色的代码。
+- Website: https://dotnet.microsoft.com/zh-cn/languages/fsharp
+- Documentation: https://learn.microsoft.com/zh-cn/dotnet/fsharp/
+- GitHub Repo: https://github.com/dotnet/fsharp
 
 <details open={expand}>
 <summary>.NET Ecosystem</summary>
@@ -463,6 +477,7 @@ export const expand = false
   </TabItem>
 </Tabs>
 </details>
+
 
 
 ## 小众编程语言
