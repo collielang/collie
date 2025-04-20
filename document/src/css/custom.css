@@ -30,3 +30,8 @@
   --ifm-color-primary-lightest: #f77925;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+:root::selection {
+    background:#8585855e;
+    /* color: white; */
+}

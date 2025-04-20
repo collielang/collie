@@ -15,6 +15,7 @@ function HomepageHeader() {
     <header className={clsx("hero hero--primary", styles.heroBanner)}>
       <div className="container">
         <img
+          className={clsx(styles.unselectable)}
           src="img/logo.png"
           style={{
             width: "240px",
