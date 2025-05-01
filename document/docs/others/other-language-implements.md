@@ -35,6 +35,7 @@ export const expand = false
   </TabItem>
 </Tabs>
 </details>
+
  -->
 
 # 其他语言实现
@@ -454,6 +455,15 @@ export const expand = false
   </TabItem>
 </Tabs>
 </details>
+
+
+
+### Zig
+
+>
+- Website: https://ziglang.org/zh-CN/
+- Documentation: https://github.com/ziglang/zig
+- GitHub Repo: https://github.com/ziglang/zig
 
 
 
