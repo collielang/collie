@@ -1,8 +1,8 @@
 ---
-sidebar_label: 逻辑类型​（Logical Type）
+sidebar_label: 逻辑类型（Logical Type）
 ---
 
-# 逻辑类型​（Logical Type）
+# 逻辑类型（Logical Type）
 
 :::danger 是否值得改为 yes, no? (但是 json 转换时可能会不一致)
 - 答：不值得。
@@ -14,7 +14,7 @@ sidebar_label: 逻辑类型​（Logical Type）
 |   类型    | 描述                                                        |
 | :-------: | ----------------------------------------------------------- |
 |  `bool`   | 二值逻辑（布尔类型），值为 `true` 或 `false`，默认值为 `false`          |
-| `tribool` | ​三值逻辑（三元类型），值为 `true`，`false` 或 `unset`，默认值为 `unset` |
+| `tribool` | 三值逻辑（三元类型），值为 `true`，`false` 或 `unset`，默认值为 `unset` |
 
 
 :::warning TODO
