@@ -26,6 +26,9 @@ concurrency:
 jobs:
   # Build job
   build:
+    # 如果仓库被 fork 则不执行 action 脚本
+    # Skip the action script if the repository is forked
+    if: github.repository_owner == 'collielang'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
