@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "patch-package",
     "en": "docusaurus start --locale en",
     "zh": "docusaurus start --locale zh-Hans",
     "write-translations-zh": "docusaurus write-translations --locale zh-Hans",
@@ -24,6 +25,7 @@
     "@easyops-cn/docusaurus-search-local": "^0.52.1",
     "@mdx-js/react": "^3.0.0",
     "clsx": "^2.0.0",
+    "patch-package": "^8.0.1",
     "prism-react-renderer": "^2.3.0",
     "raw-loader": "^4.0.2",
     "react": "^19.0.0",

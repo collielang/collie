@@ -1,0 +1,12 @@
+diff --git a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
+index 5542bb5..a4f2d5a 100644
+--- a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
++++ b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
+@@ -196,7 +196,6 @@ html[data-theme="dark"] .noResultsIcon {
+ }
+ 
+ .searchBarContainer {
+-  margin-left: 16px;
+ }
+ 
+ .searchBarContainer .searchBarLoadingRing {
