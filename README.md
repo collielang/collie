@@ -1,3 +1,9 @@
+> [!CAUTION]
+>
+> 🚧 This project is currently in the early stage of development, and its core functions have not yet been fully realized.
+>
+> 🚧 本项目目前处于早期开发阶段，核心功能尚未完全实现。
+
 <div align="center">
 
 <p>
