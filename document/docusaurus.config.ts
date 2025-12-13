@@ -72,7 +72,11 @@ const config: Config = {
           editLocalizedFiles: true,
         },
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: [
+            './src/css/custom.css',
+            // Add custom font style
+            './src/css/font.css',
+          ],
         },
       } satisfies Preset.Options,
     ],
