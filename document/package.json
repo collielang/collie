@@ -22,7 +22,7 @@
     "@docusaurus/core": "3.9.2",
     "@docusaurus/preset-classic": "3.9.2",
     "@docusaurus/theme-mermaid": "3.9.2",
-    "@easyops-cn/docusaurus-search-local": "0.52.2",
+    "@easyops-cn/docusaurus-search-local": "0.54.0",
     "@mdx-js/react": "^3.0.0",
     "clsx": "^2.0.0",
     "patch-package": "^8.0.1",
@@ -36,6 +36,9 @@
     "@docusaurus/tsconfig": "3.9.2",
     "@docusaurus/types": "3.9.2",
     "typescript": "~5.6.2"
+  },
+  "overrides": {
+    "open-ask-ai": "file:./packages/empty-deps"
   },
   "browserslist": {
     "production": [

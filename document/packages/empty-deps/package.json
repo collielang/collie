@@ -1,0 +1,5 @@
+{
+  "name": "empty-deps",
+  "description": "Placeholder package to skip the installation of the original dependency",
+  "version": "0.0.0"
+}
