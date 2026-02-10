@@ -262,6 +262,17 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
+      additionalLanguages: [
+         // 添加语法高亮支持
+        // docs: https://docusaurus.io/zh-CN/docs/next/markdown-features/code-blocks#supported-languages
+        // see: node_modules/prismjs/components
+        'bash',
+        'batch',
+        'javascript',
+        'docker',
+        'yaml',
+        'sql',
+      ],
     },
     tableOfContents: {
       minHeadingLevel: 2,  // 最小显示的标题级别 (H2)
