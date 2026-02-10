@@ -2,13 +2,13 @@ Initialize the i18n folder
 
 1. Initialize the JSON translation files:
 
-```sh
+```bash
 npm run write-translations -- --locale zh-Hans
 ```
 
 2. 把未翻译的 Markdown 文件复制到简体中文文件夹：
 
-```sh
+```bash
 mkdir -p i18n/zh-Hans/docusaurus-plugin-content-docs/current
 cp -r docs/** i18n/zh-Hans/docusaurus-plugin-content-docs/current
 

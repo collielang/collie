@@ -22,23 +22,27 @@ sidebar_label: 编译和运行指南
 
 ### 所在目录
 
-以下操作都是在 compiler 目录中的
+以下操作都是在 compiler 目录中的。
 
-```bash
+:::info
+您可以使用以下命令切换到 compiler 目录：
+
+```batch
 cd compiler
 ```
+:::
 
 ### 编译步骤
 
 选择其中一种方式即可。
 
 1. 生成 Visual Studio 项目文件：
-   ```bash
-   # 创建并进入构建目录
+   ```batch
+   :: 创建并进入构建目录
    mkdir build
    cd build
 
-   # 生成 Visual Studio 项目文件
+   :: 生成 Visual Studio 项目文件
    cmake .. -G "Visual Studio 17 2022" -A x64
    ```
 
@@ -60,21 +64,21 @@ cd compiler
 
 #### 使用命令行
 2. 编译：
-   ```bash
+   ```batch
    cmake --build . --config Debug
-   # 或
+   :: 或
    cmake --build . --config Release
    ```
 
 3. 运行测试：
-   ```bash
-   # 测试
+   ```batch
+   :: 测试
    ctest -C Debug
    ```
-   ```bash
-   # Debug 模式
+   ```batch
+   :: Debug 模式
    .\Debug\lexer_tests.exe
-   # 或 Release 模式
+   :: 或 Release 模式
    .\Release\lexer_tests.exe
    ```
 
@@ -196,7 +200,7 @@ ctest
 
 ### 常见问题
 1. 找不到 `lexer_tests.exe`
-   - 确保已经成功执行了 cmake 构建命令
+   - 确保已经成功执行了 `cmake` 构建命令
    - 检查是否在正确的目录下查找
 
 2. 测试运行失败
@@ -225,9 +229,9 @@ export CXX=g++-11
 ```
 
 ### 网络问题
-如果在中国大陆遇到Google Test下载失败的问题：
+如果在中国大陆遇到 Google Test 下载失败的问题：
 1. 使用代理
-2. 或手动下载Google Test源码，修改CMakeLists.txt中的GIT_REPOSITORY路径为本地路径
+2. 或手动下载 Google Test 源码，修改 CMakeLists.txt 中的 GIT_REPOSITORY 路径为本地路径
 
 ## 开发环境推荐
 - Windows: Visual Studio
