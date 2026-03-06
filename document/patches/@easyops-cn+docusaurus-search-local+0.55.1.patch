@@ -1,0 +1,43 @@
+diff --git a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
+index 14f5473..f9b2f2d 100644
+--- a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
++++ b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
+@@ -30,22 +30,7 @@ async function fetchAutoCompleteJS() {
+     return autoComplete;
+ }
+ async function fetchOpenAskAI() {
+-    try {
+-        // Dynamic import of open-ask-ai (optional peer dependency)
+-        // This creates a separate webpack chunk that is only loaded when:
+-        // 1. The askAi option is configured
+-        // 2. This function is called (when user interacts with search)
+-        // If open-ask-ai is not installed, the import will fail and be caught gracefully
+-        const openAskAIModule = await import("open-ask-ai");
+-        await import("open-ask-ai/styles.css");
+-        return {
+-            AskAIWidget: openAskAIModule.AskAIWidget,
+-        };
+-    }
+-    catch (error) {
+-        // open-ask-ai is optional, return null if not available
+-        return null;
+-    }
++    return null;
+ }
+ const SEARCH_PARAM_HIGHLIGHT = "_highlight";
+ export default function SearchBar({ handleSearchBarToggle, }) {
+diff --git a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
+index dd8b024..7588789 100644
+--- a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
++++ b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
+@@ -222,10 +222,6 @@ html[data-theme="dark"] .noResultsIcon {
+   text-decoration: underline;
+ }
+ 
+-.searchBarContainer {
+-  margin-left: 16px;
+-}
+-
+ .searchBarContainer .searchBarLoadingRing {
+   display: none;
+   position: absolute;
