@@ -490,6 +490,32 @@ export const expand = false
 
 
 
+### Mojo (Modular Platform)
+
+> Powerful CPU+GPU Programming
+- Website: https://www.modular.com/mojo
+- Documentation: https://docs.modular.com/
+- GitHub Repo: https://github.com/modular/modular
+
+<details open={expand}>
+<summary>Mojo Ecosystem</summary>
+<Tabs>
+  <TabItem value="Dependency Management" label="Dependency Management" default>
+    #### Magic (环境与包管理工具)
+
+    > Modular 开发的虚拟环境及包管理工具，可同时用于管理 Python 和 Mojo 的虚拟环境，并接入了 Conda 和 Pypi 生态
+    - Mojo包格式 (.mojopkg)
+  </TabItem>
+  <TabItem value="Build System" label="Build System">
+    #### Bazel 构建系统
+
+    > Mojo 项目使用 Bazel 作为构建系统，提供高效的依赖管理和构建流程
+  </TabItem>
+</Tabs>
+</details>
+
+
+
 ## 小众编程语言
 
 ### 凹语言 (China)
