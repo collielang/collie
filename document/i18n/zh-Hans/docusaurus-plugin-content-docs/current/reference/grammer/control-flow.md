@@ -13,7 +13,7 @@ sidebar_label: 流程控制
 
 ### switch 语句
 
-:::warning 注意
+:::warning[注意]
 与其它语言不同，Collie 语言中，`switch` 代码块中 `case` 无需使用 `break` 跳出。
 :::
 
@@ -67,7 +67,7 @@ sidebar_label: 流程控制
   for (key, value, index : map) {}
   ```
 
-  :::warning 注意！没有这种写法：
+  :::warning[注意！没有这种写法：]
   ```collie title="❌ 错误示范"
   for (entry, index : map) {} // entry 和 index 实际为 key 和 value
   ```
@@ -165,7 +165,7 @@ continue [label-identifier];
 
 #### 跳过相邻多次循环【TODO】
 
-:::danger TODO
+:::danger[TODO]
 似乎这个特性容易让人误解，需要考虑是否保留
 :::
 
@@ -208,7 +208,7 @@ for (item, index : list) {
 
 与 JavaScript, Java 等语言类似，Collie 语言支持通过 label 进行逻辑跳转。
 
-:::note 查阅其它语言的 Label 语法
+:::note[查阅其它语言的 Label 语法]
 - [JavaScript](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Guide/Loops_and_iteration#label_%E8%AF%AD%E5%8F%A5)
 - [Java](https://docs.oracle.com/javase/specs/jls/se24/html/jls-14.html#d5e25652)
 :::

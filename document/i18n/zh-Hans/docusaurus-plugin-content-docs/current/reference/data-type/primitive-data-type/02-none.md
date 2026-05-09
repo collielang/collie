@@ -12,7 +12,7 @@ sidebar_label: 空类型（None Type）
 | :----: | ------ |
 | `none` | 空类型 |
 
-:::warning 注意
+:::warning[注意]
 Collie 语言的空类型与其他语言有些差异， `null` 是一个特殊对象，也有其自身属性。
 :::
 

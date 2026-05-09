@@ -9,7 +9,7 @@ import SinceBadge from '@site/src/components/SinceBadge';
 
 <SinceBadge version="0.1.0-not-release" />
 
-:::danger 【注意】考虑扩展性
+:::danger[【注意】考虑扩展性]
 
 先定义通用接口，再进行实现。
 

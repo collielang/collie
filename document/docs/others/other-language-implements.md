@@ -11,7 +11,7 @@ import TabItem from '@theme/TabItem';
 
 export const expand = false
 
-<!--
+{/*
 
 ### {PlaceHolder}
 
@@ -36,7 +36,7 @@ export const expand = false
 </Tabs>
 </details>
 
- -->
+*/}
 
 # 其他语言实现
 

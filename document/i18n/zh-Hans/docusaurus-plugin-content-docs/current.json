@@ -5,74 +5,74 @@
   },
   "sidebar.tutorialSidebar.category.构建": {
     "message": "构建",
-    "description": "The label for category 构建 in sidebar tutorialSidebar"
+    "description": "The label for category '构建' in sidebar 'tutorialSidebar'"
   },
   "sidebar.referenceSidebar.category.类型系统（数据类型）": {
     "message": "类型系统（数据类型）",
-    "description": "The label for category 类型系统（数据类型） in sidebar referenceSidebar"
+    "description": "The label for category '类型系统（数据类型）' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.基本数据类型": {
     "message": "基本数据类型",
-    "description": "The label for category 基本数据类型 in sidebar referenceSidebar"
+    "description": "The label for category '基本数据类型' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.引用数据类型": {
     "message": "引用数据类型",
-    "description": "The label for category 引用数据类型 in sidebar referenceSidebar"
+    "description": "The label for category '引用数据类型' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.数据容器类型（Container Type）": {
     "message": "数据容器类型（Container Type）",
-    "description": "The label for category 数据容器类型（Container Type） in sidebar referenceSidebar"
+    "description": "The label for category '数据容器类型（Container Type）' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.语法": {
     "message": "语法",
-    "description": "The label for category 语法 in sidebar referenceSidebar"
+    "description": "The label for category '语法' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.标准库": {
     "message": "标准库",
-    "description": "The label for category 标准库 in sidebar referenceSidebar"
+    "description": "The label for category '标准库' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.Collie.Lang（语言基础包）": {
     "message": "Collie.Lang（语言基础包）",
-    "description": "The label for category Collie.Lang（语言基础包） in sidebar referenceSidebar"
+    "description": "The label for category 'Collie.Lang（语言基础包）' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.Collie.Serialization（序列化包）": {
     "message": "Collie.Serialization（序列化包）",
-    "description": "The label for category Collie.Serialization（序列化包） in sidebar referenceSidebar"
+    "description": "The label for category 'Collie.Serialization（序列化包）' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.Collie.Database（数据库连接包）": {
     "message": "Collie.Database（数据库连接包）",
-    "description": "The label for category Collie.Database（数据库连接包） in sidebar referenceSidebar"
+    "description": "The label for category 'Collie.Database（数据库连接包）' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.Collie.Internal（内部实现包）": {
     "message": "Collie.Internal（内部实现包）",
-    "description": "The label for category Collie.Internal（内部实现包） in sidebar referenceSidebar"
+    "description": "The label for category 'Collie.Internal（内部实现包）' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.嵌入其他语言代码": {
     "message": "嵌入其他语言代码",
-    "description": "The label for category 嵌入其他语言代码 in sidebar referenceSidebar"
+    "description": "The label for category '嵌入其他语言代码' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.嵌入器 API": {
     "message": "嵌入器 API",
-    "description": "The label for category 嵌入器 API in sidebar referenceSidebar"
+    "description": "The label for category '嵌入器 API' in sidebar 'referenceSidebar'"
   },
   "sidebar.referenceSidebar.category.未分类文档": {
     "message": "未分类文档",
-    "description": "The label for category 未分类文档 in sidebar referenceSidebar"
+    "description": "The label for category '未分类文档' in sidebar 'referenceSidebar'"
   },
   "sidebar.ecoSidebar.category.开发工具支持": {
     "message": "开发工具支持",
-    "description": "The label for category 开发工具支持 in sidebar ecoSidebar"
+    "description": "The label for category '开发工具支持' in sidebar 'ecoSidebar'"
   },
   "sidebar.ecoSidebar.category.VSCode": {
     "message": "VSCode",
-    "description": "The label for category VSCode in sidebar ecoSidebar"
+    "description": "The label for category 'VSCode' in sidebar 'ecoSidebar'"
   },
   "sidebar.contributeSidebar.category.参与贡献": {
     "message": "参与贡献",
-    "description": "The label for category 参与贡献 in sidebar contributeSidebar"
+    "description": "The label for category '参与贡献' in sidebar 'contributeSidebar'"
   },
   "sidebar.contributeSidebar.category.贡献代码": {
     "message": "贡献代码",
-    "description": "The label for category 贡献代码 in sidebar contributeSidebar"
+    "description": "The label for category '贡献代码' in sidebar 'contributeSidebar'"
   }
 }

@@ -4,7 +4,7 @@ sidebar_label: 数组与集合类型（Collection Type）（TODO）
 
 # 数组与集合类型（Collection Type）
 
-:::danger TODO
+:::danger[TODO]
 refer:
 - JDK
 - C++ STL: https://www.cnblogs.com/cscshi/p/15612343.html

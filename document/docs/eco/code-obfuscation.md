@@ -5,7 +5,7 @@ sidebar_label: Coob - Code Obfuscation
 
 # Coob
 
-:::note Introduction
+:::note[Introduction]
 `coob` is the default code obfuscation tool for the Collie language.
 :::
 

@@ -5,7 +5,7 @@ sidebar_label: 高级特性教程
 
 # 高级特性教程
 
-:::danger TODO
+:::danger[TODO]
 以下文档由 AI 生成，仅供参考，需要重写
 :::
 

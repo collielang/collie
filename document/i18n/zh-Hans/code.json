@@ -45,7 +45,7 @@
   },
   "theme.colorToggle.ariaLabel": {
     "message": "切换浅色/暗黑模式（当前为{mode}）",
-    "description": "The ARIA label for the navbar color mode toggle"
+    "description": "The ARIA label for the color mode toggle"
   },
   "theme.colorToggle.ariaLabel.mode.dark": {
     "message": "暗黑模式",
@@ -368,5 +368,21 @@
   "theme.SearchBar.label": {
     "message": "搜索",
     "description": "The ARIA label and placeholder for search button"
+  },
+  "theme.colorToggle.ariaLabel.mode.system": {
+    "message": "system mode",
+    "description": "The name for the system color mode"
+  },
+  "theme.IconExternalLink.ariaLabel": {
+    "message": "(opens in new tab)",
+    "description": "The ARIA label for the external link icon"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.expandAriaLabel": {
+    "message": "Expand the dropdown",
+    "description": "The ARIA label of the button to expand the mobile dropdown navbar item"
+  },
+  "theme.navbar.mobileDropdown.collapseButton.collapseAriaLabel": {
+    "message": "Collapse the dropdown",
+    "description": "The ARIA label of the button to collapse the mobile dropdown navbar item"
   }
 }

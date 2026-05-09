@@ -10,7 +10,7 @@ using Collie.Lang.Time;
 
 TODO
 
-:::note 参考文档
+:::note[参考文档]
 HuTool 日期时间: [link](https://www.hutool.cn/docs/#/core/%E6%97%A5%E6%9C%9F%E6%97%B6%E9%97%B4/%E6%A6%82%E8%BF%B0?id=%e6%97%a5%e6%9c%9f%e6%97%b6%e9%97%b4%e5%b7%a5%e5%85%b7)
 :::
 

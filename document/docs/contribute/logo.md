@@ -15,7 +15,7 @@ These guidelines cover how to use Collie logos in your integration projects. Hap
 
 </div>
 
-:::danger Prohibited Uses
+:::danger[Prohibited Uses]
 - ❌ **Do not** use any Collie logo as an icon/logo for your business/organization, offering, project, website, domain name, or social media account.
 - ❌ **Do not** imply official affiliation or endorsement by Collie. (e.g., suggesting you represent Collie, claiming your offering/project is affiliated with Collie, or implying Collie's endorsement).
 - ❌ **Do not** modify Collie logos (including changing the color, dimensions, or combining them with other words or design elements).

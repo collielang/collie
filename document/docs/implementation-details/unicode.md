@@ -11,7 +11,7 @@ hide_table_of_contents: true
 
 UTF-8, UTF-16, and UTF-32 are different implementations of **Unicode encoding**, each with its own design philosophy and suited for different storage and transmission scenarios. Let’s examine their encoding designs at the bit level.
 
-### 1. UTF-8 Encoding {#utf-8}
+### 1. UTF-8 Encoding {/* #utf-8 */}
 
 UTF-8 is a variable-length encoding that supports characters ranging from **U+0000** to **U+10FFFF**. It uses **1 to 4 bytes** to encode a character based on its Unicode code point (i.e., the character’s numerical value). The design philosophy of UTF-8 is to use the **high bits of a byte** to indicate how many bytes are needed to represent the current character.
 
@@ -51,7 +51,7 @@ The specific encoding rules are as follows:
 
 ---
 
-### 2. UTF-16 Encoding {#utf-16}
+### 2. UTF-16 Encoding {/* #utf-16 */}
 
 UTF-16 is a variable-length encoding that uses **2 or 4 bytes** to represent characters. It uses **16 bits** to represent characters and supports characters ranging from **U+0000** to **U+10FFFF**. For characters outside the BMP (Basic Multilingual Plane, U+0000 to U+FFFF), UTF-16 uses the **surrogate pairs** mechanism.
 
@@ -80,7 +80,7 @@ UTF-16 is a variable-length encoding that uses **2 or 4 bytes** to represent cha
 
 ---
 
-### 3. UTF-32 Encoding {#utf-32}
+### 3. UTF-32 Encoding {/* #utf-32 */}
 
 UTF-32 is a fixed-length encoding that uses **4 bytes** (i.e., 32 bits) to represent each character. It can directly represent all Unicode characters without the need for variable lengths or surrogate pairs.
 

@@ -8,6 +8,6 @@ tags:
   - collie
 ---
 
-<!-- truncate -->
+{/* truncate */}
 
 🎉 We are proud to announce the release of Collie Lang.

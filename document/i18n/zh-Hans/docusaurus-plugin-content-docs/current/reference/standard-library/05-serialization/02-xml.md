@@ -8,5 +8,5 @@ sidebar_label: ···.Xml（XML 处理模块）
 using Collie.Serialization.Xml;
 ```
 
-:::danger TODO
+:::danger[TODO]
 :::

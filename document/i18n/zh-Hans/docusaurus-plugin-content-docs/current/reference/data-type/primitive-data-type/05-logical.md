@@ -4,7 +4,7 @@ sidebar_label: 逻辑类型（Logical Type）
 
 # 逻辑类型（Logical Type）
 
-:::danger 是否值得改为 yes, no? (但是 json 转换时可能会不一致)
+:::danger[是否值得改为 yes, no? (但是 json 转换时可能会不一致)]
 - 答：不值得。
 - 结论：使用 true, false
 :::
@@ -17,7 +17,7 @@ sidebar_label: 逻辑类型（Logical Type）
 | `tribool` | 三值逻辑（三元类型），值为 `true`，`false` 或 `unset`，默认值为 `unset` |
 
 
-:::warning TODO
+:::warning[TODO]
 需要确认是否设计默认值（看是否可以实现类似 Java 那样的不初始化就不允许使用）
 :::
 

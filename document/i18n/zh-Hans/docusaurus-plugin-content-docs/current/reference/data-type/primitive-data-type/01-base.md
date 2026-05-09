@@ -12,7 +12,7 @@ sidebar_label: 基类型（Base Type）
 | :------: | ------ |
 | `object` | 基类型 |
 
-:::tip 与其他语言类比
+:::tip[与其他语言类比]
 
 基类型类似 Java 的祖先类，所有的类都直接或间接地继承自Object类。
 

@@ -120,7 +120,7 @@ NaN.toString() // "NaN"
 1 % -5 // result: -4
 ```
 
-:::warning 注意
+:::warning[注意]
 
 负数取模问题在不同编程语言中结果可能不同，例如 `-1 mod 5`，Java 语言中结果为 `-1`，Python 语言中结果为 `4`
 :::

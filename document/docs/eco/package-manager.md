@@ -5,7 +5,7 @@ sidebar_label: CoPack - Package Manager
 
 # CoPack
 
-:::note Introduction
+:::note[Introduction]
 `copack` is the default package manager for the Collie language.
 :::
 

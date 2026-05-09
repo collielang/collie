@@ -1,4 +1,4 @@
-<!-- Language Features -->
+{/* Language Features */}
 
 - Static Type System
 - Functions and Procedures
