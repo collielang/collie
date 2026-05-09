@@ -230,7 +230,7 @@ function foo() {
 }
 ```
 
-##### 嵌套循环跳出指定循环 {#label-break-out-of-nested-loops}
+##### 嵌套循环跳出指定循环 {/* #label-break-out-of-nested-loops */}
 
 如果需要连续跳出多次循环，可以使用 `break label;` 语句。
 
@@ -263,7 +263,7 @@ for (const color of colors) {
 }
 ```
 
-##### 嵌套循环跳出指定循环 {#label-skip-loop-in-nested-loops}
+##### 嵌套循环跳出指定循环 {/* #label-skip-loop-in-nested-loops */}
 
 与跳出类似，跳过使用 continue关键字：
 

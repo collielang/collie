@@ -4,7 +4,7 @@ sidebar_label: 空类型（None Type）
 
 # 空类型（None Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 空类型也是一个对象。
 
@@ -16,7 +16,7 @@ sidebar_label: 空类型（None Type）
 Collie 语言的空类型与其他语言有些差异， `null` 是一个特殊对象，也有其自身属性。
 :::
 
-## 🏅基础方法 {#method}
+## 🏅基础方法 {/* #method */}
 
 | 方法                                      | 结果   | 描述             |
 | ----------------------------------------- | ------ | ---------------- |
@@ -24,7 +24,7 @@ Collie 语言的空类型与其他语言有些差异， `null` 是一个特殊�
 | null.valueEquals(object? anotherNull)     | true   |                  |
 | null.referenceEquals(object? anotherNull) | true   |                  |
 
-## 🏅语法示例 {#syntax-example}
+## 🏅语法示例 {/* #syntax-example */}
 
 - 定义一个空：
 

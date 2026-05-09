@@ -4,9 +4,9 @@ sidebar_label: 联合类型（Union Type）（TODO）
 
 # 联合类型（Union Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
-## 🏅语法示例 {#syntax-example}
+## 🏅语法示例 {/* #syntax-example */}
 
 ```collie
 string | number obj = 'aaa';

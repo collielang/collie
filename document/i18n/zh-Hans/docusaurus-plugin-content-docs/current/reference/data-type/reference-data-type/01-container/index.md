@@ -7,13 +7,13 @@ import TabItem from '@theme/TabItem';
 
 # 数据容器类型（Container Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 数据容器支持动态添加、删除、修改、获取元素。
 
 <Tabs>
   <TabItem value="mermaid" label="Mermaid" default>
-    <!-- https://mermaid.js.org/syntax/classDiagram.html#define-namespace -->
+    {/* https://mermaid.js.org/syntax/classDiagram.html#define-namespace */}
     ```mermaid
     classDiagram
     namespace Collections {

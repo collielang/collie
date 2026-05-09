@@ -4,7 +4,7 @@ sidebar_label: 枚举类型（Enum Type）
 
 # 枚举类型（Enum Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 TODO
 

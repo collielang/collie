@@ -4,13 +4,13 @@ sidebar_label: 字典类型（Dictionary Type）（TODO）
 
 # 字典类型（Dictionary Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 |         类型          | 描述                     |
 | :-------------------: | ------------------------ |
 | `map[string: number]` | 字典类型。支持键值对存储 |
 
-## 🏅语法示例 {#syntax-example}
+## 🏅语法示例 {/* #syntax-example */}
 
 ```collie
 var set = set(1, 2, 3);       // var 自动推断类型为 set[number]

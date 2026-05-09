@@ -9,7 +9,7 @@ sidebar_label: 逻辑类型（Logical Type）
 - 结论：使用 true, false
 :::
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 |   类型    | 描述                                                        |
 | :-------: | ----------------------------------------------------------- |
@@ -21,9 +21,9 @@ sidebar_label: 逻辑类型（Logical Type）
 需要确认是否设计默认值（看是否可以实现类似 Java 那样的不初始化就不允许使用）
 :::
 
-## 布尔类型（Boolean Type） {#anthor-boolean-type}
+## 布尔类型（Boolean Type） {/* #anthor-boolean-type */}
 
-### 🏅语法示例 {#syntax-example}
+### 🏅语法示例 {/* #syntax-example */}
 
 - 定义布尔类型：
 
@@ -56,7 +56,7 @@ a ?= false: 1, 2
 // otherwise (a equals true), result: 2
 ```
 
-## 三态布尔类型（Tri-State Boolean Type） {#anthor-tri-state-boolean-type}
+## 三态布尔类型（Tri-State Boolean Type） {/* #anthor-tri-state-boolean-type */}
 
 三态布尔类型由布尔类型扩展而来，添加了 `unset` 选项。`unset` 取反仍为 `unset`，其他特性均与布尔类型一致。
 

@@ -45,14 +45,14 @@ refer:
 - 双向进出列表（双向队列）：Deque
 :::
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 |      类型      | 描述                          |
 | :------------: | ----------------------------- |
 | `list[object]` | 元素**可重复**的**有序**集合   |
 | `set[object]`  | 元素**不可重复**的**无序**集合 |
 
-## 🏅基础方法 {#method}
+## 🏅基础方法 {/* #method */}
 
 | 方法                                                      | 描述                                                         |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
@@ -61,16 +61,16 @@ refer:
 | collection.valueEquals(collection? anotherCollection)     | 比较两个数组 / 集合对象元素个数及每个元素的值是否相等。对每个元素都会调用其 `.valueEquals()` 方法 |
 | collection.referenceEquals(collection? anotherCollection) | 比较两个数组 / 集合对象元素个数及每个元素的引用是否相等。对每个元素都会调用其 `.referenceEquals()` 方法 |
 
-<!--
+{/*
 #### 数组基础方法
 
 | 方法                                                      | 描述                                                         |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
 | collection.addFirst/addLast(object object1[, object object2[, ...]]) | 向 collection 对象最前面 / 最后面添加若干个元素 |
 | collection.addAllFirst/addAllLast([object] objectList1[, object objectList2[, ...]]) | 将传入的若干数组元素按先后次序，逐一添加到 collection 对象最前面 / 最后面 |
--->
+*/}
 
-## 🏅语法示例 {#syntax-example}
+## 🏅语法示例 {/* #syntax-example */}
 
 - 定义
 

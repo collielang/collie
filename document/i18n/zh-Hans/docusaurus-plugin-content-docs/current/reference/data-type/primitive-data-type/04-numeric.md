@@ -4,7 +4,7 @@ sidebar_label: 数字类型（Numeric Type）
 
 # 数字类型（Numeric Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 ## 整数 & 小数类型（Number Type）
 
@@ -14,7 +14,7 @@ sidebar_label: 数字类型（Numeric Type）
 | `integer` |          可变          | 高精度整数       |
 | `decimal` |          可变          | 高精度浮点数     |
 
-### 🏅语法示例 {#syntax-example}
+### 🏅语法示例 {/* #syntax-example */}
 
 - 定义一个数字：
 
@@ -165,7 +165,7 @@ Math.abs(-1) // result: 1
 -123.456.decimalPart() // -0.456
 ```
 
-<!--
+{/*
 ## [@Deprecated] 整数类型
 
 ?> **非负整数**和**非正整数**在类型前添加 `+`, `-` 区分。例如：`+short`, `-short`。
@@ -181,7 +181,7 @@ Math.abs(-1) // result: 1
 | `long`  |         8 byte         | [-2<sup>63</sup>, 2<sup>63</sup>-1] | -9,223,372,036,854,775,808<br />(-0x8000000000000000) | 9,223,372,036,854,775,807<br />(0x7FFFFFFFFFFFFFFF) | 64位整数 |
 | `+long`  |         8 byte         | [0, 2<sup>64</sup>-1] | 0<br />(0x0000000000000000) | 18,446,744,073,709,551,615<br />(0xFFFFFFFFFFFFFFFF) | 64位非负整数 |
 | `-long`  |         8 byte         | [-2<sup>64</sup>+1, 0] | -18,446,744,073,709,551,615<br />(-0xFFFFFFFFFFFFFFFF) | -0<br />(-0x0000000000000000) | 64位非正整数 |
--->
+*/}
 
 ### 浮动小数类型
 

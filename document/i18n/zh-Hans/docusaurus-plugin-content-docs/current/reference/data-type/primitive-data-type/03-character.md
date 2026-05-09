@@ -4,7 +4,7 @@ sidebar_label: 字符类型（Character Type）
 
 # 字符类型（Character Type）
 
-## 🐳类型简介 {#intro}
+## 🐳类型简介 {/* #intro */}
 
 |    类型     | 占用空间<br />（字节） | 描述                                                         |
 | :---------: | :--------------------: | ------------------------------------------------------------ |
@@ -16,7 +16,7 @@ sidebar_label: 字符类型（Character Type）
 > - Collie 使用的 [Unicode 编码标准](../../../implementation-details/unicode.md) 为 [**UTF-16 编码**](../../../implementation-details/unicode.md#utf-16)。
 > - 在[不同语言和操作系统中，所采用的默认编码格式不同](../../../implementation-details/encoding-used-by-different-languages-or-operating-systems.md)。因此，`char` 类型占用空间不完全相同。
 
-## 🏅语法示例 {#syntax-example}
+## 🏅语法示例 {/* #syntax-example */}
 
 - 定义一个字符 / 字符串：
 
