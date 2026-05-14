@@ -463,8 +463,36 @@ export const expand = false
 >
 - Website: https://ziglang.org/zh-CN/
 - Documentation: https://github.com/ziglang/zig
-- GitHub Repo: https://github.com/ziglang/zig
+- <del>GitHub Repo: https://github.com/ziglang/zig</del> ([Moved to Codeberg](https://ziglang.org/news/migrating-from-github-to-codeberg/))
+- Codeberg Repo: https://codeberg.org/ziglang/zig
 
+
+### Nim
+
+> Nim is a statically typed systems programming language with modern syntax, performance close to C, and powerful metaprogramming capabilities.
+- Website: https://nim-lang.org/
+- Documentation: https://nim-lang.org/documentation.html
+- GitHub Repo: https://github.com/nim-lang/Nim
+
+<details open={expand}>
+<summary>Nim Ecosystem</summary>
+<Tabs>
+  <TabItem value="Package Manager" label="Package Manager" default>
+    #### Nimble
+
+    > Nimble is Nim's official package manager and build tool.
+    - Website: https://nim-lang.github.io/nimble/index.html
+    - GitHub Repo: https://github.com/nim-lang/nimble
+  </TabItem>
+  <TabItem value="Compiler" label="Compiler">
+    #### Nim Compiler
+
+    > Nim compiles to C, C++, or JavaScript and generates efficient native executables.
+    - Website: https://nim-lang.org/docs/nimc.html
+    - GitHub Repo: https://github.com/nim-lang/Nim
+  </TabItem>
+</Tabs>
+</details>
 
 
 ### Ruby
