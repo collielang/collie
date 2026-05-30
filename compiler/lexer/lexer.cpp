@@ -172,8 +172,12 @@ Token Lexer::next_token() {
             if (match('=')) return Token(TokenType::OP_NOT_EQUAL, "!=", line_, start_column);
             return Token(TokenType::OP_NOT, "!", line_, start_column);
         case '=':
-            if (match('=')) return Token(TokenType::OP_EQUAL, "==", line_, start_column);
-            if (match('?')) return Token(TokenType::OP_EQ_QUESTION, "=?", line_, start_column);
+            if (match('=')) {
+                if (match('?')) {
+                    return Token(TokenType::OP_EQ_QUESTION, "==?", line_, start_column);
+                }
+                return Token(TokenType::OP_EQUAL, "==", line_, start_column);
+            }
             return Token(TokenType::OP_ASSIGN, "=", line_, start_column);
         case '<':
             if (match('=')) return Token(TokenType::OP_LESS_EQ, "<=", line_, start_column);
@@ -192,7 +196,6 @@ Token Lexer::next_token() {
         case '^': return Token(TokenType::OP_BIT_XOR, "^", line_, start_column);
         case '~': return Token(TokenType::OP_BIT_NOT, "~", line_, start_column);
         case '?':
-            if (match('=')) return Token(TokenType::OP_QUESTION_EQ, "?=", line_, start_column);
             return Token(TokenType::OP_QUESTION, "?", line_, start_column);
         case ':': return Token(TokenType::OP_COLON, ":", line_, start_column);
         case '"': return scan_string();

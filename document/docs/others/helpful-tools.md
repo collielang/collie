@@ -8,7 +8,7 @@ title: 实用工具 Helpful Tools
 
 # 文档
 
-- docusaurus: https://docusaurus.io/zh-CN/docs/next
+- Docusaurus: https://docusaurus.io/zh-CN/docs/next
 
 # 实用工具
 

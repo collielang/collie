@@ -80,7 +80,6 @@ std::string token_type_to_string(TokenType type) {
         case TokenType::OP_QUESTION: return "OP_QUESTION";
         case TokenType::OP_COLON: return "OP_COLON";
         case TokenType::OP_ASSIGN: return "OP_ASSIGN";
-        case TokenType::OP_QUESTION_EQ: return "OP_QUESTION_EQ";
         case TokenType::OP_EQ_QUESTION: return "OP_EQ_QUESTION";
         default: return "UNKNOWN";
     }

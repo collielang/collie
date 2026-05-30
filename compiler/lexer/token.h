@@ -107,8 +107,7 @@ enum class TokenType {
     OP_QUESTION,    // ?
     OP_COLON,       // :
     OP_ASSIGN,      // =
-    OP_QUESTION_EQ, // ?=
-    OP_EQ_QUESTION, // =?
+    OP_EQ_QUESTION, // ==?
 
     // 分隔符
     DELIMITER_LPAREN,    // (

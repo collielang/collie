@@ -167,30 +167,33 @@ enum <Enum Name> {
 tribool a;
 // 此处省略给 a 变量赋值的相关逻辑
 
-a =? unset: 1, true: 2, false: 3
+a ==? unset: 1, true: 2, false: 3
 // when a equals unset, result: 1
 // when a equals true,  result: 2
 // when a equals false, result: 3
 
-a ?= unset, true: 2, false: 3
+a ==? unset, true: 2, false: 3
 // when a equals true or unset,  result: 2
 // when a equals false,          result: 3
 
-a ?= unset, true: 1, 2
+a ==? unset, true: 1, 2
 // when a equals unset or true, result: 1
 // otherwise (a equals false),  result: 2
 
-a ?= unset: 1, 2
+a ==? unset: 1, 2
 // when a equals unset,         result: 1
 // when a equals false or true, result: 2
 
-a ?= 2, unset: 1
-// when a equals false or true, result: 2
-// when a equals unset,         result: 1
+a ==? 2, unset: 1
+// when a equals unset,                result: 1
+// otherwise (a equals false or true), result: 2
+
+// a ==? unset, true: 2
+// ❌ 不允许的写法：缺少 false 分支
 
 /* 如果表达式较长，推荐的格式如下
 // 注意，value1, value3 如果都与 hereIsAVeryLongParamName 相等，则会返回第一个匹配上的条件对应结果 (expression 1)
-object a = hereIsAVeryLongParamName ?=
+object a = hereIsAVeryLongParamName ==?
                 value1, value2: {
                     expression 1
                 },
