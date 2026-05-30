@@ -32,7 +32,7 @@ bar.length // result: 12
 
 ```collie
 number('A') // result: 65
-number('a') // result: 113
+number('a') // result: 97
 ```
 
 - 字符串拼接：
