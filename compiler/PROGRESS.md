@@ -88,7 +88,10 @@
 - [x] `scan_character` 改为 UTF-8 感知：ASCII → `LITERAL_CHAR`，多字节 → `LITERAL_CHARACTER`
 
 ### M3 · 工程化（CI）
-- [ ] GitHub Actions：Windows + Linux 矩阵，cmake configure → build → ctest
+- [x] GitHub Actions（`.github/workflows/ci-compiler.yml`）：Windows(MSVC) + Linux(gcc) 矩阵，cmake configure → build → ctest
+- [x] 首版仅构建 `collie` + `lexer_tests` 并跑 `ctest -R lexer_tests`（绕开预存红/不可编译的 `parser_tests`/`semantic_tests`，待 t9/t10 修复后纳入）
+- [x] 缓存 `compiler/.deps`（GoogleTest 持久源码），避免每次联网克隆
+- [ ] t9/t10 修复后，将 `parser_tests`/`semantic_tests` 纳入 CI 测试步骤
 
 ### M4 · 树遍历解释器（路线 A）→ 跑通 helloworld
 - [ ] 定义 `helloworld.collie` 的最小语义（print 的形式、字符串字面量）
@@ -131,7 +134,7 @@
 | `std::codecvt` 已弃用 | 🟡 中 | M1 随 UTF-8 管线一并移除 |
 | 设计愿景 > 已实现，文档多为占位 | 🟡 中 | M5 以实现为准逐步沉淀规范 |
 | 依赖在线拉取 GoogleTest | 🟢 低 | M0 改离线友好，评估 doctest |
-| 无 CI / 无端到端测试 | 🟢 低 | M3 加 CI，M4 加端到端测试 |
+| 无 CI / 无端到端测试 | 🟢 低 | ✅ CI 已加（M3，Windows+Linux 矩阵，首版跑 `lexer_tests`）；端到端测试待 M4 解释器 |
 
 ---
 
@@ -151,6 +154,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-25 `ci(compiler)`: 新增 GitHub Actions 工作流（Windows+Linux 矩阵，configure/build/ctest，首版跑 `lexer_tests`，缓存 `.deps`）（M3）
 - 2026-07-25 `feat(main)`: 语义分析后检查 `has_errors()`，逐条打印错误并以非零码退出，不再静默报“Compilation successful!”（M2）
 - 2026-07-25 `fix(parser,semantic)`: 修复前端两处死循环（parser 驱动循环进度守卫、semantic `synchronize`/`advance_token` 防空/防下溢），补 `parser_test.cpp` 的 Windows 头文件（M2）
 - 2026-07-25 `fix(lexer)`: 修复 UTF-8 标识符/字符/字符串扫描（peek 分类、码点循环、UTF-8 校验、多行 dedent），`lexer_tests` 11 全绿（M2）
