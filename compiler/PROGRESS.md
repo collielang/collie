@@ -71,11 +71,12 @@
 - [ ] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
 - [ ] 修复语义分析对未声明函数调用（如 `print(a)`）疑似死循环
 
-**词法器 UTF-8 bug（`lexer_tests` 基线：4 通过 / 7 失败，均为既有问题）**
-- [ ] `is_alpha`/`is_alphanumeric` 仅认 ASCII，非 ASCII UTF-8 首字节直接报 `Unexpected character`（`lexer.cpp:200/300-306`）——影响 `StringLiterals`/`UTF16Characters`/`ChineseIdentifiers`
-- [ ] 字符串扫描丢失首个多字节字符的第一个字节（`Utf8Characters`：`你`=`E4 BD A0` 实际从 `BD A0` 开始）
-- [ ] lexer 不校验 UTF-8，`InvalidUtf8` 期望抛 `LexError` 却未抛
-- [ ] `MultilineStrings` token 数量不符（10 vs 5）
+**词法器 UTF-8 bug（已修复：`lexer_tests` 从 4 通过 / 7 失败 → 11 全绿）**
+- [x] `next_token` 改为 peek 分类不预消费，各 `scan_*` 自行消费定界符；非 ASCII（UTF-8 首字节 `>= 0x80`）派发到 `scan_identifier`
+- [x] `scan_identifier` 改为逐 UTF-8 码点循环（`nextUtf8Char` + `isIdentifierChar`），支持中文标识符（`ChineseIdentifiers`/`UTF16Characters`/`StringLiterals`）
+- [x] `scan_string` 不再重复消费首引号，单行分支对 `>= 0x80` 字节按整码点校验保留（修复 `Utf8Characters`/`UTF16Strings`），非法序列抛 `LexError`（`InvalidUtf8`）
+- [x] `scan_string` 多行分支重写 dedent（以首行缩进为基准逐行 strip，缩进不足报错），`MultilineStrings` 通过
+- [x] `scan_character` 改为 UTF-8 感知：ASCII → `LITERAL_CHAR`，多字节 → `LITERAL_CHARACTER`
 
 ### M3 · 工程化（CI）
 - [ ] GitHub Actions：Windows + Linux 矩阵，cmake configure → build → ctest
@@ -141,6 +142,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-25 `fix(lexer)`: 修复 UTF-8 标识符/字符/字符串扫描（peek 分类、码点循环、UTF-8 校验、多行 dedent），`lexer_tests` 11 全绿（M2）
 - 2026-07-25 `build(compiler)`: GoogleTest 源码缓存到 build 之外的持久 `.deps/`，删 build 后重配不再联网（离线优化）
 - 2026-07-25 `refactor(lexer)`: 新增 `utf_convert.h` 手写 UTF-8↔UTF-16，移除 `token.h`/`lexer.cpp` 的 codecvt 与 Windows 专属 API（M1b）
 - 2026-07-25 `refactor(compiler)`: `main.cpp` 改为二进制 UTF-8 字节读取，`#ifdef _WIN32` 隔离平台代码（M1a）

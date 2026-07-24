@@ -6,6 +6,7 @@
 #include "lexer.h"
 #include "utf_convert.h"
 #include <stdexcept>
+#include <algorithm>
 
 namespace collie {
 
@@ -101,23 +102,35 @@ bool Lexer::isIdentifierChar(char32_t c) const {
 }
 
 Token Lexer::scan_identifier() {
-    size_t start_pos = position_ - 1;  // 减1是因为已经调用了advance()
-    size_t start_col = column_ - 1;    // 减1是因为已经调用了advance()
-    std::string identifier;
+    // 约定：进入时 position_ 位于标识符起始处（未预先消费任何字节）
+    size_t start_pos = position_;
+    size_t start_col = column_;
 
-    // 先添加第一个字符
-    identifier += source_[start_pos];
-
-    // 继续读取剩余的标识符字符
+    // 逐个 UTF-8 码点读取，支持中文等多字节标识符
     while (!is_at_end()) {
-        char c = peek();
-        if (!is_alphanumeric(c) && c != '_') {
+        size_t cur_pos = position_;
+        size_t cur_col = column_;
+        char32_t cp;
+        try {
+            cp = nextUtf8Char();  // 前进 position_ 与 column_
+        } catch (const LexError&) {
+            position_ = cur_pos;
+            column_ = cur_col;
             break;
         }
-        identifier += advance();
+        if (!isIdentifierChar(cp)) {
+            position_ = cur_pos;
+            column_ = cur_col;
+            break;
+        }
     }
 
-    // 检查是否是关键字
+    std::string identifier = source_.substr(start_pos, position_ - start_pos);
+    if (identifier.empty()) {
+        // 起始码点不是合法标识符字符：消费它并报错，避免死循环
+        try { nextUtf8Char(); } catch (const LexError&) { advance(); }
+        return make_error_token("Unexpected character");
+    }
     TokenType type = get_identifier_type(identifier);
     return Token(type, identifier, line_, start_col);
 }
@@ -130,10 +143,11 @@ Token Lexer::next_token() {
     }
 
     size_t start_column = column_;  // 记录 token 开始的列号
-    char c = advance();
+    char c = peek();
+    unsigned char uc = static_cast<unsigned char>(c);
 
-    // 标识符或关键字
-    if (is_alpha(c) || c == '_') {
+    // 标识符或关键字（ASCII，或 UTF-8 多字节起始，如中文）
+    if (is_alpha(c) || c == '_' || uc >= 0x80) {
         return scan_identifier();
     }
 
@@ -142,6 +156,15 @@ Token Lexer::next_token() {
         return scan_number();
     }
 
+    // 字符串 / 字符字面量（扫描器自行消费引号）
+    if (c == '"') {
+        return scan_string();
+    }
+    if (c == '\'') {
+        return scan_character();
+    }
+
+    c = advance();  // 消费单字符运算符/分隔符
     switch (c) {
         // 单字符 token
         case '(': return Token(TokenType::DELIMITER_LPAREN, "(", line_, start_column);
@@ -194,7 +217,6 @@ Token Lexer::next_token() {
         case '?':
             return Token(TokenType::OP_QUESTION, "?", line_, start_column);
         case ':': return Token(TokenType::OP_COLON, ":", line_, start_column);
-        case '"': return scan_string();
     }
 
     throw LexError("Unexpected character", line_, column_);
@@ -331,8 +353,9 @@ void Lexer::skip_block_comment() {
 }
 
 Token Lexer::scan_number() {
-    size_t start_pos = position_ - 1;  // 减1是因为已经调用了advance()
-    size_t start_col = column_ - 1;    // 减1是因为已经调用了advance()
+    // 约定：进入时 position_ 位于数字起始处（未预先消费任何字节）
+    size_t start_pos = position_;
+    size_t start_col = column_;
     bool has_dot = false;
 
     // 整数部分
@@ -372,115 +395,108 @@ Token Lexer::scan_number() {
 }
 
 Token Lexer::scan_string() {
-    size_t start_pos = position_;
     size_t start_col = column_;
 
     advance(); // 消费开始的引号
 
-    // 检查是否是多行字符串
+    // 检查是否是多行字符串（三引号）
     bool is_multiline = false;
     if (peek() == '"' && peek_next() == '"') {
-        advance(); // 消费第二个引号
-        advance(); // 消费第三个引号
+        advance(); // 第二个引号
+        advance(); // 第三个引号
         is_multiline = true;
 
-        // 如果多行字符串后面紧跟着换行，跳过这个换行
+        // 紧跟在开头三引号后的换行不计入内容
         if (peek() == '\n') {
             advance();
         }
     }
 
-    std::string value;
-    size_t base_indent = 0;  // 基准缩进级别
-    bool first_line = true;
-
     if (is_multiline) {
-        std::string current_line;
+        // 逐行收集原始内容，直到结束的三引号
+        std::vector<std::string> lines;
+        std::string current;
+        bool closed = false;
 
         while (!is_at_end()) {
-            // 检查结束标记
             if (peek() == '"' && peek_next() == '"' &&
                 position_ + 2 < source_.length() && source_[position_ + 2] == '"') {
-                if (!current_line.empty()) {
-                    value += current_line;
-                }
-                advance(); // 消费第一个引号
-                advance(); // 消费第二个引号
-                advance(); // 消费第三个引号
+                advance(); advance(); advance(); // 消费结束的三引号
+                closed = true;
                 break;
             }
-
             char c = peek();
             if (c == '\n') {
-                if (!first_line || !current_line.empty()) {
-                    value += current_line + '\n';
-                }
+                lines.push_back(current);
+                current.clear();
                 advance();
-                current_line.clear();
-
-                // 处理下一行的缩进
-                size_t current_indent = 0;
-                while (!is_at_end() && (peek() == ' ' || peek() == '\t')) {
-                    current_indent++;
-                    advance();
-                }
-
-                // 如果是第一个非空行，记录基准缩进
-                if (first_line && peek() != '\n' && peek() != '"') {
-                    base_indent = current_indent;
-                    first_line = false;
-                } else if (!first_line && peek() != '\n' && peek() != '"') {
-                    // 检查后续行的缩进是否正确
-                    if (current_indent < base_indent) {
-                        return make_error_token("Invalid indentation in multiline string");
-                    }
-                    // 保留额外的缩进
-                    current_line = std::string(current_indent - base_indent, ' ');
-                }
             } else {
-                current_line += advance();
+                current += advance();
             }
         }
 
-        if (is_at_end()) {
+        if (!closed) {
             return make_error_token("Unterminated multiline string");
         }
-    } else {
-        // 单行字符串处理逻辑
-        while (!is_at_end() && peek() != '"') {
-            if (peek() == '\\') {
-                advance();
-                switch (peek()) {
-                    case '"': value += '"'; break;
-                    case '\\': value += '\\'; break;
-                    case 'n': value += '\n'; break;
-                    case 't': value += '\t'; break;
-                    case 'r': value += '\r'; break;
-                    default: return make_error_token("Invalid escape sequence");
-                }
-                advance();
-            } else {
-                value += advance();
+
+        // 以首行缩进为基准，去除每行的公共前导缩进
+        auto leading_ws = [](const std::string& s) {
+            size_t n = 0;
+            while (n < s.size() && (s[n] == ' ' || s[n] == '\t')) ++n;
+            return n;
+        };
+
+        size_t base_indent = lines.empty() ? 0 : leading_ws(lines[0]);
+        std::string value;
+        for (const std::string& ln : lines) {
+            size_t indent = leading_ws(ln);
+            bool blank = (indent == ln.size());
+            if (!blank && indent < base_indent) {
+                return make_error_token("Invalid indentation in multiline string");
             }
+            size_t strip = std::min(base_indent, ln.size());
+            value += ln.substr(strip);
+            value += '\n';
         }
 
-        if (is_at_end()) {
-            return make_error_token("Unterminated string");
-        }
-
-        advance(); // 消费结束的引号
+        return Token(TokenType::LITERAL_STRING, value, line_, start_col);
     }
 
+    // 单行字符串
+    std::string value;
+    while (!is_at_end() && peek() != '"') {
+        char c = peek();
+        if (c == '\\') {
+            advance();
+            switch (peek()) {
+                case '"': value += '"'; break;
+                case '\\': value += '\\'; break;
+                case 'n': value += '\n'; break;
+                case 't': value += '\t'; break;
+                case 'r': value += '\r'; break;
+                default: return make_error_token("Invalid escape sequence");
+            }
+            advance();
+        } else if (static_cast<unsigned char>(c) >= 0x80) {
+            // 校验并原样保留一个完整的 UTF-8 码点（非法序列会抛 LexError）
+            size_t cp_start = position_;
+            nextUtf8Char();
+            value.append(source_.substr(cp_start, position_ - cp_start));
+        } else {
+            value += advance();
+        }
+    }
+
+    if (is_at_end()) {
+        return make_error_token("Unterminated string");
+    }
+
+    advance(); // 消费结束的引号
     return Token(TokenType::LITERAL_STRING, value, line_, start_col);
 }
 
 Token Lexer::scan_character() {
-    // 检查是否是UTF-16字符
-    char16_t next = peek_utf16();
-    if (next >= 0x80) {
-        return scan_utf16_character();
-    }
-
+    // 约定：进入时 position_ 位于开始的单引号处
     size_t start_col = column_;
     advance(); // 消费开始的单引号
 
@@ -488,29 +504,41 @@ Token Lexer::scan_character() {
         return make_error_token("Unterminated character literal");
     }
 
-    char value;
+    std::string value;
+    bool multibyte = false;
+
     if (peek() == '\\') {
         advance();
         switch (peek()) {
-            case '\'': value = '\''; break;
-            case '\\': value = '\\'; break;
-            case 'n': value = '\n'; break;
-            case 't': value = '\t'; break;
-            case 'r': value = '\r'; break;
+            case '\'': value = "'"; break;
+            case '\\': value = "\\"; break;
+            case 'n': value = "\n"; break;
+            case 't': value = "\t"; break;
+            case 'r': value = "\r"; break;
             default: return make_error_token("Invalid escape sequence");
         }
         advance();
+    } else if (static_cast<unsigned char>(peek()) >= 0x80) {
+        // 非 ASCII：按一个完整 UTF-8 码点读取（存为 UTF-8 字节）
+        size_t cp_start = position_;
+        try {
+            nextUtf8Char();
+        } catch (const LexError&) {
+            return make_error_token("Invalid character literal");
+        }
+        value = source_.substr(cp_start, position_ - cp_start);
+        multibyte = true;
     } else {
-        value = advance();
+        value = std::string(1, advance());
     }
 
     if (peek() != '\'') {
         return make_error_token("Unterminated character literal");
     }
-
     advance(); // 消费结束的单引号
 
-    return Token(TokenType::LITERAL_CHAR, std::string(1, value), line_, start_col);
+    TokenType type = multibyte ? TokenType::LITERAL_CHARACTER : TokenType::LITERAL_CHAR;
+    return Token(type, value, line_, start_col);
 }
 
 char16_t Lexer::peek_utf16() const {
