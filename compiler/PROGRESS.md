@@ -10,17 +10,17 @@
 
 ## 一、当前状态快照
 
-整条编译流水线目前**止步于语义分析**，尚无法真正执行任何 Collie 程序（没有解释器，也没有代码生成）。
+编译流水线已打通到**树遍历解释器**：`helloworld.collie` 可实际执行并输出 `Hello, World!`（尚无代码生成 / LLVM 后端）。
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/block/return/break/continue |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
+| **解释器 Interpreter** | ✅ 最小可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写、if/while/for、break/continue、内建 `print`，跑通 helloworld |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
-| **解释器 Interpreter** | ⬜ 未实现 | **近期首要目标**：树遍历解释器跑通 helloworld |
 
 已知的语法「半截特性」（token 有、语法/语义未闭环）：`switch`、`do-while`、`class`、`tribool`、`==?`、tuple 成员访问等。
 
@@ -89,16 +89,19 @@
 
 ### M3 · 工程化（CI）
 - [x] GitHub Actions（`.github/workflows/ci-compiler.yml`）：Windows(MSVC) + Linux(gcc) 矩阵，cmake configure → build → ctest
-- [x] 首版仅构建 `collie` + `lexer_tests` 并跑 `ctest -R lexer_tests`（绕开预存红/不可编译的 `parser_tests`/`semantic_tests`，待 t9/t10 修复后纳入）
+- [x] 构建 `collie` + 绿色测试集并跑 `ctest`（`lexer_tests` + `interpreter_tests`；绕开预存红/不可编译的 `parser_tests`/`semantic_tests`，待 t9/t10 修复后纳入）
 - [x] 缓存 `compiler/.deps`（GoogleTest 持久源码），避免每次联网克隆
 - [ ] t9/t10 修复后，将 `parser_tests`/`semantic_tests` 纳入 CI 测试步骤
 
 ### M4 · 树遍历解释器（路线 A）→ 跑通 helloworld
-- [ ] 定义 `helloworld.collie` 的最小语义（print 的形式、字符串字面量）
-- [ ] 新增 `interpreter` 模块（复用 AST 的 Visitor）
-- [ ] 支持字面量/算术/变量/print，输出 "Hello, World!"
-- [ ] 逐步补齐 if/while/for/函数调用
-- [ ] 为解释器建立端到端测试（.collie 源 → 期望输出）
+- [x] 定义 `helloworld.collie` 的最小语义（`print` 为内建函数、字符串字面量转义沿用词法器已解码结果）
+- [x] 新增 `interpreter` 模块（复用 AST 的 Visitor）：`Value`（运行期值）/`Environment`（作用域链）/`Interpreter`
+- [x] 支持字面量/算术/变量/内建 `print`，输出 "Hello, World!"
+- [x] 补齐 if/while/for、比较/逻辑运算（短路求值）、break/continue
+- [x] 语义层识别内建 `print`（任意实参、返回 none），使流水线不再拦截
+- [x] 为解释器建立端到端测试 `tests/interpreter_test.cpp`（.collie 源 → 期望输出，11 例全绿），并纳入 CI 绿色套件
+- [ ] 用户自定义函数调用（当前抛 RuntimeError，见代码 TODO）
+- [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
@@ -134,7 +137,8 @@
 | `std::codecvt` 已弃用 | 🟡 中 | M1 随 UTF-8 管线一并移除 |
 | 设计愿景 > 已实现，文档多为占位 | 🟡 中 | M5 以实现为准逐步沉淀规范 |
 | 依赖在线拉取 GoogleTest | 🟢 低 | M0 改离线友好，评估 doctest |
-| 无 CI / 无端到端测试 | 🟢 低 | ✅ CI 已加（M3，Windows+Linux 矩阵，首版跑 `lexer_tests`）；端到端测试待 M4 解释器 |
+| 无 CI / 无端到端测试 | 🟢 低 | ✅ CI 已加（M3，Windows+Linux 矩阵，跑 `lexer_tests`+`interpreter_tests`）；端到端测试已随 M4 解释器建立 |
+| 数字类型统一用 `double`，未区分 integer/decimal | 🟡 中 | 解释器 `Value` 暂以 `double` 承载，代码记 TODO；类型系统闭环时再拆分 |
 
 ---
 
@@ -143,7 +147,7 @@
 > 实现过程中遇到语法歧义会在此登记，逐条与作者确认后更新。
 
 - [x] 源文件后缀：`.collie` 为主、`.col` 为别名 —— 已确认
-- [ ] helloworld 的 `print`：是内建函数（`print("...")`）还是语句？字符串字面量的转义规则？
+- [x] helloworld 的 `print`：内建函数 `print(...)`（任意实参）；字符串转义 `\n \t \\ \"` 由词法器解码，解释器原样输出 —— 已确认
 - [ ] `tribool`（三态布尔）与 `==?` 运算符的确切语义？
 - [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
 - [ ] `class` 是否纳入近期实现范围，还是先搁置？
@@ -154,6 +158,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-25 `feat(interpreter)`: 新增树遍历解释器模块（`Value`/`Environment`/`Interpreter`），支持字面量/算术/比较/逻辑/变量/if/while/for/break/continue 与内建 `print`；语义层识别内建 `print`、修复布尔字面量类型；清理 parser/semantic 调试打印；`main.cpp` 接入解释器并分离诊断输出（`-v`）；新增 `helloworld.collie` 示例与 `interpreter_tests`（11 例全绿）并纳入 CI（M4）
 - 2026-07-25 `ci(compiler)`: 新增 GitHub Actions 工作流（Windows+Linux 矩阵，configure/build/ctest，首版跑 `lexer_tests`，缓存 `.deps`）（M3）
 - 2026-07-25 `feat(main)`: 语义分析后检查 `has_errors()`，逐条打印错误并以非零码退出，不再静默报“Compilation successful!”（M2）
 - 2026-07-25 `fix(parser,semantic)`: 修复前端两处死循环（parser 驱动循环进度守卫、semantic `synchronize`/`advance_token` 防空/防下溢），补 `parser_test.cpp` 的 Windows 头文件（M2）

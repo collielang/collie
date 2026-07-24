@@ -1,0 +1,3 @@
+// Collie 语言 Hello World 示例
+// 运行：collie helloworld.collie
+print("Hello, World!");

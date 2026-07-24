@@ -558,6 +558,20 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
 
 void SemanticAnalyzer::visitCall(const CallExpr& expr) {
     try {
+        // 内建函数 print：接受任意个任意类型的实参，返回 none。
+        // 在此提前处理，避免把 print 当作未声明的变量/函数而报错。
+        // TODO(semantic): 未来以正式的内建函数符号表 + 变参签名替代此特判。
+        if (const IdentifierExpr* builtin =
+                dynamic_cast<const IdentifierExpr*>(expr.callee())) {
+            if (builtin->name().lexeme() == "print") {
+                for (const auto& arg : expr.arguments()) {
+                    arg->accept(*this);
+                }
+                current_type_ = TokenType::KW_NONE;
+                return;
+            }
+        }
+
         // 分析被调用的表达式
         expr.callee()->accept(*this);
 

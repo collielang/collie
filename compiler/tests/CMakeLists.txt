@@ -63,10 +63,28 @@ target_link_libraries(semantic_tests
 
 add_test(NAME semantic_tests COMMAND semantic_tests)
 
+# 解释器端到端测试
+add_executable(interpreter_tests
+    interpreter_test.cpp
+)
+
+target_link_libraries(interpreter_tests
+    PRIVATE
+        interpreter
+        semantic
+        parser
+        lexer
+        utils
+        GTest::gtest_main
+)
+
+add_test(NAME interpreter_tests COMMAND interpreter_tests)
+
 # MSVC 特定配置
 if(MSVC)
     target_compile_options(test_utils PRIVATE "/utf-8" "/FS" "/MP")
     target_compile_options(lexer_tests PRIVATE "/utf-8" "/FS" "/MP")
     target_compile_options(parser_tests PRIVATE "/utf-8" "/FS" "/MP")
     target_compile_options(semantic_tests PRIVATE "/utf-8" "/FS" "/MP")
+    target_compile_options(interpreter_tests PRIVATE "/utf-8" "/FS" "/MP")
 endif()

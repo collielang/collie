@@ -10,14 +10,26 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <ostream>
+#include <streambuf>
 #ifdef _WIN32
 #include <Windows.h>
 #endif
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "semantic/semantic_analyzer.h"
+#include "interpreter/interpreter.h"
 #include "utils/token_utils.h"
 #include "utils/version_info.h"
+
+namespace {
+// 丢弃一切写入的空缓冲区：非 verbose 模式下用于静默编译流水线的诊断信息，
+// 保证标准输出只包含被解释程序自身的 print 输出。
+class NullBuffer : public std::streambuf {
+public:
+    int overflow(int c) override { return c; }
+};
+}  // namespace
 
 void flush_output() {
     std::cout.flush();
@@ -25,18 +37,29 @@ void flush_output() {
 }
 
 int main(int argc, char* argv[]) {
-    // 打印版本信息 & 环境信息
-    std::cout << collie::utils::get_version_info();
-    std::cout << std::endl;
-    std::cout << collie::utils::get_environment_info();
-    std::cout << std::endl;
+    // 命令行：collie [-v|--verbose] <source_file>
+    // 默认安静模式：标准输出仅包含程序的 print 输出；诊断信息仅在 verbose 下打印。
+    bool verbose = false;
+    std::string filename;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-v" || arg == "--verbose") {
+            verbose = true;
+        } else if (filename.empty()) {
+            filename = arg;
+        }
+    }
 
-    // 检查命令行参数
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <source_file>" << std::endl;
+    if (filename.empty()) {
+        std::cerr << "Usage: " << argv[0] << " [-v|--verbose] <source_file>" << std::endl;
         std::cerr << "Example: " << argv[0] << " example.collie" << std::endl;
         return 1;
     }
+
+    // 诊断信息输出流：verbose -> 标准输出；否则丢弃。
+    NullBuffer null_buffer;
+    std::ostream null_stream(&null_buffer);
+    std::ostream& diag = verbose ? std::cout : null_stream;
 
     try {
         // 设置控制台输出为 UTF-8 编码
@@ -47,18 +70,12 @@ int main(int argc, char* argv[]) {
         }
         #endif
 
-        if (argc != 2) {
-            std::cerr << "Usage: " << argv[0] << " <source_file>" << std::endl;
-            flush_output();
-            return 1;
-        }
-
-        // 读取源文件
-        std::string filename = argv[1];
-        std::cout << "Reading file: " << filename << std::endl;
-        flush_output();
+        // 版本 & 环境信息（仅 verbose）
+        diag << collie::utils::get_version_info() << std::endl;
+        diag << collie::utils::get_environment_info() << std::endl;
 
         // 以二进制方式读取源文件，直接按 UTF-8 字节流处理（跨平台、无需编码转换）
+        diag << "Reading file: " << filename << std::endl;
         std::ifstream file(filename, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "Error: Cannot open file " << filename << std::endl;
@@ -85,28 +102,17 @@ int main(int argc, char* argv[]) {
             source.erase(0, 3);
         }
 
-        std::cout << std::endl;
-        flush_output();
-
         std::string equalSigns(20, '=');
-        std::cout << "Source code:" << std::endl;
-        std::cout << equalSigns << " START OF FILE " << equalSigns << std::endl;
-        std::cout << source << std::endl;
-        std::cout << equalSigns << "  END OF FILE  " << equalSigns << std::endl;
-        std::cout << std::endl;
-        flush_output();
+        diag << std::endl;
+        diag << "Source code:" << std::endl;
+        diag << equalSigns << " START OF FILE " << equalSigns << std::endl;
+        diag << source << std::endl;
+        diag << equalSigns << "  END OF FILE  " << equalSigns << std::endl;
+        diag << std::endl;
 
         // 词法分析
-        std::cout << "Starting lexical analysis..." << std::endl;
-        flush_output();
-
+        diag << "Starting lexical analysis..." << std::endl;
         collie::Lexer lexer(source);
-        std::cout << "Created lexer object..." << std::endl;
-        flush_output();
-
-        std::cout << "Starting tokenization..." << std::endl;
-        flush_output();
-
         std::vector<collie::Token> tokens;
         try {
             tokens = lexer.tokenize();
@@ -116,26 +122,22 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::cout << "Tokenization completed. Token count: " << tokens.size() << std::endl;
-        flush_output();
-
-        std::cout << "Tokens:" << std::endl;
-        for (const auto& token : tokens) {
-            std::cout << "  Type: " << token_type_to_string(token.type())
+        diag << "Tokenization completed. Token count: " << tokens.size() << std::endl;
+        if (verbose) {
+            diag << "Tokens:" << std::endl;
+            for (const auto& token : tokens) {
+                diag << "  Type: " << token_type_to_string(token.type())
                      << " (" << static_cast<int>(token.type()) << ")"
                      << ", Lexeme: '" << token.lexeme()
                      << "', Line: " << token.line()
                      << ", Column: " << token.column() << std::endl;
-            flush_output();
+            }
         }
-        std::cout << "Lexical analysis completed." << std::endl;
-        std::cout << std::endl;
-        flush_output();
+        diag << "Lexical analysis completed." << std::endl;
+        diag << std::endl;
 
         // 语法分析
-        std::cout << "Starting syntax analysis..." << std::endl;
-        flush_output();
-
+        diag << "Starting syntax analysis..." << std::endl;
         collie::Parser parser(tokens);
         std::vector<std::unique_ptr<collie::Stmt>> stmts;
         try {
@@ -151,14 +153,11 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::cout << "Syntax analysis completed." << std::endl;
-        std::cout << std::endl;
-        flush_output();
+        diag << "Syntax analysis completed." << std::endl;
+        diag << std::endl;
 
         // 语义分析
-        std::cout << "Starting semantic analysis..." << std::endl;
-        flush_output();
-
+        diag << "Starting semantic analysis..." << std::endl;
         collie::SemanticAnalyzer analyzer;
         try {
             analyzer.analyze(stmts);
@@ -168,12 +167,10 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::cout << "Semantic analysis completed." << std::endl;
-        std::cout << std::endl;
-        flush_output();
+        diag << "Semantic analysis completed." << std::endl;
+        diag << std::endl;
 
-        // 检查语义错误：有错误时逐条上报并以非零退出码结束，
-        // 不再静默打印 "Compilation successful!"
+        // 检查语义错误：有错误时逐条上报并以非零退出码结束
         if (analyzer.has_errors()) {
             const auto& errors = analyzer.get_errors();
             std::cerr << "Found " << errors.size()
@@ -186,7 +183,19 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::cout << "Compilation successful!" << std::endl;
+        // 解释执行：程序的 print 输出写入标准输出（与诊断信息分离）
+        diag << "Running program..." << std::endl;
+        try {
+            collie::Interpreter interpreter(std::cout);
+            interpreter.interpret(stmts);
+        } catch (const collie::RuntimeError& e) {
+            std::cout.flush();
+            std::cerr << "Runtime error at line " << e.line()
+                      << ", column " << e.column() << ": " << e.what() << std::endl;
+            flush_output();
+            return 1;
+        }
+
         flush_output();
         return 0;
 

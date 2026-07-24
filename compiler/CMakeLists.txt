@@ -71,6 +71,7 @@ add_subdirectory(utils)
 add_subdirectory(lexer)
 add_subdirectory(parser)
 add_subdirectory(semantic)
+add_subdirectory(interpreter)
 if(COLLIE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
@@ -87,6 +88,7 @@ target_link_libraries(collie
         lexer
         parser
         semantic
+        interpreter
 )
 
 # 设置 Visual Studio 启动项目为主程序

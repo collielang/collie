@@ -43,10 +43,10 @@ jobs:
       - name: Configure
         run: cmake -S compiler -B compiler/build -DCMAKE_BUILD_TYPE=Release
 
-      # 仅构建主程序与词法器测试：parser_tests/semantic_tests 存在预存缺陷
-      # （见 PROGRESS.md 的 t9/t10），修复后再纳入 CI
+      # 仅构建主程序与已绿色的测试集：lexer_tests、interpreter_tests。
+      # parser_tests/semantic_tests 存在预存缺陷（见 PROGRESS.md 的 t9/t10），修复后再纳入 CI
       - name: Build
-        run: cmake --build compiler/build --config Release --target collie lexer_tests
+        run: cmake --build compiler/build --config Release --target collie lexer_tests interpreter_tests
 
-      - name: Test (lexer_tests)
-        run: ctest --test-dir compiler/build -C Release -R lexer_tests --output-on-failure
+      - name: Test (lexer_tests + interpreter_tests)
+        run: ctest --test-dir compiler/build -C Release -R "lexer_tests|interpreter_tests" --output-on-failure
