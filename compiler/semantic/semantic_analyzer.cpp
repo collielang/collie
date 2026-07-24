@@ -134,6 +134,8 @@ void SemanticAnalyzer::visitLiteral(const LiteralExpr& expr) {
             current_type_ = TokenType::KW_CHAR;
             break;
         case TokenType::LITERAL_BOOL:
+        case TokenType::KW_TRUE:
+        case TokenType::KW_FALSE:
             current_type_ = TokenType::KW_BOOL;
             break;
         default: {
