@@ -156,6 +156,18 @@ int main(int argc, char* argv[]) {
         diag << "Syntax analysis completed." << std::endl;
         diag << std::endl;
 
+        // 检查语法错误：parse_program 采用错误恢复（记录并跳过出错语句后继续），
+        // 不会抛出异常，只会返回一份部分 AST。若存在语法错误，即使解析出部分
+        // 有效语句也不应继续执行，否则会“报完 Parse error 仍运行正确的那部分”。
+        if (!parser.get_errors().empty()) {
+            const auto& syntax_errors = parser.get_errors();
+            std::cerr << "Found " << syntax_errors.size()
+                      << (syntax_errors.size() == 1 ? " syntax error." : " syntax errors.")
+                      << std::endl;
+            flush_output();
+            return 1;
+        }
+
         // 语义分析
         diag << "Starting semantic analysis..." << std::endl;
         collie::SemanticAnalyzer analyzer;

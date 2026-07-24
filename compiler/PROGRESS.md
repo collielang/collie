@@ -70,6 +70,7 @@
 
 ### M2 · 语义错误上报 & 前端 UTF-8 健壮性
 - [x] `main.cpp` 在语义分析后检查 `analyzer.has_errors()` 并打印 `get_errors()`（逐条 `Line X, Column Y: msg`）
+- [x] `main.cpp` 在语法分析后检查 `parser.get_errors()`：`parse_program` 采用错误恢复（不抛异常、返回部分 AST），若有语法错误则非零退出，修复“报完 Parse error 仍运行正确那部分”的静默执行
 - [x] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
 - [x] 修复语义分析对未声明函数调用（如 `print(a)`）死循环
 
@@ -166,6 +167,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `fix(main)`: 语法分析后检查 `parser.get_errors()`，有语法错误时非零退出，不再带着部分 AST 继续语义/解释（修复 `simple-code.collie` 报 Parse error 后仍输出 `42` 的静默执行，M2）
 
 - 2026-07-25 `fix(parser)`: 修复 `(expr)` 分组 vs `(a,b)` 元组消歧、错误恢复吞后续语句缺陷，删 3 处死代码；对齐 `parser_test.cpp`（`visitCall`/嵌套缩进/陈旧期望、`function` 关键字文法、`parse_program` 恢复、`break/continue` 循环外改为语义层检测），`parser_tests` 14 全绿（t9，D9/D10）
 - 2026-07-25 `feat(interpreter)`: 新增树遍历解释器模块（`Value`/`Environment`/`Interpreter`），支持字面量/算术/比较/逻辑/变量/if/while/for/break/continue 与内建 `print`；语义层识别内建 `print`、修复布尔字面量类型；清理 parser/semantic 调试打印；`main.cpp` 接入解释器并分离诊断输出（`-v`）；新增 `helloworld.collie` 示例与 `interpreter_tests`（11 例全绿）并纳入 CI（M4）
