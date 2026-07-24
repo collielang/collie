@@ -37,17 +37,17 @@
 | D5 | **GoogleTest 改为可选 + 离线友好**（优先 `find_package`，回退 `FetchContent`，支持本地/vendored 源）；评估迁移到 **doctest**（单头文件，可直接 vendored，零网络） | 解决国内网络拉取 googletest 的长期痛点 |
 | D6 | 增加 **GitHub Actions CI**（Windows + Linux，configure/build/ctest） | 防止「删文件后构建配置未同步」这类回归 |
 | D7 | **不与 Visual Studio 深绑定**，用 CMake 保持工具链中立（支持 Ninja + gcc/clang，兼容 VSCode/CLion） | 不限制开发工具，便于社区开源协作 |
-| D8 | 源文件后缀：主 `.collie`，别名 `.col`（**待作者确认**） | 与现有示例 `simple-code.collie` 一致，同时提供短后缀 |
+| D8 | 源文件后缀：主 `.collie`，别名 `.col`（已确认） | 与现有示例 `simple-code.collie` 一致，同时提供短后缀 |
 
 ---
 
 ## 三、里程碑与阶段计划
 
 ### M0 · 修复构建 & 模块解耦（进行中）
-- [ ] 修复 `tests/CMakeLists.txt`：移除对已删 `ir` 库的链接、移除已删的 `symbol_table_test.cpp`
-- [ ] 测试解耦：每个 test 目标只链接被测模块（lexer_tests→lexer，parser_tests→parser，semantic_tests→semantic）
-- [ ] 增加 `option(BUILD_TESTING ...)`，未开启时主编译器不依赖测试框架
-- [ ] googletest 改为离线友好（`find_package` 优先 + 可 vendored）
+- [x] 修复 `tests/CMakeLists.txt`：移除对已删 `ir` 库的链接、移除已删的 `symbol_table_test.cpp`
+- [x] 测试解耦：每个 test 目标只链接被测模块（lexer_tests→lexer，parser_tests→parser，semantic_tests→semantic）
+- [x] 增加 `option(COLLIE_BUILD_TESTS ...)`，关闭后主编译器不依赖测试框架、无需联网
+- [x] googletest 改为离线友好（`find_package` 优先，回退 FetchContent，可用 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 指向本地源）
 - [ ] 更新 `compiler/README.md` 中过时的进度描述（当前仍写 IR 已完成）
 
 ### M1 · 跨平台 & 编码统一
@@ -111,7 +111,7 @@
 
 > 实现过程中遇到语法歧义会在此登记，逐条与作者确认后更新。
 
-- [ ] 源文件后缀：`.collie` 为主、`.col` 为别名，是否可行？
+- [x] 源文件后缀：`.collie` 为主、`.col` 为别名 —— 已确认
 - [ ] helloworld 的 `print`：是内建函数（`print("...")`）还是语句？字符串字面量的转义规则？
 - [ ] `tribool`（三态布尔）与 `==?` 运算符的确切语义？
 - [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
@@ -123,4 +123,5 @@
 
 > 与 git 提交一一对应，最新在上。
 
-- （待记录）
+- 2026-07-24 `build(cmake)`: 退役旧自研 IR（删除 `ir/` 及相关测试），修复并解耦测试构建，GoogleTest 改为可选 + 离线友好
+- 2026-07-24 `docs`: 新增本进度文档与 prompt 归档
