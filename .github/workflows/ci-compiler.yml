@@ -43,10 +43,15 @@ jobs:
       - name: Configure
         run: cmake -S compiler -B compiler/build -DCMAKE_BUILD_TYPE=Release
 
-      # 仅构建主程序与已绿色的测试集：lexer_tests、interpreter_tests。
-      # parser_tests/semantic_tests 存在预存缺陷（见 PROGRESS.md 的 t9/t10），修复后再纳入 CI
+      # 构建主程序与全部已绿色的测试集：lexer/parser/semantic/interpreter。
+      # semantic_tests 已完成 t10 分诊：面向未实现特性的用例加 DISABLED_ 暂停，绿色子集入门禁。
       - name: Build
-        run: cmake --build compiler/build --config Release --target collie lexer_tests interpreter_tests
+        run: cmake --build compiler/build --config Release --target collie lexer_tests parser_tests semantic_tests interpreter_tests
 
-      - name: Test (lexer_tests + interpreter_tests)
-        run: ctest --test-dir compiler/build -C Release -R "lexer_tests|interpreter_tests" --output-on-failure
+      # 单元测试门禁：四个测试集全绿；DISABLED_ 用例默认跳过（见 PROGRESS.md 的 t9/t10）
+      - name: Test (unit tests)
+        run: ctest --test-dir compiler/build -C Release -R "lexer_tests|parser_tests|semantic_tests|interpreter_tests" --output-on-failure
+
+      # 命令行端到端门禁：正常程序应成功、语法错误应非零退出
+      - name: Test (CLI gate)
+        run: ctest --test-dir compiler/build -C Release -R "cli_valid_program|cli_syntax_error_gate" --output-on-failure

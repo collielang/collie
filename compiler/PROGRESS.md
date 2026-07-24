@@ -91,13 +91,14 @@
 - [x] `break`/`continue` 循环外：按 D9 决策，parser 测试改为验证语法接受（产出 `BreakStmt`/`ContinueStmt` 不误报），负面用例移交语义测试
 > `semantic_tests` 目标此前因**预存**损坏文件 `semantic_test.cpp`（过时 API：`Parser(lexer)`、`analyze(stmt.get())`）无法编译；t10 已修复该文件使目标恢复编译（详见下）。
 
-**semantic_tests 恢复编译（t10，进行中）**
+**semantic_tests 恢复编译 + 分诊（t10，已完成）**
 - [x] 重写陈旧的 `semantic_test.cpp`（过时 API：`Parser(lexer)`、`parse()` 返回单条、`analyze(stmt.get())`）为当前 API（`test::parse_and_get_tokens` + `analyze(vector)` + `has_errors()`），并按 D9 将其定位为**语义层 break/continue 循环上下文检查**（循环内合法、循环外报错，4 例全绿）
 - [x] `semantic_tests` 目标恢复编译（4 个源文件全部编译链接通过）
-- [ ] **新发现**：另外 3 个旧测试文件（`semantic_analyzer_test.cpp`/`semantic_error_test.cpp`/`semantic_recovery_test.cpp`，约 49 例）大面积失效，需专项分诊后才能整体纳入 CI：
+- [x] **分诊完成**：对另外 3 个旧测试文件（`semantic_analyzer_test.cpp`/`semantic_error_test.cpp`/`semantic_recovery_test.cpp`）逐用例单跑取得 ground truth（**12 通过 / 37 失败**），失效根因如下：
     - 陈旧断言范式：普遍用 `EXPECT_THROW(analyze(...), SemanticError)`，但 `analyze()` 现已不抛异常、改为记录错误（应改查 `has_errors()`/`get_errors()`）
     - 面向目标设计而非当前实现：假设了 parser 未实现的文法（C 风格函数、`number[]` 数组类型）与未实现的语义检查（未初始化变量、不可达代码、返回类型/隐式转换/跨作用域），parse 阶段即报错
     - 两处硬崩溃：错误数不及预期却越界访问 `errors[3]`（`0xc0000409`），中断整轮测试
+- [x] **分诊处置（用户决策：分诊+禁用）**：为 37 个失败用例加 `DISABLED_` 前缀暂停运行 + 每文件加分诊说明注释，作为文档化待办（待对应文法/语义实现后逐步恢复）；保留 12 个反映当前已实现行为的绿色用例。`semantic_tests` 现全绿（16 通过：12 语义 + 4 break/continue；37 禁用；无崩溃），纳入 CI 门禁
 
 **词法器 UTF-8 bug（已修复：`lexer_tests` 从 4 通过 / 7 失败 → 11 全绿）**
 - [x] `next_token` 改为 peek 分类不预消费，各 `scan_*` 自行消费定界符；非 ASCII（UTF-8 首字节 `>= 0x80`）派发到 `scan_identifier`
@@ -108,9 +109,9 @@
 
 ### M3 · 工程化（CI）
 - [x] GitHub Actions（`.github/workflows/ci-compiler.yml`）：Windows(MSVC) + Linux(gcc) 矩阵，cmake configure → build → ctest
-- [x] 构建 `collie` + 绿色测试集并跑 `ctest`（`lexer_tests` + `interpreter_tests`；绕开预存红/不可编译的 `parser_tests`/`semantic_tests`，待 t9/t10 修复后纳入）
+- [x] 构建 `collie` + 全部绿色测试集并跑 `ctest`（`lexer_tests` + `parser_tests` + `semantic_tests` + `interpreter_tests` + CLI 端到端门禁 `cli_valid_program`/`cli_syntax_error_gate`）
 - [x] 缓存 `compiler/.deps`（GoogleTest 持久源码），避免每次联网克隆
-- [ ] 将 `parser_tests`（t9 已全绿）纳入 CI 测试步骤；`semantic_tests` 待 t10 修复后纳入
+- [x] 将 `parser_tests`（t9 已全绿）与 `semantic_tests`（t10 分诊后绿色子集）纳入 CI 测试步骤
 
 ### M4 · 树遍历解释器（路线 A）→ 跑通 helloworld
 - [x] 定义 `helloworld.collie` 的最小语义（`print` 为内建函数、字符串字面量转义沿用词法器已解码结果）
@@ -176,6 +177,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(semantic),ci(compiler)`: 完成 3 个旧语义测试文件分诊（逐用例单跑得 12 通过 / 37 失败），为 37 个面向未实现特性的用例加 `DISABLED_` 前缀 + 每文件分诊注释（文档化待办），消除两处越界崩溃；`semantic_tests` 现全绿（16 通过 / 37 禁用）。CI 纳入 `parser_tests` + `semantic_tests` + CLI 端到端门禁（M3/t10）
 
 - 2026-07-25 `test(semantic)`: 重写陈旧的 `semantic_test.cpp` 为当前 API（`parse_and_get_tokens`+`analyze(vector)`+`has_errors()`），按 D9 定位为语义层 break/continue 循环上下文检查（4 例全绿），`semantic_tests` 目标恢复编译；发现另 3 个旧语义测试文件大面积失效（陈旧 `EXPECT_THROW` 范式、面向未实现的目标文法/语义、2 处越界崩溃），登记为 t10 后续专项（M2/t10）
 
