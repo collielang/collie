@@ -587,6 +587,37 @@ TEST(ParserTest, BreakContinueStatements) {
     }
 }
 
+// parse_program 对含语法错误的源码采用错误恢复：记录错误、跳过出错语句，
+// 仍返回已成功解析的部分 AST（不抛异常）。main.cpp 依赖 get_errors() 做门禁，
+// 防止“报完 Parse error 仍运行正确那部分”。
+TEST(ParserTest, ParseProgramRecordsErrorsAndReturnsPartialAst) {
+    // 前两条合法，第三条 `object object = none;` 语法错误（object 是关键字，不能作变量名）
+    std::string source = "number a = 42;\nprint(a);\nobject object = none;";
+    Lexer lexer(source);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
+
+    auto stmts = parser.parse_program();
+
+    // 记录了语法错误（不静默失败）
+    EXPECT_FALSE(parser.get_errors().empty());
+    // 但仍返回了前面成功解析的两条语句（部分 AST），而非抛异常或返回空
+    EXPECT_EQ(stmts.size(), 2u);
+}
+
+// 合法程序：parse_program 不应产生任何错误（作为门禁无误报的对照）。
+TEST(ParserTest, ParseProgramNoErrorsForValidSource) {
+    std::string source = "number a = 42;\nprint(a);";
+    Lexer lexer(source);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
+
+    auto stmts = parser.parse_program();
+
+    EXPECT_TRUE(parser.get_errors().empty());
+    EXPECT_EQ(stmts.size(), 2u);
+}
+
 #ifdef _WIN32
 void SetupWindowsConsole() {
     SetConsoleOutputCP(CP_UTF8);

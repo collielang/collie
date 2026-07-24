@@ -80,6 +80,22 @@ target_link_libraries(interpreter_tests
 
 add_test(NAME interpreter_tests COMMAND interpreter_tests)
 
+# CLI 端到端门禁测试：直接运行 collie 可执行文件，覆盖 main.cpp 对
+# parser.get_errors() 的语法错误门禁（gtest 无法覆盖 main.cpp 自身逻辑）。
+# 合法程序：正常执行并输出 gate-ok。
+add_test(NAME cli_valid_program
+    COMMAND collie ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/valid_hello.collie)
+set_tests_properties(cli_valid_program PROPERTIES
+    PASS_REGULAR_EXPRESSION "gate-ok")
+
+# 含语法错误：必须报告 syntax error，且【不】执行合法语句（不得输出 42）。
+# 设置 PASS/FAIL 正则后 CTest 忽略退出码，仅按输出判定。
+add_test(NAME cli_syntax_error_gate
+    COMMAND collie ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/syntax_error.collie)
+set_tests_properties(cli_syntax_error_gate PROPERTIES
+    PASS_REGULAR_EXPRESSION "syntax error"
+    FAIL_REGULAR_EXPRESSION "42")
+
 # MSVC 特定配置
 if(MSVC)
     target_compile_options(test_utils PRIVATE "/utf-8" "/FS" "/MP")

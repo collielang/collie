@@ -71,6 +71,7 @@
 ### M2 · 语义错误上报 & 前端 UTF-8 健壮性
 - [x] `main.cpp` 在语义分析后检查 `analyzer.has_errors()` 并打印 `get_errors()`（逐条 `Line X, Column Y: msg`）
 - [x] `main.cpp` 在语法分析后检查 `parser.get_errors()`：`parse_program` 采用错误恢复（不抛异常、返回部分 AST），若有语法错误则非零退出，修复“报完 Parse error 仍运行正确那部分”的静默执行
+- [x] 为该门禁补回归测试：`parser_test.cpp` 新增契约测试（`parse_program` 记录错误+返回部分 AST、合法源无误报）；新增 CLI 端到端 ctest（`cli_valid_program`/`cli_syntax_error_gate`，直接跑 `collie` 可执行文件验证“报错即停、不输出 42”）
 - [x] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
 - [x] 修复语义分析对未声明函数调用（如 `print(a)`）死循环
 
@@ -167,6 +168,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(compiler)`: 为语法错误门禁补回归测试——`parser_test.cpp` 加契约测试（错误恢复后记录错误且返回部分 AST），`tests/fixtures/` + `tests/CMakeLists.txt` 新增 CLI 端到端 ctest（`cli_valid_program`/`cli_syntax_error_gate`，直接跑 `collie` 验证报错即停、不输出 42）
 
 - 2026-07-25 `fix(main)`: 语法分析后检查 `parser.get_errors()`，有语法错误时非零退出，不再带着部分 AST 继续语义/解释（修复 `simple-code.collie` 报 Parse error 后仍输出 `42` 的静默执行，M2）
 

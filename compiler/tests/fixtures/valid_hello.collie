@@ -1,0 +1,2 @@
+// CLI 门禁测试夹具：合法程序，应正常执行并输出 gate-ok
+print("gate-ok");
