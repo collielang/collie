@@ -27,18 +27,40 @@ endif()
 option(COLLIE_BUILD_TESTS "Build unit tests" ON)
 
 if(COLLIE_BUILD_TESTS)
-    # 优先使用系统/本地已安装的 GoogleTest，找不到再联网拉取
+    # 优先使用系统/本地已安装的 GoogleTest，找不到再获取
     find_package(GTest QUIET)
     if(NOT GTest_FOUND)
         # gtest 使用动态运行时库（与本项目保持一致）
         set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+
+        # 依赖缓存目录：位于构建目录之外，删除 build/ 后不会丢失，无需重新联网下载。
+        # 可用 -DCOLLIE_DEPS_DIR=<path> 覆盖（例如指向用户级全局缓存，在多个克隆间共享）。
+        set(COLLIE_DEPS_DIR "${CMAKE_SOURCE_DIR}/.deps" CACHE PATH
+            "Persistent directory for third-party sources")
+        set(_gtest_src "${COLLIE_DEPS_DIR}/googletest-release-1.12.1")
+
+        if(FETCHCONTENT_SOURCE_DIR_GOOGLETEST)
+            # 完全离线：显式指向已有的 googletest 源码目录
+            set(_gtest_src "${FETCHCONTENT_SOURCE_DIR_GOOGLETEST}")
+        elseif(NOT EXISTS "${_gtest_src}/CMakeLists.txt")
+            # 首次构建：浅克隆一次到持久缓存（之后删 build/ 不再重拉）
+            find_package(Git REQUIRED)
+            message(STATUS "Fetching GoogleTest (once) into ${_gtest_src}")
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" clone --depth 1 --branch release-1.12.1
+                        https://github.com/google/googletest.git "${_gtest_src}"
+                RESULT_VARIABLE _gtest_clone_rc
+            )
+            if(NOT _gtest_clone_rc EQUAL 0)
+                message(FATAL_ERROR
+                    "Failed to clone GoogleTest. 可先手动将源码放到 ${_gtest_src}，"
+                    "或安装系统 GTest 后重试，或 -DCOLLIE_BUILD_TESTS=OFF 跳过测试。")
+            endif()
+        endif()
+
+        # 使用本地源码构建，编译产物仍落在 build/ 内（可随 build/ 一起清理）
         include(FetchContent)
-        FetchContent_Declare(
-            googletest
-            GIT_REPOSITORY https://github.com/google/googletest.git
-            GIT_TAG release-1.12.1
-        )
-        # 离线场景：设置 FETCHCONTENT_SOURCE_DIR_GOOGLETEST 指向本地 googletest 源码目录即可
+        FetchContent_Declare(googletest SOURCE_DIR "${_gtest_src}")
         FetchContent_MakeAvailable(googletest)
     endif()
     enable_testing()

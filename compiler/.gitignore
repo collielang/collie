@@ -5,6 +5,9 @@ Debug/
 Release/
 x64/
 
+# 依赖缓存（GoogleTest 等一次性下载的源码）
+.deps/
+
 # Visual Studio files
 .vs/
 *.user
