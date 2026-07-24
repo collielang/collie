@@ -1,5 +1,5 @@
 diff --git a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
-index 14f5473..f9b2f2d 100644
+index 14f5473..62cff89 100644
 --- a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
 +++ b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
 @@ -30,22 +30,7 @@ async function fetchAutoCompleteJS() {

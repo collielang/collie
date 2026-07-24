@@ -238,4 +238,4 @@ export CXX=g++-11
 - Linux: VSCode + C/C++插件
 - macOS: VSCode + C/C++插件 或 CLion
 
-如遇到其他问题，请查看项目的Issue页面或创建新的Issue。
+如遇到其他问题，请查看项目的 Issue 页面或创建新的 Issue。
