@@ -369,12 +369,6 @@ private:
      */
     void synchronize();
 
-    /**
-     * @brief 同步到指定类型的token
-     * @param type 目标token类型
-     */
-    void synchronize_until(TokenType type);
-
     // Token 管理辅助方法
     /**
      * @brief 检查是否到达输入结束
@@ -432,9 +426,6 @@ private:
     /// @brief 解析元组类型
     std::unique_ptr<Type> parse_tuple_type();
 
-    /// @brief 解析元组表达式
-    std::unique_ptr<Expr> parse_tuple_expr();
-
     /// @brief 解析后缀表达式（包括元组成员访问）
     std::unique_ptr<Expr> parse_postfix();
 
@@ -444,13 +435,6 @@ private:
      * @return 如果匹配返回 true
      */
     bool check(TokenType type) const;
-
-    /**
-     * @brief 判断是否是字面量 token
-     * @param token 要判断的 token
-     * @return 如果是字面量返回 true
-     */
-    bool is_literal_token(const Token& token) const;
 
     /**
      * @brief 解析类型声明语句

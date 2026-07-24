@@ -38,6 +38,8 @@
 | D6 | 增加 **GitHub Actions CI**（Windows + Linux，configure/build/ctest） | 防止「删文件后构建配置未同步」这类回归 |
 | D7 | **不与 Visual Studio 深绑定**，用 CMake 保持工具链中立（支持 Ninja + gcc/clang，兼容 VSCode/CLion） | 不限制开发工具，便于社区开源协作 |
 | D8 | 源文件后缀：主 `.collie`，别名 `.col`（已确认） | 与现有示例 `simple-code.collie` 一致，同时提供短后缀 |
+| D9 | **`break`/`continue` 出现在循环外**，由**语义层**检测并报错，parser 层仅做语法解析（语法上接受） | 「是否在循环内」是上下文/语义约束而非纯语法；职责分离，符合主流编译器（如 Clang 作为 sema 错误）做法。相应负面用例移交语义测试 |
+| D10 | parser 当前的函数声明采用 **`function` 关键字过渡文法**（`function add(a Num, b Num) Num {}`），文档 `reference/grammer/function.md` 描述的 **C 风格多返回类型**（`public int, string getAge()`）为**目标设计**，暂不改文档 | 文档代表设计方向，parser 尚未实现到该程度；保留文档意图，在此登记待对齐 TODO，避免文档退回过渡实现 |
 
 ---
 
@@ -77,7 +79,14 @@
 - [x] `tests/parser_test.cpp`：补 `#include <windows.h>` / `<io.h>`（原仅 `<fcntl.h>`，`SetConsoleOutputCP`/`_setmode` 在 Windows 无法编译），使 `parser_tests` 可在 Windows 构建
 
 > 复现与验证：`number a=1; print(a);`（语义挂起）与 `class Foo {}`（解析器挂起，输出 >20MB）修复后均正常退出。
-> 回归验证：将 `parser.cpp` 回退到 HEAD 对比，`parser_tests` 前后**同为 5 通过 / 9 失败**，证明本次改动零回归；这 9 个失败是**预存**的解析器逻辑 bug（赋值/函数调用参数解析等），因 `parser_test.cpp` 此前在 Windows 无法编译而从未被执行到，待后续单独处理。
+> 回归验证：将 `parser.cpp` 回退到 HEAD 对比，`parser_tests` 前后**同为 5 通过 / 9 失败**，证明本次改动零回归；这 9 个失败是**预存**问题，因 `parser_test.cpp` 此前在 Windows 无法编译而从未被执行到。
+
+**parser_tests 9 个失败修复（已完成：5 通过 / 9 失败 → 14 全绿，t9）**
+- [x] 诊断分类：其中仅 1 个为真 parser bug、1 个错误恢复缺陷，其余 7 个为测试自身/设计对齐问题（并非路线图假设的「9 个 parser bug」）
+- [x] `parser.cpp` 真 bug：`(expr)` 分组 vs `(a, b)` 元组消歧——先解析首表达式，再依是否出现逗号区分分组（透明返回）/元组，修复 `(a+b)` 被当单元素元组导致的双括号（`ComplexExpressions`）
+- [x] `parser.cpp` 错误恢复：`parse_type_declaration` 初始化表达式解析失败时直接 `return nullptr`，交由 `parse_program` 继续，去掉二次 `synchronize_until` 吞掉后续正确语句的缺陷（`ErrorRecovery`）；删除死代码 `synchronize_until`/`parse_tuple_expr`/`is_literal_token`
+- [x] `parser_test.cpp` 测试修复：`visitCall` 追加而非覆盖 `result_`（`FunctionCall`/`NestedFunctionCall`）、`visitBlock` 用 `indent()` 支持嵌套缩进（`NestedWhileStatement`）、修正 `BlockStatement`/`EmptyForStatement` 陈旧期望字符串、`FunctionDeclaration` 改用 `function` 关键字文法（对齐 parser，见 D10）、`ErrorRecovery` 改用 `parse_program`（见 Q3）
+- [x] `break`/`continue` 循环外：按 D9 决策，parser 测试改为验证语法接受（产出 `BreakStmt`/`ContinueStmt` 不误报），负面用例移交语义测试
 > `semantic_tests` 目标因**预存**损坏文件 `semantic_test.cpp`（使用过时 API：`Parser(lexer)`、`analyze(stmt.get())`）无法编译，语义恢复测试暂无法运行，待后续单独修复。
 
 **词法器 UTF-8 bug（已修复：`lexer_tests` 从 4 通过 / 7 失败 → 11 全绿）**
@@ -91,7 +100,7 @@
 - [x] GitHub Actions（`.github/workflows/ci-compiler.yml`）：Windows(MSVC) + Linux(gcc) 矩阵，cmake configure → build → ctest
 - [x] 构建 `collie` + 绿色测试集并跑 `ctest`（`lexer_tests` + `interpreter_tests`；绕开预存红/不可编译的 `parser_tests`/`semantic_tests`，待 t9/t10 修复后纳入）
 - [x] 缓存 `compiler/.deps`（GoogleTest 持久源码），避免每次联网克隆
-- [ ] t9/t10 修复后，将 `parser_tests`/`semantic_tests` 纳入 CI 测试步骤
+- [ ] 将 `parser_tests`（t9 已全绿）纳入 CI 测试步骤；`semantic_tests` 待 t10 修复后纳入
 
 ### M4 · 树遍历解释器（路线 A）→ 跑通 helloworld
 - [x] 定义 `helloworld.collie` 的最小语义（`print` 为内建函数、字符串字面量转义沿用词法器已解码结果）
@@ -158,6 +167,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-25 `fix(parser)`: 修复 `(expr)` 分组 vs `(a,b)` 元组消歧、错误恢复吞后续语句缺陷，删 3 处死代码；对齐 `parser_test.cpp`（`visitCall`/嵌套缩进/陈旧期望、`function` 关键字文法、`parse_program` 恢复、`break/continue` 循环外改为语义层检测），`parser_tests` 14 全绿（t9，D9/D10）
 - 2026-07-25 `feat(interpreter)`: 新增树遍历解释器模块（`Value`/`Environment`/`Interpreter`），支持字面量/算术/比较/逻辑/变量/if/while/for/break/continue 与内建 `print`；语义层识别内建 `print`、修复布尔字面量类型；清理 parser/semantic 调试打印；`main.cpp` 接入解释器并分离诊断输出（`-v`）；新增 `helloworld.collie` 示例与 `interpreter_tests`（11 例全绿）并纳入 CI（M4）
 - 2026-07-25 `ci(compiler)`: 新增 GitHub Actions 工作流（Windows+Linux 矩阵，configure/build/ctest，首版跑 `lexer_tests`，缓存 `.deps`）（M3）
 - 2026-07-25 `feat(main)`: 语义分析后检查 `has_errors()`，逐条打印错误并以非零码退出，不再静默报“Compilation successful!”（M2）

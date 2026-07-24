@@ -147,14 +147,12 @@ std::unique_ptr<Stmt> Parser::parse_type_declaration() {
         // 解析可选的初始化表达式
         std::unique_ptr<Expr> initializer = nullptr;
         if (match(TokenType::OP_ASSIGN)) {
-            try {
-                initializer = parse_expression();
-                if (!initializer) {
-                    throw error(peek(), "Expected expression after '='.");
-                }
-            } catch (const ParseError& error) {
-                report_error(error);
-                synchronize_until(TokenType::DELIMITER_SEMICOLON);
+            initializer = parse_expression();
+            if (!initializer) {
+                // 初始化表达式解析失败：parse_expression 内部已上报错误并
+                // 同步到当前语句边界。此处直接放弃当前声明，交由驱动循环
+                // （parse_program）继续解析后续语句，避免二次同步吞掉正确代码。
+                return nullptr;
             }
         }
 
@@ -404,13 +402,34 @@ std::unique_ptr<Expr> Parser::parse_primary() {
     }
 
     if (match(TokenType::DELIMITER_LPAREN)) {
-        if (check(TokenType::DELIMITER_RPAREN) || check(TokenType::IDENTIFIER) ||
-            is_literal_token(peek())) {
-            return parse_tuple_expr();
+        Token left_paren = previous();
+
+        // 空括号 () 解析为空元组
+        if (check(TokenType::DELIMITER_RPAREN)) {
+            advance();  // 消费 ')'
+            return std::make_unique<TupleExpr>(
+                std::vector<std::unique_ptr<Expr>>{}, left_paren);
         }
-        auto expr = parse_expression();
+
+        // 先解析第一个表达式，再根据是否出现逗号来区分：
+        //   (expr)            -> 分组表达式，透明返回内部表达式
+        //   (expr, expr, ...) -> 元组表达式
+        auto first = parse_expression();
+        if (check(TokenType::DELIMITER_COMMA)) {
+            std::vector<std::unique_ptr<Expr>> elements;
+            elements.push_back(std::move(first));
+            while (match(TokenType::DELIMITER_COMMA)) {
+                auto element = parse_expression();
+                if (element) {
+                    elements.push_back(std::move(element));
+                }
+            }
+            consume(TokenType::DELIMITER_RPAREN, "Expect ')' after tuple elements.");
+            return std::make_unique<TupleExpr>(std::move(elements), left_paren);
+        }
+
         consume(TokenType::DELIMITER_RPAREN, "Expect ')' after expression.");
-        return expr;
+        return first;
     }
 
     throw error(peek(), "Expect expression.");
@@ -542,13 +561,6 @@ void Parser::synchronize() {
     }
 }
 
-void Parser::synchronize_until(TokenType type) {
-    while (!is_at_end() && peek().type() != type) {
-        advance();
-    }
-    if (!is_at_end()) advance(); // 消费目标 token
-}
-
 // -----------------------------------------------------------------------------
 // 错误处理辅助方法
 // -----------------------------------------------------------------------------
@@ -560,22 +572,6 @@ ParseError Parser::error(const Token& token, const std::string& message) {
 void Parser::check_max_nesting_depth() {
     if (nesting_depth_ > MAX_NESTING_DEPTH) {
         throw error(peek(), "Maximum nesting depth exceeded.");
-    }
-}
-
-bool Parser::is_literal_token(const Token& token) const {
-    switch (token.type()) {
-        case TokenType::LITERAL_NUMBER:
-        case TokenType::LITERAL_STRING:
-        case TokenType::LITERAL_CHAR:
-        case TokenType::LITERAL_CHARACTER:
-        case TokenType::LITERAL_BOOL:
-        case TokenType::KW_TRUE:
-        case TokenType::KW_FALSE:
-        case TokenType::KW_NONE:
-            return true;
-        default:
-            return false;
     }
 }
 
@@ -1021,24 +1017,6 @@ std::unique_ptr<Type> Parser::parse_tuple_type() {
 
     consume(TokenType::DELIMITER_RPAREN, "Expect ')' after tuple type elements.");
     return std::make_unique<TupleType>(std::move(element_types));
-}
-
-std::unique_ptr<Expr> Parser::parse_tuple_expr() {
-    Token left_paren = previous();
-    std::vector<std::unique_ptr<Expr>> elements;
-
-    // 解析第一个表达式
-    if (!check(TokenType::DELIMITER_RPAREN)) {
-        do {
-            auto expr = parse_expression();
-            if (expr) {
-                elements.push_back(std::move(expr));
-            }
-        } while (match(TokenType::DELIMITER_COMMA));
-    }
-
-    consume(TokenType::DELIMITER_RPAREN, "Expect ')' after tuple elements.");
-    return std::make_unique<TupleExpr>(std::move(elements), left_paren);
 }
 
 std::unique_ptr<Expr> Parser::parse_postfix() {
