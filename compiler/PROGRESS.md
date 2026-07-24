@@ -67,8 +67,8 @@
 > 注：`lexeme_utf16()` 相关测试（`UTF16Strings` 等）**在 M1b 之前就已失败**，根因是下方 M2 记录的词法器 UTF-8 bug（传入的 lexeme 字节已损坏）。M1b 仅把 codecvt 的静默替换改为显式报错，**无回归**（前后均为 4 通过 / 7 失败）。
 
 ### M2 · 语义错误上报 & 前端 UTF-8 健壮性
-- [ ] `main.cpp` 在语义分析后检查 `analyzer.has_errors()` 并打印 `get_errors()`
-- [ ] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
+- [x] `main.cpp` 在语义分析后检查 `analyzer.has_errors()` 并打印 `get_errors()`（逐条 `Line X, Column Y: msg`）
+- [x] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
 - [x] 修复语义分析对未声明函数调用（如 `print(a)`）死循环
 
 **前端死循环修复（parser + semantic，已修复：两处独立死循环不再卡死）**
@@ -126,7 +126,7 @@
 |------|------|-----------|
 | IR 删除不干净导致 test 构建失败 | 🔴 高 | M0 修复（移除 `ir` 链接与已删源文件引用） |
 | 跨平台是伪命题（无条件 `#include <Windows.h>`） | 🟠 中高 | M1 用 UTF-8 字节管线 + `#ifdef` 隔离 |
-| 语义错误被静默吞掉（main 不检查 errors） | 🟡 中 | M2 修复 |
+| 语义错误被静默吞掉（main 不检查 errors） | ✅ 已修复 | M2：`main.cpp` 检查 `has_errors()` 逐条上报并非零退出 |
 | 语义分析对未声明函数调用（如 `print(a)`）疑似死循环卡住 | ✅ 已修复 | M2：parser 驱动循环加进度守卫、semantic `synchronize`/`advance_token` 防空防下溢 |
 | `std::codecvt` 已弃用 | 🟡 中 | M1 随 UTF-8 管线一并移除 |
 | 设计愿景 > 已实现，文档多为占位 | 🟡 中 | M5 以实现为准逐步沉淀规范 |
@@ -151,6 +151,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-25 `feat(main)`: 语义分析后检查 `has_errors()`，逐条打印错误并以非零码退出，不再静默报“Compilation successful!”（M2）
 - 2026-07-25 `fix(parser,semantic)`: 修复前端两处死循环（parser 驱动循环进度守卫、semantic `synchronize`/`advance_token` 防空/防下溢），补 `parser_test.cpp` 的 Windows 头文件（M2）
 - 2026-07-25 `fix(lexer)`: 修复 UTF-8 标识符/字符/字符串扫描（peek 分类、码点循环、UTF-8 校验、多行 dedent），`lexer_tests` 11 全绿（M2）
 - 2026-07-25 `build(compiler)`: GoogleTest 源码缓存到 build 之外的持久 `.deps/`，删 build 后重配不再联网（离线优化）

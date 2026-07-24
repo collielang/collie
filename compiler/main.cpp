@@ -172,6 +172,20 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         flush_output();
 
+        // 检查语义错误：有错误时逐条上报并以非零退出码结束，
+        // 不再静默打印 "Compilation successful!"
+        if (analyzer.has_errors()) {
+            const auto& errors = analyzer.get_errors();
+            std::cerr << "Found " << errors.size()
+                      << (errors.size() == 1 ? " semantic error:" : " semantic errors:")
+                      << std::endl;
+            for (const auto& err : errors) {
+                std::cerr << "  " << err.what() << std::endl;
+            }
+            flush_output();
+            return 1;
+        }
+
         std::cout << "Compilation successful!" << std::endl;
         flush_output();
         return 0;
