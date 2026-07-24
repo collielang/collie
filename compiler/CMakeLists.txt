@@ -16,8 +16,6 @@ if(MSVC)
     add_compile_options("/FS")
     # 禁用特定警告
     add_compile_options("/wd4251" "/wd4275")
-    # 禁用 codecvt 弃用警告
-    add_compile_definitions(_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)
     # 增加堆栈大小
     add_link_options("/STACK:8388608")
     # 启用多处理器编译

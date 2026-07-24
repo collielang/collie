@@ -57,15 +57,25 @@
 - [x] `#include <Windows.h>` 用 `#ifdef _WIN32` 隔离（`SetConsoleOutputCP` 已在 `_WIN32` 内）
 - [x] VS2026 实测编译通过；UTF-8 源文件（含中文注释）读取与词法输出正确
 
-**M1b · 词法层 codecvt 移除（待做）**
-- [ ] 用手写 UTF-8↔UTF-16 辅助函数替换 `token.h` / `lexer.cpp` 中的 `codecvt_utf8_utf16`
-- [ ] 移除 `CMakeLists.txt` 中的 `_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING`
-- [ ] 保证 `lexeme_utf16()` 现有测试（`lexer_test.cpp`）仍通过
-- [ ] 在 gcc/clang（Linux）下验证可编译
+**M1b · 词法层 codecvt 移除（已完成）**
+- [x] 新增平台无关的 `lexer/utf_convert.h`（手写 UTF-8↔UTF-16），替换 `token.h` / `lexer.cpp` 中的 `codecvt_utf8_utf16` 与 Windows 专属 API
+- [x] 移除 `CMakeLists.txt` 中的 `_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING`（已无 codecvt 依赖）
+- [x] 删除 `lexer.cpp` 中无调用方的 `utf16_to_utf8` 死代码
+- [x] VS2026 实测：`collie.exe` 与 `lexer_tests` 均编译通过，无 codecvt 弃用警告
+- [ ] 在 gcc/clang（Linux）下验证可编译（待有 Linux 环境时）
 
-### M2 · 语义错误上报
+> 注：`lexeme_utf16()` 相关测试（`UTF16Strings` 等）**在 M1b 之前就已失败**，根因是下方 M2 记录的词法器 UTF-8 bug（传入的 lexeme 字节已损坏）。M1b 仅把 codecvt 的静默替换改为显式报错，**无回归**（前后均为 4 通过 / 7 失败）。
+
+### M2 · 语义错误上报 & 前端 UTF-8 健壮性
 - [ ] `main.cpp` 在语义分析后检查 `analyzer.has_errors()` 并打印 `get_errors()`
 - [ ] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
+- [ ] 修复语义分析对未声明函数调用（如 `print(a)`）疑似死循环
+
+**词法器 UTF-8 bug（`lexer_tests` 基线：4 通过 / 7 失败，均为既有问题）**
+- [ ] `is_alpha`/`is_alphanumeric` 仅认 ASCII，非 ASCII UTF-8 首字节直接报 `Unexpected character`（`lexer.cpp:200/300-306`）——影响 `StringLiterals`/`UTF16Characters`/`ChineseIdentifiers`
+- [ ] 字符串扫描丢失首个多字节字符的第一个字节（`Utf8Characters`：`你`=`E4 BD A0` 实际从 `BD A0` 开始）
+- [ ] lexer 不校验 UTF-8，`InvalidUtf8` 期望抛 `LexError` 却未抛
+- [ ] `MultilineStrings` token 数量不符（10 vs 5）
 
 ### M3 · 工程化（CI）
 - [ ] GitHub Actions：Windows + Linux 矩阵，cmake configure → build → ctest
@@ -130,6 +140,9 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `refactor(lexer)`: 新增 `utf_convert.h` 手写 UTF-8↔UTF-16，移除 `token.h`/`lexer.cpp` 的 codecvt 与 Windows 专属 API（M1b）
+- 2026-07-25 `refactor(compiler)`: `main.cpp` 改为二进制 UTF-8 字节读取，`#ifdef _WIN32` 隔离平台代码（M1a）
 
 - 2026-07-24 `build(cmake)`: 退役旧自研 IR（删除 `ir/` 及相关测试），修复并解耦测试构建，GoogleTest 改为可选 + 离线友好
 - 2026-07-24 `docs`: 新增本进度文档与 prompt 归档

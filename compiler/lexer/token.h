@@ -7,11 +7,7 @@
 
 #include <string>
 #include <string_view>
-#include <codecvt>
-#include <locale>
-#ifdef _WIN32
-#include <Windows.h>
-#endif
+#include "utf_convert.h"
 
 namespace collie {
 
@@ -143,19 +139,7 @@ public:
 
     // 获取UTF-16字符串
     std::u16string lexeme_utf16() const {
-#ifdef _WIN32
-        // 先转换为宽字符
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, lexeme_.c_str(), (int)lexeme_.size(), nullptr, 0);
-        std::wstring wstr(size_needed, 0);
-        MultiByteToWideChar(CP_UTF8, 0, lexeme_.c_str(), (int)lexeme_.size(), &wstr[0], size_needed);
-
-        // 再转换为 UTF-16
-        return std::u16string(reinterpret_cast<const char16_t*>(wstr.c_str()), wstr.size());
-#else
-        // 非 Windows 平台暂时保持原样
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-        return converter.from_bytes(lexeme_);
-#endif
+        return utf8_to_utf16(lexeme_);
     }
 
 private:

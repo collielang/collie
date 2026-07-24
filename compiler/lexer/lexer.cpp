@@ -4,11 +4,8 @@
  * @Description: 词法分析器实现，包含 UTF-8/UTF-16 编码支持
  */
 #include "lexer.h"
+#include "utf_convert.h"
 #include <stdexcept>
-#include <codecvt>
-#ifdef _WIN32
-#include <Windows.h>
-#endif
 
 namespace collie {
 
@@ -16,8 +13,7 @@ Lexer::Lexer(std::string_view source, Encoding encoding)
     : source_(source), position_(0), line_(1), column_(1), encoding_(encoding) {
     if (encoding == Encoding::UTF16) {
         try {
-            std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-            source_utf16_ = converter.from_bytes(std::string(source));
+            source_utf16_ = utf8_to_utf16(source);
             utf16_position_ = 0;
         } catch (const std::exception&) {
             throw LexError("Invalid UTF-16 sequence", line_, column_);
@@ -594,10 +590,9 @@ Token Lexer::scan_utf16_character() {
     advance_utf16(); // 消费结束的单引号
 
     // 转换回 UTF-8 用于存储
-    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
     std::string utf8_value;
     try {
-        utf8_value = converter.to_bytes(value);
+        utf8_value = utf16_to_utf8(value);
     } catch (const std::exception&) {
         return make_error_token("Invalid UTF-16 sequence");
     }
@@ -606,16 +601,8 @@ Token Lexer::scan_utf16_character() {
 }
 
 std::string utf16_to_utf8(const std::u16string& utf16str) {
-#ifdef _WIN32
-    const wchar_t* wstr = reinterpret_cast<const wchar_t*>(utf16str.c_str());
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr, (int)utf16str.size(), nullptr, 0, nullptr, nullptr);
-    std::string utf8str(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr, (int)utf16str.size(), &utf8str[0], size_needed, nullptr, nullptr);
-    return utf8str;
-#else
-    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> converter;
-    return converter.to_bytes(utf16str);
-#endif
+    // 委托给平台无关的 collie::utf16_to_utf8(std::u16string_view)
+    return collie::utf16_to_utf8(std::u16string_view(utf16str));
 }
 
 /**
