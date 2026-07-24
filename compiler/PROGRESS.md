@@ -51,9 +51,16 @@
 - [ ] 更新 `compiler/README.md` 中过时的进度描述（当前仍写 IR 已完成）
 
 ### M1 · 跨平台 & 编码统一
-- [ ] `main.cpp` 改为二进制读取源文件、全程 UTF-8 `std::string`
-- [ ] 移除 `std::codecvt` / `std::wstring_convert` 用法
-- [ ] `#include <Windows.h>` 等平台代码用 `#ifdef _WIN32` 隔离
+**M1a · `main.cpp` 编码/平台隔离（已完成）**
+- [x] `main.cpp` 改为二进制读取源文件、全程 UTF-8 `std::string`（含跳过 UTF-8 BOM）
+- [x] 移除 `main.cpp` 中的 `std::codecvt` / `std::wstring_convert` / `wifstream` 用法
+- [x] `#include <Windows.h>` 用 `#ifdef _WIN32` 隔离（`SetConsoleOutputCP` 已在 `_WIN32` 内）
+- [x] VS2026 实测编译通过；UTF-8 源文件（含中文注释）读取与词法输出正确
+
+**M1b · 词法层 codecvt 移除（待做）**
+- [ ] 用手写 UTF-8↔UTF-16 辅助函数替换 `token.h` / `lexer.cpp` 中的 `codecvt_utf8_utf16`
+- [ ] 移除 `CMakeLists.txt` 中的 `_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING`
+- [ ] 保证 `lexeme_utf16()` 现有测试（`lexer_test.cpp`）仍通过
 - [ ] 在 gcc/clang（Linux）下验证可编译
 
 ### M2 · 语义错误上报
@@ -100,6 +107,7 @@
 | IR 删除不干净导致 test 构建失败 | 🔴 高 | M0 修复（移除 `ir` 链接与已删源文件引用） |
 | 跨平台是伪命题（无条件 `#include <Windows.h>`） | 🟠 中高 | M1 用 UTF-8 字节管线 + `#ifdef` 隔离 |
 | 语义错误被静默吞掉（main 不检查 errors） | 🟡 中 | M2 修复 |
+| 语义分析对未声明函数调用（如 `print(a)`）疑似死循环卡住 | 🟠 中高 | M2 排查（与 parser `object` 错误恢复卡死同属前端健壮性问题） |
 | `std::codecvt` 已弃用 | 🟡 中 | M1 随 UTF-8 管线一并移除 |
 | 设计愿景 > 已实现，文档多为占位 | 🟡 中 | M5 以实现为准逐步沉淀规范 |
 | 依赖在线拉取 GoogleTest | 🟢 低 | M0 改离线友好，评估 doctest |

@@ -10,9 +10,9 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <codecvt>
-#include <locale>
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 #include "lexer/lexer.h"
 #include "parser/parser.h"
 #include "semantic/semantic_analyzer.h"
@@ -58,41 +58,31 @@ int main(int argc, char* argv[]) {
         std::cout << "Reading file: " << filename << std::endl;
         flush_output();
 
-        // 以二进制模式打开文件并设置 UTF-8 编码
-        std::wifstream file(filename);
+        // 以二进制方式读取源文件，直接按 UTF-8 字节流处理（跨平台、无需编码转换）
+        std::ifstream file(filename, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "Error: Cannot open file " << filename << std::endl;
             flush_output();
             return 1;
         }
 
-        try {
-            file.imbue(std::locale(file.getloc(),
-                new std::codecvt_utf8<wchar_t, 0x10ffff, std::consume_header>));
-        } catch (const std::exception& e) {
-            std::cerr << "Error setting file encoding: " << e.what() << std::endl;
-            flush_output();
-            return 1;
-        }
-
-        std::wstringstream wss;
-        wss << file.rdbuf();
-        if (file.fail()) {
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        if (file.bad()) {
             std::cerr << "Error reading file content" << std::endl;
             flush_output();
             return 1;
         }
         file.close();
 
-        // 将宽字符串转换为 UTF-8 编码的字符串
-        std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-        std::string source;
-        try {
-            source = converter.to_bytes(wss.str());
-        } catch (const std::exception& e) {
-            std::cerr << "Error converting file content to UTF-8: " << e.what() << std::endl;
-            flush_output();
-            return 1;
+        std::string source = ss.str();
+
+        // 跳过可能存在的 UTF-8 BOM
+        if (source.size() >= 3 &&
+            static_cast<unsigned char>(source[0]) == 0xEF &&
+            static_cast<unsigned char>(source[1]) == 0xBB &&
+            static_cast<unsigned char>(source[2]) == 0xBF) {
+            source.erase(0, 3);
         }
 
         std::cout << std::endl;
