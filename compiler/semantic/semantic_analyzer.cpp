@@ -30,26 +30,14 @@ class SymbolTable;
 // -----------------------------------------------------------------------------
 
 void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& statements) {
-    // std::cout << "Starting semantic analysis..." << std::endl;
-    std::cout << "Number of statements to analyze: " << statements.size() << std::endl;
-    std::cout.flush();
-
     // 清理之前的状态
     reset_state();
-    std::cout << "State reset completed" << std::endl;
-    std::cout.flush();
 
     // 分析每个顶层语句
     for (const auto& stmt : statements) {
         try {
-            std::cout << "Analyzing statement..." << std::endl;
-            std::cout.flush();
             stmt->accept(*this);
-            std::cout << "Statement analysis completed" << std::endl;
-            std::cout.flush();
         } catch (const SemanticError& error) {
-            std::cout << "Caught semantic error: " << error.what() << std::endl;
-            std::cout.flush();
             record_error(error);
             if (!in_panic_mode_) {
                 enter_panic_mode();
@@ -57,14 +45,6 @@ void SemanticAnalyzer::analyze(const std::vector<std::unique_ptr<Stmt>>& stateme
             }
         }
     }
-
-    std::cout << "Semantic analysis completed" << std::endl;
-    if (has_errors()) {
-        std::cout << "Found " << errors_.size() << " semantic errors" << std::endl;
-    } else {
-        std::cout << "No semantic errors found" << std::endl;
-    }
-    std::cout.flush();
 }
 
 // -----------------------------------------------------------------------------
@@ -290,18 +270,10 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
 // 语句访问方法实现
 void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
     try {
-        std::cout << "Analyzing variable declaration..." << std::endl;
-        std::cout << "Variable name: " << stmt.name().lexeme() << std::endl;
-        std::cout << "Variable type token: " << token_type_to_string(stmt.type().type()) << std::endl;
-        std::cout << "Variable type lexeme: " << stmt.type().lexeme() << std::endl;
-        std::cout.flush();
-
         std::string name(stmt.name().lexeme());
 
         // 检查变量是否已在当前作用域中定义
         if (symbols_.is_defined_in_current_scope(name)) {
-            std::cout << "Error: Variable already defined in current scope" << std::endl;
-            std::cout.flush();
             throw SemanticError(
                 std::string("Variable '") + name + "' is already defined in this scope",
                 stmt.name().line(), stmt.name().column()
@@ -313,14 +285,10 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
         if (type_token == TokenType::IDENTIFIER) {
             // 如果是标识符，尝试将其解析为类型
             type_token = get_identifier_type(stmt.type().lexeme());
-            std::cout << "Resolved type token: " << token_type_to_string(type_token) << std::endl;
-            std::cout.flush();
         }
 
         // 检查是否是有效的类型
         if (!is_valid_type(type_token)) {
-            std::cout << "Error: Invalid type" << std::endl;
-            std::cout.flush();
             throw SemanticError(
                 std::string("Invalid type '") + std::string(stmt.type().lexeme()) + "'",
                 stmt.type().line(), stmt.type().column()
@@ -338,17 +306,11 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
 
         // 如果有初始化表达式，分析它
         if (stmt.initializer()) {
-            std::cout << "Analyzing initializer expression..." << std::endl;
-            std::cout.flush();
             stmt.initializer()->accept(*this);
             TokenType init_type = current_type_;
-            std::cout << "Initializer type: " << token_type_to_string(init_type) << std::endl;
-            std::cout.flush();
 
             // 检查类型兼容性
             if (!is_compatible_type(type_token, init_type)) {
-                std::cout << "Error: Type mismatch in initialization" << std::endl;
-                std::cout.flush();
                 throw SemanticError(
                     std::string("Cannot initialize variable of type '") +
                     token_type_to_string(type_token) +
@@ -360,18 +322,12 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
 
             // 标记变量已初始化
             symbol.is_initialized = true;
-            std::cout << "Variable successfully initialized" << std::endl;
-            std::cout.flush();
         }
 
         // 将符号添加到符号表
         symbols_.define(symbol);
-        std::cout << "Variable declaration analysis completed" << std::endl;
-        std::cout.flush();
 
     } catch (const SemanticError& error) {
-        std::cout << "Error in variable declaration: " << error.what() << std::endl;
-        std::cout.flush();
         record_error(error);
         if (!in_panic_mode_) {
             enter_panic_mode();
