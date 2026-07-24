@@ -20,7 +20,7 @@
 
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/t/collielang/collie)](https://github.com/collielang/collie/commits/) ![GitHub last commit](https://img.shields.io/github/last-commit/collielang/collie)
 
-{/* [![document](https://img.shields.io/badge/document-44BF16?logo=googledocs&logoColor=white)](https://collielang.github.io/collie/) */}
+ <!-- [![document](https://img.shields.io/badge/document-44BF16?logo=googledocs&logoColor=white)](https://collielang.github.io/collie/) -->
 
 **<u>Documentation</u>**<br>[English](https://collielang.github.io/collie/) | [简体中文](https://collielang.github.io/collie/zh-Hans/)
 </div>
