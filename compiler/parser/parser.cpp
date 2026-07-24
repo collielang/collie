@@ -50,6 +50,8 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
     std::vector<std::unique_ptr<Stmt>> statements;
 
     while (!is_at_end()) {
+        // 记录本轮开始前的游标位置，用于死循环防护
+        size_t before = current_;
         try {
             auto stmt = parse_declaration();
             if (stmt) {
@@ -60,6 +62,11 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
         } catch (const ParseError& error) {
             report_error(error);
             synchronize();
+        }
+        // 进度守卫：若本轮未消费任何 token（例如 synchronize 停在无法处理的
+        // 边界关键字上），强制前进一个 token，避免驱动循环死循环。
+        if (current_ == before && !is_at_end()) {
+            advance();
         }
     }
 
@@ -718,9 +725,18 @@ std::unique_ptr<Stmt> Parser::parse_block_statement() {
     check_max_nesting_depth();
 
     while (!check(TokenType::DELIMITER_RBRACE) && !is_at_end()) {
+        // 记录本轮开始前的游标位置，用于死循环防护
+        size_t before = current_;
         auto stmt = parse_declaration();
         if (stmt) {
             statements.push_back(std::move(stmt));
+        } else {
+            synchronize();
+        }
+        // 进度守卫：若本轮未消费任何 token，强制前进一个 token，
+        // 避免块语句驱动循环死循环。
+        if (current_ == before && !check(TokenType::DELIMITER_RBRACE) && !is_at_end()) {
+            advance();
         }
     }
 

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-24
+最后更新：2026-07-25
 
 ---
 
@@ -69,7 +69,16 @@
 ### M2 · 语义错误上报 & 前端 UTF-8 健壮性
 - [ ] `main.cpp` 在语义分析后检查 `analyzer.has_errors()` 并打印 `get_errors()`
 - [ ] 有语义错误时以非零退出码结束，不再打印 "Compilation successful!"
-- [ ] 修复语义分析对未声明函数调用（如 `print(a)`）疑似死循环
+- [x] 修复语义分析对未声明函数调用（如 `print(a)`）死循环
+
+**前端死循环修复（parser + semantic，已修复：两处独立死循环不再卡死）**
+- [x] `parser.cpp`：`parse_program` / `parse_block_statement` 驱动循环加**进度守卫**（记录游标前值，若本轮未推进则强制 `advance()`）——修复 `synchronize()` 停在无消费规则的边界关键字（如 `class Foo {}` 的 `KW_CLASS`）导致的死循环（原会输出 >20MB）
+- [x] `semantic_analyzer.cpp`：`synchronize()` 在 `tokens_` 为空（主程序路径未调用 `set_tokens`）或已到序列末尾时直接 `exit_panic_mode` 并返回；`advance_token()` 增加 `!tokens_.empty()` 守卫防 `size()-1` 下溢——修复 `print(a)` 触发未定义函数错误后的死循环
+- [x] `tests/parser_test.cpp`：补 `#include <windows.h>` / `<io.h>`（原仅 `<fcntl.h>`，`SetConsoleOutputCP`/`_setmode` 在 Windows 无法编译），使 `parser_tests` 可在 Windows 构建
+
+> 复现与验证：`number a=1; print(a);`（语义挂起）与 `class Foo {}`（解析器挂起，输出 >20MB）修复后均正常退出。
+> 回归验证：将 `parser.cpp` 回退到 HEAD 对比，`parser_tests` 前后**同为 5 通过 / 9 失败**，证明本次改动零回归；这 9 个失败是**预存**的解析器逻辑 bug（赋值/函数调用参数解析等），因 `parser_test.cpp` 此前在 Windows 无法编译而从未被执行到，待后续单独处理。
+> `semantic_tests` 目标因**预存**损坏文件 `semantic_test.cpp`（使用过时 API：`Parser(lexer)`、`analyze(stmt.get())`）无法编译，语义恢复测试暂无法运行，待后续单独修复。
 
 **词法器 UTF-8 bug（已修复：`lexer_tests` 从 4 通过 / 7 失败 → 11 全绿）**
 - [x] `next_token` 改为 peek 分类不预消费，各 `scan_*` 自行消费定界符；非 ASCII（UTF-8 首字节 `>= 0x80`）派发到 `scan_identifier`
@@ -118,7 +127,7 @@
 | IR 删除不干净导致 test 构建失败 | 🔴 高 | M0 修复（移除 `ir` 链接与已删源文件引用） |
 | 跨平台是伪命题（无条件 `#include <Windows.h>`） | 🟠 中高 | M1 用 UTF-8 字节管线 + `#ifdef` 隔离 |
 | 语义错误被静默吞掉（main 不检查 errors） | 🟡 中 | M2 修复 |
-| 语义分析对未声明函数调用（如 `print(a)`）疑似死循环卡住 | 🟠 中高 | M2 排查（与 parser `object` 错误恢复卡死同属前端健壮性问题） |
+| 语义分析对未声明函数调用（如 `print(a)`）疑似死循环卡住 | ✅ 已修复 | M2：parser 驱动循环加进度守卫、semantic `synchronize`/`advance_token` 防空防下溢 |
 | `std::codecvt` 已弃用 | 🟡 中 | M1 随 UTF-8 管线一并移除 |
 | 设计愿景 > 已实现，文档多为占位 | 🟡 中 | M5 以实现为准逐步沉淀规范 |
 | 依赖在线拉取 GoogleTest | 🟢 低 | M0 改离线友好，评估 doctest |
@@ -142,6 +151,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-25 `fix(parser,semantic)`: 修复前端两处死循环（parser 驱动循环进度守卫、semantic `synchronize`/`advance_token` 防空/防下溢），补 `parser_test.cpp` 的 Windows 头文件（M2）
 - 2026-07-25 `fix(lexer)`: 修复 UTF-8 标识符/字符/字符串扫描（peek 分类、码点循环、UTF-8 校验、多行 dedent），`lexer_tests` 11 全绿（M2）
 - 2026-07-25 `build(compiler)`: GoogleTest 源码缓存到 build 之外的持久 `.deps/`，删 build 后重配不再联网（离线优化）
 - 2026-07-25 `refactor(lexer)`: 新增 `utf_convert.h` 手写 UTF-8↔UTF-16，移除 `token.h`/`lexer.cpp` 的 codecvt 与 Windows 专属 API（M1b）

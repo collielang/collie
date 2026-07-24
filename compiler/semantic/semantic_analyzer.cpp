@@ -86,6 +86,13 @@ void SemanticAnalyzer::exit_panic_mode() {
 void SemanticAnalyzer::synchronize() {
     // 找到下一个安全点
     while (in_panic_mode_) {
+        // 若没有可用的 token 序列（例如未调用 set_tokens），或已到达序列末尾，
+        // 则无法继续同步，直接退出恢复模式，避免死循环。
+        if (tokens_.empty() || current_token_index_ >= tokens_.size() - 1) {
+            exit_panic_mode();
+            return;
+        }
+
         // 在以下位置同步：
         // 1. 语句结束（分号）
         // 2. 函数定义开始
@@ -1100,7 +1107,7 @@ const Token& SemanticAnalyzer::peek_next() const {
 }
 
 void SemanticAnalyzer::advance_token() {
-    if (current_token_index_ < tokens_.size() - 1) {
+    if (!tokens_.empty() && current_token_index_ < tokens_.size() - 1) {
         ++current_token_index_;
     }
 }
