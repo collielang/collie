@@ -1,38 +1,67 @@
-TEST(SemanticAnalyzerTest, BreakContinueStatements) {
-    // 测试在循环内使用 break
-    {
-        std::string source = R"(
-            while (true) {
-                if (x > 10) break;
-            }
-        )";
-        Lexer lexer(source);
-        Parser parser(lexer);
-        auto stmt = parser.parse();
+/*
+ * @Author: Zhang Bokai <zbrook@126.com>
+ * @Date: 2025-01-05
+ * @Description: 语义层 break/continue 循环上下文检查测试
+ */
+#include <gtest/gtest.h>
+#include "../semantic/semantic_analyzer.h"
+#include "../parser/parser.h"
+#include "../lexer/lexer.h"
+#include "test_utils.h"
 
-        SemanticAnalyzer analyzer;
-        EXPECT_NO_THROW(analyzer.analyze(stmt.get()));
-    }
+using namespace collie;
 
-    // 测试在循环外使用 break（应该报错）
-    {
-        std::string source = "break;";
-        Lexer lexer(source);
-        Parser parser(lexer);
-        auto stmt = parser.parse();
+// break/continue 是否位于循环内属于上下文约束，由语义层负责检查（见 PROGRESS.md D9）：
+// 语法层（parser）只接受其语法，循环外使用应在语义分析阶段报错。
 
-        SemanticAnalyzer analyzer;
-        EXPECT_THROW(analyzer.analyze(stmt.get()), SemanticError);
-    }
+// 循环内使用 break：合法，不应产生语义错误
+TEST(SemanticBreakContinueTest, BreakInsideLoopIsValid) {
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
+        while (true) {
+            break;
+        }
+    )");
 
-    // 测试在循环外使用 continue（应该报错）
-    {
-        std::string source = "continue;";
-        Lexer lexer(source);
-        Parser parser(lexer);
-        auto stmt = parser.parse();
+    SemanticAnalyzer analyzer;
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
 
-        SemanticAnalyzer analyzer;
-        EXPECT_THROW(analyzer.analyze(stmt.get()), SemanticError);
-    }
+    EXPECT_FALSE(analyzer.has_errors());
+}
+
+// 循环内使用 continue：合法，不应产生语义错误
+TEST(SemanticBreakContinueTest, ContinueInsideLoopIsValid) {
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
+        while (true) {
+            continue;
+        }
+    )");
+
+    SemanticAnalyzer analyzer;
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_FALSE(analyzer.has_errors());
+}
+
+// 循环外使用 break：应报语义错误
+TEST(SemanticBreakContinueTest, BreakOutsideLoopIsError) {
+    auto [ast, tokens] = test::parse_and_get_tokens("break;");
+
+    SemanticAnalyzer analyzer;
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+// 循环外使用 continue：应报语义错误
+TEST(SemanticBreakContinueTest, ContinueOutsideLoopIsError) {
+    auto [ast, tokens] = test::parse_and_get_tokens("continue;");
+
+    SemanticAnalyzer analyzer;
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_TRUE(analyzer.has_errors());
 }
