@@ -1,5 +1,5 @@
 /*
- * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Author: Zhang Bokai <zbrook@126.com>
  * @Date: 2025-01-05
  * @Description: 语法分析器的实现，负责构建抽象语法树
  *

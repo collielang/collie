@@ -1,5 +1,5 @@
 /*
- * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Author: Zhang Bokai <zbrook@126.com>
  * @Date: 2025-01-05
  * @Description: 词法分析器实现，包含 UTF-8/UTF-16 编码支持
  */

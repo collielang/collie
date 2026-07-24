@@ -1,5 +1,5 @@
 /*
- * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Author: Zhang Bokai <zbrook@126.com>
  * @Date: 2024-01-07
  * @Description: 编译器版本信息工具类实现
  */

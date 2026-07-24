@@ -1,5 +1,5 @@
 /*
- * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Author: Zhang Bokai <zbrook@126.com>
  * @Description: 平台无关的 UTF-8 <-> UTF-16 转换辅助函数
  *
  * 取代已弃用的 std::codecvt / std::wstring_convert，也不再依赖

@@ -1,5 +1,5 @@
 /*
- * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Author: Zhang Bokai <zbrook@126.com>
  * @Date: 2025-01-05
  * @Description: 符号表的定义，用于管理变量和函数的作用域及类型信息
  */

@@ -1,5 +1,5 @@
 /*
- * @Author: Zhang Bokai <codingzhang@126.com>
+ * @Author: Zhang Bokai <zbrook@126.com>
  * @Date: 2025-01-05
  * @Description: 语法分析器的定义，负责将token序列解析为AST
  */
