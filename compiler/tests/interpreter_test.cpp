@@ -599,3 +599,68 @@ TEST(InterpreterEndToEnd, ArrayIndexOutOfRange) {
     collie::Interpreter interpreter(out);
     EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
 }
+
+// ---------------------------------------------------------------------------
+// 字符串索引（t24）：按 UTF-8 码点索引，返回单字符子串；支持负索引
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, StringIndexRead) {
+    EXPECT_EQ(run_source(R"(string s = "hello"; print(s[0], s[4]);)"), "h o\n");
+}
+
+TEST(InterpreterEndToEnd, StringNegativeIndex) {
+    EXPECT_EQ(run_source(R"(string s = "hello"; print(s[-1], s[-5]);)"), "o h\n");
+}
+
+TEST(InterpreterEndToEnd, StringIndexUnicode) {
+    // 按码点而非字节索引：中文字符占 3 字节但算 1 个字符
+    EXPECT_EQ(run_source(R"(string s = "牛→犬a"; print(s[0], s[1], s[2], s[3]);)"),
+              "牛 → 犬 a\n");
+}
+
+TEST(InterpreterEndToEnd, StringIndexInExpression) {
+    // 索引结果是 string，可参与拼接与比较
+    EXPECT_EQ(run_source(R"(
+        string s = "abc";
+        string r = s[2] + s[1] + s[0];
+        print(r, s[0] == "a");
+    )"),
+              "cba true\n");
+}
+
+TEST(InterpreterEndToEnd, StringIndexLoop) {
+    // 配合 len 遍历字符串
+    EXPECT_EQ(run_source(R"(
+        string s = "dog";
+        string r = "";
+        for (number i = 0; i < len(s); i += 1) {
+            r += s[i] + ".";
+        }
+        print(r);
+    )"),
+              "d.o.g.\n");
+}
+
+TEST(InterpreterEndToEnd, StringIndexOutOfRange) {
+    collie::Lexer lexer(R"(string s = "abc"; print(s[3]);)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, StringIndexAssignRejected) {
+    // 字符串不可变：索引赋值在语义层报错
+    collie::Lexer lexer(R"(string s = "abc"; s[0] = "x";)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}

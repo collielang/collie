@@ -245,18 +245,7 @@ void Interpreter::call_builtin_len(const CallExpr& expr) {
         throw RuntimeError(std::string("len() expects a string or array, got ") + v.kind_name(),
                            expr.paren().line(), expr.paren().column());
     }
-    const std::string& s = v.as_string();
-    size_t count = 0;
-    for (size_t i = 0; i < s.size(); ) {
-        unsigned char c = static_cast<unsigned char>(s[i]);
-        if ((c & 0x80) == 0)        i += 1;  // ASCII
-        else if ((c & 0xE0) == 0xC0) i += 2;
-        else if ((c & 0xF0) == 0xE0) i += 3;
-        else if ((c & 0xF8) == 0xF0) i += 4;
-        else                         i += 1;  // 非法字节：防御性前进
-        ++count;
-    }
-    result_ = Value::number(static_cast<double>(count));
+    result_ = Value::number(static_cast<double>(utf8_length(v.as_string())));
 }
 
 void Interpreter::call_builtin_to_string(const CallExpr& expr) {
@@ -336,20 +325,32 @@ void Interpreter::visitArrayLiteral(const ArrayLiteralExpr& expr) {
 
 void Interpreter::visitIndex(const IndexExpr& expr) {
     Value object = evaluate(expr.object());
+    Value index = evaluate(expr.index());
+    if (object.is_string()) {
+        // 字符串按 UTF-8 码点索引（与 len 一致），返回单字符子串
+        const std::string& s = object.as_string();
+        size_t i = normalize_index(index, utf8_length(s), expr.bracket());
+        result_ = Value::str(utf8_char_at(s, i));
+        return;
+    }
     if (!object.is_array()) {
-        throw RuntimeError(std::string("Only arrays can be indexed, got ") +
+        throw RuntimeError(std::string("Only arrays and strings can be indexed, got ") +
                                object.kind_name(),
                            expr.bracket().line(), expr.bracket().column());
     }
-    Value index = evaluate(expr.index());
     size_t i = normalize_index(index, object.as_array().size(), expr.bracket());
     result_ = object.as_array()[i];
 }
 
 void Interpreter::visitIndexAssign(const IndexAssignExpr& expr) {
     Value object = evaluate(expr.object());
+    if (object.is_string()) {
+        // 语义层已拦截静态可知的情况；这里防御 object 动态路径（如数组元素为字符串）
+        throw RuntimeError("Strings are immutable, cannot assign to index",
+                           expr.bracket().line(), expr.bracket().column());
+    }
     if (!object.is_array()) {
-        throw RuntimeError(std::string("Only arrays can be indexed, got ") +
+        throw RuntimeError(std::string("Only arrays can be index-assigned, got ") +
                                object.kind_name(),
                            expr.bracket().line(), expr.bracket().column());
     }
@@ -364,13 +365,13 @@ void Interpreter::visitIndexAssign(const IndexAssignExpr& expr) {
 size_t Interpreter::normalize_index(const Value& index, size_t size,
                                     const Token& bracket) {
     if (!index.is_number()) {
-        throw RuntimeError(std::string("Array index must be a number, got ") +
+        throw RuntimeError(std::string("Index must be a number, got ") +
                                index.kind_name(),
                            bracket.line(), bracket.column());
     }
     double raw = index.as_number();
     if (raw != std::floor(raw)) {
-        throw RuntimeError("Array index must be an integer",
+        throw RuntimeError("Index must be an integer",
                            bracket.line(), bracket.column());
     }
     long long i = static_cast<long long>(raw);
@@ -379,11 +380,43 @@ size_t Interpreter::normalize_index(const Value& index, size_t size,
         i += static_cast<long long>(size);
     }
     if (i < 0 || i >= static_cast<long long>(size)) {
-        throw RuntimeError("Array index " + index.to_string() +
+        throw RuntimeError("Index " + index.to_string() +
                                " out of range (size " + std::to_string(size) + ")",
                            bracket.line(), bracket.column());
     }
     return static_cast<size_t>(i);
+}
+
+namespace {
+/// UTF-8 首字节 → 码点字节长度（非法字节按 1 处理，防御性前进）
+size_t utf8_char_length(unsigned char c) {
+    if ((c & 0x80) == 0)    return 1;  // ASCII
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+}  // namespace
+
+size_t Interpreter::utf8_length(const std::string& s) {
+    size_t count = 0;
+    for (size_t i = 0; i < s.size(); ) {
+        i += utf8_char_length(static_cast<unsigned char>(s[i]));
+        ++count;
+    }
+    return count;
+}
+
+std::string Interpreter::utf8_char_at(const std::string& s, size_t index) {
+    size_t byte = 0;
+    for (size_t seen = 0; byte < s.size(); ++seen) {
+        size_t char_len = utf8_char_length(static_cast<unsigned char>(s[byte]));
+        if (seen == index) {
+            return s.substr(byte, char_len);
+        }
+        byte += char_len;
+    }
+    return "";  // 前置条件保证不到达（index < utf8_length(s)）
 }
 
 // -----------------------------------------------------------------------------

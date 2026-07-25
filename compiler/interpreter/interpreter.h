@@ -91,9 +91,15 @@ private:
     Value eval_comparison(const Token& op, const Value& left, const Value& right);
     static bool values_equal(const Value& left, const Value& right);
 
-    /// @brief 归一化数组索引（支持负索引，-1 为末尾），越界抛 RuntimeError
+    /// @brief 归一化索引（支持负索引，-1 为末尾），越界抛 RuntimeError
     static size_t normalize_index(const Value& index, size_t size,
                                   const Token& bracket);
+
+    /// @brief 统计 UTF-8 字符串的码点数（而非字节数）
+    static size_t utf8_length(const std::string& s);
+
+    /// @brief 取 UTF-8 字符串第 i 个码点（前置：i < utf8_length(s)），返回单字符子串
+    static std::string utf8_char_at(const std::string& s, size_t i);
 
     // 内建函数
     void call_builtin_print(const CallExpr& expr);

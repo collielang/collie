@@ -1305,10 +1305,11 @@ void SemanticAnalyzer::visitArrayLiteral(const ArrayLiteralExpr& expr) {
 
 void SemanticAnalyzer::visitIndex(const IndexExpr& expr) {
     try {
-        // 被索引对象必须是数组（object 动态放行，运行期再检查）
+        // 被索引对象必须是数组或字符串（object 动态放行，运行期再检查）
         expr.object()->accept(*this);
         TokenType object_type = current_type_;
         if (object_type != TokenType::KW_ARRAY &&
+            object_type != TokenType::KW_STRING &&
             object_type != TokenType::KW_OBJECT) {
             throw SemanticError(
                 std::string("Cannot index value of type '") +
@@ -1319,13 +1320,19 @@ void SemanticAnalyzer::visitIndex(const IndexExpr& expr) {
         // 索引必须是数值
         expr.index()->accept(*this);
         if (!is_compatible_type(TokenType::KW_NUMBER, current_type_)) {
-            throw SemanticError("Array index must be a number",
+            throw SemanticError("Index must be a number",
                 expr.bracket().line(), expr.bracket().column());
         }
 
-        // 元素类型未追踪，结果为 object（赋值给具体类型时动态放行）
-        // TODO(semantic): 追踪数组元素类型后返回精确类型。
-        current_type_ = TokenType::KW_OBJECT;
+        if (object_type == TokenType::KW_STRING) {
+            // 字符串索引返回单字符子串（设计稿：string 等价 char[]；
+            // 待 char 类型进入 Value 后改返 char）
+            current_type_ = TokenType::KW_STRING;
+        } else {
+            // 元素类型未追踪，结果为 object（赋值给具体类型时动态放行）
+            // TODO(semantic): 追踪数组元素类型后返回精确类型。
+            current_type_ = TokenType::KW_OBJECT;
+        }
 
     } catch (const SemanticError& error) {
         record_error(error);
@@ -1338,9 +1345,14 @@ void SemanticAnalyzer::visitIndex(const IndexExpr& expr) {
 
 void SemanticAnalyzer::visitIndexAssign(const IndexAssignExpr& expr) {
     try {
-        // 被索引对象必须是数组（object 动态放行，运行期再检查）
+        // 被索引赋值的对象必须是数组（object 动态放行，运行期再检查）；
+        // 字符串按值语义且不可变，不支持索引赋值
         expr.object()->accept(*this);
         TokenType object_type = current_type_;
+        if (object_type == TokenType::KW_STRING) {
+            throw SemanticError("Strings are immutable, cannot assign to index",
+                expr.bracket().line(), expr.bracket().column());
+        }
         if (object_type != TokenType::KW_ARRAY &&
             object_type != TokenType::KW_OBJECT) {
             throw SemanticError(

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t22 完成）
+最后更新：2026-07-25（t24 完成）
 
 ---
 
@@ -17,7 +17,7 @@
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -191,6 +191,11 @@
     - [x] 语义层：索引结果类型为 `object` 动态放行（is_compatible_type 双向放行、visitBinary 算术/比较放行，均带 TODO 待类型系统完善后收紧）
     - [x] 端到端测试：字面量打印/索引读/负索引/索引赋值/len/空数组/嵌套索引/引用语义/尾逗号/循环求和/越界报错（11 例全绿）
     - `interpreter_tests` 现 64 例全绿；未做：元素类型追踪、切片、索引复合赋值（`arr[i] +=`）
+- [x] **字符串索引（t24，已完成）**：
+    - [x] 语义层 `visitIndex` 允许 string 被索引，结果类型为 string（设计稿：string 等价 char[]，待 char 进入 Value 后改返 char）；`visitIndexAssign` 对 string 报错（字符串不可变）
+    - [x] 解释器：抽出 `utf8_length`/`utf8_char_at` 辅助（`len` 复用），`visitIndex` 按 **UTF-8 码点**索引返回单字符子串，复用 `normalize_index`（负索引/越界报错）；`visitIndexAssign` 防御 object 动态路径
+    - [x] 端到端测试：索引读/负索引/Unicode 码点索引/表达式中使用/len 配合循环遍历/越界报错/索引赋值被拒（7 例全绿）
+    - `interpreter_tests` 现 71 例全绿
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -249,6 +254,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(semantic,interpreter)`: 实现字符串索引：语义层允许 string 被索引（结果 string）且拒绝字符串索引赋值（不可变）；解释器抽出 utf8_length/utf8_char_at 辅助（len 复用），按 UTF-8 码点索引返回单字符子串，复用 normalize_index 支持负索引/越界报错；新增 7 个端到端测试；interpreter_tests 71 全绿（M4 t24）
 
 - 2026-07-25 `feat(lexer,parser,semantic,interpreter)`: 实现数组字面量与索引（basic 版）：注册 `array` 关键字、AST 新增 ArrayLiteralExpr/IndexExpr/IndexAssignExpr、parser 支持字面量（尾逗号）/链式索引/索引赋值重组、Value 新增 Array（shared_ptr 引用语义）、解释器支持负索引/越界报错/len(array)、语义层 object 动态放行（带 TODO 收紧）；新增 11 个端到端测试；interpreter_tests 64 全绿（M4 t22）
 
