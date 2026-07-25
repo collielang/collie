@@ -14,6 +14,11 @@ namespace {
 // 循环控制流通过异常在解释器内部传递，不对外暴露。
 struct BreakSignal {};
 struct ContinueSignal {};
+
+/// @brief 函数返回控制流信号，携带返回值。
+struct ReturnSignal {
+    Value value;
+};
 }  // namespace
 
 // -----------------------------------------------------------------------------
@@ -145,17 +150,52 @@ void Interpreter::visitAssign(const AssignExpr& expr) {
 }
 
 void Interpreter::visitCall(const CallExpr& expr) {
-    // v1 仅支持内建函数 print；用户自定义函数尚未实现。
+    // 内建函数 print
     const IdentifierExpr* callee = dynamic_cast<const IdentifierExpr*>(expr.callee());
     if (callee && callee->name().lexeme() == "print") {
         call_builtin_print(expr);
         return;
     }
-    // TODO(interpreter): 支持用户自定义函数的调用（查找 FunctionStmt、绑定参数、执行体、处理 return）。
-    std::string name = callee ? std::string(callee->name().lexeme()) : "<expr>";
-    throw RuntimeError("Call to unsupported function '" + name +
-                           "' (only builtin 'print' is supported for now)",
-                       expr.paren().line(), expr.paren().column());
+
+    // 用户自定义函数调用
+    Value callee_val = evaluate(expr.callee());
+    if (!callee_val.is_function()) {
+        std::string name = callee ? std::string(callee->name().lexeme()) : "<expr>";
+        throw RuntimeError("'" + name + "' is not a function",
+                           expr.paren().line(), expr.paren().column());
+    }
+
+    const FunctionStmt* fn = callee_val.as_function();
+
+    // 求值实参
+    std::vector<Value> args;
+    for (const auto& arg : expr.arguments()) {
+        args.push_back(evaluate(arg.get()));
+    }
+
+    // 参数数量检查（语义层已验证，此为解释器兆底保护）
+    if (args.size() != fn->parameters().size()) {
+        throw RuntimeError("Expected " + std::to_string(fn->parameters().size()) +
+                               " arguments but got " + std::to_string(args.size()),
+                           expr.paren().line(), expr.paren().column());
+    }
+
+    // 创建函数作用域并绑定形参
+    ScopeGuard guard(env_);
+    for (size_t i = 0; i < fn->parameters().size(); ++i) {
+        env_.define(std::string(fn->parameters()[i].name.lexeme()), args[i]);
+    }
+
+    // 执行函数体，捕获 ReturnSignal
+    try {
+        for (const auto& stmt : fn->body()->statements()) {
+            execute(stmt.get());
+        }
+        // 无显式 return —— 返回 none
+        result_ = Value::none();
+    } catch (const ReturnSignal& ret) {
+        result_ = ret.value;
+    }
 }
 
 void Interpreter::call_builtin_print(const CallExpr& expr) {
@@ -339,15 +379,15 @@ void Interpreter::visitFor(const ForStmt& stmt) {
 }
 
 void Interpreter::visitFunction(const FunctionStmt& stmt) {
-    // TODO(interpreter): 支持用户自定义函数（登记到环境并允许调用）。
-    throw RuntimeError("User-defined functions are not supported yet",
-                       stmt.name().line(), stmt.name().column());
+    // 将函数声明登记到当前作用域（与变量同层存储）。
+    // 函数值持有 FunctionStmt 的非拥有指针（AST 生命周期覆盖解释执行期）。
+    env_.define(std::string(stmt.name().lexeme()), Value::function(&stmt));
 }
 
 void Interpreter::visitReturn(const ReturnStmt& stmt) {
-    // TODO(interpreter): 随用户函数一并支持 return。
-    throw RuntimeError("'return' is only valid inside functions (not supported yet)",
-                       stmt.keyword().line(), stmt.keyword().column());
+    // 求值 return 表达式（若无表达式则返回 none），通过内部信号传播回 visitCall。
+    Value val = stmt.value() ? evaluate(stmt.value()) : Value::none();
+    throw ReturnSignal{val};
 }
 
 void Interpreter::visitClass(const ClassStmt& stmt) {

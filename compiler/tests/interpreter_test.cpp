@@ -96,3 +96,85 @@ TEST(InterpreterEndToEnd, BreakStopsLoop) {
 TEST(InterpreterEndToEnd, LogicalShortCircuit) {
     EXPECT_EQ(run_source("bool b = true && false; print(b);"), "false\n");
 }
+
+// ---- 用户自定义函数 (t11) ----
+
+TEST(InterpreterEndToEnd, BasicFunctionCall) {
+    EXPECT_EQ(run_source(R"(
+        function add(a number, b number) number {
+            return a + b;
+        }
+        print(add(3, 4));
+    )"), "7\n");
+}
+
+TEST(InterpreterEndToEnd, FunctionReturnString) {
+    EXPECT_EQ(run_source(R"(
+        function greet(name string) string {
+            return "Hello, " + name + "!";
+        }
+        print(greet("World"));
+    )"), "Hello, World!\n");
+}
+
+TEST(InterpreterEndToEnd, RecursiveFactorial) {
+    EXPECT_EQ(run_source(R"(
+        function factorial(n number) number {
+            if (n <= 1) {
+                return 1;
+            }
+            return n * factorial(n - 1);
+        }
+        print(factorial(5));
+    )"), "120\n");
+}
+
+TEST(InterpreterEndToEnd, NestedFunctionCalls) {
+    EXPECT_EQ(run_source(R"(
+        function double_val(x number) number {
+            return x * 2;
+        }
+        function add_one(x number) number {
+            return x + 1;
+        }
+        print(double_val(add_one(3)));
+    )"), "8\n");
+}
+
+TEST(InterpreterEndToEnd, VoidFunction) {
+    // 返回类型为 none 的函数，无显式 return
+    EXPECT_EQ(run_source(R"(
+        function say_hi() none {
+            print("hi");
+        }
+        say_hi();
+    )"), "hi\n");
+}
+
+TEST(InterpreterEndToEnd, FunctionWithLocalVariables) {
+    EXPECT_EQ(run_source(R"(
+        function sum_range(n number) number {
+            number total = 0;
+            number i = 1;
+            while (i <= n) {
+                total = total + i;
+                i = i + 1;
+            }
+            return total;
+        }
+        print(sum_range(10));
+    )"), "55\n");
+}
+
+TEST(InterpreterEndToEnd, EarlyReturn) {
+    EXPECT_EQ(run_source(R"(
+        function abs_val(x number) number {
+            if (x < 0) {
+                return -x;
+            }
+            return x;
+        }
+        print(abs_val(-7));
+        print(abs_val(3));
+    )"), "7\n3\n");
+}

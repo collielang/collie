@@ -37,11 +37,11 @@ private:
 /**
  * @brief 树遍历解释器
  *
- * v1 支持：字面量（数字/字符串/布尔）、算术/比较/逻辑运算、变量声明与读写、
- * if / while / for、break / continue，以及内建函数 print。
+ * 支持：字面量（数字/字符串/布尔）、算术/比较/逻辑运算、变量声明与读写、
+ * if / while / for、break / continue、用户自定义函数（声明/调用/return），以及内建函数 print。
  *
- * 暂不支持（会抛 RuntimeError）：用户自定义函数与调用、return、类、元组。
- * TODO(interpreter): 后续补齐用户函数调用（含 return）、类型检查/强转、元组等。
+ * 暂不支持（会抛 RuntimeError）：类、元组。
+ * TODO(interpreter): 后续补齐类型检查/强转、元组等。
  */
 class Interpreter : public ExprVisitor, public StmtVisitor {
 public:

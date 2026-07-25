@@ -418,6 +418,14 @@ private:
     Token consume(TokenType type, const std::string& message);
 
     /**
+     * @brief 消费一个类型标识（IDENTIFIER 或类型关键字如 number/string/bool/none/void 等）
+     * @param message 错误提示信息
+     * @return 消费的 token
+     * @throws ParseError 如果当前 token 不是合法类型标识
+     */
+    Token consume_type_token(const std::string& message);
+
+    /**
      * @brief 检查嵌套深度是否超过限制
      * @throws ParseError 如果超过最大嵌套深度
      */

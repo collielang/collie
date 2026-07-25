@@ -496,6 +496,34 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
             {}     // 参数列表先为空
         };
 
+        // 先收集参数列表（检查重名），填充函数符号的 parameters
+        std::vector<Symbol> param_symbols;
+        for (const auto& param : stmt.parameters()) {
+            // 检查参数名是否重复（在已收集的参数中查找）
+            for (const auto& prev : param_symbols) {
+                if (prev.name.lexeme() == param.name.lexeme()) {
+                    throw SemanticError("Duplicate parameter name '" +
+                        std::string(param.name.lexeme()) + "'",
+                        param.name.line(), param.name.column());
+                }
+            }
+
+            // 创建参数符号
+            Symbol param_symbol{
+                SymbolKind::PARAMETER,
+                param.type,
+                param.name,
+                symbols_.current_scope_level() + 1,  // 将在函数作用域内
+                true  // 参数总是已初始化的
+            };
+
+            function.parameters.push_back(param_symbol);
+            param_symbols.push_back(param_symbol);
+        }
+
+        // 在当前作用域定义函数（此时已有完整参数列表）——允许递归调用
+        symbols_.define(function);
+
         // 保存当前函数以供 return 语句检查
         Symbol* previous_function = current_function_;
         current_function_ = &function;
@@ -506,28 +534,9 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
         // 重置返回值标记
         has_return_ = false;
 
-        // 处理参数
-        for (const auto& param : stmt.parameters()) {
-            // 检查参数名是否重复
-            if (symbols_.is_defined_in_current_scope(std::string(param.name.lexeme()))) {
-                throw SemanticError("Duplicate parameter name '" +
-                    std::string(param.name.lexeme()) + "'",
-                    param.name.line(), param.name.column());
-            }
-
-            // 创建参数符号
-            Symbol param_symbol{
-                SymbolKind::PARAMETER,
-                param.type,
-                param.name,
-                symbols_.current_scope_level(),
-                true  // 参数总是已初始化的
-            };
-
-            // 添加到函数的参数列表
-            function.parameters.push_back(param_symbol);
-            // 添加到当前作用域
-            symbols_.define(param_symbol);
+        // 将参数符号注册到函数作用域
+        for (const auto& ps : param_symbols) {
+            symbols_.define(ps);
         }
 
         // 分析函数体
@@ -545,8 +554,6 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
         // 恢复之前的函数上下文
         current_function_ = previous_function;
 
-        // 将函数添加到当前作用域
-        symbols_.define(function);
     } catch (const SemanticError& error) {
         record_error(error);
         if (!in_panic_mode_) {

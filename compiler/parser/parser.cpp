@@ -490,6 +490,20 @@ Token Parser::consume(TokenType type, const std::string& message) {
     throw ParseError(message, peek().line(), peek().column());
 }
 
+Token Parser::consume_type_token(const std::string& message) {
+    // 接受 IDENTIFIER 或任何类型关键字作为合法的类型标识
+    TokenType t = peek().type();
+    if (t == TokenType::IDENTIFIER ||
+        t == TokenType::KW_NUMBER  || t == TokenType::KW_STRING ||
+        t == TokenType::KW_BOOL    || t == TokenType::KW_NONE   ||
+        t == TokenType::KW_VOID    || t == TokenType::KW_CHAR   ||
+        t == TokenType::KW_CHARACTER || t == TokenType::KW_BYTE ||
+        t == TokenType::KW_WORD) {
+        return advance();
+    }
+    throw ParseError(message, peek().line(), peek().column());
+}
+
 bool Parser::check(TokenType type) const {
     if (is_at_end()) {
         return false;
@@ -880,14 +894,14 @@ std::unique_ptr<Stmt> Parser::parse_function_declaration() {
             }
 
             Token param_name = consume(TokenType::IDENTIFIER, "Expect parameter name.");
-            Token param_type = consume(TokenType::IDENTIFIER, "Expect parameter type.");
+            Token param_type = consume_type_token("Expect parameter type.");
             parameters.emplace_back(Parameter{param_type, param_name});
         } while (match(TokenType::DELIMITER_COMMA));
     }
     consume(TokenType::DELIMITER_RPAREN, "Expect ')' after parameters.");
 
     // 解析返回类型
-    Token return_type = consume(TokenType::IDENTIFIER, "Expect function return type.");
+    Token return_type = consume_type_token("Expect function return type.");
 
     // 解析函数体
     consume(TokenType::DELIMITER_LBRACE, "Expect '{' before function body.");
