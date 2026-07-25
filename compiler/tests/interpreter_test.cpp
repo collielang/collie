@@ -178,3 +178,35 @@ TEST(InterpreterEndToEnd, EarlyReturn) {
         print(abs_val(3));
     )"), "7\n3\n");
 }
+
+// ---- const 变量保护 (t14) ----
+
+TEST(InterpreterEndToEnd, ConstVariableDeclaration) {
+    // const 变量可以正常声明并读取
+    EXPECT_EQ(run_source("const number x = 42; print(x);"), "42\n");
+}
+
+TEST(InterpreterEndToEnd, ConstStringVariable) {
+    EXPECT_EQ(run_source(R"(const string msg = "hello"; print(msg);)"), "hello\n");
+}
+
+TEST(InterpreterEndToEnd, ConstAssignmentError) {
+    // const 变量不允许重新赋值，应抛出 RuntimeError
+    const std::string source = "const number x = 42; x = 99; print(x);";
+    collie::Lexer lexer(source);
+    auto tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, MutableVariableStillWorks) {
+    // 非 const 变量仍可正常重新赋值
+    EXPECT_EQ(run_source("number x = 1; x = 2; print(x);"), "2\n");
+}

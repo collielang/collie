@@ -85,6 +85,9 @@ std::vector<std::unique_ptr<Stmt>> Parser::parse_program() {
  */
 std::unique_ptr<Stmt> Parser::parse_declaration() {
     try {
+        // const 前缀：`const number x = 42;`
+        bool is_const = match(TokenType::KW_CONST);
+
         // 检查是否是类型名开头的变量声明
         if (match({TokenType::KW_NUMBER,
                   TokenType::KW_STRING,
@@ -100,7 +103,12 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
                   TokenType::KW_DECIMAL,
                   TokenType::KW_TRIBOOL,
                   TokenType::KW_BIT})) {
-            return parse_type_declaration();
+            return parse_type_declaration(is_const);
+        }
+
+        // const 后面必须跟类型名，否则报错
+        if (is_const) {
+            throw error(peek(), "Expect type name after 'const'.");
         }
 
         // 自定义类型需要特殊处理
@@ -136,7 +144,7 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
  * @brief 解析类型声明语句
  * @return 变量声明的AST节点
  */
-std::unique_ptr<Stmt> Parser::parse_type_declaration() {
+std::unique_ptr<Stmt> Parser::parse_type_declaration(bool is_const) {
     try {
         // 记录类型 token
         Token type = previous();
@@ -159,7 +167,7 @@ std::unique_ptr<Stmt> Parser::parse_type_declaration() {
         // 确保语句以分号结束
         consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after variable declaration.");
 
-        return std::make_unique<VarDeclStmt>(type, name, std::move(initializer));
+        return std::make_unique<VarDeclStmt>(type, name, std::move(initializer), is_const);
 
     } catch (const ParseError& error) {
         report_error(error);

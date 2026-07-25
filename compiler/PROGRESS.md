@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t13 完成）
+最后更新：2026-07-25（t14 完成）
 
 ---
 
@@ -17,7 +17,7 @@
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/block/return/break/continue |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写、if/while/for、break/continue、内建 `print`、**用户自定义函数（声明/调用/return/递归）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for、break/continue、内建 `print`、**用户自定义函数（声明/调用/return/递归）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -128,7 +128,13 @@
     - 语义层修复：函数符号在体分析前定义（支持递归）；parser `consume_type_token` 接受类型关键字（number/string/bool/none）
     - 新增端到端测试：基本调用、字符串返回、递归（阶乘）、嵌套调用、void、局部变量、提前 return（7 例全绿，总计 18 例）
 - [x] **恢复 DISABLED_ 语义测试第一批（t13，已完成）**：将 5 个 DISABLED_ 用例（`ControlFlow`、`Scopes`、`Functions`、`ReturnStatement`、`FunctionScope`）从旧 `EXPECT_THROW` 范式迁移到 `has_errors()`/`get_errors()` 新 API，改用 function 关键字语法，单独 analyzer 实例避免符号表累积；`semantic_tests` 现 21 通过 / 32 禁用（从 16/37）
-- [ ] 解释器 const 保护 + 运行期类型检查（t14，待排期）：`visitVarDecl` 标记 const、`visitAssign` 拒绝 const 赋值；声明类型与初始值类型校验
+- [x] **解释器 const 变量保护（t14，已完成）**：
+    - [x] `Environment` 改为 `Binding{value, is_const}` 结构追踪 const 属性；新增 `is_const()` 查询
+    - [x] `visitVarDecl` 将 `stmt.is_const()` 传递给 `env_.define()`
+    - [x] `visitAssign` 赋值前检查 `env_.is_const()`，const 变量抛 RuntimeError
+    - [x] parser `parse_declaration` 识别 `KW_CONST` 前缀并传递 `is_const=true` 给 `VarDeclStmt`
+    - [x] 补充 interpreter 端到端测试（const 声明正常使用、const 重赋值报错，4 例全绿，总计 22 例）
+- [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
 ### M5 · 语言规范 & 语法闭环（持续）
@@ -186,6 +192,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(interpreter,parser)`: 实现 const 变量保护：Environment 改为 Binding{value,is_const} 结构追踪常量属性；visitAssign 赋值前检查 is_const 并抛 RuntimeError；parser 识别 KW_CONST 前缀创建 is_const=true 的 VarDeclStmt；新增 4 个端到端测试（const 声明/读取/重赋值报错/mutable 对照），interpreter_tests 22 例全绿（M4/t14）
 
 - 2026-07-25 `test(semantic)`: 恢复 5 个 DISABLED_ 语义测试用例（ControlFlow/Scopes/Functions/ReturnStatement/FunctionScope）：从旧 EXPECT_THROW 范式迁移到 has_errors/get_errors 新 API，改用 function 关键字语法，每子用例独立 analyzer；`semantic_tests` 现 21 通过 / 32 禁用（M4/t13）
 

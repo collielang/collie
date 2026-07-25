@@ -448,7 +448,7 @@ private:
      * @brief 解析类型声明语句
      * @return 变量声明的AST节点
      */
-    std::unique_ptr<Stmt> parse_type_declaration();
+    std::unique_ptr<Stmt> parse_type_declaration(bool is_const = false);
 
     /**
      * @brief 获取下一个token

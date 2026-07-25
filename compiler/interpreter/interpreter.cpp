@@ -140,6 +140,12 @@ void Interpreter::visitUnary(const UnaryExpr& expr) {
 
 void Interpreter::visitAssign(const AssignExpr& expr) {
     const Token& name = expr.name();
+    // const 保护：禁止对常量重新赋值
+    if (env_.is_const(std::string(name.lexeme()))) {
+        throw RuntimeError("Cannot assign to constant '" +
+                               std::string(name.lexeme()) + "'",
+                           name.line(), name.column());
+    }
     Value value = evaluate(expr.value());
     if (!env_.assign(std::string(name.lexeme()), value)) {
         throw RuntimeError("Assignment to undefined variable '" +
@@ -331,7 +337,7 @@ void Interpreter::visitExpression(const ExpressionStmt& stmt) {
 void Interpreter::visitVarDecl(const VarDeclStmt& stmt) {
     // TODO(interpreter): 依据声明类型做类型检查/隐式转换，目前按动态类型直接绑定初始值。
     Value value = stmt.initializer() ? evaluate(stmt.initializer()) : Value::none();
-    env_.define(std::string(stmt.name().lexeme()), value);
+    env_.define(std::string(stmt.name().lexeme()), value, stmt.is_const());
 }
 
 void Interpreter::visitBlock(const BlockStmt& stmt) {

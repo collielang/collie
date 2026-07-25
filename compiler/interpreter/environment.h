@@ -17,7 +17,7 @@ namespace collie {
  * @brief 变量作用域链
  *
  * 用作用域栈实现变量的声明、读取与赋值。内层作用域可遮蔽外层的同名变量；
- * 读取/赋值按从内到外的顺序查找。
+ * 读取/赋值按从内到外的顺序查找。支持 const 变量保护。
  */
 class Environment {
 public:
@@ -29,17 +29,26 @@ public:
     }
 
     /// @brief 在当前作用域声明变量（允许遮蔽外层同名变量）
-    void define(const std::string& name, const Value& value) {
-        scopes_.back()[name] = value;
+    void define(const std::string& name, const Value& value, bool is_const = false) {
+        scopes_.back()[name] = Binding{value, is_const};
     }
 
-    /// @brief 从内到外查找变量，找到返回其指针，否则返回 nullptr
+    /// @brief 从内到外查找变量，找到返回其值指针，否则返回 nullptr
     Value* get(const std::string& name) {
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
-            if (found != it->end()) return &found->second;
+            if (found != it->end()) return &found->second.value;
         }
         return nullptr;
+    }
+
+    /// @brief 检查变量是否为 const（从内到外查找）
+    bool is_const(const std::string& name) const {
+        for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+            auto found = it->find(name);
+            if (found != it->end()) return found->second.is_const;
+        }
+        return false;
     }
 
     /// @brief 赋值到最近作用域中已声明的同名变量，成功返回 true
@@ -47,7 +56,7 @@ public:
         for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
             auto found = it->find(name);
             if (found != it->end()) {
-                found->second = value;
+                found->second.value = value;
                 return true;
             }
         }
@@ -55,7 +64,11 @@ public:
     }
 
 private:
-    std::vector<std::unordered_map<std::string, Value>> scopes_;
+    struct Binding {
+        Value value;
+        bool is_const = false;
+    };
+    std::vector<std::unordered_map<std::string, Binding>> scopes_;
 };
 
 /**
