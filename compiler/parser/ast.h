@@ -24,6 +24,9 @@ class UnaryExpr;
 class AssignExpr;
 class TernaryExpr;
 class CallExpr;
+class ArrayLiteralExpr;
+class IndexExpr;
+class IndexAssignExpr;
 class TupleExpr;
 class TupleMemberExpr;
 class ExpressionStmt;
@@ -287,6 +290,78 @@ private:
     Token question_token_;
     std::unique_ptr<Expr> then_expr_;
     std::unique_ptr<Expr> else_expr_;
+};
+
+/**
+ * @brief 数组字面量表达式
+ * 语法：`[expr, expr, ...]`，允许尾逗号，空数组为 `[]`
+ */
+class ArrayLiteralExpr : public Expr {
+public:
+    ArrayLiteralExpr(std::vector<std::unique_ptr<Expr>> elements, Token bracket)
+        : elements_(std::move(elements)), bracket_(bracket) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const std::vector<std::unique_ptr<Expr>>& elements() const { return elements_; }
+    const Token& bracket() const { return bracket_; }
+
+private:
+    std::vector<std::unique_ptr<Expr>> elements_;
+    Token bracket_;  // 左方括号位置，用于错误报告
+};
+
+/**
+ * @brief 索引读取表达式
+ * 语法：`object[index]`
+ */
+class IndexExpr : public Expr {
+public:
+    IndexExpr(std::unique_ptr<Expr> object, Token bracket,
+              std::unique_ptr<Expr> index)
+        : object_(std::move(object)), bracket_(bracket),
+          index_(std::move(index)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* object() const { return object_.get(); }
+    const Token& bracket() const { return bracket_; }
+    const Expr* index() const { return index_.get(); }
+
+    /// @brief 转移对象子表达式所有权（仅供 parser 重组为索引赋值节点使用）
+    std::unique_ptr<Expr> take_object() { return std::move(object_); }
+    /// @brief 转移索引子表达式所有权（仅供 parser 重组为索引赋值节点使用）
+    std::unique_ptr<Expr> take_index() { return std::move(index_); }
+
+private:
+    std::unique_ptr<Expr> object_;
+    Token bracket_;  // 左方括号位置，用于错误报告
+    std::unique_ptr<Expr> index_;
+};
+
+/**
+ * @brief 索引赋值表达式
+ * 语法：`object[index] = value`
+ */
+class IndexAssignExpr : public Expr {
+public:
+    IndexAssignExpr(std::unique_ptr<Expr> object, Token bracket,
+                    std::unique_ptr<Expr> index, std::unique_ptr<Expr> value)
+        : object_(std::move(object)), bracket_(bracket),
+          index_(std::move(index)), value_(std::move(value)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* object() const { return object_.get(); }
+    const Token& bracket() const { return bracket_; }
+    const Expr* index() const { return index_.get(); }
+    const Expr* value() const { return value_.get(); }
+
+private:
+    std::unique_ptr<Expr> object_;
+    Token bracket_;  // 左方括号位置，用于错误报告
+    std::unique_ptr<Expr> index_;
+    std::unique_ptr<Expr> value_;
 };
 
 /**
@@ -580,6 +655,15 @@ public:
 
     /// @brief 访问三元条件表达式
     virtual void visitTernary(const TernaryExpr& expr) = 0;
+
+    /// @brief 访问数组字面量表达式
+    virtual void visitArrayLiteral(const ArrayLiteralExpr& expr) = 0;
+
+    /// @brief 访问索引读取表达式
+    virtual void visitIndex(const IndexExpr& expr) = 0;
+
+    /// @brief 访问索引赋值表达式
+    virtual void visitIndexAssign(const IndexAssignExpr& expr) = 0;
 };
 
 /**

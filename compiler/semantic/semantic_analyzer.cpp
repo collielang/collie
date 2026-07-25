@@ -189,12 +189,19 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
             case TokenType::OP_MULTIPLY:
             case TokenType::OP_DIVIDE:
             case TokenType::OP_MODULO:
-                // 数值运算
-                if (!is_numeric_type(left_type) || !is_numeric_type(right_type)) {
+                // 数值运算（object 操作数动态放行，如数组索引结果，运行期再检查）
+                if ((!is_numeric_type(left_type) && left_type != TokenType::KW_OBJECT) ||
+                    (!is_numeric_type(right_type) && right_type != TokenType::KW_OBJECT)) {
                     throw SemanticError("Numeric operands expected for arithmetic operation",
                         expr.op().line(), expr.op().column());
                 }
-                current_type_ = common_type(left_type, right_type);
+                if (left_type == TokenType::KW_OBJECT ||
+                    right_type == TokenType::KW_OBJECT) {
+                    // 含动态操作数时结果按 number 处理
+                    current_type_ = TokenType::KW_NUMBER;
+                } else {
+                    current_type_ = common_type(left_type, right_type);
+                }
                 break;
 
             case TokenType::OP_EQUAL:
@@ -211,8 +218,9 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
             case TokenType::OP_GREATER_EQ:
             case TokenType::OP_LESS:
             case TokenType::OP_LESS_EQ:
-                // 关系比较
-                if (!is_ordered_type(left_type) || !is_ordered_type(right_type) ||
+                // 关系比较（object 操作数动态放行，运行期再检查）
+                if ((!is_ordered_type(left_type) && left_type != TokenType::KW_OBJECT) ||
+                    (!is_ordered_type(right_type) && right_type != TokenType::KW_OBJECT) ||
                     !is_compatible_type(left_type, right_type)) {
                     throw SemanticError("Invalid operands for comparison",
                         expr.op().line(), expr.op().column());
@@ -650,9 +658,11 @@ void SemanticAnalyzer::visitCall(const CallExpr& expr) {
                 expr.arguments()[0]->accept(*this);
                 TokenType arg_type = current_type_;
                 if (builtin->name().lexeme() == "len") {
-                    // len 仅接受 string
-                    if (arg_type != TokenType::KW_STRING) {
-                        throw SemanticError("len() expects a string argument",
+                    // len 接受 string 或 array（object 动态放行）
+                    if (arg_type != TokenType::KW_STRING &&
+                        arg_type != TokenType::KW_ARRAY &&
+                        arg_type != TokenType::KW_OBJECT) {
+                        throw SemanticError("len() expects a string or array argument",
                             builtin->name().line(), builtin->name().column());
                     }
                     current_type_ = TokenType::KW_NUMBER;
@@ -924,6 +934,13 @@ bool SemanticAnalyzer::is_string_convertible(TokenType type) const {
 bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) const {
     // 相同类型总是兼容的
     if (expected == actual) return true;
+
+    // object 是所有类型的父类型：任意值可赋给 object；
+    // object 赋给具体类型时动态放行（如数组索引结果），运行期再检查。
+    // TODO(semantic): object 向下转换应要求显式转换，待类型系统完善后收紧。
+    if (expected == TokenType::KW_OBJECT || actual == TokenType::KW_OBJECT) {
+        return true;
+    }
 
     // 检查数值类型的兼容性
     if (is_numeric_convertible(expected) && is_numeric_convertible(actual)) {
@@ -1267,6 +1284,92 @@ void SemanticAnalyzer::visitTernary(const TernaryExpr& expr) {
     }
 }
 
+void SemanticAnalyzer::visitArrayLiteral(const ArrayLiteralExpr& expr) {
+    try {
+        // 逐个分析元素表达式。
+        // TODO(semantic): 追踪元素类型并检查同质性，目前允许混合元素，
+        //   待类型系统支持 number[] / [number] 后再收紧。
+        for (const auto& element : expr.elements()) {
+            element->accept(*this);
+        }
+        current_type_ = TokenType::KW_ARRAY;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitIndex(const IndexExpr& expr) {
+    try {
+        // 被索引对象必须是数组（object 动态放行，运行期再检查）
+        expr.object()->accept(*this);
+        TokenType object_type = current_type_;
+        if (object_type != TokenType::KW_ARRAY &&
+            object_type != TokenType::KW_OBJECT) {
+            throw SemanticError(
+                std::string("Cannot index value of type '") +
+                token_type_to_string(object_type) + "'",
+                expr.bracket().line(), expr.bracket().column());
+        }
+
+        // 索引必须是数值
+        expr.index()->accept(*this);
+        if (!is_compatible_type(TokenType::KW_NUMBER, current_type_)) {
+            throw SemanticError("Array index must be a number",
+                expr.bracket().line(), expr.bracket().column());
+        }
+
+        // 元素类型未追踪，结果为 object（赋值给具体类型时动态放行）
+        // TODO(semantic): 追踪数组元素类型后返回精确类型。
+        current_type_ = TokenType::KW_OBJECT;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitIndexAssign(const IndexAssignExpr& expr) {
+    try {
+        // 被索引对象必须是数组（object 动态放行，运行期再检查）
+        expr.object()->accept(*this);
+        TokenType object_type = current_type_;
+        if (object_type != TokenType::KW_ARRAY &&
+            object_type != TokenType::KW_OBJECT) {
+            throw SemanticError(
+                std::string("Cannot index value of type '") +
+                token_type_to_string(object_type) + "'",
+                expr.bracket().line(), expr.bracket().column());
+        }
+
+        // 索引必须是数值
+        expr.index()->accept(*this);
+        if (!is_compatible_type(TokenType::KW_NUMBER, current_type_)) {
+            throw SemanticError("Array index must be a number",
+                expr.bracket().line(), expr.bracket().column());
+        }
+
+        // 元素类型未追踪，允许写入任意类型的值
+        expr.value()->accept(*this);
+
+        // 赋值表达式的类型为右侧值类型（current_type_ 已是 value 类型）
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 void SemanticAnalyzer::visitTupleType(const TupleType& type) {
     try {
         std::vector<TokenType> element_types;
@@ -1376,6 +1479,7 @@ bool SemanticAnalyzer::is_valid_type(TokenType type) const {
         case TokenType::KW_DECIMAL:
         case TokenType::KW_TRIBOOL:
         case TokenType::KW_BIT:
+        case TokenType::KW_ARRAY:
             return true;
         default:
             return false;

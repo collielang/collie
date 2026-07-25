@@ -230,15 +230,19 @@ void Interpreter::call_builtin_print(const CallExpr& expr) {
 }
 
 void Interpreter::call_builtin_len(const CallExpr& expr) {
-    // len(string)：返回 UTF-8 码点数（而非字节数）。
+    // len(string)：返回 UTF-8 码点数（而非字节数）；len(array)：返回元素个数。
     const auto& args = expr.arguments();
     if (args.size() != 1) {
         throw RuntimeError("len() expects exactly 1 argument",
                            expr.paren().line(), expr.paren().column());
     }
     Value v = evaluate(args[0].get());
+    if (v.is_array()) {
+        result_ = Value::number(static_cast<double>(v.as_array().size()));
+        return;
+    }
     if (!v.is_string()) {
-        throw RuntimeError(std::string("len() expects a string, got ") + v.kind_name(),
+        throw RuntimeError(std::string("len() expects a string or array, got ") + v.kind_name(),
                            expr.paren().line(), expr.paren().column());
     }
     const std::string& s = v.as_string();
@@ -319,6 +323,67 @@ void Interpreter::visitTernary(const TernaryExpr& expr) {
     } else {
         result_ = evaluate(expr.else_expr());
     }
+}
+
+void Interpreter::visitArrayLiteral(const ArrayLiteralExpr& expr) {
+    Value::ArrayStorage elements;
+    elements.reserve(expr.elements().size());
+    for (const auto& element : expr.elements()) {
+        elements.push_back(evaluate(element.get()));
+    }
+    result_ = Value::array(std::move(elements));
+}
+
+void Interpreter::visitIndex(const IndexExpr& expr) {
+    Value object = evaluate(expr.object());
+    if (!object.is_array()) {
+        throw RuntimeError(std::string("Only arrays can be indexed, got ") +
+                               object.kind_name(),
+                           expr.bracket().line(), expr.bracket().column());
+    }
+    Value index = evaluate(expr.index());
+    size_t i = normalize_index(index, object.as_array().size(), expr.bracket());
+    result_ = object.as_array()[i];
+}
+
+void Interpreter::visitIndexAssign(const IndexAssignExpr& expr) {
+    Value object = evaluate(expr.object());
+    if (!object.is_array()) {
+        throw RuntimeError(std::string("Only arrays can be indexed, got ") +
+                               object.kind_name(),
+                           expr.bracket().line(), expr.bracket().column());
+    }
+    Value index = evaluate(expr.index());
+    Value value = evaluate(expr.value());
+    size_t i = normalize_index(index, object.as_array().size(), expr.bracket());
+    // 数组为引用语义：写入共享底层存储，对所有持有者可见。
+    object.as_array()[i] = value;
+    result_ = value;  // 赋值表达式的值为右侧值，支持链式赋值
+}
+
+size_t Interpreter::normalize_index(const Value& index, size_t size,
+                                    const Token& bracket) {
+    if (!index.is_number()) {
+        throw RuntimeError(std::string("Array index must be a number, got ") +
+                               index.kind_name(),
+                           bracket.line(), bracket.column());
+    }
+    double raw = index.as_number();
+    if (raw != std::floor(raw)) {
+        throw RuntimeError("Array index must be an integer",
+                           bracket.line(), bracket.column());
+    }
+    long long i = static_cast<long long>(raw);
+    // 负索引：-1 表示最后一个元素
+    if (i < 0) {
+        i += static_cast<long long>(size);
+    }
+    if (i < 0 || i >= static_cast<long long>(size)) {
+        throw RuntimeError("Array index " + index.to_string() +
+                               " out of range (size " + std::to_string(size) + ")",
+                           bracket.line(), bracket.column());
+    }
+    return static_cast<size_t>(i);
 }
 
 // -----------------------------------------------------------------------------
@@ -418,6 +483,17 @@ bool Interpreter::values_equal(const Value& left, const Value& right) {
         case Value::Kind::Bool:   return left.as_bool() == right.as_bool();
         case Value::Kind::Number: return left.as_number() == right.as_number();
         case Value::Kind::String: return left.as_string() == right.as_string();
+        case Value::Kind::Array: {
+            // 数组按元素逐个深度比较
+            const auto& l = left.as_array();
+            const auto& r = right.as_array();
+            if (l.size() != r.size()) return false;
+            for (size_t i = 0; i < l.size(); ++i) {
+                if (!values_equal(l[i], r[i])) return false;
+            }
+            return true;
+        }
+        default: break;
     }
     return false;
 }

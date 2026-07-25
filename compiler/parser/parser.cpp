@@ -102,7 +102,8 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
                   TokenType::KW_INTEGER,
                   TokenType::KW_DECIMAL,
                   TokenType::KW_TRIBOOL,
-                  TokenType::KW_BIT})) {
+                  TokenType::KW_BIT,
+                  TokenType::KW_ARRAY})) {
             return parse_type_declaration(is_const);
         }
 
@@ -226,6 +227,17 @@ std::unique_ptr<Expr> Parser::parse_assignment() {
         if (auto* identifier = dynamic_cast<IdentifierExpr*>(expr.get())) {
             Token name = identifier->name();
             return std::make_unique<AssignExpr>(name, std::move(value));
+        }
+
+        // 索引赋值：arr[i] = value
+        if (auto* index = dynamic_cast<IndexExpr*>(expr.get())) {
+            // 从原 IndexExpr 中取回子表达式的所有权，重组为 IndexAssignExpr。
+            Token bracket = index->bracket();
+            auto object = index->take_object();
+            auto index_expr = index->take_index();
+            return std::make_unique<IndexAssignExpr>(
+                std::move(object), bracket, std::move(index_expr),
+                std::move(value));
         }
 
         throw error(equals, "Invalid assignment target.");
@@ -422,12 +434,46 @@ std::unique_ptr<Expr> Parser::parse_unary() {
     if (!expr) {
         throw error(peek(), "Expect expression.");
     }
+
+    // 后缀索引：expr[index]，支持链式（如二维数组 arr[i][j]）
+    while (check(TokenType::DELIMITER_LBRACKET)) {
+        Token bracket = advance();
+        auto index = parse_expression();
+        if (!index) {
+            throw error(peek(), "Expect index expression inside '[]'.");
+        }
+        consume(TokenType::DELIMITER_RBRACKET, "Expect ']' after index expression.");
+        expr = std::make_unique<IndexExpr>(std::move(expr), bracket,
+                                           std::move(index));
+    }
+
     return expr;
 }
 
 std::unique_ptr<Expr> Parser::parse_primary() {
     if (match(TokenType::LITERAL_NUMBER)) {
         return std::make_unique<LiteralExpr>(previous());
+    }
+
+    // 数组字面量：[a, b, c]，允许尾逗号，空数组为 []
+    if (check(TokenType::DELIMITER_LBRACKET)) {
+        Token bracket = advance();
+        std::vector<std::unique_ptr<Expr>> elements;
+        if (!check(TokenType::DELIMITER_RBRACKET)) {
+            do {
+                // 尾逗号：逗号后直接遇到 ']' 则结束
+                if (check(TokenType::DELIMITER_RBRACKET)) {
+                    break;
+                }
+                auto element = parse_expression();
+                if (!element) {
+                    throw error(peek(), "Expect expression in array literal.");
+                }
+                elements.push_back(std::move(element));
+            } while (match(TokenType::DELIMITER_COMMA));
+        }
+        consume(TokenType::DELIMITER_RBRACKET, "Expect ']' after array elements.");
+        return std::make_unique<ArrayLiteralExpr>(std::move(elements), bracket);
     }
 
     if (match(TokenType::LITERAL_STRING)) {

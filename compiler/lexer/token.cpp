@@ -24,6 +24,7 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"byte", TokenType::KW_BYTE},
     {"word", TokenType::KW_WORD},
     {"dword", TokenType::KW_DWORD},
+    {"array", TokenType::KW_ARRAY},
 
     // 控制流关键字
     {"if", TokenType::KW_IF},

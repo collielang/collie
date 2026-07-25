@@ -87,6 +87,37 @@ public:
         result_ += ")";
     }
 
+    void visitArrayLiteral(const ArrayLiteralExpr& expr) override {
+        std::string out = "[";
+        bool first = true;
+        for (const auto& element : expr.elements()) {
+            if (!first) out += ", ";
+            element->accept(*this);
+            out += result_;
+            first = false;
+        }
+        out += "]";
+        result_ = out;
+    }
+
+    void visitIndex(const IndexExpr& expr) override {
+        expr.object()->accept(*this);
+        std::string out = result_ + "[";
+        expr.index()->accept(*this);
+        out += result_ + "]";
+        result_ = out;
+    }
+
+    void visitIndexAssign(const IndexAssignExpr& expr) override {
+        expr.object()->accept(*this);
+        std::string out = result_ + "[";
+        expr.index()->accept(*this);
+        out += result_ + "] = ";
+        expr.value()->accept(*this);
+        out += result_;
+        result_ = out;
+    }
+
     std::string result() const { return result_; }
 
 private:

@@ -43,6 +43,18 @@ void TernaryExpr::accept(ExprVisitor& visitor) const {
     visitor.visitTernary(*this);
 }
 
+void ArrayLiteralExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitArrayLiteral(*this);
+}
+
+void IndexExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitIndex(*this);
+}
+
+void IndexAssignExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitIndexAssign(*this);
+}
+
 void CallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitCall(*this);
 }

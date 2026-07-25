@@ -499,3 +499,103 @@ TEST(InterpreterEndToEnd, BuiltinChained) {
         print(len(toString(12345)));
     )"), "5\n");
 }
+
+// ===== 数组字面量与索引 =====
+
+TEST(InterpreterEndToEnd, ArrayLiteralPrint) {
+    EXPECT_EQ(run_source(R"(
+        array a = [1, 2, 3];
+        print(a);
+    )"), "[1, 2, 3]\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayIndexRead) {
+    // 索引读取，并可赋给具体类型变量
+    EXPECT_EQ(run_source(R"(
+        array a = [10, 20, 30];
+        number x = a[0];
+        print(x, a[2]);
+    )"), "10 30\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayNegativeIndex) {
+    // 负索引：-1 为最后一个元素
+    EXPECT_EQ(run_source(R"(
+        array a = [1, 2, 3];
+        print(a[-1], a[-3]);
+    )"), "3 1\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayIndexAssign) {
+    EXPECT_EQ(run_source(R"(
+        array a = [1, 2, 3];
+        a[1] = 42;
+        print(a);
+    )"), "[1, 42, 3]\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayLen) {
+    EXPECT_EQ(run_source(R"(
+        array a = [5, 6, 7, 8];
+        print(len(a));
+    )"), "4\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayEmpty) {
+    EXPECT_EQ(run_source(R"(
+        array e = [];
+        print(len(e), e);
+    )"), "0 []\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayNestedIndex) {
+    // 嵌套数组与链式索引
+    EXPECT_EQ(run_source(R"(
+        array m = [[1, 2], [3, 4]];
+        print(m[0][1], m[1][0]);
+    )"), "2 3\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayReferenceSemantics) {
+    // 数组为引用语义：赋值后共享同一底层存储
+    EXPECT_EQ(run_source(R"(
+        array a = [1, 2];
+        array b = a;
+        b[0] = 9;
+        print(a[0]);
+    )"), "9\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayTrailingComma) {
+    // 尾逗号（语言设计稿约定支持）
+    EXPECT_EQ(run_source(R"(
+        array a = [1, 2, 3,];
+        print(len(a));
+    )"), "3\n");
+}
+
+TEST(InterpreterEndToEnd, ArraySumInLoop) {
+    // 循环遍历累加
+    EXPECT_EQ(run_source(R"(
+        array a = [10, 20, 30];
+        number s = 0;
+        for (number i = 0; i < len(a); i += 1) {
+            s += a[i];
+        }
+        print(s);
+    )"), "60\n");
+}
+
+TEST(InterpreterEndToEnd, ArrayIndexOutOfRange) {
+    // 越界访问抛运行时错误
+    collie::Lexer lexer("array a = [1, 2, 3]; print(a[3]);");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t19 完成）
+最后更新：2026-07-25（t22 完成）
 
 ---
 
@@ -15,9 +15,9 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`) |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -182,6 +182,15 @@
     - [x] 语义层特判扩展：单参校验 + 固定返回类型（len→number 且仅接受 string、toString→string、toNumber→number）
     - [x] 端到端测试：ASCII/Unicode/空串 len、toString 数字/bool、toNumber 整数/小数/bool、链式组合（9 例全绿）
     - `interpreter_tests` 现 53 例全绿
+- [x] **数组字面量与索引（basic 版，t22，已完成）**：
+    - [x] 词法层：`token.cpp` keywords 表注册 `array` 关键字（枚举 KW_ARRAY 早已存在但 lexer 不识别）
+    - [x] AST 新增 `ArrayLiteralExpr`/`IndexExpr`/`IndexAssignExpr` 三个节点 + visitor 接口；IndexExpr 提供 `take_object/take_index` 供 parser 安全重组
+    - [x] parser：`array` 类型声明、数组字面量 `[1,2,3]`（支持尾逗号，依设计稿 draft.md）、后缀索引循环（支持链式 `m[0][1]`）、`arr[i] = v` 重组为 IndexAssignExpr
+    - [x] `Value` 新增 Array 类型：`shared_ptr<vector<Value>>` 存储实现**引用语义**（`b=a` 后共享底层数组，与设计稿 `a[:]` 浅拷贝概念一致）
+    - [x] 解释器：字面量求值、索引读写、**负索引**（`a[-1]` 为末尾）、越界抛 RuntimeError、`len(array)`、print 输出 `[1, 2, 3]`、数组相等深度比较
+    - [x] 语义层：索引结果类型为 `object` 动态放行（is_compatible_type 双向放行、visitBinary 算术/比较放行，均带 TODO 待类型系统完善后收紧）
+    - [x] 端到端测试：字面量打印/索引读/负索引/索引赋值/len/空数组/嵌套索引/引用语义/尾逗号/循环求和/越界报错（11 例全绿）
+    - `interpreter_tests` 现 64 例全绿；未做：元素类型追踪、切片、索引复合赋值（`arr[i] +=`）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -240,6 +249,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(lexer,parser,semantic,interpreter)`: 实现数组字面量与索引（basic 版）：注册 `array` 关键字、AST 新增 ArrayLiteralExpr/IndexExpr/IndexAssignExpr、parser 支持字面量（尾逗号）/链式索引/索引赋值重组、Value 新增 Array（shared_ptr 引用语义）、解释器支持负索引/越界报错/len(array)、语义层 object 动态放行（带 TODO 收紧）；新增 11 个端到端测试；interpreter_tests 64 全绿（M4 t22）
 
 - 2026-07-25 `feat(interpreter,semantic)`: 新增内建函数 len/toString/toNumber：解释器实现 UTF-8 码点计数、任意值转字符串、string/bool/number 转数字（非法报运行时错误）；语义层特判扩展单参校验+固定返回类型；新增 9 个端到端测试；interpreter_tests 53 全绿（M4 t23）
 

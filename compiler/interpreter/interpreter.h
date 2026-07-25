@@ -62,6 +62,9 @@ private:
     void visitTuple(const TupleExpr& expr) override;
     void visitTupleMember(const TupleMemberExpr& expr) override;
     void visitTernary(const TernaryExpr& expr) override;
+    void visitArrayLiteral(const ArrayLiteralExpr& expr) override;
+    void visitIndex(const IndexExpr& expr) override;
+    void visitIndexAssign(const IndexAssignExpr& expr) override;
 
     // StmtVisitor 接口
     void visitExpression(const ExpressionStmt& stmt) override;
@@ -87,6 +90,10 @@ private:
     Value eval_arithmetic(const Token& op, const Value& left, const Value& right);
     Value eval_comparison(const Token& op, const Value& left, const Value& right);
     static bool values_equal(const Value& left, const Value& right);
+
+    /// @brief 归一化数组索引（支持负索引，-1 为末尾），越界抛 RuntimeError
+    static size_t normalize_index(const Value& index, size_t size,
+                                  const Token& bracket);
 
     // 内建函数
     void call_builtin_print(const CallExpr& expr);
