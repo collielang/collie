@@ -384,6 +384,18 @@ void Interpreter::visitFor(const ForStmt& stmt) {
     }
 }
 
+void Interpreter::visitDoWhile(const DoWhileStmt& stmt) {
+    do {
+        try {
+            execute(stmt.body());
+        } catch (const BreakSignal&) {
+            break;
+        } catch (const ContinueSignal&) {
+            continue;
+        }
+    } while (evaluate(stmt.condition()).is_truthy());
+}
+
 void Interpreter::visitFunction(const FunctionStmt& stmt) {
     // 将函数声明登记到当前作用域（与变量同层存储）。
     // 函数值持有 FunctionStmt 的非拥有指针（AST 生命周期覆盖解释执行期）。

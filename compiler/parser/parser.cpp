@@ -626,6 +626,9 @@ std::unique_ptr<Stmt> Parser::parse_statement() {
         if (match(TokenType::KW_FOR)) {
             return parse_for_statement();
         }
+        if (match(TokenType::KW_DO)) {
+            return parse_do_while_statement();
+        }
         if (match(TokenType::KW_RETURN)) {
             return parse_return_statement();
         }
@@ -696,6 +699,34 @@ std::unique_ptr<Stmt> Parser::parse_while_statement() {
         while_token,
         std::move(condition),
         std::move(body)
+    );
+}
+
+std::unique_ptr<Stmt> Parser::parse_do_while_statement() {
+    Token do_token = previous(); // KW_DO 已被 match 消费
+
+    // 增加循环嵌套深度
+    ++nesting_depth_;
+    check_max_nesting_depth();
+
+    // 解析循环体（必须是块语句）
+    consume(TokenType::DELIMITER_LBRACE, "Expect '{' after 'do'.");
+    auto body = parse_block_statement();
+
+    // 减少循环嵌套深度
+    --nesting_depth_;
+
+    // while (condition);
+    consume(TokenType::KW_WHILE, "Expect 'while' after do-while body.");
+    consume(TokenType::DELIMITER_LPAREN, "Expect '(' after 'while'.");
+    auto condition = parse_expression();
+    consume(TokenType::DELIMITER_RPAREN, "Expect ')' after do-while condition.");
+    consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after do-while statement.");
+
+    return std::make_unique<DoWhileStmt>(
+        do_token,
+        std::move(body),
+        std::move(condition)
     );
 }
 

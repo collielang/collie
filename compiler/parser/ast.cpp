@@ -63,6 +63,10 @@ void ForStmt::accept(StmtVisitor& visitor) const {
     visitor.visitFor(*this);
 }
 
+void DoWhileStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitDoWhile(*this);
+}
+
 void BreakStmt::accept(StmtVisitor& visitor) const {
     visitor.visitBreak(*this);
 }

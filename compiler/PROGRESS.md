@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t17 完成）
+最后更新：2026-07-25（t18 完成）
 
 ---
 
@@ -15,14 +15,14 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/block/return/break/continue |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/block/return/break/continue |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for、break/continue、内建 `print`、**用户自定义函数（声明/调用/return/递归）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while、break/continue、内建 `print`、**用户自定义函数（声明/调用/return/递归）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
 
-已知的语法「半截特性」（token 有、语法/语义未闭环）：`switch`、`do-while`、`class`、`tribool`、`==?`、tuple 成员访问等。
+已知的语法「半截特性」（token 有、语法/语义未闭环）：`switch`、`class`、`tribool`、`==?`、tuple 成员访问等。
 
 ---
 
@@ -148,6 +148,13 @@
     - [x] 拆分 `DISABLED_UnaryOperators`：数字取负/布尔取反恢复为 `UnaryOperators`（2 子用例），位取反(`~`)+类型错误(`!number`)拆为 `DISABLED_BitwiseNegateAndUnaryTypeCheck`
     - [x] 拆分 `DISABLED_BinaryOperators`：字符串连接/数值运算/比较运算/逻辑运算恢复为 `BinaryOperators`（4 子用例），char 字面量比较/位运算/类型错误检测拆为 `DISABLED_BitAndCharOperators`
     - `semantic_tests` 现 26 通过 / 30 禁用（从 24/30）
+- [x] **实现 do-while 循环（t18，已完成）**：
+    - [x] AST 新增 `DoWhileStmt` 节点 + `visitDoWhile` visitor 接口
+    - [x] parser 识别 `KW_DO`，解析 `do { body } while (condition);` 语法
+    - [x] 语义层 `visitDoWhile`：检查条件类型 + loop_depth_ 支持 break/continue
+    - [x] 解释器 `visitDoWhile`：先执行体再检查条件，支持 break/continue 信号
+    - [x] 端到端测试：基本循环/至少执行一次/break/continue（4 例全绿）+ 语义测试（break/continue in do-while 合法）
+    - `interpreter_tests` 现 26 例全绿，`semantic_tests` 27 通过 / 30 禁用
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -206,6 +213,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(parser,semantic,interpreter)`: 实现 do-while 循环：AST 新增 DoWhileStmt、parser 解析 `do {} while ();`、语义层条件类型检查+loop_depth_、解释器先执行体再检查条件；新增 4 个解释器端到端测试+1 个语义测试；interpreter_tests 26 全绿，semantic_tests 27/30（M4/M5 t18）
 
 - 2026-07-25 `test(semantic)`: 恢复一元/二元操作符 DISABLED_ 测试：拆分 UnaryOperators（数字取负+布尔取反通过，位取反+类型错误仍禁用）、BinaryOperators（字符串连接+数值+比较+逻辑通过，char/byte/类型错误仍禁用）；semantic_tests 26 通过 / 30 禁用（M4/t17）
 

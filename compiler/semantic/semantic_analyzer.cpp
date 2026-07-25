@@ -478,6 +478,30 @@ void SemanticAnalyzer::visitFor(const ForStmt& stmt) {
     }
 }
 
+void SemanticAnalyzer::visitDoWhile(const DoWhileStmt& stmt) {
+    try {
+        // 进入循环体
+        symbols_.begin_scope();
+        loop_depth_++;
+        stmt.body()->accept(*this);
+        loop_depth_--;
+        symbols_.end_scope();
+
+        // 检查条件表达式
+        stmt.condition()->accept(*this);
+        if (current_type_ != TokenType::KW_BOOL) {
+            throw SemanticError("Do-while condition must be a boolean expression",
+                stmt.do_token().line(), stmt.do_token().column());
+        }
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
     try {
         // 检查函数是否已在当前作用域中定义

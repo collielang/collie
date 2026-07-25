@@ -31,6 +31,7 @@ class BlockStmt;
 class IfStmt;
 class WhileStmt;
 class ForStmt;
+class DoWhileStmt;
 class FunctionStmt;
 class ReturnStmt;
 class ClassStmt;
@@ -366,6 +367,31 @@ private:
 };
 
 /**
+ * @brief do-while 循环语句
+ * 语法：`do { body } while (condition);`
+ */
+class DoWhileStmt : public Stmt {
+public:
+    DoWhileStmt(Token do_token,
+                std::unique_ptr<Stmt> body,
+                std::unique_ptr<Expr> condition)
+        : do_token_(do_token),
+          body_(std::move(body)),
+          condition_(std::move(condition)) {}
+
+    void accept(StmtVisitor& visitor) const override;
+
+    const Token& do_token() const { return do_token_; }
+    const Stmt* body() const { return body_.get(); }
+    const Expr* condition() const { return condition_.get(); }
+
+private:
+    Token do_token_;
+    std::unique_ptr<Stmt> body_;
+    std::unique_ptr<Expr> condition_;
+};
+
+/**
  * @brief 函数参数结构
  */
 struct Parameter {
@@ -512,6 +538,9 @@ public:
 
     /// @brief 访问 for 语句
     virtual void visitFor(const ForStmt& stmt) = 0;
+
+    /// @brief 访问 do-while 语句
+    virtual void visitDoWhile(const DoWhileStmt& stmt) = 0;
 
     /// @brief 访问函数声明语句
     virtual void visitFunction(const FunctionStmt& stmt) = 0;

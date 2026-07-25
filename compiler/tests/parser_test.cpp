@@ -180,6 +180,20 @@ public:
         result_ = result;
     }
 
+    void visitDoWhile(const DoWhileStmt& stmt) override {
+        std::string result = "do ";
+
+        stmt.body()->accept(*this);
+        result += last_result_;
+
+        TestExprVisitor expr_visitor;
+        stmt.condition()->accept(expr_visitor);
+        result += " while (" + expr_visitor.result() + ")";
+
+        last_result_ = result;
+        result_ = result;
+    }
+
     void visitFunction(const FunctionStmt& stmt) override {
         // 返回类型和函数名
         std::string result = std::string(stmt.return_type().lexeme()) + " " +

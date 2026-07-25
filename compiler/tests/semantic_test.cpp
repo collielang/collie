@@ -65,3 +65,31 @@ TEST(SemanticBreakContinueTest, ContinueOutsideLoopIsError) {
 
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+// do-while 循环内使用 break/continue：合法（t18）
+TEST(SemanticBreakContinueTest, BreakContinueInsideDoWhileIsValid) {
+    auto [ast, tokens] = test::parse_and_get_tokens(R"(
+        do {
+            break;
+        } while (true);
+    )");
+
+    SemanticAnalyzer analyzer;
+    analyzer.set_tokens(tokens);
+    analyzer.analyze(ast);
+
+    EXPECT_FALSE(analyzer.has_errors()) << "break inside do-while should be valid";
+
+    // continue
+    auto [ast2, tokens2] = test::parse_and_get_tokens(R"(
+        do {
+            continue;
+        } while (true);
+    )");
+
+    SemanticAnalyzer analyzer2;
+    analyzer2.set_tokens(tokens2);
+    analyzer2.analyze(ast2);
+
+    EXPECT_FALSE(analyzer2.has_errors()) << "continue inside do-while should be valid";
+}

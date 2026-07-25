@@ -206,3 +206,55 @@ TEST(InterpreterEndToEnd, MutableVariableStillWorks) {
     // 非 const 变量仍可正常重新赋值
     EXPECT_EQ(run_source("number x = 1; x = 2; print(x);"), "2\n");
 }
+
+// =============================================================================
+// do-while 循环（t18）
+// =============================================================================
+
+TEST(InterpreterEndToEnd, DoWhileBasic) {
+    // 基本 do-while：至少执行一次
+    EXPECT_EQ(run_source(R"(
+        number x = 0;
+        do {
+            x = x + 1;
+        } while (x < 3);
+        print(x);
+    )"), "3\n");
+}
+
+TEST(InterpreterEndToEnd, DoWhileRunsAtLeastOnce) {
+    // 条件初始为 false 时仍执行一次循环体
+    EXPECT_EQ(run_source(R"(
+        number x = 10;
+        do {
+            x = x + 1;
+        } while (x < 5);
+        print(x);
+    )"), "11\n");
+}
+
+TEST(InterpreterEndToEnd, DoWhileBreak) {
+    // break 在 do-while 中正常工作
+    EXPECT_EQ(run_source(R"(
+        number x = 0;
+        do {
+            x = x + 1;
+            if (x == 2) { break; }
+        } while (x < 10);
+        print(x);
+    )"), "2\n");
+}
+
+TEST(InterpreterEndToEnd, DoWhileContinue) {
+    // continue 在 do-while 中跳过后续语句但仍检查条件
+    EXPECT_EQ(run_source(R"(
+        number sum = 0;
+        number i = 0;
+        do {
+            i = i + 1;
+            if (i == 3) { continue; }
+            sum = sum + i;
+        } while (i < 5);
+        print(sum);
+    )"), "12\n");
+}
