@@ -439,3 +439,63 @@ TEST(InterpreterEndToEnd, TernaryLazyEvaluation) {
         print(y);
     )"), "10\n");
 }
+
+// ===== 内建函数 len / toString / toNumber =====
+
+TEST(InterpreterEndToEnd, BuiltinLenAscii) {
+    EXPECT_EQ(run_source(R"(
+        print(len("hello"));
+    )"), "5\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinLenUnicode) {
+    // 中文按码点计数（非字节数）
+    EXPECT_EQ(run_source(R"(
+        print(len("牛羊犬"));
+    )"), "3\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinLenEmpty) {
+    EXPECT_EQ(run_source(R"(
+        print(len(""));
+    )"), "0\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinToString) {
+    EXPECT_EQ(run_source(R"(
+        string s = toString(42);
+        print(s + "!");
+    )"), "42!\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinToStringBool) {
+    EXPECT_EQ(run_source(R"(
+        print(toString(true));
+    )"), "true\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinToNumber) {
+    EXPECT_EQ(run_source(R"(
+        number n = toNumber("123");
+        print(n + 1);
+    )"), "124\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinToNumberDecimal) {
+    EXPECT_EQ(run_source(R"(
+        print(toNumber("3.5") * 2);
+    )"), "7\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinToNumberBool) {
+    EXPECT_EQ(run_source(R"(
+        print(toNumber(true) + toNumber(false));
+    )"), "1\n");
+}
+
+TEST(InterpreterEndToEnd, BuiltinChained) {
+    // 组合使用：len(toString(12345)) = 5
+    EXPECT_EQ(run_source(R"(
+        print(len(toString(12345)));
+    )"), "5\n");
+}

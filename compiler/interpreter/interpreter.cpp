@@ -5,6 +5,7 @@
  */
 #include "interpreter.h"
 
+#include <cctype>
 #include <string>
 #include <utility>
 
@@ -156,10 +157,22 @@ void Interpreter::visitAssign(const AssignExpr& expr) {
 }
 
 void Interpreter::visitCall(const CallExpr& expr) {
-    // 内建函数 print
+    // 内建函数 print / len / toString / toNumber
     const IdentifierExpr* callee = dynamic_cast<const IdentifierExpr*>(expr.callee());
     if (callee && callee->name().lexeme() == "print") {
         call_builtin_print(expr);
+        return;
+    }
+    if (callee && callee->name().lexeme() == "len") {
+        call_builtin_len(expr);
+        return;
+    }
+    if (callee && callee->name().lexeme() == "toString") {
+        call_builtin_to_string(expr);
+        return;
+    }
+    if (callee && callee->name().lexeme() == "toNumber") {
+        call_builtin_to_number(expr);
         return;
     }
 
@@ -214,6 +227,79 @@ void Interpreter::call_builtin_print(const CallExpr& expr) {
     }
     out_ << line << '\n';
     result_ = Value::none();
+}
+
+void Interpreter::call_builtin_len(const CallExpr& expr) {
+    // len(string)：返回 UTF-8 码点数（而非字节数）。
+    const auto& args = expr.arguments();
+    if (args.size() != 1) {
+        throw RuntimeError("len() expects exactly 1 argument",
+                           expr.paren().line(), expr.paren().column());
+    }
+    Value v = evaluate(args[0].get());
+    if (!v.is_string()) {
+        throw RuntimeError(std::string("len() expects a string, got ") + v.kind_name(),
+                           expr.paren().line(), expr.paren().column());
+    }
+    const std::string& s = v.as_string();
+    size_t count = 0;
+    for (size_t i = 0; i < s.size(); ) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if ((c & 0x80) == 0)        i += 1;  // ASCII
+        else if ((c & 0xE0) == 0xC0) i += 2;
+        else if ((c & 0xF0) == 0xE0) i += 3;
+        else if ((c & 0xF8) == 0xF0) i += 4;
+        else                         i += 1;  // 非法字节：防御性前进
+        ++count;
+    }
+    result_ = Value::number(static_cast<double>(count));
+}
+
+void Interpreter::call_builtin_to_string(const CallExpr& expr) {
+    // toString(any)：任意值转字符串（与 print 的文本表示一致）。
+    const auto& args = expr.arguments();
+    if (args.size() != 1) {
+        throw RuntimeError("toString() expects exactly 1 argument",
+                           expr.paren().line(), expr.paren().column());
+    }
+    result_ = Value::str(evaluate(args[0].get()).to_string());
+}
+
+void Interpreter::call_builtin_to_number(const CallExpr& expr) {
+    // toNumber(string|bool|number)：转数字；无法解析的字符串报运行时错误。
+    const auto& args = expr.arguments();
+    if (args.size() != 1) {
+        throw RuntimeError("toNumber() expects exactly 1 argument",
+                           expr.paren().line(), expr.paren().column());
+    }
+    Value v = evaluate(args[0].get());
+    if (v.is_number()) {
+        result_ = v;
+        return;
+    }
+    if (v.is_bool()) {
+        result_ = Value::number(v.as_bool() ? 1.0 : 0.0);
+        return;
+    }
+    if (v.is_string()) {
+        const std::string& s = v.as_string();
+        try {
+            size_t pos = 0;
+            double n = std::stod(s, &pos);
+            // 允许尾部空白，其他尾部字符视为非法
+            while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
+            if (pos == s.size()) {
+                result_ = Value::number(n);
+                return;
+            }
+        } catch (const std::exception&) {
+            // fall through to error
+        }
+        throw RuntimeError("toNumber() cannot parse '" + s + "' as a number",
+                           expr.paren().line(), expr.paren().column());
+    }
+    throw RuntimeError(std::string("toNumber() cannot convert ") + v.kind_name(),
+                       expr.paren().line(), expr.paren().column());
 }
 
 void Interpreter::visitTuple(const TupleExpr& expr) {

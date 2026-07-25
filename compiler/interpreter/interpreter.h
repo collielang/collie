@@ -90,6 +90,9 @@ private:
 
     // 内建函数
     void call_builtin_print(const CallExpr& expr);
+    void call_builtin_len(const CallExpr& expr);
+    void call_builtin_to_string(const CallExpr& expr);
+    void call_builtin_to_number(const CallExpr& expr);
 
     std::ostream& out_;
     Environment env_;

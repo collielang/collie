@@ -627,7 +627,8 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
 void SemanticAnalyzer::visitCall(const CallExpr& expr) {
     try {
         // 内建函数 print：接受任意个任意类型的实参，返回 none。
-        // 在此提前处理，避免把 print 当作未声明的变量/函数而报错。
+        // 内建函数 len/toString/toNumber：单参，返回固定类型。
+        // 在此提前处理，避免把内建函数当作未声明的变量/函数而报错。
         // TODO(semantic): 未来以正式的内建函数符号表 + 变参签名替代此特判。
         if (const IdentifierExpr* builtin =
                 dynamic_cast<const IdentifierExpr*>(expr.callee())) {
@@ -636,6 +637,30 @@ void SemanticAnalyzer::visitCall(const CallExpr& expr) {
                     arg->accept(*this);
                 }
                 current_type_ = TokenType::KW_NONE;
+                return;
+            }
+            if (builtin->name().lexeme() == "len" ||
+                builtin->name().lexeme() == "toString" ||
+                builtin->name().lexeme() == "toNumber") {
+                if (expr.arguments().size() != 1) {
+                    throw SemanticError(
+                        std::string(builtin->name().lexeme()) + "() expects exactly 1 argument",
+                        builtin->name().line(), builtin->name().column());
+                }
+                expr.arguments()[0]->accept(*this);
+                TokenType arg_type = current_type_;
+                if (builtin->name().lexeme() == "len") {
+                    // len 仅接受 string
+                    if (arg_type != TokenType::KW_STRING) {
+                        throw SemanticError("len() expects a string argument",
+                            builtin->name().line(), builtin->name().column());
+                    }
+                    current_type_ = TokenType::KW_NUMBER;
+                } else if (builtin->name().lexeme() == "toString") {
+                    current_type_ = TokenType::KW_STRING;
+                } else {
+                    current_type_ = TokenType::KW_NUMBER;
+                }
                 return;
             }
         }
