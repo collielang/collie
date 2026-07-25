@@ -322,3 +322,67 @@ TEST(InterpreterEndToEnd, SwitchNoMatchNoDefault) {
         print("done");
     )"), "done\n");
 }
+
+// ===== 复合赋值运算符 =====
+
+TEST(InterpreterEndToEnd, CompoundAssignPlus) {
+    EXPECT_EQ(run_source(R"(
+        number x = 10;
+        x += 5;
+        print(x);
+    )"), "15\n");
+}
+
+TEST(InterpreterEndToEnd, CompoundAssignMinus) {
+    EXPECT_EQ(run_source(R"(
+        number x = 10;
+        x -= 3;
+        print(x);
+    )"), "7\n");
+}
+
+TEST(InterpreterEndToEnd, CompoundAssignMultiply) {
+    EXPECT_EQ(run_source(R"(
+        number x = 4;
+        x *= 3;
+        print(x);
+    )"), "12\n");
+}
+
+TEST(InterpreterEndToEnd, CompoundAssignDivide) {
+    EXPECT_EQ(run_source(R"(
+        number x = 20;
+        x /= 4;
+        print(x);
+    )"), "5\n");
+}
+
+TEST(InterpreterEndToEnd, CompoundAssignModulo) {
+    EXPECT_EQ(run_source(R"(
+        number x = 17;
+        x %= 5;
+        print(x);
+    )"), "2\n");
+}
+
+TEST(InterpreterEndToEnd, CompoundAssignStringConcat) {
+    // += 用于字符串拼接
+    EXPECT_EQ(run_source(R"(
+        string s = "hello";
+        s += " world";
+        print(s);
+    )"), "hello world\n");
+}
+
+TEST(InterpreterEndToEnd, CompoundAssignInLoop) {
+    // 在循环中使用复合赋值
+    EXPECT_EQ(run_source(R"(
+        number sum = 0;
+        number i = 1;
+        while (i <= 5) {
+            sum += i;
+            i += 1;
+        }
+        print(sum);
+    )"), "15\n");
+}

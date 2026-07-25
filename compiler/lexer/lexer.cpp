@@ -176,17 +176,26 @@ Token Lexer::next_token() {
         case ',': return Token(TokenType::DELIMITER_COMMA, ",", line_, start_column);
         case '.': return Token(TokenType::DELIMITER_DOT, ".", line_, start_column);
         case ';': return Token(TokenType::DELIMITER_SEMICOLON, ";", line_, start_column);
-        case '+': return Token(TokenType::OP_PLUS, "+", line_, start_column);
-        case '-': return Token(TokenType::OP_MINUS, "-", line_, start_column);
-        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, start_column);
+        case '+': 
+            if (match('=')) return Token(TokenType::OP_PLUS_ASSIGN, "+=", line_, start_column);
+            return Token(TokenType::OP_PLUS, "+", line_, start_column);
+        case '-':
+            if (match('=')) return Token(TokenType::OP_MINUS_ASSIGN, "-=", line_, start_column);
+            return Token(TokenType::OP_MINUS, "-", line_, start_column);
+        case '*':
+            if (match('=')) return Token(TokenType::OP_MULTIPLY_ASSIGN, "*=", line_, start_column);
+            return Token(TokenType::OP_MULTIPLY, "*", line_, start_column);
         case '/':
             if (match('/')) {
                 // 单行注释
                 while (peek() != '\n' && !is_at_end()) advance();
                 return next_token();
             }
+            if (match('=')) return Token(TokenType::OP_DIVIDE_ASSIGN, "/=", line_, start_column);
             return Token(TokenType::OP_DIVIDE, "/", line_, start_column);
-        case '%': return Token(TokenType::OP_MODULO, "%", line_, start_column);
+        case '%':
+            if (match('=')) return Token(TokenType::OP_MODULO_ASSIGN, "%=", line_, start_column);
+            return Token(TokenType::OP_MODULO, "%", line_, start_column);
         case '!':
             if (match('=')) return Token(TokenType::OP_NOT_EQUAL, "!=", line_, start_column);
             return Token(TokenType::OP_NOT, "!", line_, start_column);
@@ -784,14 +793,21 @@ Token Lexer::handle_operator_state() {
     char c = advance();
 
     switch (c) {
-        case '+': return Token(TokenType::OP_PLUS, "+", line_, start_col);
-        case '-': return Token(TokenType::OP_MINUS, "-", line_, start_col);
-        case '*': return Token(TokenType::OP_MULTIPLY, "*", line_, start_col);
+        case '+':
+            if (match('=')) return Token(TokenType::OP_PLUS_ASSIGN, "+=", line_, start_col);
+            return Token(TokenType::OP_PLUS, "+", line_, start_col);
+        case '-':
+            if (match('=')) return Token(TokenType::OP_MINUS_ASSIGN, "-=", line_, start_col);
+            return Token(TokenType::OP_MINUS, "-", line_, start_col);
+        case '*':
+            if (match('=')) return Token(TokenType::OP_MULTIPLY_ASSIGN, "*=", line_, start_col);
+            return Token(TokenType::OP_MULTIPLY, "*", line_, start_col);
         case '/':
             if (match('/')) {
                 current_state_ = State::IN_COMMENT;
                 return next_token();
             }
+            if (match('=')) return Token(TokenType::OP_DIVIDE_ASSIGN, "/=", line_, start_col);
             return Token(TokenType::OP_DIVIDE, "/", line_, start_col);
         // ... 其他运算符处理
     }

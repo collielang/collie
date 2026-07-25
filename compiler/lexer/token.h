@@ -104,6 +104,11 @@ enum class TokenType {
     OP_QUESTION,    // ?
     OP_COLON,       // :
     OP_ASSIGN,      // =
+    OP_PLUS_ASSIGN,  // +=
+    OP_MINUS_ASSIGN, // -=
+    OP_MULTIPLY_ASSIGN, // *=
+    OP_DIVIDE_ASSIGN,   // /=
+    OP_MODULO_ASSIGN,   // %=
     OP_EQ_QUESTION, // ==?
 
     // 分隔符

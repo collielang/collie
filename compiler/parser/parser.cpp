@@ -231,6 +231,43 @@ std::unique_ptr<Expr> Parser::parse_assignment() {
         throw error(equals, "Invalid assignment target.");
     }
 
+    // 复合赋值运算符：+=, -=, *=, /=, %=
+    // 脱糖为 x = x op expr
+    if (match({TokenType::OP_PLUS_ASSIGN, TokenType::OP_MINUS_ASSIGN,
+               TokenType::OP_MULTIPLY_ASSIGN, TokenType::OP_DIVIDE_ASSIGN,
+               TokenType::OP_MODULO_ASSIGN})) {
+        Token op_token = previous();
+        auto value = parse_assignment();
+        if (!value) {
+            throw error(peek(), "Expect expression after compound assignment operator.");
+        }
+
+        if (auto* identifier = dynamic_cast<IdentifierExpr*>(expr.get())) {
+            Token name = identifier->name();
+
+            // 确定对应的二元运算符
+            TokenType binary_op;
+            std::string_view op_lexeme;
+            switch (op_token.type()) {
+                case TokenType::OP_PLUS_ASSIGN:     binary_op = TokenType::OP_PLUS; op_lexeme = "+"; break;
+                case TokenType::OP_MINUS_ASSIGN:    binary_op = TokenType::OP_MINUS; op_lexeme = "-"; break;
+                case TokenType::OP_MULTIPLY_ASSIGN: binary_op = TokenType::OP_MULTIPLY; op_lexeme = "*"; break;
+                case TokenType::OP_DIVIDE_ASSIGN:   binary_op = TokenType::OP_DIVIDE; op_lexeme = "/"; break;
+                case TokenType::OP_MODULO_ASSIGN:   binary_op = TokenType::OP_MODULO; op_lexeme = "%"; break;
+                default: throw error(op_token, "Unknown compound assignment operator.");
+            }
+
+            // 构造 BinaryExpr: identifier op value
+            Token bin_op(binary_op, op_lexeme, op_token.line(), op_token.column());
+            auto lhs = std::make_unique<IdentifierExpr>(name);
+            auto binary = std::make_unique<BinaryExpr>(std::move(lhs), bin_op, std::move(value));
+
+            return std::make_unique<AssignExpr>(name, std::move(binary));
+        }
+
+        throw error(op_token, "Invalid compound assignment target.");
+    }
+
     return expr;
 }
 

@@ -15,7 +15,7 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
 | **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`、**用户自定义函数（声明/调用/return/递归）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
@@ -163,12 +163,18 @@
     - [x] 解释器 `visitSwitch`：匹配第一个等值分支执行，无匹配则执行 default
     - [x] 端到端测试：基本匹配/default/多值/字符串匹配/无匹配无default（5 例全绿）
     - `interpreter_tests` 现 31 例全绿
+- [x] **实现复合赋值运算符（t20，已完成）**：
+    - [x] 词法层新增 `OP_PLUS_ASSIGN`/`OP_MINUS_ASSIGN`/`OP_MULTIPLY_ASSIGN`/`OP_DIVIDE_ASSIGN`/`OP_MODULO_ASSIGN` 五个 token
+    - [x] lexer 识别 `+=`/`-=`/`*=`/`/=`/`%=` 双字符运算符
+    - [x] parser `parse_assignment` 脱糖为 `AssignExpr(name, BinaryExpr(name, op, rhs))`，无需修改语义/解释器
+    - [x] 端到端测试：5 种运算符 + 字符串拼接 += + 循环累加（7 例全绿）
+    - `interpreter_tests` 现 38 例全绿
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
-- [ ] parser 补齐已有 token 但缺失的语法（`switch`、`do-while`、`class` 等）
+- [ ] parser 补齐已有 token 但缺失的语法（~~`switch`~~、~~`do-while`~~、~~复合赋值`~~、`class` 等）
 
 ### M6 · LLVM 后端（路线 B，稳定后启动）
 - [ ] 引入 LLVM，设计 AST/新 IR → LLVM IR 的降级
@@ -221,6 +227,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(lexer,parser)`: 实现复合赋值运算符（+=/-=/*=//=/%=）：词法层新增 5 个 token、lexer 识别双字符运算符、parser parse_assignment 脱糖为 AssignExpr+BinaryExpr（无需修改语义/解释器）；新增 7 个端到端测试；interpreter_tests 38 全绿（M4/M5 t20）
 
 - 2026-07-25 `feat(lexer,parser,semantic,interpreter)`: 实现 switch 语句：新增 KW_DEFAULT 关键字、SwitchStmt AST 节点、parser 解析 Collie 风格 switch（无 case/break，值直接跟 {}）、语义层检查、解释器等值匹配无 fallthrough；新增 5 个端到端测试；interpreter_tests 31 全绿（M4/M5 t19）
 
