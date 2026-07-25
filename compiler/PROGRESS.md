@@ -50,7 +50,7 @@
 - [x] 测试解耦：每个 test 目标只链接被测模块（lexer_tests→lexer，parser_tests→parser，semantic_tests→semantic）
 - [x] 增加 `option(COLLIE_BUILD_TESTS ...)`，关闭后主编译器不依赖测试框架、无需联网
 - [x] googletest 改为离线友好：`find_package` 优先 → 持久缓存 `.deps/`（build 之外，删 build 不重拉，`--depth 1` 首次克隆一次）→ `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 完全离线覆盖；可用 `-DCOLLIE_DEPS_DIR=<path>` 指向全局共享缓存
-- [ ] 更新 `compiler/README.md` 中过时的进度描述（当前仍写 IR 已完成）
+- [x] 更新 `compiler/README.md` 中过时的进度描述（当前仍写 IR 已完成）
 
 ### M1 · 跨平台 & 编码统一
 **M1a · `main.cpp` 编码/平台隔离（已完成）**
