@@ -186,21 +186,31 @@ TEST(SemanticAnalyzerTest, TypeChecking) {
     }
 }
 
-// 添加一元操作符测试
-TEST(SemanticAnalyzerTest, DISABLED_UnaryOperators) {
-    SemanticAnalyzer analyzer;
-
+/**
+ * 一元操作符测试（从 DISABLED_ 部分迁移到新 API，t17）
+ * 位取反（~）和类型错误检测依赖未实现的特性，拆分到 DISABLED_BitwiseNegateAndUnaryTypeCheck。
+ */
+TEST(SemanticAnalyzerTest, UnaryOperators) {
     // 数字取负
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("number x = -42;");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "unary negate on number should pass";
+    }
 
     // 布尔取反
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("bool x = !true;");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "unary not on boolean should pass";
+    }
+}
+
+// 位取反（~ 运算符未实现）和一元类型错误检测（语义层未实现）
+TEST(SemanticAnalyzerTest, DISABLED_BitwiseNegateAndUnaryTypeCheck) {
+    SemanticAnalyzer analyzer;
 
     // 位运算取反
     EXPECT_NO_THROW({
@@ -208,7 +218,7 @@ TEST(SemanticAnalyzerTest, DISABLED_UnaryOperators) {
         analyzer.analyze(ast);
     });
 
-    // 类型错误
+    // 类型错误: ! 应用于 number 应报错
     EXPECT_THROW({
         auto ast = parse("number x = !42;");
         analyzer.analyze(ast);
@@ -241,47 +251,66 @@ TEST(SemanticAnalyzerTest, ReturnStatement) {
 }
 
 /**
- * 二元操作符测试
+ * 二元操作符测试（从 DISABLED_ 部分迁移到新 API，t17）
+ * 比较运算（char 字面量）和位运算（byte/hex）依赖未实现的 parser 特性，拆分到 DISABLED_BitAndCharOperators。
  */
-TEST(SemanticAnalyzerTest, DISABLED_BinaryOperators) {
-    SemanticAnalyzer analyzer;
-
+TEST(SemanticAnalyzerTest, BinaryOperators) {
     // 字符串连接
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             string s1 = "hello" + " world";
             string s2 = "value: " + 42;
             string s3 = true + " is boolean";
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "string concatenation should pass";
+    }
 
     // 数值运算
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             number n1 = 1 + 2 * 3;
             number n2 = 10 / 2;
             number n3 = 7 % 3;
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "numeric operations should pass";
+    }
 
-    // 比较运算
-    EXPECT_NO_THROW({
+    // 比较运算（数值和字符串）
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             bool b1 = 1 < 2;
             bool b2 = "abc" <= "def";
-            bool b3 = 'a' >= 'b';
             bool b4 = 42 == 42;
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "comparison operations should pass";
+    }
 
     // 逻辑运算
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             bool b1 = true && false;
             bool b2 = true || false;
+        )");
+        analyzer.analyze(ast);
+        EXPECT_FALSE(analyzer.has_errors()) << "logical operations should pass";
+    }
+}
+
+// 位运算、char 字面量比较、类型错误检测（依赖未实现的 parser 特性或语义检查）
+TEST(SemanticAnalyzerTest, DISABLED_BitAndCharOperators) {
+    SemanticAnalyzer analyzer;
+
+    // 比较运算（char 字面量）
+    EXPECT_NO_THROW({
+        auto ast = parse(R"(
+            bool b3 = 'a' >= 'b';
         )");
         analyzer.analyze(ast);
     });

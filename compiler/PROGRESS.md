@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t16 完成）
+最后更新：2026-07-25（t17 完成）
 
 ---
 
@@ -144,6 +144,10 @@
     - [x] 迁移 `DISABLED_ConstAndInitialization` 前 3 子用例（const 声明/未初始化/重赋值）；剩余 2 子用例拆为 `DISABLED_UninitializedVariable` 待流分析实现
     - [x] 更新 interpreter `ConstAssignmentError` 测试（语义层已拦截，改为验证语义错误）
     - `semantic_tests` 现 24 通过 / 30 禁用（从 23/30）
+- [x] **恢复 DISABLED_ 语义测试第三批 · 一元/二元操作符（t17，已完成）**：
+    - [x] 拆分 `DISABLED_UnaryOperators`：数字取负/布尔取反恢复为 `UnaryOperators`（2 子用例），位取反(`~`)+类型错误(`!number`)拆为 `DISABLED_BitwiseNegateAndUnaryTypeCheck`
+    - [x] 拆分 `DISABLED_BinaryOperators`：字符串连接/数值运算/比较运算/逻辑运算恢复为 `BinaryOperators`（4 子用例），char 字面量比较/位运算/类型错误检测拆为 `DISABLED_BitAndCharOperators`
+    - `semantic_tests` 现 26 通过 / 30 禁用（从 24/30）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -202,6 +206,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(semantic)`: 恢复一元/二元操作符 DISABLED_ 测试：拆分 UnaryOperators（数字取负+布尔取反通过，位取反+类型错误仍禁用）、BinaryOperators（字符串连接+数值+比较+逻辑通过，char/byte/类型错误仍禁用）；semantic_tests 26 通过 / 30 禁用（M4/t17）
 
 - 2026-07-25 `fix(semantic),test(semantic,interpreter)`: 修复语义层 const 标记缺失（visitVarDecl 创建 Symbol 时传递 is_const），使语义层 visitAssign 的常量重赋值检查生效；恢复 `DISABLED_ConstAndInitialization` 前 3 子用例（const 声明/未初始化/重赋值），剩余 2 子用例拆为 DISABLED_UninitializedVariable；更新 interpreter ConstAssignmentError 测试为语义层拦截验证；semantic_tests 24 通过 / 30 禁用（M4/t16）
 
