@@ -439,7 +439,7 @@ TEST(SemanticRecoveryTest, TypeInferenceRecovery) {
         string s = "hello";
         bool b = true;
 
-        // 错误1：混合类型运算
+        // 错误1：混合类型运算（x + s 与 b + 2 各报一条，共 2 条）
         number result1 = (x + s) * (b + 2);
 
         // 错误2：条件运算中的类型
@@ -447,7 +447,7 @@ TEST(SemanticRecoveryTest, TypeInferenceRecovery) {
             number y = 2;
         }
 
-        // 错误3：复杂表达式中的类型推导
+        // 错误3：三元结果为 string，string+1 拼接后仍为 string，赋给 number 报错
         number result2 = (x > 0 ? "yes" : 42) + 1;
     )");
 
@@ -456,7 +456,7 @@ TEST(SemanticRecoveryTest, TypeInferenceRecovery) {
 
     EXPECT_TRUE(analyzer.has_errors());
     const auto& errors = analyzer.get_errors();
-    EXPECT_EQ(errors.size(), 3);
+    EXPECT_EQ(errors.size(), 4);
 }
 
 // 测试错误恢复的优先级

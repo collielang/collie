@@ -77,6 +77,16 @@ public:
         result_ += "." + std::to_string(expr.index());
     }
 
+    void visitTernary(const TernaryExpr& expr) override {
+        result_ += "(";
+        expr.condition()->accept(*this);
+        result_ += " ? ";
+        expr.then_expr()->accept(*this);
+        result_ += " : ";
+        expr.else_expr()->accept(*this);
+        result_ += ")";
+    }
+
     std::string result() const { return result_; }
 
 private:

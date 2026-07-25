@@ -1204,6 +1204,44 @@ void SemanticAnalyzer::visitTupleMember(const TupleMemberExpr& expr) {
     }
 }
 
+void SemanticAnalyzer::visitTernary(const TernaryExpr& expr) {
+    try {
+        // 分析条件表达式
+        expr.condition()->accept(*this);
+        TokenType cond_type = current_type_;
+
+        // 条件必须是布尔型
+        if (cond_type != TokenType::KW_BOOL) {
+            throw SemanticError("Ternary condition must be a boolean expression",
+                expr.question_token().line(), expr.question_token().column());
+        }
+
+        // 分析 then 和 else 分支
+        expr.then_expr()->accept(*this);
+        TokenType then_type = current_type_;
+
+        expr.else_expr()->accept(*this);
+        TokenType else_type = current_type_;
+
+        // 两个分支类型必须兼容（简化：相同或可隐式转换）
+        if (then_type != else_type && !is_compatible_type(then_type, else_type)
+            && !is_compatible_type(else_type, then_type)) {
+            throw SemanticError("Ternary branches must have compatible types",
+                expr.question_token().line(), expr.question_token().column());
+        }
+
+        // 结果类型取 then 分支类型
+        current_type_ = then_type;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 void SemanticAnalyzer::visitTupleType(const TupleType& type) {
     try {
         std::vector<TokenType> element_types;

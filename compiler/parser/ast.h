@@ -22,6 +22,7 @@ class IdentifierExpr;
 class BinaryExpr;
 class UnaryExpr;
 class AssignExpr;
+class TernaryExpr;
 class CallExpr;
 class TupleExpr;
 class TupleMemberExpr;
@@ -257,6 +258,35 @@ public:
 private:
     Token name_;
     std::unique_ptr<Expr> value_;
+};
+
+/**
+ * @brief 三元条件表达式
+ * 用于表示 condition ? then_expr : else_expr
+ */
+class TernaryExpr : public Expr {
+public:
+    TernaryExpr(std::unique_ptr<Expr> condition,
+                Token question_token,
+                std::unique_ptr<Expr> then_expr,
+                std::unique_ptr<Expr> else_expr)
+        : condition_(std::move(condition)),
+          question_token_(question_token),
+          then_expr_(std::move(then_expr)),
+          else_expr_(std::move(else_expr)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* condition() const { return condition_.get(); }
+    const Token& question_token() const { return question_token_; }
+    const Expr* then_expr() const { return then_expr_.get(); }
+    const Expr* else_expr() const { return else_expr_.get(); }
+
+private:
+    std::unique_ptr<Expr> condition_;
+    Token question_token_;
+    std::unique_ptr<Expr> then_expr_;
+    std::unique_ptr<Expr> else_expr_;
 };
 
 /**
@@ -547,6 +577,9 @@ public:
 
     /// @brief 访问元组成员访问表达式
     virtual void visitTupleMember(const TupleMemberExpr& expr) = 0;
+
+    /// @brief 访问三元条件表达式
+    virtual void visitTernary(const TernaryExpr& expr) = 0;
 };
 
 /**

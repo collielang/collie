@@ -63,6 +63,7 @@ private:
     void visitAssign(const AssignExpr& expr) override;
     void visitTuple(const TupleExpr& expr) override;
     void visitTupleMember(const TupleMemberExpr& expr) override;
+    void visitTernary(const TernaryExpr& expr) override;
 
     // StmtVisitor 接口实现
     void visitVarDecl(const VarDeclStmt& stmt) override;

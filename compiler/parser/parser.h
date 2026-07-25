@@ -227,6 +227,15 @@ private:
     std::unique_ptr<Expr> parse_assignment();
 
     /**
+     * @brief 解析三元条件表达式
+     * @return 三元表达式的AST节点
+     *
+     * 三元表达式语法：
+     * logicalOr ("?" ternary ":" ternary)?
+     */
+    std::unique_ptr<Expr> parse_ternary();
+
+    /**
      * @brief 解析逻辑或表达式
      * @return 逻辑或表达式的AST节点
      * @throws ParseError 如果逻辑或表达式语法不正确

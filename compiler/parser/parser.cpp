@@ -211,7 +211,7 @@ std::unique_ptr<Expr> Parser::parse_expression() {
 }
 
 std::unique_ptr<Expr> Parser::parse_assignment() {
-    auto expr = parse_logical_or();
+    auto expr = parse_ternary();
     if (!expr) {
         throw error(peek(), "Expect expression.");
     }
@@ -266,6 +266,30 @@ std::unique_ptr<Expr> Parser::parse_assignment() {
         }
 
         throw error(op_token, "Invalid compound assignment target.");
+    }
+
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::parse_ternary() {
+    auto expr = parse_logical_or();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
+
+    if (match(TokenType::OP_QUESTION)) {
+        Token question = previous();
+        auto then_expr = parse_ternary();  // 右结合
+        if (!then_expr) {
+            throw error(peek(), "Expect expression after '?'.");
+        }
+        consume(TokenType::OP_COLON, "Expect ':' in ternary expression.");
+        auto else_expr = parse_ternary();  // 右结合
+        if (!else_expr) {
+            throw error(peek(), "Expect expression after ':'.");
+        }
+        return std::make_unique<TernaryExpr>(std::move(expr), question,
+                                             std::move(then_expr), std::move(else_expr));
     }
 
     return expr;

@@ -226,6 +226,15 @@ void Interpreter::visitTupleMember(const TupleMemberExpr& expr) {
                        expr.dot().column());
 }
 
+void Interpreter::visitTernary(const TernaryExpr& expr) {
+    Value cond = evaluate(expr.condition());
+    if (cond.is_truthy()) {
+        result_ = evaluate(expr.then_expr());
+    } else {
+        result_ = evaluate(expr.else_expr());
+    }
+}
+
 // -----------------------------------------------------------------------------
 // 二元运算
 // -----------------------------------------------------------------------------

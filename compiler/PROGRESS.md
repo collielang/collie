@@ -15,7 +15,7 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`) |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
 | **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`、**用户自定义函数（声明/调用/return/递归）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
@@ -169,6 +169,14 @@
     - [x] parser `parse_assignment` 脱糖为 `AssignExpr(name, BinaryExpr(name, op, rhs))`，无需修改语义/解释器
     - [x] 端到端测试：5 种运算符 + 字符串拼接 += + 循环累加（7 例全绿）
     - `interpreter_tests` 现 38 例全绿
+- [x] **实现三元条件运算符（t21，已完成）**：
+    - [x] AST 新增 `TernaryExpr` 节点 + `visitTernary` visitor 接口（token `OP_QUESTION`/`OP_COLON` 已存在）
+    - [x] parser 新增 `parse_ternary`（优先级介于赋值与逻辑或之间，右结合）
+    - [x] 语义层 `visitTernary`：条件必须 bool，两分支类型需兼容，结果类型取 then 分支
+    - [x] 解释器 `visitTernary`：惰性求值（未命中分支不执行）
+    - [x] 修正 `TypeInferenceRecovery` 测试期望（3→4 错误：三元解析成功后第 3 个预期错误真正进入语义分析）
+    - [x] 端到端测试：true/false 分支、字符串、嵌套右结合、子表达式、惰性求值（6 例全绿）
+    - `interpreter_tests` 现 44 例全绿
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -227,6 +235,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(parser,semantic,interpreter)`: 实现三元条件运算符 `?:`：AST 新增 TernaryExpr、parser 新增 parse_ternary（优先级介于赋值与逻辑或，右结合）、语义层条件 bool + 分支类型兼容检查、解释器惰性求值；修正 TypeInferenceRecovery 期望（3→4）；新增 6 个端到端测试；interpreter_tests 44 全绿（M4/M5 t21）
 
 - 2026-07-25 `feat(lexer,parser)`: 实现复合赋值运算符（+=/-=/*=//=/%=）：词法层新增 5 个 token、lexer 识别双字符运算符、parser parse_assignment 脱糖为 AssignExpr+BinaryExpr（无需修改语义/解释器）；新增 7 个端到端测试；interpreter_tests 38 全绿（M4/M5 t20）
 

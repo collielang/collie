@@ -386,3 +386,56 @@ TEST(InterpreterEndToEnd, CompoundAssignInLoop) {
         print(sum);
     )"), "15\n");
 }
+
+// ===== 三元条件运算符 =====
+
+TEST(InterpreterEndToEnd, TernaryBasicTrue) {
+    EXPECT_EQ(run_source(R"(
+        number x = 10;
+        number y = x > 5 ? 100 : 200;
+        print(y);
+    )"), "100\n");
+}
+
+TEST(InterpreterEndToEnd, TernaryBasicFalse) {
+    EXPECT_EQ(run_source(R"(
+        number x = 3;
+        number y = x > 5 ? 100 : 200;
+        print(y);
+    )"), "200\n");
+}
+
+TEST(InterpreterEndToEnd, TernaryString) {
+    EXPECT_EQ(run_source(R"(
+        bool ok = true;
+        string msg = ok ? "yes" : "no";
+        print(msg);
+    )"), "yes\n");
+}
+
+TEST(InterpreterEndToEnd, TernaryNested) {
+    // 嵌套三元（右结合）：x=15 命中第二分支
+    EXPECT_EQ(run_source(R"(
+        number x = 15;
+        string size = x < 10 ? "small" : x < 20 ? "medium" : "large";
+        print(size);
+    )"), "medium\n");
+}
+
+TEST(InterpreterEndToEnd, TernaryInExpression) {
+    // 三元作为子表达式参与算术
+    EXPECT_EQ(run_source(R"(
+        number a = 7;
+        number b = (a % 2 == 0 ? 0 : 1) + 10;
+        print(b);
+    )"), "11\n");
+}
+
+TEST(InterpreterEndToEnd, TernaryLazyEvaluation) {
+    // 未命中的分支不求值（否则除零会报运行时错误）
+    EXPECT_EQ(run_source(R"(
+        number x = 5;
+        number y = x > 0 ? x * 2 : x / 0;
+        print(y);
+    )"), "10\n");
+}

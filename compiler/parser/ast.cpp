@@ -39,6 +39,10 @@ void AssignExpr::accept(ExprVisitor& visitor) const {
     visitor.visitAssign(*this);
 }
 
+void TernaryExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitTernary(*this);
+}
+
 void CallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitCall(*this);
 }
