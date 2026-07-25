@@ -25,39 +25,47 @@ std::vector<std::unique_ptr<Stmt>> parse(const std::string& source) {
     return parser.parse_program();
 }
 
-// 基本变量声明测试
-TEST(SemanticAnalyzerTest, DISABLED_BasicVariableDeclaration) {
-    SemanticAnalyzer analyzer;
-
+// 基本变量声明测试（从 DISABLED_ 迁移到新 API，t15）
+TEST(SemanticAnalyzerTest, BasicVariableDeclaration) {
     // 正确的变量声明
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("number x = 42;");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "basic variable declaration should pass";
+    }
 
     // 重复声明
-    EXPECT_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("number x = 1; number x = 2;");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "duplicate declaration should error";
+    }
 
-    // 类型不匹配
-    EXPECT_THROW({
-        auto ast = parse("string x = 42;");
+    // 类型不匹配（string 不能赋给 number）
+    {
+        SemanticAnalyzer analyzer;
+        auto ast = parse(R"(number x = "hello";)");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "assigning string to number should error";
+    }
 
     // 常量声明
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("const number x = 42;");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "const declaration with initializer should pass";
+    }
 
     // 常量未初始化
-    EXPECT_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("const number x;");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "const without initializer should error";
+    }
 }
 
 // 作用域测试（从 DISABLED_ 迁移到新 API，t13）
@@ -151,27 +159,31 @@ TEST(SemanticAnalyzerTest, Functions) {
     }
 }
 
-// 类型检查测试
-TEST(SemanticAnalyzerTest, DISABLED_TypeChecking) {
-    SemanticAnalyzer analyzer;
-
+// 类型检查测试（从 DISABLED_ 迁移到新 API，t15）
+TEST(SemanticAnalyzerTest, TypeChecking) {
     // 算术运算
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("number x = 1 + 2 * 3;");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "arithmetic expression should pass";
+    }
 
-    // 类型不兼容的运算
-    EXPECT_THROW({
+    // 类型不兼容的运算（字符串拼接结果不能赋给 number）
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(number x = "hello" + 42;)");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "assigning string concat to number should error";
+    }
 
-    // 条件表达式类型检查
-    EXPECT_THROW({
+    // 条件表达式类型检查（非布尔条件）
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("if (42) { number x = 1; }");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "non-boolean condition should error";
+    }
 }
 
 // 添加一元操作符测试

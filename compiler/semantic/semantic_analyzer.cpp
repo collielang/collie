@@ -297,6 +297,14 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
             );
         }
 
+        // const 变量必须有初始化表达式
+        if (stmt.is_const() && !stmt.initializer()) {
+            throw SemanticError(
+                std::string("Constant variable '") + name + "' must be initialized",
+                stmt.name().line(), stmt.name().column()
+            );
+        }
+
         // 创建新的符号
         Symbol symbol{
             SymbolKind::VARIABLE,
