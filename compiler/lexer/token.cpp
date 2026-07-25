@@ -29,6 +29,7 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"if", TokenType::KW_IF},
     {"else", TokenType::KW_ELSE},
     {"switch", TokenType::KW_SWITCH},
+    {"default", TokenType::KW_DEFAULT},
     {"for", TokenType::KW_FOR},
     {"while", TokenType::KW_WHILE},
     {"do", TokenType::KW_DO},

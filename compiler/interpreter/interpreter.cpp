@@ -396,6 +396,32 @@ void Interpreter::visitDoWhile(const DoWhileStmt& stmt) {
     } while (evaluate(stmt.condition()).is_truthy());
 }
 
+void Interpreter::visitSwitch(const SwitchStmt& stmt) {
+    Value cond = evaluate(stmt.condition());
+
+    // 遍历所有 case 分支，匹配第一个等值的分支
+    const SwitchCase* default_case = nullptr;
+    for (const auto& sc : stmt.cases()) {
+        if (sc.is_default) {
+            default_case = &sc;
+            continue;
+        }
+        // 检查是否匹配任一值
+        for (const auto& val_expr : sc.values) {
+            Value val = evaluate(val_expr.get());
+            if (values_equal(cond, val)) {
+                execute(sc.body.get());
+                return; // 匹配后不继续检查其他分支（无 fallthrough）
+            }
+        }
+    }
+
+    // 无匹配则执行 default
+    if (default_case && default_case->body) {
+        execute(default_case->body.get());
+    }
+}
+
 void Interpreter::visitFunction(const FunctionStmt& stmt) {
     // 将函数声明登记到当前作用域（与变量同层存储）。
     // 函数值持有 FunctionStmt 的非拥有指针（AST 生命周期覆盖解释执行期）。

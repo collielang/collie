@@ -629,6 +629,9 @@ std::unique_ptr<Stmt> Parser::parse_statement() {
         if (match(TokenType::KW_DO)) {
             return parse_do_while_statement();
         }
+        if (match(TokenType::KW_SWITCH)) {
+            return parse_switch_statement();
+        }
         if (match(TokenType::KW_RETURN)) {
             return parse_return_statement();
         }
@@ -727,6 +730,54 @@ std::unique_ptr<Stmt> Parser::parse_do_while_statement() {
         do_token,
         std::move(body),
         std::move(condition)
+    );
+}
+
+std::unique_ptr<Stmt> Parser::parse_switch_statement() {
+    Token switch_token = previous(); // KW_SWITCH 已被 match 消费
+
+    // switch (expr)
+    consume(TokenType::DELIMITER_LPAREN, "Expect '(' after 'switch'.");
+    auto condition = parse_expression();
+    consume(TokenType::DELIMITER_RPAREN, "Expect ')' after switch expression.");
+
+    // switch body: { case1 { } case2 { } default { } }
+    consume(TokenType::DELIMITER_LBRACE, "Expect '{' before switch cases.");
+
+    std::vector<SwitchCase> cases;
+    bool has_default = false;
+
+    while (!check(TokenType::DELIMITER_RBRACE) && !is_at_end()) {
+        SwitchCase sc;
+
+        if (match(TokenType::KW_DEFAULT)) {
+            // default 分支
+            if (has_default) {
+                throw error(previous(), "Duplicate 'default' in switch.");
+            }
+            has_default = true;
+            sc.is_default = true;
+        } else {
+            // 值分支：解析逗号分隔的表达式列表
+            sc.values.push_back(parse_expression());
+            while (match(TokenType::DELIMITER_COMMA)) {
+                sc.values.push_back(parse_expression());
+            }
+        }
+
+        // 每个分支的执行体必须是块语句
+        consume(TokenType::DELIMITER_LBRACE, "Expect '{' after switch case value.");
+        sc.body = parse_block_statement();
+
+        cases.push_back(std::move(sc));
+    }
+
+    consume(TokenType::DELIMITER_RBRACE, "Expect '}' after switch body.");
+
+    return std::make_unique<SwitchStmt>(
+        switch_token,
+        std::move(condition),
+        std::move(cases)
     );
 }
 

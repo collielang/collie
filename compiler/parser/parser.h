@@ -140,6 +140,9 @@ private:
     /// @brief 解析 do-while 语句
     std::unique_ptr<Stmt> parse_do_while_statement();
 
+    /// @brief 解析 switch 语句
+    std::unique_ptr<Stmt> parse_switch_statement();
+
     /**
      * @brief 解析for循环语句
      * @return for语句的AST节点

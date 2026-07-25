@@ -194,6 +194,14 @@ public:
         result_ = result;
     }
 
+    void visitSwitch(const SwitchStmt& stmt) override {
+        TestExprVisitor expr_visitor;
+        stmt.condition()->accept(expr_visitor);
+        std::string result = "switch (" + expr_visitor.result() + ") { }";
+        last_result_ = result;
+        result_ = result;
+    }
+
     void visitFunction(const FunctionStmt& stmt) override {
         // 返回类型和函数名
         std::string result = std::string(stmt.return_type().lexeme()) + " " +

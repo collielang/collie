@@ -71,6 +71,7 @@ private:
     void visitWhile(const WhileStmt& stmt) override;
     void visitFor(const ForStmt& stmt) override;
     void visitDoWhile(const DoWhileStmt& stmt) override;
+    void visitSwitch(const SwitchStmt& stmt) override;
     void visitFunction(const FunctionStmt& stmt) override;
     void visitReturn(const ReturnStmt& stmt) override;
 

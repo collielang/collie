@@ -51,6 +51,7 @@ enum class TokenType {
     KW_IF,          // if
     KW_ELSE,        // else
     KW_SWITCH,      // switch
+    KW_DEFAULT,     // default
     KW_FOR,         // for
     KW_WHILE,       // while
     KW_DO,          // do

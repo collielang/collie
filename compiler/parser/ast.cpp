@@ -67,6 +67,10 @@ void DoWhileStmt::accept(StmtVisitor& visitor) const {
     visitor.visitDoWhile(*this);
 }
 
+void SwitchStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitSwitch(*this);
+}
+
 void BreakStmt::accept(StmtVisitor& visitor) const {
     visitor.visitBreak(*this);
 }

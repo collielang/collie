@@ -32,6 +32,7 @@ class IfStmt;
 class WhileStmt;
 class ForStmt;
 class DoWhileStmt;
+class SwitchStmt;
 class FunctionStmt;
 class ReturnStmt;
 class ClassStmt;
@@ -392,6 +393,41 @@ private:
 };
 
 /**
+ * @brief switch 语句的单个 case 分支
+ * Collie 语法：无 case 关键字，值直接跟 {} 块
+ */
+struct SwitchCase {
+    std::vector<std::unique_ptr<Expr>> values; ///< 匹配值列表（空表示 default）
+    std::unique_ptr<Stmt> body;                ///< 执行体（块语句）
+    bool is_default = false;                   ///< 是否为 default 分支
+};
+
+/**
+ * @brief switch 语句
+ * 语法：`switch (expr) { value1 { ... } value2, value3 { ... } default { ... } }`
+ */
+class SwitchStmt : public Stmt {
+public:
+    SwitchStmt(Token switch_token,
+               std::unique_ptr<Expr> condition,
+               std::vector<SwitchCase> cases)
+        : switch_token_(switch_token),
+          condition_(std::move(condition)),
+          cases_(std::move(cases)) {}
+
+    void accept(StmtVisitor& visitor) const override;
+
+    const Token& switch_token() const { return switch_token_; }
+    const Expr* condition() const { return condition_.get(); }
+    const std::vector<SwitchCase>& cases() const { return cases_; }
+
+private:
+    Token switch_token_;
+    std::unique_ptr<Expr> condition_;
+    std::vector<SwitchCase> cases_;
+};
+
+/**
  * @brief 函数参数结构
  */
 struct Parameter {
@@ -541,6 +577,9 @@ public:
 
     /// @brief 访问 do-while 语句
     virtual void visitDoWhile(const DoWhileStmt& stmt) = 0;
+
+    /// @brief 访问 switch 语句
+    virtual void visitSwitch(const SwitchStmt& stmt) = 0;
 
     /// @brief 访问函数声明语句
     virtual void visitFunction(const FunctionStmt& stmt) = 0;

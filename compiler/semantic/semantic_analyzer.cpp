@@ -502,6 +502,34 @@ void SemanticAnalyzer::visitDoWhile(const DoWhileStmt& stmt) {
     }
 }
 
+void SemanticAnalyzer::visitSwitch(const SwitchStmt& stmt) {
+    try {
+        // 检查 switch 条件表达式
+        stmt.condition()->accept(*this);
+        // switch 条件可以是任意类型（number/string/bool），不需要限制
+
+        // 检查每个 case 分支
+        for (const auto& sc : stmt.cases()) {
+            // 检查 case 值表达式
+            for (const auto& val : sc.values) {
+                val->accept(*this);
+            }
+            // 检查 case 执行体
+            if (sc.body) {
+                symbols_.begin_scope();
+                sc.body->accept(*this);
+                symbols_.end_scope();
+            }
+        }
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
     try {
         // 检查函数是否已在当前作用域中定义

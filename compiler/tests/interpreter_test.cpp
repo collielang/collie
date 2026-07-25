@@ -258,3 +258,67 @@ TEST(InterpreterEndToEnd, DoWhileContinue) {
         print(sum);
     )"), "12\n");
 }
+
+// =============================================================================
+// switch 语句（t19）
+// =============================================================================
+
+TEST(InterpreterEndToEnd, SwitchBasic) {
+    // 基本 switch 匹配
+    EXPECT_EQ(run_source(R"(
+        number x = 2;
+        switch (x) {
+            1 { print("one"); }
+            2 { print("two"); }
+            3 { print("three"); }
+        }
+    )"), "two\n");
+}
+
+TEST(InterpreterEndToEnd, SwitchDefault) {
+    // 无匹配时执行 default
+    EXPECT_EQ(run_source(R"(
+        number x = 99;
+        switch (x) {
+            1 { print("one"); }
+            2 { print("two"); }
+            default { print("other"); }
+        }
+    )"), "other\n");
+}
+
+TEST(InterpreterEndToEnd, SwitchMultiValue) {
+    // 多值匹配（逗号分隔）
+    EXPECT_EQ(run_source(R"(
+        number x = 3;
+        switch (x) {
+            1, 2 { print("small"); }
+            3, 4 { print("medium"); }
+            default { print("large"); }
+        }
+    )"), "medium\n");
+}
+
+TEST(InterpreterEndToEnd, SwitchString) {
+    // 字符串匹配
+    EXPECT_EQ(run_source(R"(
+        string lang = "collie";
+        switch (lang) {
+            "rust" { print("systems"); }
+            "collie" { print("shepherd"); }
+            default { print("unknown"); }
+        }
+    )"), "shepherd\n");
+}
+
+TEST(InterpreterEndToEnd, SwitchNoMatchNoDefault) {
+    // 无匹配且无 default：不执行任何分支
+    EXPECT_EQ(run_source(R"(
+        number x = 5;
+        switch (x) {
+            1 { print("one"); }
+            2 { print("two"); }
+        }
+        print("done");
+    )"), "done\n");
+}
