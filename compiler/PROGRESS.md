@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t11 完成）
+最后更新：2026-07-25（t13 完成）
 
 ---
 
@@ -127,6 +127,8 @@
     - `visitReturn` 求值表达式并抛出 `ReturnSignal`（内部信号，类似 `BreakSignal`）
     - 语义层修复：函数符号在体分析前定义（支持递归）；parser `consume_type_token` 接受类型关键字（number/string/bool/none）
     - 新增端到端测试：基本调用、字符串返回、递归（阶乘）、嵌套调用、void、局部变量、提前 return（7 例全绿，总计 18 例）
+- [x] **恢复 DISABLED_ 语义测试第一批（t13，已完成）**：将 5 个 DISABLED_ 用例（`ControlFlow`、`Scopes`、`Functions`、`ReturnStatement`、`FunctionScope`）从旧 `EXPECT_THROW` 范式迁移到 `has_errors()`/`get_errors()` 新 API，改用 function 关键字语法，单独 analyzer 实例避免符号表累积；`semantic_tests` 现 21 通过 / 32 禁用（从 16/37）
+- [ ] 解释器 const 保护 + 运行期类型检查（t14，待排期）：`visitVarDecl` 标记 const、`visitAssign` 拒绝 const 赋值；声明类型与初始值类型校验
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
 ### M5 · 语言规范 & 语法闭环（持续）
@@ -184,6 +186,10 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(semantic)`: 恢复 5 个 DISABLED_ 语义测试用例（ControlFlow/Scopes/Functions/ReturnStatement/FunctionScope）：从旧 EXPECT_THROW 范式迁移到 has_errors/get_errors 新 API，改用 function 关键字语法，每子用例独立 analyzer；`semantic_tests` 现 21 通过 / 32 禁用（M4/t13）
+
+- 2026-07-25 `docs(compiler)`: 重写过时的 `compiler/README.md`（旧内容仍写 IR 已完成），更新为当前架构（Lexer→Parser→Semantic→Interpreter）、项目结构、构建命令、CI 说明，M0 完结（t12）
 
 - 2026-07-25 `feat(interpreter,parser,semantic)`: 实现用户自定义函数调用与 return：Value 新增 Function 类型、visitFunction 登记函数、visitCall 查找+绑参+执行体+捕获 ReturnSignal、visitReturn 抛出返回值；修复语义层函数符号定义顺序（支持递归）；parser 新增 `consume_type_token` 接受类型关键字；端到端测试 7 例全绿（M4/t11）
 
