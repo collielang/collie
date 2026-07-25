@@ -471,40 +471,50 @@ TEST(SemanticAnalyzerTest, FunctionScope) {
 }
 
 /**
- * 常量和变量初始化测试
+ * 常量和变量初始化测试（从 DISABLED_ 部分迁移到新 API，t16）
+ * 子用例 4-5（未初始化变量使用、条件分支初始化流分析）待对应语义检查实现后恢复。
  */
-TEST(SemanticAnalyzerTest, DISABLED_ConstAndInitialization) {
-    SemanticAnalyzer analyzer;
-
+TEST(SemanticAnalyzerTest, ConstAndInitialization) {
     // 常量声明
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             const number PI = 3.14159;
             const string MESSAGE = "Hello";
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "const declarations with initializers should pass";
+    }
 
     // 常量未初始化
-    EXPECT_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("const number x;");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "const without initializer should error";
+    }
 
     // 常量重新赋值
-    EXPECT_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             const number x = 42;
-            x = 43;  // 错误：不能给常量赋值
+            x = 43;
         )");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "assigning to const should error";
+    }
+}
+
+// 未初始化变量使用 & 条件分支初始化流分析（待实现）
+TEST(SemanticAnalyzerTest, DISABLED_UninitializedVariable) {
+    SemanticAnalyzer analyzer;
 
     // 使用未初始化的变量
     EXPECT_THROW({
         auto ast = parse(R"(
             number x;
-            number y = x + 1;  // 错误：使用未初始化的变量
+            number y = x + 1;
         )");
         analyzer.analyze(ast);
     }, SemanticError);
@@ -516,7 +526,7 @@ TEST(SemanticAnalyzerTest, DISABLED_ConstAndInitialization) {
             if (true) {
                 x = 42;
             }
-            number y = x;  // 错误：x 可能未初始化
+            number y = x;
         )");
         analyzer.analyze(ast);
     }, SemanticError);

@@ -311,7 +311,8 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
             Token(type_token, stmt.type().lexeme(), stmt.type().line(), stmt.type().column()),
             stmt.name(),
             symbols_.current_scope_level(),
-            false  // 初始时未初始化
+            false,  // 初始时未初始化
+            stmt.is_const()
         };
 
         // 如果有初始化表达式，分析它

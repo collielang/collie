@@ -191,7 +191,7 @@ TEST(InterpreterEndToEnd, ConstStringVariable) {
 }
 
 TEST(InterpreterEndToEnd, ConstAssignmentError) {
-    // const 变量不允许重新赋值，应抛出 RuntimeError
+    // const 变量不允许重新赋值——语义层即拦截
     const std::string source = "const number x = 42; x = 99; print(x);";
     collie::Lexer lexer(source);
     auto tokens = lexer.tokenize();
@@ -199,11 +199,7 @@ TEST(InterpreterEndToEnd, ConstAssignmentError) {
     auto stmts = parser.parse_program();
     collie::SemanticAnalyzer analyzer;
     analyzer.analyze(stmts);
-    ASSERT_FALSE(analyzer.has_errors());
-
-    std::ostringstream out;
-    collie::Interpreter interpreter(out);
-    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+    EXPECT_TRUE(analyzer.has_errors()) << "semantic should reject const reassignment";
 }
 
 TEST(InterpreterEndToEnd, MutableVariableStillWorks) {

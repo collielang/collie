@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t15 完成）
+最后更新：2026-07-25（t16 完成）
 
 ---
 
@@ -139,6 +139,11 @@
     - [x] 迁移 `DISABLED_BasicVariableDeclaration`（5 子用例：正确声明/重复声明/类型不匹配/const 声明/const 未初始化）
     - [x] 迁移 `DISABLED_TypeChecking`（3 子用例：算术运算/类型不兼容/非布尔条件）
     - `semantic_tests` 现 23 通过 / 30 禁用（从 21/32）
+- [x] **语义层 const 重赋值检查 + 恢复 ConstAndInitialization（t16，已完成）**：
+    - [x] `visitVarDecl` 创建 Symbol 时传递 `stmt.is_const()` （修复缺失的 is_const 传播）
+    - [x] 迁移 `DISABLED_ConstAndInitialization` 前 3 子用例（const 声明/未初始化/重赋值）；剩余 2 子用例拆为 `DISABLED_UninitializedVariable` 待流分析实现
+    - [x] 更新 interpreter `ConstAssignmentError` 测试（语义层已拦截，改为验证语义错误）
+    - `semantic_tests` 现 24 通过 / 30 禁用（从 23/30）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -197,6 +202,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `fix(semantic),test(semantic,interpreter)`: 修复语义层 const 标记缺失（visitVarDecl 创建 Symbol 时传递 is_const），使语义层 visitAssign 的常量重赋值检查生效；恢复 `DISABLED_ConstAndInitialization` 前 3 子用例（const 声明/未初始化/重赋值），剩余 2 子用例拆为 DISABLED_UninitializedVariable；更新 interpreter ConstAssignmentError 测试为语义层拦截验证；semantic_tests 24 通过 / 30 禁用（M4/t16）
 
 - 2026-07-25 `feat(semantic),test(semantic)`: 语义层新增 const 未初始化检查（`visitVarDecl` 检测 const 无初始化表达式并报错）；恢复 2 个 DISABLED_ 测试用例（`BasicVariableDeclaration` 5 子用例 + `TypeChecking` 3 子用例）从旧 EXPECT_THROW 范式迁移到 has_errors 新 API；`semantic_tests` 现 23 通过 / 30 禁用（M4/t15）
 
