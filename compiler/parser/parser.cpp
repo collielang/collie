@@ -451,9 +451,13 @@ std::unique_ptr<Expr> Parser::parse_unary() {
         }
         if (check(TokenType::DELIMITER_DOT)) {
             advance(); // 消费 '.'
-            Token name = consume(TokenType::IDENTIFIER, "Expect method name after '.'.");
-            // 目前仅支持方法调用，属性访问（无括号）待后续设计
-            consume(TokenType::DELIMITER_LPAREN, "Expect '(' after method name.");
+            Token name = consume(TokenType::IDENTIFIER, "Expect member name after '.'.");
+            // 带括号为方法调用，无括号为属性访问（如 str.length）
+            if (!check(TokenType::DELIMITER_LPAREN)) {
+                expr = std::make_unique<PropertyExpr>(std::move(expr), name);
+                continue;
+            }
+            advance(); // 消费 '('
             std::vector<std::unique_ptr<Expr>> arguments;
             if (!check(TokenType::DELIMITER_RPAREN)) {
                 do {

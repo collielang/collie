@@ -66,6 +66,7 @@ private:
     void visitIndex(const IndexExpr& expr) override;
     void visitIndexAssign(const IndexAssignExpr& expr) override;
     void visitMethodCall(const MethodCallExpr& expr) override;
+    void visitProperty(const PropertyExpr& expr) override;
 
     // StmtVisitor 接口
     void visitExpression(const ExpressionStmt& stmt) override;
@@ -101,6 +102,9 @@ private:
 
     /// @brief 取 UTF-8 字符串第 i 个码点（前置：i < utf8_length(s)），返回单字符子串
     static std::string utf8_char_at(const std::string& s, size_t i);
+
+    /// @brief 取第 index 个码点的字节偏移（index >= 码点数时返回 s.size()）
+    static size_t utf8_byte_offset(const std::string& s, size_t index);
 
     // 内建函数
     void call_builtin_print(const CallExpr& expr);

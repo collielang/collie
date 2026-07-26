@@ -1389,10 +1389,11 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
 
         const std::string name(expr.name().lexeme());
 
-        // 内建方法表（basic 版，均为 0 参，见设计文档 04-numeric.md）：
+        // 内建方法表（basic 版，见设计文档 04-numeric.md / 03-character.md）：
         // - toString：任意值 -> string
         // - toNumber：string/bool/number -> number
         // - number 专属：abs/integerPart/decimalPart -> number，is* 系列 -> bool
+        // - string 专属：trim/trimLeft/trimRight -> string，subString(start[, end]) -> string
         // TODO(semantic): 待类型系统闭环后改为正式的类型方法符号表
         static const std::unordered_map<std::string, TokenType> number_methods = {
             {"abs", TokenType::KW_NUMBER},
@@ -1408,6 +1409,8 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
         };
 
         TokenType result_type;
+        size_t min_args = 0;
+        size_t max_args = 0;
         if (name == "toString") {
             result_type = TokenType::KW_STRING;
         } else if (name == "toNumber") {
@@ -1432,18 +1435,75 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
                     expr.name().line(), expr.name().column());
             }
             result_type = number_methods.at(name);
+        } else if (name == "trim" || name == "trimLeft" || name == "trimRight" ||
+                   name == "subString") {
+            // string 专属方法（object 动态放行，运行期再检查）
+            if (object_type != TokenType::KW_STRING &&
+                object_type != TokenType::KW_OBJECT) {
+                throw SemanticError(
+                    "Method '" + name + "()' is only supported on strings, got '" +
+                    std::string(token_type_to_string(object_type)) + "'",
+                    expr.name().line(), expr.name().column());
+            }
+            result_type = TokenType::KW_STRING;
+            if (name == "subString") {
+                min_args = 1;
+                max_args = 2;
+            }
         } else {
             throw SemanticError("Unknown method '" + name + "'",
                 expr.name().line(), expr.name().column());
         }
 
-        // 当前内建方法均为 0 参
-        if (!expr.arguments().empty()) {
-            throw SemanticError(name + "() expects no arguments",
+        // 元数校验，并逐个分析参数表达式
+        if (expr.arguments().size() < min_args ||
+            expr.arguments().size() > max_args) {
+            std::string expected = (min_args == max_args)
+                ? std::to_string(min_args)
+                : (std::to_string(min_args) + " to " + std::to_string(max_args));
+            throw SemanticError(
+                name + "() expects " + expected + " argument(s), got " +
+                std::to_string(expr.arguments().size()),
                 expr.name().line(), expr.name().column());
+        }
+        for (const auto& argument : expr.arguments()) {
+            argument->accept(*this);
         }
 
         current_type_ = result_type;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
+    try {
+        expr.object()->accept(*this);
+        TokenType object_type = current_type_;
+
+        const std::string name(expr.name().lexeme());
+
+        // 内建属性表（basic 版，见设计文档 03-character.md）：
+        // - length：string/array -> number
+        if (name == "length") {
+            if (object_type != TokenType::KW_STRING &&
+                object_type != TokenType::KW_ARRAY &&
+                object_type != TokenType::KW_OBJECT) {
+                throw SemanticError(
+                    "Property 'length' is only supported on strings and arrays, got '" +
+                    std::string(token_type_to_string(object_type)) + "'",
+                    expr.name().line(), expr.name().column());
+            }
+            current_type_ = TokenType::KW_NUMBER;
+        } else {
+            throw SemanticError("Unknown property '" + name + "'",
+                expr.name().line(), expr.name().column());
+        }
 
     } catch (const SemanticError& error) {
         record_error(error);

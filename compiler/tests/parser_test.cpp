@@ -132,6 +132,11 @@ public:
         result_ = out;
     }
 
+    void visitProperty(const PropertyExpr& expr) override {
+        expr.object()->accept(*this);
+        result_ = result_ + "." + std::string(expr.name().lexeme());
+    }
+
     std::string result() const { return result_; }
 
 private:

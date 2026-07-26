@@ -59,6 +59,10 @@ void MethodCallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitMethodCall(*this);
 }
 
+void PropertyExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitProperty(*this);
+}
+
 void CallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitCall(*this);
 }

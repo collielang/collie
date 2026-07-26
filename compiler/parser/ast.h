@@ -28,6 +28,7 @@ class ArrayLiteralExpr;
 class IndexExpr;
 class IndexAssignExpr;
 class MethodCallExpr;
+class PropertyExpr;
 class TupleExpr;
 class TupleMemberExpr;
 class ExpressionStmt;
@@ -389,6 +390,25 @@ private:
 };
 
 /**
+ * @brief 属性访问表达式
+ * 表示无括号的属性读取，如 str.length（见设计文档 03-character.md）
+ */
+class PropertyExpr : public Expr {
+public:
+    PropertyExpr(std::unique_ptr<Expr> object, Token name)
+        : object_(std::move(object)), name_(name) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* object() const { return object_.get(); }
+    const Token& name() const { return name_; }
+
+private:
+    std::unique_ptr<Expr> object_;
+    Token name_;  // 属性名 token，用于分发与错误报告
+};
+
+/**
  * @brief If 语句
  * 用于表示条件分支语句，包括条件、then分支和可选的else分支
  */
@@ -691,6 +711,9 @@ public:
 
     /// @brief 访问方法调用表达式
     virtual void visitMethodCall(const MethodCallExpr& expr) = 0;
+
+    /// @brief 访问属性访问表达式
+    virtual void visitProperty(const PropertyExpr& expr) = 0;
 };
 
 /**

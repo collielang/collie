@@ -5,6 +5,7 @@
  */
 #include "interpreter.h"
 
+#include <algorithm>
 #include <cctype>
 #include <string>
 #include <utility>
@@ -369,8 +370,8 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
     size_t line = expr.name().line();
     size_t column = expr.name().column();
 
-    // 当前内建方法均为 0 参（语义层已校验，这里防御 object 动态路径）
-    if (!expr.arguments().empty()) {
+    // 除 subString 外内建方法均为 0 参（语义层已校验，这里防御 object 动态路径）
+    if (name != "subString" && !expr.arguments().empty()) {
         throw RuntimeError(name + "() expects no arguments", line, column);
     }
 
@@ -381,6 +382,65 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
     }
     if (name == "toNumber") {
         result_ = to_number_value(object, line, column);
+        return;
+    }
+
+    // string 专属方法（见设计文档 03-character.md）
+    if (name == "trim" || name == "trimLeft" || name == "trimRight" ||
+        name == "subString") {
+        if (!object.is_string()) {
+            throw RuntimeError("Method '" + name + "()' is only supported on strings, got " +
+                                   std::string(object.kind_name()),
+                               line, column);
+        }
+        const std::string& s = object.as_string();
+        if (name == "subString") {
+            // .subString(startIndex[, endIndex = length])，endIndex 传 -1/NaN 时取 length；
+            // 区间为 [start, end)，按 UTF-8 码点计数，越界截断、start >= end 时为空串
+            if (expr.arguments().empty() || expr.arguments().size() > 2) {
+                throw RuntimeError("subString() expects 1 to 2 argument(s)", line, column);
+            }
+            Value start_value = evaluate(expr.arguments()[0].get());
+            if (!start_value.is_number()) {
+                throw RuntimeError("subString() indices must be numbers", line, column);
+            }
+            size_t length = utf8_length(s);
+            double end_raw = static_cast<double>(length);
+            if (expr.arguments().size() == 2) {
+                Value end_value = evaluate(expr.arguments()[1].get());
+                if (!end_value.is_number()) {
+                    throw RuntimeError("subString() indices must be numbers", line, column);
+                }
+                end_raw = end_value.as_number();
+                if (std::isnan(end_raw) || end_raw == -1.0) {
+                    end_raw = static_cast<double>(length);
+                }
+            }
+            double start_raw = start_value.as_number();
+            if (std::isnan(start_raw)) { start_raw = 0.0; }
+            double len_d = static_cast<double>(length);
+            double start_d = std::min(std::max(std::floor(start_raw), 0.0), len_d);
+            double end_d = std::min(std::max(std::floor(end_raw), 0.0), len_d);
+            if (start_d >= end_d) {
+                result_ = Value::str("");
+                return;
+            }
+            size_t from = utf8_byte_offset(s, static_cast<size_t>(start_d));
+            size_t to = utf8_byte_offset(s, static_cast<size_t>(end_d));
+            result_ = Value::str(s.substr(from, to - from));
+            return;
+        }
+        // trim 系列：空白字符为空格与 Tab 制表符（见 03-character.md）
+        auto is_blank = [](char c) { return c == ' ' || c == '\t'; };
+        size_t begin = 0;
+        size_t end = s.size();
+        if (name != "trimRight") {
+            while (begin < end && is_blank(s[begin])) { ++begin; }
+        }
+        if (name != "trimLeft") {
+            while (end > begin && is_blank(s[end - 1])) { --end; }
+        }
+        result_ = Value::str(s.substr(begin, end - begin));
         return;
     }
 
@@ -417,6 +477,32 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
     } else {
         throw RuntimeError("Unknown method '" + name + "'", line, column);
     }
+}
+
+void Interpreter::visitProperty(const PropertyExpr& expr) {
+    Value object = evaluate(expr.object());
+    const std::string name(expr.name().lexeme());
+    size_t line = expr.name().line();
+    size_t column = expr.name().column();
+
+    // 内建属性（见设计文档 03-character.md）：string 按 UTF-8 码点计数
+    if (name == "length") {
+        if (object.is_string()) {
+            result_ = Value::number(
+                static_cast<double>(utf8_length(object.as_string())));
+            return;
+        }
+        if (object.is_array()) {
+            result_ = Value::number(
+                static_cast<double>(object.as_array().size()));
+            return;
+        }
+        throw RuntimeError(
+            std::string("Property 'length' is only supported on strings and arrays, got ") +
+                object.kind_name(),
+            line, column);
+    }
+    throw RuntimeError("Unknown property '" + name + "'", line, column);
 }
 
 size_t Interpreter::normalize_index(const Value& index, size_t size,
@@ -474,6 +560,14 @@ std::string Interpreter::utf8_char_at(const std::string& s, size_t index) {
         byte += char_len;
     }
     return "";  // 前置条件保证不到达（index < utf8_length(s)）
+}
+
+size_t Interpreter::utf8_byte_offset(const std::string& s, size_t index) {
+    size_t byte = 0;
+    for (size_t seen = 0; byte < s.size() && seen < index; ++seen) {
+        byte += utf8_char_length(static_cast<unsigned char>(s[byte]));
+    }
+    return byte;
 }
 
 // -----------------------------------------------------------------------------

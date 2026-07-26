@@ -68,6 +68,7 @@ private:
     void visitIndex(const IndexExpr& expr) override;
     void visitIndexAssign(const IndexAssignExpr& expr) override;
     void visitMethodCall(const MethodCallExpr& expr) override;
+    void visitProperty(const PropertyExpr& expr) override;
 
     // StmtVisitor 接口实现
     void visitVarDecl(const VarDeclStmt& stmt) override;

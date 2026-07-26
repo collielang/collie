@@ -760,3 +760,89 @@ TEST(InterpreterEndToEnd, MethodCallWrongReceiverRejected) {
     analyzer.analyze(stmts);
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+// 以下属性/字符串方法用例见设计文档 03-character.md
+TEST(InterpreterEndToEnd, LengthProperty) {
+    // string 按 UTF-8 码点计数，array 按元素数
+    EXPECT_EQ(run_source(R"(
+        string s = "héllo";
+        print(s.length);
+        array arr = [1, 2, 3];
+        print(arr.length);
+        print("".length);
+    )"), R"(5
+3
+0
+)");
+}
+
+TEST(InterpreterEndToEnd, StringTrimMethods) {
+    EXPECT_EQ(run_source(R"(
+        string s = "  hi  ";
+        print("|" + s.trim() + "|");
+        print("|" + s.trimLeft() + "|");
+        print("|" + s.trimRight() + "|");
+    )"), R"(|hi|
+|hi  |
+|  hi|
+)");
+}
+
+TEST(InterpreterEndToEnd, StringSubString) {
+    // [start, end) 码点区间；end 缺省/-1 取 length；start >= end 为空串
+    EXPECT_EQ(run_source(R"(
+        string str = "hello world";
+        print(str.subString(0, 2));
+        print(str.subString(6));
+        print(str.subString(6, -1));
+        print("héllo".subString(1, 3));
+        print(str.subString(4, 2) + "|");
+    )"), R"(he
+world
+world
+él
+|
+)");
+}
+
+TEST(InterpreterEndToEnd, PropertyAndMethodChained) {
+    EXPECT_EQ(run_source(R"(
+        print("  collie  ".trim().length);
+        print("hello".subString(1, 4).length.toString() + "!");
+    )"), R"(6
+3!
+)");
+}
+
+TEST(InterpreterEndToEnd, UnknownPropertyRejected) {
+    // 未知属性在语义层报错
+    collie::Lexer lexer(R"(string s = "abc"; number n = s.foo;)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, LengthWrongReceiverRejected) {
+    // length 用在 number 上：语义层报错
+    collie::Lexer lexer(R"(number n = 1; number m = n.length;)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, SubStringArityRejected) {
+    // subString 元数错误（0 参）：语义层报错
+    collie::Lexer lexer(R"(string s = "abc"; s.subString();)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t27 完成）
+最后更新：2026-07-25（t28 完成）
 
 ---
 
@@ -15,9 +15,9 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法），token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式) |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -214,6 +214,13 @@
     - [x] 解释器分发实现：`integerPart` 向零取整、`decimalPart` 保留符号（文档 `-123.456` 用例）；抽出 `to_number_value` 辅助与内建函数 toNumber 共用
     - [x] 端到端测试：number 谓词方法/abs 与取整/toString+toNumber（含数字字面量接收者 `12.toString()`）/链式混合/未知方法拒绝/错误接收者拒绝（6 例）
     - `interpreter_tests` 现 80 例全绿；未做：带参方法（如 `toString(radix)`，文档示例疑似有误待确认）、string/array 方法、属性访问
+- [x] **string/array 内建成员（t28，已完成）**：
+    - [x] AST 新增 `PropertyExpr` 节点 + `visitProperty` visitor 接口（三处实现同步）；parser `.` 后缀分支改为带括号方法调用/无括号属性访问双路径
+    - [x] `length` 属性（文档 03-character.md `bar.length`）：string 按 UTF-8 码点计数、array 按元素数；其余接收者/未知属性语义层报错（object 动态放行）
+    - [x] string 专属方法：`trim`/`trimLeft`/`trimRight`（空白字符为空格与 Tab，按文档）、`subString(start[, end])`（首个带参内建方法，语义层支持 1-2 元参数区间校验；`[start, end)` 码点区间，end 缺省/-1/NaN 取 length，越界截断）；解释器新增 `utf8_byte_offset` 辅助
+    - [x] 端到端测试：length 属性/trim 系列/subString（含 UTF-8 多字节）/属性方法混合链式/未知属性拒绝/错误接收者拒绝/元数错误拒绝（7 例）
+    - **待确认**：文档 `str.subString(6) // "llo world"` 示例与通用 `[start, end)` 语义矛盾（标准语义应为 `"world"`），按标准语义实现；`indent`/`dedent`/切片 `[a:b]`/`toCharacterArray` 推迟（依赖 character 类型或切片语法）
+    - `interpreter_tests` 现 87 例全绿
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
@@ -272,6 +279,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(parser,semantic,interpreter)`: 实现 string/array 内建成员：AST 新增 PropertyExpr、parser 支持无括号属性访问；`length` 属性（string 码点数/array 元素数）；string 方法 trim/trimLeft/trimRight 与首个带参方法 subString(start[, end])（码点区间，end 缺省/-1/NaN 取 length）；新增 7 个端到端测试；interpreter_tests 87 全绿（M4 t28）
 
 - 2026-07-25 `feat(parser,semantic,interpreter)`: 实现方法调用语法 `expr.method(args)`：AST 新增 MethodCallExpr、parser 后缀链支持索引与方法调用混合、语义层内建方法表（toString/toNumber 通用 + number 专属 abs/integerPart/decimalPart/is* 系列）、解释器分发实现并抽出 to_number_value 与内建函数共用；新增 6 个端到端测试；interpreter_tests 80 全绿（M4 t27）
 
