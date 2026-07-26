@@ -74,6 +74,22 @@ TEST(LexerTest, NumberFSuffixNotGreedy) {
     EXPECT_EQ(tokens[1].lexeme(), "fx");
 }
 
+// 特殊数值字面量 Infinity/NaN 归为数字字面量；大小写敏感（见 04-numeric.md）
+TEST(LexerTest, InfinityNaNLiterals) {
+    std::string source = "Infinity NaN infinity nan";
+    Lexer lexer(source, Encoding::UTF8);
+
+    auto tokens = lexer.tokenize();
+    ASSERT_EQ(tokens.size() - 1, 4);
+    EXPECT_EQ(tokens[0].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[0].lexeme(), "Infinity");
+    EXPECT_EQ(tokens[1].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[1].lexeme(), "NaN");
+    // 小写拼写不是特殊字面量，仍是普通标识符
+    EXPECT_EQ(tokens[2].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[3].type(), TokenType::IDENTIFIER);
+}
+
 // 字符串测试
 TEST(LexerTest, StringLiterals) {
     std::string source = R"("Hello, world!" 'c')";

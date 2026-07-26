@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t30 完成）
+最后更新：2026-07-25（t31 完成）
 
 ---
 
@@ -14,10 +14,10 @@
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
-| 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法），token 种类丰富 |
+| 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法、特殊数值 `Infinity`/`NaN`），token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算/toString 格式/toNumber 严格匹配）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -230,6 +230,12 @@
     - [x] 实测级联计数并注释：ComplexExpression 3 源 4 条、RecursiveFunction 3 源 6 条（含 must-return 双级联）、ErrorRecoveryPriority 实测 2 条（undefined 后 panic 跳过同表达式剩余检查 + 初始化级联）
     - [x] 仍禁用 2 个：`ComplexTypeConversionRecovery`（依赖 byte/word 类型）、`MemoryUsageRecovery`（1000 层深嵌套对递归下降 parser 有栈溢出风险且内存断言脆弱）
     - `semantic_tests` 现 45 通过 / 13 禁用（从 33/25）
+- [x] **Infinity/NaN 特殊数值字面量（t31，已完成，见 04-numeric.md）**：
+    - [x] 词法层：`Infinity`/`NaN` 入关键字表映射为 `LITERAL_NUMBER`（大小写敏感，小写拼写仍是普通标识符），parser/semantic 零改动
+    - [x] 解释器：visitLiteral 显式特判取值（不依赖 stod 平台行为）；`Value::to_string` 按文档格式输出 `+Infinity`/`-Infinity`/`NaN`；算术/比较遵循 IEEE 754（NaN != NaN）
+    - [x] `toNumber` 对齐文档：特殊形式 `"Infinity"/"+Infinity"/"-Infinity"` 严格大小写匹配；**不可解析字符串改为返回 NaN**（原报运行时错误；`"infinity".toNumber() == NaN`），stod 宽松拼写（inf/nan 等）一律视为不可解析
+    - [x] 新增 6 个测试：lexer 1 个（token 分类）+ 端到端 5 个（toString 格式/谓词/NaN 比较/无穷算术/toNumber 形式）；lexer_tests 14、interpreter_tests 92 全绿
+    - 遗留：除零仍报运行时错误（文档未规定 `1/0` 是否应得 Infinity，待确认后再定）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
@@ -288,6 +294,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(lexer,interpreter)`: 实现 Infinity/NaN 特殊数值字面量（见 04-numeric.md）：词法层归为 LITERAL_NUMBER（大小写敏感）；toString 输出 +Infinity/-Infinity/NaN；toNumber 特殊形式严格匹配、不可解析返回 NaN（不再报错）；新增 6 个测试，lexer_tests 14 / interpreter_tests 92 全绿（M4 t31）
 
 - 2026-07-25 `test(semantic)`: 恢复错误恢复类 DISABLED_ 语义测试 12 个（semantic_recovery_test.cpp）：错误方向反转 + function 语法改写 + 遮蔽合法化适配；实测并注释级联计数（ComplexExpression 4、RecursiveFunction 6、ErrorRecoveryPriority 2）；仍禁用 ComplexTypeConversionRecovery/MemoryUsageRecovery；semantic_tests 45 通过 / 13 禁用（M4 t30）
 

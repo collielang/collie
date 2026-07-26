@@ -739,6 +739,98 @@ TEST(InterpreterEndToEnd, MethodCallChainedAndIndexed) {
     )"), "3|\n5\n");
 }
 
+// ===== Infinity / NaN 字面量与相关语义（见设计文档 04-numeric.md） =====
+
+TEST(InterpreterEndToEnd, InfinityNaNLiteralsToString) {
+    // toString 格式：+Infinity / -Infinity / NaN
+    EXPECT_EQ(run_source(R"(
+        print(Infinity);
+        print(-Infinity);
+        print(NaN);
+        number x = Infinity;
+        print(x.toString());
+    )"), R"(+Infinity
+-Infinity
+NaN
++Infinity
+)");
+}
+
+TEST(InterpreterEndToEnd, InfinityPredicates) {
+    EXPECT_EQ(run_source(R"(
+        number p = Infinity;
+        print(p.isInfinity());
+        print(p.isFinite());
+        print(p.isPositive());
+        print(p.isNegative());
+        print(p.isNaN());
+        print(p.isInteger());
+        print(p.isDecimal());
+        number q = -Infinity;
+        print(q.isInfinity());
+        print(q.isNegative());
+    )"), R"(true
+false
+true
+false
+false
+false
+false
+true
+true
+)");
+}
+
+TEST(InterpreterEndToEnd, NaNPredicatesAndComparison) {
+    // NaN 的所有谓词除 isNaN 外均为 false；NaN 与自身比较不相等（IEEE 754）
+    EXPECT_EQ(run_source(R"(
+        number n = NaN;
+        print(n.isNaN());
+        print(n.isInfinity());
+        print(n.isFinite());
+        print(n.isPositive());
+        print(n.isNegative());
+        print(n == n);
+        print(n != n);
+    )"), R"(true
+false
+false
+false
+false
+false
+true
+)");
+}
+
+TEST(InterpreterEndToEnd, InfinityArithmetic) {
+    // 无穷参与算术运算遵循 IEEE 754：Inf+1=Inf、Inf-Inf=NaN、Inf*-1=-Inf
+    EXPECT_EQ(run_source(R"(
+        number inf = Infinity;
+        print(inf + 1);
+        print(inf * -1);
+        number d = inf - inf;
+        print(d.isNaN());
+    )"), "+Infinity\n-Infinity\ntrue\n");
+}
+
+TEST(InterpreterEndToEnd, ToNumberInfinityForms) {
+    // 字符串转数字的特殊形式严格大小写匹配；不可解析返回 NaN 而非报错
+    EXPECT_EQ(run_source(R"(
+        print(toNumber("Infinity"));
+        print(toNumber("+Infinity"));
+        print(toNumber("-Infinity"));
+        number a = toNumber("infinity");
+        print(a.isNaN());
+        number b = toNumber("abc");
+        print(b.isNaN());
+    )"), R"(+Infinity
++Infinity
+-Infinity
+true
+true
+)");
+}
+
 TEST(InterpreterEndToEnd, UnknownMethodRejected) {
     // 未知方法在语义层报错
     collie::Lexer lexer(R"(number n = 1; n.foo();)");

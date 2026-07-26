@@ -98,8 +98,11 @@ public:
             case Kind::String:   return str_;
             case Kind::Function: return "<function>";
             case Kind::Number: {
-                if (std::isfinite(num_) && num_ == std::floor(num_) &&
-                    std::fabs(num_) < 1e15) {
+                // 特殊数值按文档格式输出（见 04-numeric.md）：
+                // NaN / +Infinity / -Infinity
+                if (std::isnan(num_)) return "NaN";
+                if (std::isinf(num_)) return num_ > 0 ? "+Infinity" : "-Infinity";
+                if (num_ == std::floor(num_) && std::fabs(num_) < 1e15) {
                     return std::to_string(static_cast<long long>(num_));
                 }
                 std::ostringstream oss;

@@ -49,7 +49,12 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"return", TokenType::KW_RETURN},
     {"void", TokenType::KW_VOID},
     {"function", TokenType::KW_FUNCTION},
-    {"protected", TokenType::KW_PROTECTED}
+    {"protected", TokenType::KW_PROTECTED},
+
+    // 特殊数值字面量（见 04-numeric.md）：按数字字面量 token 处理，
+    // parser/semantic 无需感知，解释器在 visitLiteral 中特判取值
+    {"Infinity", TokenType::LITERAL_NUMBER},
+    {"NaN", TokenType::LITERAL_NUMBER}
 };
 
 TokenType get_identifier_type(std::string_view identifier) {

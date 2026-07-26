@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -56,8 +57,16 @@ void Interpreter::visitLiteral(const LiteralExpr& expr) {
     std::string lexeme(tok.lexeme());
     switch (tok.type()) {
         case TokenType::LITERAL_NUMBER:
-            // 词法器保证 lexeme 是合法数字串
-            result_ = Value::number(std::stod(lexeme));
+            // 特殊数值字面量（词法层把 Infinity/NaN 归为 LITERAL_NUMBER）；
+            // 不依赖 std::stod 对 "Infinity"/"NaN" 拼写的平台行为，显式特判
+            if (lexeme == "Infinity") {
+                result_ = Value::number(std::numeric_limits<double>::infinity());
+            } else if (lexeme == "NaN") {
+                result_ = Value::number(std::numeric_limits<double>::quiet_NaN());
+            } else {
+                // 词法器保证 lexeme 是合法数字串
+                result_ = Value::number(std::stod(lexeme));
+            }
             break;
         case TokenType::LITERAL_STRING:
         case TokenType::LITERAL_CHAR:
@@ -278,20 +287,33 @@ Value Interpreter::to_number_value(const Value& v, size_t line, size_t column) {
         return Value::number(v.as_bool() ? 1.0 : 0.0);
     }
     if (v.is_string()) {
-        const std::string& s = v.as_string();
+        // 两端去空白后解析；不可解析的字符串按文档返回 NaN（见 04-numeric.md：
+        // "infinity".toNumber() == NaN），不再报运行时错误。
+        const std::string& raw = v.as_string();
+        size_t b = 0, e = raw.size();
+        while (b < e && std::isspace(static_cast<unsigned char>(raw[b]))) ++b;
+        while (e > b && std::isspace(static_cast<unsigned char>(raw[e - 1]))) --e;
+        std::string s = raw.substr(b, e - b);
+
+        // 特殊形式严格大小写匹配："Infinity"/"+Infinity"/"-Infinity"
+        if (s == "Infinity" || s == "+Infinity") {
+            return Value::number(std::numeric_limits<double>::infinity());
+        }
+        if (s == "-Infinity") {
+            return Value::number(-std::numeric_limits<double>::infinity());
+        }
         try {
             size_t pos = 0;
             double n = std::stod(s, &pos);
-            // 允许尾部空白，其他尾部字符视为非法
-            while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
-            if (pos == s.size()) {
+            // 尾部残留字符视为非法；stod 对 "inf"/"nan" 等拼写宽松，
+            // 非有限结果一律视为不可解析（如 "infinity" 应得 NaN）
+            if (pos == s.size() && std::isfinite(n)) {
                 return Value::number(n);
             }
         } catch (const std::exception&) {
-            // fall through to error
+            // fall through: 不可解析 → NaN
         }
-        throw RuntimeError("toNumber() cannot parse '" + s + "' as a number",
-                           line, column);
+        return Value::number(std::numeric_limits<double>::quiet_NaN());
     }
     throw RuntimeError(std::string("toNumber() cannot convert ") + v.kind_name(),
                        line, column);
