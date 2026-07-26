@@ -365,6 +365,33 @@ TEST(InterpreterEndToEnd, CompoundAssignModulo) {
     )"), "2\n");
 }
 
+// 取模为 floor 语义（Python 风格），三个用例均出自设计文档 04-numeric.md
+TEST(InterpreterEndToEnd, FloorModuloSemantics) {
+    EXPECT_EQ(run_source(R"(
+        print(-1 % 5);
+        print(-1 % -5);
+        print(1 % -5);
+    )"), "4\n-1\n-4\n");
+}
+
+// floor 取模同样适用于小数操作数
+TEST(InterpreterEndToEnd, FloorModuloDecimal) {
+    EXPECT_EQ(run_source(R"(
+        print(5.5 % 2);
+        print(-5.5 % 2);
+    )"), "1.5\n0.5\n");
+}
+
+// 前导点小数与 f 后缀字面量（见设计文档 04-numeric.md）
+TEST(InterpreterEndToEnd, NumberLiteralForms) {
+    EXPECT_EQ(run_source(R"(
+        number a = .5;
+        number b = 2f;
+        print(a + .25);
+        print(b);
+    )"), "0.75\n2\n");
+}
+
 TEST(InterpreterEndToEnd, CompoundAssignStringConcat) {
     // += 用于字符串拼接
     EXPECT_EQ(run_source(R"(

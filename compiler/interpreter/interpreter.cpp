@@ -469,12 +469,18 @@ Value Interpreter::eval_arithmetic(const Token& op, const Value& left, const Val
                 throw RuntimeError("Division by zero", op.line(), op.column());
             }
             return Value::number(a / b);
-        case TokenType::OP_MODULO:
+        case TokenType::OP_MODULO: {
             if (b == 0.0) {
                 throw RuntimeError("Modulo by zero", op.line(), op.column());
             }
-            // TODO(interpreter): 目前用 fmod 处理，未来区分整型取模语义
-            return Value::number(std::fmod(a, b));
+            // 设计文档规定取模为 floor 语义（Python 风格）：结果符号与除数一致，
+            // 如 -1 % 5 == 4、-1 % -5 == -1、1 % -5 == -4（见 04-numeric.md）
+            double r = std::fmod(a, b);
+            if (r != 0.0 && ((r < 0.0) != (b < 0.0))) {
+                r += b;
+            }
+            return Value::number(r);
+        }
         default:
             throw RuntimeError("Unsupported arithmetic operator", op.line(), op.column());
     }

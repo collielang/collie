@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t25 完成）
+最后更新：2026-07-25（t26 完成）
 
 ---
 
@@ -14,10 +14,10 @@
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
-| 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量，token 种类丰富 |
+| 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法），token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -201,8 +201,14 @@
     - [x] 迁移 `DISABLED_ArrayOperationRecovery`：错误后恢复继续分析后续数组操作（实测 3 错：索引类型 + 数组算术 + 级联赋值不兼容，与 panic-mode 机制一致）
     - [x] 修复 `token_utils.cpp` 缺失 `KW_ARRAY` 映射（错误消息中显示 UNKNOWN）
     - `semantic_tests` 现 29 通过 / 29 禁用（从 27/30）
+- [x] **number 语义对齐设计规范（t26，已完成）**：
+    - [x] 取模改为 **floor 语义**（Python 风格，结果符号随除数）：`-1 % 5 == 4`、`-1 % -5 == -1`、`1 % -5 == -4`，三用例均出自设计文档 04-numeric.md（原实现用 `std::fmod` C 截断风格，与文档不符）
+    - [x] lexer 支持**前导点小数**（`.5`，文档示例 `-.123456`）与 **`f` 后缀**（`2f` 等价 `2.0`，后缀不计入 lexeme；`2fx` 中的 f 不被误吞）
+    - [x] 端到端测试：floor 取模 3 文档用例/小数取模/字面量形式（3 例）+ lexer 字面量测试（2 例）
+    - **范围决策**：int64/double 双内部表示**推迟**——文档中 number 的可观测语义（`1 == 1.0` 为 true、`1/3 → 0.333...`、整数显示不带小数点）当前 double 实现已全部满足，唯一需要双表示的 `12.00.toString(10) → "12.0"` 依赖尚未实现的方法调用语法；任意精度 integer/decimal 为独立大项，待类型系统闭环时一并设计
+    - `interpreter_tests` 现 74 例全绿，`lexer_tests` 现 13 例全绿
 - [ ] 运行期声明类型与初始值类型校验（待排期）
-- [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
+- [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
@@ -259,6 +265,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(interpreter,lexer)`: number 语义对齐设计规范：取模改为 floor 语义（Python 风格，`-1 % 5 == 4`，修复与 04-numeric.md 不符的 fmod 截断行为）；lexer 支持前导点小数 `.5` 与 `f` 后缀 `2f`（后缀不计入 lexeme）；int64/double 双表示推迟（当前无可观测差异）；新增 3 个端到端 + 2 个 lexer 测试；interpreter_tests 74 / lexer_tests 13 全绿（M4 t26）
 
 - 2026-07-25 `test(semantic),fix(utils)`: 恢复数组相关 DISABLED_ 语义测试：ArrayTypes（array 关键字语法 + has_errors 新 API，同质性检查拆待办）与 ArrayOperationRecovery（实测 3 错含级联赋值错误）；修复 token_utils 缺失 KW_ARRAY 字符串映射；semantic_tests 29 通过 / 29 禁用（M4 t25）
 

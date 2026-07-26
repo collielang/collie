@@ -151,8 +151,8 @@ Token Lexer::next_token() {
         return scan_identifier();
     }
 
-    // 数字
-    if (is_digit(c)) {
+    // 数字（含前导点小数，如 .123，见设计文档 04-numeric.md 的 -.123456 示例）
+    if (is_digit(c) || (c == '.' && is_digit(peek_next()))) {
         return scan_number();
     }
 
@@ -399,7 +399,18 @@ Token Lexer::scan_number() {
         }
     }
 
-    std::string_view number = std::string_view(source_).substr(start_pos, position_ - start_pos);
+    // 浮点后缀 f：如 2f 与 2.0、2.00 等价（见设计文档 04-numeric.md）；
+    // 后缀不计入 lexeme，目前 number 统一用 double 承载，两者无可观测差异。
+    // 仅当 f 后不是标识符字符时才视为后缀（避免误吞 2fx 中的 f）
+    size_t end_pos = position_;
+    if (peek() == 'f') {
+        char after = peek_next();
+        if (!is_alpha(after) && !is_digit(after) && after != '_') {
+            advance(); // 消费 'f'
+        }
+    }
+
+    std::string_view number = std::string_view(source_).substr(start_pos, end_pos - start_pos);
     return Token(TokenType::LITERAL_NUMBER, number, line_, start_col);
 }
 

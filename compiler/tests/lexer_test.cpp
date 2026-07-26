@@ -39,6 +39,41 @@ TEST(LexerTest, BasicTokens) {
     EXPECT_EQ(tokens[4].type(), TokenType::DELIMITER_SEMICOLON);
 }
 
+// 数字字面量形式：前导点小数、f 后缀、科学计数法（见设计文档 04-numeric.md）
+TEST(LexerTest, NumberLiteralForms) {
+    std::string source = ".5 2f 3.14 1e3 2.5f;";
+    Lexer lexer(source, Encoding::UTF8);
+
+    auto tokens = lexer.tokenize();
+    PrintTokens(tokens);
+    ASSERT_EQ(tokens.size() - 1/* 减去 EOF token */, 6);
+
+    EXPECT_EQ(tokens[0].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[0].lexeme(), ".5");
+    EXPECT_EQ(tokens[1].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[1].lexeme(), "2");    // f 后缀不计入 lexeme
+    EXPECT_EQ(tokens[2].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[2].lexeme(), "3.14");
+    EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[3].lexeme(), "1e3");
+    EXPECT_EQ(tokens[4].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[4].lexeme(), "2.5");  // f 后缀不计入 lexeme
+    EXPECT_EQ(tokens[5].type(), TokenType::DELIMITER_SEMICOLON);
+}
+
+// f 后面跟标识符字符时不视为后缀（避免误吞 2fx 中的 f）
+TEST(LexerTest, NumberFSuffixNotGreedy) {
+    std::string source = "2fx";
+    Lexer lexer(source, Encoding::UTF8);
+
+    auto tokens = lexer.tokenize();
+    ASSERT_EQ(tokens.size() - 1, 2);
+    EXPECT_EQ(tokens[0].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[0].lexeme(), "2");
+    EXPECT_EQ(tokens[1].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[1].lexeme(), "fx");
+}
+
 // 字符串测试
 TEST(LexerTest, StringLiterals) {
     std::string source = R"("Hello, world!" 'c')";
