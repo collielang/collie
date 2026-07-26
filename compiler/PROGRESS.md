@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t32 完成）
+最后更新：2026-07-25（t33 完成）
 
 ---
 
@@ -17,7 +17,7 @@
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法、特殊数值 `Infinity`/`NaN`、插值字符串 `@"...{expr}..."`），token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算/toString 格式/toNumber 严格匹配）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -235,12 +235,16 @@
     - [x] 解释器：visitLiteral 显式特判取值（不依赖 stod 平台行为）；`Value::to_string` 按文档格式输出 `+Infinity`/`-Infinity`/`NaN`；算术/比较遵循 IEEE 754（NaN != NaN）
     - [x] `toNumber` 对齐文档：特殊形式 `"Infinity"/"+Infinity"/"-Infinity"` 严格大小写匹配；**不可解析字符串改为返回 NaN**（原报运行时错误；`"infinity".toNumber() == NaN`），stod 宽松拼写（inf/nan 等）一律视为不可解析
     - [x] 新增 6 个测试：lexer 1 个（token 分类）+ 端到端 5 个（toString 格式/谓词/NaN 比较/无穷算术/toNumber 形式）；lexer_tests 14、interpreter_tests 92 全绿
-    - 遗留：除零仍报运行时错误（文档未规定 `1/0` 是否应得 Infinity，待确认后再定）
+    - ~~遗留：除零仍报运行时错误~~（已经作者确认改为 IEEE 754，见 t33）
 - [x] **字符串插值 `@"{expr}"`（t32，已完成，见 03-character.md）**：
     - [x] **语法勘正**：文档规定语法为 `@` 前缀 + `{expr}`（`@"{name} is {age}..."`），并非常见的 `${}`；VSCode 扩展 tmLanguage 佐证
     - [x] 词法层：新增 `LITERAL_INTERPOLATED_STRING` token，`@` + `"` 触发 `scan_interpolated_string`；lexeme 保留引号内**原文**（转义不解码，供 parser 区分 `\{` 与 `{`），UTF-8 校验、换行/EOF 报 Unterminated
     - [x] parser 端**脱糖**（AST/semantic/interpreter 零改动）：`@"a{x}b"` → `"a" + toString(x) + "b"`（BinaryExpr(+) 左结合链 + 内建 toString 包裹）；文本段转义解码额外支持 `\{` `\}` 输出字面花括号；插值段用子 Lexer/Parser 解析（天然支持任意表达式与嵌套插值），段内 `\"` 解码为引号支持 `@"{ cond ? \"a\" : \"b\" }"`；非法表达式/不配对花括号报 Parse error
     - [x] 新增 6 个测试：lexer 1 个（token 分类与原文 lexeme）+ 端到端 5 个（文档示例/表达式与三元/`\{` 转义/结果为 string 可拼接可调方法/非法表达式拒绝）；lexer_tests 15、interpreter_tests 97 全绿
+- [x] **除零改为 IEEE 754 语义（t33，已完成，经作者确认）**：
+    - [x] `1/0 → +Infinity`、`-1/0 → -Infinity`、`0/0 → NaN`（不再报 Division by zero 运行时错误），与 t31 的 Infinity/NaN 语义自然衔接
+    - [x] 取模除数为 0 同样遵循 IEEE 754 返回 NaN（原报 Modulo by zero）
+    - [x] 新增端到端测试 DivisionByZeroIEEE754；interpreter_tests 98 全绿
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
@@ -290,15 +294,18 @@
 
 - [x] 源文件后缀：`.collie` 为主、`.col` 为别名 —— 已确认
 - [x] helloworld 的 `print`：内建函数 `print(...)`（任意实参）；字符串转义 `\n \t \\ \"` 由词法器解码，解释器原样输出 —— 已确认
+- [x] 数值除零行为：IEEE 754（`1/0 → +Infinity`、`0/0 → NaN`）—— 已确认（t33）
+- [x] `class` 纳入实现范围：按 **Java/C# 风格最小子集**实现（字段/方法/`new`/`this`，继承后续再做；以 uncategorized.md 附录示例为准）—— 已确认（t34 进行中）
 - [ ] `tribool`（三态布尔）与 `==?` 运算符的确切语义？
 - [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
-- [ ] `class` 是否纳入近期实现范围，还是先搁置？
 
 ---
 
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(interpreter)`: 除零改为 IEEE 754 语义（经作者确认，闭环 t31 遗留）：`1/0 → +Infinity`、`-1/0 → -Infinity`、`0/0 → NaN`，取模除数为 0 返回 NaN，不再报运行时错误；新增端到端测试；interpreter_tests 98 全绿（M4 t33）
 
 - 2026-07-25 `feat(lexer,parser)`: 实现字符串插值 `@"{expr}"`（文档语法为 @ 前缀非 ${}，见 03-character.md）：词法层新增 LITERAL_INTERPOLATED_STRING（lexeme 保留原文）；parser 脱糖为 `"a" + toString(x) + "b"`（AST/semantic/interpreter 零改动）；支持 `\{` `\}` 字面花括号与插值段内字符串字面量；新增 6 个测试，lexer_tests 15 / interpreter_tests 97 全绿（M4 t32）
 

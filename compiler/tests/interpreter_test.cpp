@@ -831,6 +831,23 @@ true
 )");
 }
 
+TEST(InterpreterEndToEnd, DivisionByZeroIEEE754) {
+    // 除零遵循 IEEE 754（经作者确认）：1/0 → +Infinity、-1/0 → -Infinity、
+    // 0/0 → NaN；取模除数为 0 → NaN（不再报运行时错误）
+    EXPECT_EQ(run_source(R"(
+        print(1 / 0);
+        print(-1 / 0);
+        number a = 0 / 0;
+        print(a.isNaN());
+        number b = 5 % 0;
+        print(b.isNaN());
+    )"), R"(+Infinity
+-Infinity
+true
+true
+)");
+}
+
 // ===== 字符串插值 @"...{expr}..."（见设计文档 03-character.md） =====
 
 TEST(InterpreterEndToEnd, StringInterpolationBasic) {

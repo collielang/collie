@@ -638,13 +638,13 @@ Value Interpreter::eval_arithmetic(const Token& op, const Value& left, const Val
         case TokenType::OP_MINUS:    return Value::number(a - b);
         case TokenType::OP_MULTIPLY: return Value::number(a * b);
         case TokenType::OP_DIVIDE:
-            if (b == 0.0) {
-                throw RuntimeError("Division by zero", op.line(), op.column());
-            }
+            // 除零遵循 IEEE 754（与 t31 的 Infinity/NaN 语义衔接，经作者确认）：
+            // 1/0 → +Infinity、-1/0 → -Infinity、0/0 → NaN
             return Value::number(a / b);
         case TokenType::OP_MODULO: {
+            // 取模除数为 0 同样遵循 IEEE 754：fmod(x, 0) → NaN
             if (b == 0.0) {
-                throw RuntimeError("Modulo by zero", op.line(), op.column());
+                return Value::number(std::numeric_limits<double>::quiet_NaN());
             }
             // 设计文档规定取模为 floor 语义（Python 风格）：结果符号与除数一致，
             // 如 -1 % 5 == 4、-1 % -5 == -1、1 % -5 == -4（见 04-numeric.md）
