@@ -792,21 +792,23 @@ TEST(SemanticRecoveryTest, DISABLED_ResourceCleanupRecovery) {
 }
 
 // 测试数组操作中的错误恢复
-TEST(SemanticRecoveryTest, DISABLED_ArrayOperationRecovery) {
+// 数组操作恢复测试（从 DISABLED_ 迁移到 array 关键字语法，t25）：
+// 错误后能恢复并继续分析后续正确的数组操作
+TEST(SemanticRecoveryTest, ArrayOperationRecovery) {
     SemanticAnalyzer analyzer;
 
     auto [ast, tokens] = test::parse_and_get_tokens(R"(
         // 数组声明和操作
-        number[] arr = [1, 2, 3];
+        array arr = [1, 2, 3];
 
-        // 错误操作
-        arr[true] = 42;  // 错误：索引类型错误
+        // 错误操作：索引类型错误
+        arr[true] = 42;
 
         // 正确操作，应该能继续分析
         arr[0] = 10;
 
-        // 另一个错误操作
-        arr = arr + 5;  // 错误：不支持的操作
+        // 另一个错误操作：数组不支持算术运算
+        arr = arr + 5;
 
         // 正确操作，应该能继续分析
         number x = arr[1];
@@ -817,5 +819,8 @@ TEST(SemanticRecoveryTest, DISABLED_ArrayOperationRecovery) {
 
     EXPECT_TRUE(analyzer.has_errors());
     const auto& errors = analyzer.get_errors();
-    EXPECT_EQ(errors.size(), 2);  // 应该有2个错误
+    // 3 个错误：索引类型错误 + 数组算术运算错误 + 级联的赋值类型不兼容
+    //（arr + 5 报错后 current_type_ 为 number，arr = number 再报一次，
+    // 与现有 panic-mode 恢复机制一致，同 TypeInferenceRecovery 的处理）
+    EXPECT_EQ(errors.size(), 3);
 }

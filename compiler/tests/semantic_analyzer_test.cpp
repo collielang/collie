@@ -927,42 +927,64 @@ TEST(SemanticAnalyzerTest, FunctionOverloading) {
 }
 
 // 数组类型测试
-TEST(SemanticAnalyzerTest, DISABLED_ArrayTypes) {
-    SemanticAnalyzer analyzer;
-
+// 数组类型测试（从 DISABLED_ 部分迁移到新 API + array 关键字语法，t25）：
+// 原用义 number[] 目标语法（parser 未实现）与旧 EXPECT_THROW 范式；
+// 元素同质性检查依赖元素类型追踪（未实现），拆到 DISABLED_ArrayElementTypeCheck。
+TEST(SemanticAnalyzerTest, ArrayTypes) {
     // 数组声明和初始化
-    EXPECT_NO_THROW({
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
-            number[] arr = [1, 2, 3];
-            string[] strs = ["hello", "world"];
+            array arr = [1, 2, 3];
+            array strs = ["hello", "world"];
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "array declarations should pass";
+    }
 
-    // 数组访问
-    EXPECT_NO_THROW({
+    // 数组访问：索引读（object 动态放行到 number）与索引赋值
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
-            number[] arr = [1, 2, 3];
+            array arr = [1, 2, 3];
             number x = arr[0];
             arr[1] = 42;
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "array access should pass";
+    }
 
-    // 数组类型错误
-    EXPECT_THROW({
+    // 数组索引类型错误：索引必须是数值
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
-            number[] arr = [1, "hello", true];  // 类型不一致
+            array arr = [1, 2, 3];
+            number x = arr["index"];
         )");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "string index should error";
+    }
 
-    // 数组索引类型错误
-    EXPECT_THROW({
+    // 非数组/字符串类型不可索引
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
-            number[] arr = [1, 2, 3];
-            number x = arr["index"];  // 索引必须是数值类型
+            number n = 1;
+            number x = n[0];
         )");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "indexing a number should error";
+    }
 }
+
+// 待实现：元素类型追踪后的同质性检查（number[] / [number] 语法 + 混合元素报错）
+TEST(SemanticAnalyzerTest, DISABLED_ArrayElementTypeCheck) {
+    SemanticAnalyzer analyzer;
+    // 目标语义：number[] 声明时混合元素类型应报错
+    auto ast = parse(R"(
+        number[] arr = [1, "hello", true];
+    )");
+    analyzer.analyze(ast);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+

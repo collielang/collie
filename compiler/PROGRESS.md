@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t24 完成）
+最后更新：2026-07-25（t25 完成）
 
 ---
 
@@ -196,6 +196,11 @@
     - [x] 解释器：抽出 `utf8_length`/`utf8_char_at` 辅助（`len` 复用），`visitIndex` 按 **UTF-8 码点**索引返回单字符子串，复用 `normalize_index`（负索引/越界报错）；`visitIndexAssign` 防御 object 动态路径
     - [x] 端到端测试：索引读/负索引/Unicode 码点索引/表达式中使用/len 配合循环遍历/越界报错/索引赋值被拒（7 例全绿）
     - `interpreter_tests` 现 71 例全绿
+- [x] **恢复 DISABLED_ 语义测试第四批 · 数组用例（t25，已完成）**：
+    - [x] 迁移 `DISABLED_ArrayTypes`：改用 `array` 关键字语法 + has_errors 新 API（4 子用例：声明/访问/字符串索引报错/非数组索引报错）；元素同质性检查拆为 `DISABLED_ArrayElementTypeCheck`（待元素类型追踪）
+    - [x] 迁移 `DISABLED_ArrayOperationRecovery`：错误后恢复继续分析后续数组操作（实测 3 错：索引类型 + 数组算术 + 级联赋值不兼容，与 panic-mode 机制一致）
+    - [x] 修复 `token_utils.cpp` 缺失 `KW_ARRAY` 映射（错误消息中显示 UNKNOWN）
+    - `semantic_tests` 现 29 通过 / 29 禁用（从 27/30）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO）
 
@@ -254,6 +259,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(semantic),fix(utils)`: 恢复数组相关 DISABLED_ 语义测试：ArrayTypes（array 关键字语法 + has_errors 新 API，同质性检查拆待办）与 ArrayOperationRecovery（实测 3 错含级联赋值错误）；修复 token_utils 缺失 KW_ARRAY 字符串映射；semantic_tests 29 通过 / 29 禁用（M4 t25）
 
 - 2026-07-25 `feat(semantic,interpreter)`: 实现字符串索引：语义层允许 string 被索引（结果 string）且拒绝字符串索引赋值（不可变）；解释器抽出 utf8_length/utf8_char_at 辅助（len 复用），按 UTF-8 码点索引返回单字符子串，复用 normalize_index 支持负索引/越界报错；新增 7 个端到端测试；interpreter_tests 71 全绿（M4 t24）
 
