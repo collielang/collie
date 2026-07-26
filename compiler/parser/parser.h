@@ -101,6 +101,21 @@ private:
     std::unique_ptr<Stmt> parse_function_declaration();
 
     /**
+     * @brief 解析类声明（`class` 已消费）
+     * @return 类声明的AST节点
+     * @throws ParseError 如果类声明语法不正确
+     */
+    std::unique_ptr<Stmt> parse_class_declaration();
+
+    /**
+     * @brief 解析单个类成员（字段/方法/构造器，含可选访问修饰符）
+     * @param class_name 所属类名，用于识别构造器
+     * @return 类成员的AST节点
+     * @throws ParseError 如果成员语法不正确
+     */
+    std::unique_ptr<Stmt> parse_class_member(const Token& class_name);
+
+    /**
      * @brief 解析语句
      * @return 语句的AST节点
      * @throws ParseError 如果语句语法不正确

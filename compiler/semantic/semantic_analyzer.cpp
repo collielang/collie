@@ -295,6 +295,11 @@ void SemanticAnalyzer::visitVarDecl(const VarDeclStmt& stmt) {
         if (type_token == TokenType::IDENTIFIER) {
             // 如果是标识符，尝试将其解析为类型
             type_token = get_identifier_type(stmt.type().lexeme());
+            // 已声明的类名作为类型：按 object 动态处理（如 `Animal a = ...`）
+            if (type_token == TokenType::IDENTIFIER &&
+                declared_classes_.count(std::string(stmt.type().lexeme())) != 0) {
+                type_token = TokenType::KW_OBJECT;
+            }
         }
 
         // 检查是否是有效的类型
@@ -1030,11 +1035,13 @@ void SemanticAnalyzer::visitReturn(const ReturnStmt& stmt) {
 
 // 添加新的辅助方法
 bool SemanticAnalyzer::is_string_concatenable(TokenType type) const {
+    // object 动态放行（如实例字段/数组索引结果），运行期再检查
     return type == TokenType::KW_STRING ||
            type == TokenType::KW_CHAR ||
            type == TokenType::KW_CHARACTER ||
            type == TokenType::KW_NUMBER ||
-           type == TokenType::KW_BOOL;
+           type == TokenType::KW_BOOL ||
+           type == TokenType::KW_OBJECT;
 }
 
 bool SemanticAnalyzer::is_ordered_type(TokenType type) const {
@@ -1450,6 +1457,13 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
                 min_args = 1;
                 max_args = 2;
             }
+        } else if (object_type == TokenType::KW_OBJECT) {
+            // 用户类实例的方法调用：object 动态放行（方法名/元数运行期检查）
+            for (const auto& argument : expr.arguments()) {
+                argument->accept(*this);
+            }
+            current_type_ = TokenType::KW_OBJECT;
+            return;
         } else {
             throw SemanticError("Unknown method '" + name + "'",
                 expr.name().line(), expr.name().column());
@@ -1500,6 +1514,9 @@ void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
                     expr.name().line(), expr.name().column());
             }
             current_type_ = TokenType::KW_NUMBER;
+        } else if (object_type == TokenType::KW_OBJECT) {
+            // 用户类实例的字段读取：object 动态放行，字段存在性运行期检查
+            current_type_ = TokenType::KW_OBJECT;
         } else {
             throw SemanticError("Unknown property '" + name + "'",
                 expr.name().line(), expr.name().column());
@@ -1570,11 +1587,102 @@ void SemanticAnalyzer::visitArrayType(const ArrayType& type) {
 }
 
 void SemanticAnalyzer::visitClass(const ClassStmt& stmt) {
-    // TODO: 实现类的语义分析
-    // 1. 检查类名是否已经被使用
-    // 2. 分析类成员
+    // 最小子集（Java/C# 风格，经作者确认）：登记类名，类体在独立作用域内
+    // 分析；字段/方法的细粒度类型检查按 object 动态放行，运行期再检查。
+    // TODO(semantic): 待类型系统闭环后建立正式的类符号表（字段/方法签名）。
+    try {
+        const std::string name(stmt.name().lexeme());
+        if (declared_classes_.count(name) != 0) {
+            throw SemanticError(
+                "Class '" + name + "' is already defined",
+                stmt.name().line(), stmt.name().column());
+        }
+        declared_classes_.insert(name);
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+        return;
+    }
+
+    // 类体内分析期间放行 this（各成员 visit 内部自行捕获错误）
+    bool prev_in_class = in_class_;
+    in_class_ = true;
+    symbols_.begin_scope();
     for (const auto& member : stmt.members()) {
         member->accept(*this);
+    }
+    symbols_.end_scope();
+    in_class_ = prev_in_class;
+}
+
+void SemanticAnalyzer::visitPropertyAssign(const PropertyAssignExpr& expr) {
+    try {
+        expr.object()->accept(*this);
+        TokenType object_type = current_type_;
+
+        // 仅允许对类实例（object 类型）赋值属性，字段存在性运行期检查
+        if (object_type != TokenType::KW_OBJECT) {
+            throw SemanticError(
+                "Cannot assign property on type '" +
+                std::string(token_type_to_string(object_type)) + "'",
+                expr.name().line(), expr.name().column());
+        }
+
+        expr.value()->accept(*this);
+        // 赋值表达式的值即右侧值，current_type_ 保持为右侧类型
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitNew(const NewExpr& expr) {
+    try {
+        const std::string name(expr.class_name().lexeme());
+        if (declared_classes_.count(name) == 0) {
+            throw SemanticError(
+                "Undefined class '" + name + "'",
+                expr.class_name().line(), expr.class_name().column());
+        }
+
+        // 构造器元数运行期检查，此处仅分析实参表达式
+        for (const auto& argument : expr.arguments()) {
+            argument->accept(*this);
+        }
+
+        current_type_ = TokenType::KW_OBJECT;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitThis(const ThisExpr& expr) {
+    try {
+        if (!in_class_) {
+            throw SemanticError(
+                "'this' can only be used inside a class",
+                expr.keyword().line(), expr.keyword().column());
+        }
+        current_type_ = TokenType::KW_OBJECT;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
     }
 }
 
@@ -1592,6 +1700,8 @@ void SemanticAnalyzer::reset_state() {
     loop_depth_ = 0;
     tuple_element_types_.clear();
     array_element_type_ = TokenType::INVALID;
+    declared_classes_.clear();
+    in_class_ = false;
 }
 
 template<typename Func>

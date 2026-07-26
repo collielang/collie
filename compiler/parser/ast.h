@@ -29,6 +29,9 @@ class IndexExpr;
 class IndexAssignExpr;
 class MethodCallExpr;
 class PropertyExpr;
+class PropertyAssignExpr;
+class NewExpr;
+class ThisExpr;
 class TupleExpr;
 class TupleMemberExpr;
 class ExpressionStmt;
@@ -403,9 +406,69 @@ public:
     const Expr* object() const { return object_.get(); }
     const Token& name() const { return name_; }
 
+    /// @brief 转移对象子表达式所有权（仅供 parser 重组为属性赋值节点使用）
+    std::unique_ptr<Expr> take_object() { return std::move(object_); }
+
 private:
     std::unique_ptr<Expr> object_;
     Token name_;  // 属性名 token，用于分发与错误报告
+};
+
+/**
+ * @brief 属性赋值表达式
+ * 语法：`object.name = value`，如 `this.name = n`、`dog.age = 3`
+ */
+class PropertyAssignExpr : public Expr {
+public:
+    PropertyAssignExpr(std::unique_ptr<Expr> object, Token name,
+                       std::unique_ptr<Expr> value)
+        : object_(std::move(object)), name_(name), value_(std::move(value)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* object() const { return object_.get(); }
+    const Token& name() const { return name_; }
+    const Expr* value() const { return value_.get(); }
+
+private:
+    std::unique_ptr<Expr> object_;
+    Token name_;  // 属性名 token，用于分发与错误报告
+    std::unique_ptr<Expr> value_;
+};
+
+/**
+ * @brief 对象实例化表达式
+ * 语法：`new ClassName(arguments)`（见 uncategorized.md 附录示例）
+ */
+class NewExpr : public Expr {
+public:
+    NewExpr(Token class_name, std::vector<std::unique_ptr<Expr>> arguments)
+        : class_name_(class_name), arguments_(std::move(arguments)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Token& class_name() const { return class_name_; }
+    const std::vector<std::unique_ptr<Expr>>& arguments() const { return arguments_; }
+
+private:
+    Token class_name_;  // 类名 token，用于查找类与错误报告
+    std::vector<std::unique_ptr<Expr>> arguments_;
+};
+
+/**
+ * @brief this 表达式
+ * 类方法/构造器体内引用当前实例
+ */
+class ThisExpr : public Expr {
+public:
+    explicit ThisExpr(Token keyword) : keyword_(keyword) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Token& keyword() const { return keyword_; }
+
+private:
+    Token keyword_;  // this 关键字 token，用于错误报告
 };
 
 /**
@@ -714,6 +777,15 @@ public:
 
     /// @brief 访问属性访问表达式
     virtual void visitProperty(const PropertyExpr& expr) = 0;
+
+    /// @brief 访问属性赋值表达式
+    virtual void visitPropertyAssign(const PropertyAssignExpr& expr) = 0;
+
+    /// @brief 访问对象实例化表达式
+    virtual void visitNew(const NewExpr& expr) = 0;
+
+    /// @brief 访问 this 表达式
+    virtual void visitThis(const ThisExpr& expr) = 0;
 };
 
 /**

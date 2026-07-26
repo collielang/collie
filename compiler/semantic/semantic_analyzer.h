@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "semantic_common.h"
 #include "symbol_table.h"
@@ -69,6 +70,9 @@ private:
     void visitIndexAssign(const IndexAssignExpr& expr) override;
     void visitMethodCall(const MethodCallExpr& expr) override;
     void visitProperty(const PropertyExpr& expr) override;
+    void visitPropertyAssign(const PropertyAssignExpr& expr) override;
+    void visitNew(const NewExpr& expr) override;
+    void visitThis(const ThisExpr& expr) override;
 
     // StmtVisitor 接口实现
     void visitVarDecl(const VarDeclStmt& stmt) override;
@@ -284,6 +288,8 @@ private:
     std::vector<Token> tokens_;                ///< token 序列
     size_t current_token_index_ = 0;           ///< 当前 token 索引
     TokenType array_element_type_ = TokenType::INVALID; ///< 当前数组的元素类型
+    std::unordered_set<std::string> declared_classes_;  ///< 已声明的类名集合
+    bool in_class_ = false;                    ///< 是否正在分析类体（放行 this）
 
     // -----------------------------------------------------------------------------
     // 错误处理相关方法

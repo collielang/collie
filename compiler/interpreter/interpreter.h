@@ -10,6 +10,7 @@
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "value.h"
 #include "environment.h"
@@ -38,10 +39,11 @@ private:
  * @brief 树遍历解释器
  *
  * 支持：字面量（数字/字符串/布尔）、算术/比较/逻辑运算、变量声明与读写、
- * if / while / for、break / continue、用户自定义函数（声明/调用/return），以及内建函数 print。
+ * if / while / for、break / continue、用户自定义函数（声明/调用/return）、
+ * class 基础（字段/方法/构造器/new/this），以及内建函数 print。
  *
- * 暂不支持（会抛 RuntimeError）：类、元组。
- * TODO(interpreter): 后续补齐类型检查/强转、元组等。
+ * 暂不支持（会抛 RuntimeError）：元组。
+ * TODO(interpreter): 后续补齐类型检查/强转、元组、继承等。
  */
 class Interpreter : public ExprVisitor, public StmtVisitor {
 public:
@@ -67,6 +69,9 @@ private:
     void visitIndexAssign(const IndexAssignExpr& expr) override;
     void visitMethodCall(const MethodCallExpr& expr) override;
     void visitProperty(const PropertyExpr& expr) override;
+    void visitPropertyAssign(const PropertyAssignExpr& expr) override;
+    void visitNew(const NewExpr& expr) override;
+    void visitThis(const ThisExpr& expr) override;
 
     // StmtVisitor 接口
     void visitExpression(const ExpressionStmt& stmt) override;
@@ -116,9 +121,19 @@ private:
     /// toNumber 内建函数与 .toNumber() 方法共用
     static Value to_number_value(const Value& v, size_t line, size_t column);
 
+    /// @brief 在类成员中查找指定名字的方法（含构造器），未找到返回 nullptr
+    static const FunctionStmt* find_method(const ClassStmt* klass,
+                                           const std::string& name);
+
+    /// @brief 执行类方法/构造器：新作用域内绑定 this 与形参，捕获 return
+    Value call_class_method(const Value& instance, const FunctionStmt* method,
+                            const std::vector<Value>& args,
+                            size_t line, size_t column);
+
     std::ostream& out_;
     Environment env_;
     Value result_;  ///< 最近一次表达式求值的结果
+    std::unordered_map<std::string, const ClassStmt*> classes_;  ///< 已登记的类
 };
 
 } // namespace collie

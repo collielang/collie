@@ -72,6 +72,8 @@ enum class TokenType {
     KW_VOID,        // void
     KW_FUNCTION,    // function
     KW_PROTECTED,   // protected
+    KW_NEW,         // new（对象实例化）
+    KW_THIS,        // this（类方法内引用当前实例）
 
     // 运算符 - 算术
     OP_PLUS,        // +

@@ -137,6 +137,31 @@ public:
         result_ = result_ + "." + std::string(expr.name().lexeme());
     }
 
+    void visitPropertyAssign(const PropertyAssignExpr& expr) override {
+        expr.object()->accept(*this);
+        std::string out = result_ + "." + std::string(expr.name().lexeme()) + " = ";
+        expr.value()->accept(*this);
+        out += result_;
+        result_ = out;
+    }
+
+    void visitNew(const NewExpr& expr) override {
+        std::string out = "new " + std::string(expr.class_name().lexeme()) + "(";
+        bool first = true;
+        for (const auto& argument : expr.arguments()) {
+            if (!first) out += ", ";
+            argument->accept(*this);
+            out += result_;
+            first = false;
+        }
+        out += ")";
+        result_ = out;
+    }
+
+    void visitThis(const ThisExpr& /*expr*/) override {
+        result_ = "this";
+    }
+
     std::string result() const { return result_; }
 
 private:

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t33 完成）
+最后更新：2026-07-26（t34 完成）
 
 ---
 
@@ -15,14 +15,14 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法、特殊数值 `Infinity`/`NaN`、插值字符串 `@"...{expr}..."`），token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`) |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`)、**class 声明（字段/方法/构造器）与 `new`/`this`/属性赋值** |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
 
-已知的语法「半截特性」（token 有、语法/语义未闭环）：`class`、`tribool`、`==?`、tuple 成员访问等。
+已知的语法「半截特性」（token 有、语法/语义未闭环）：`tribool`、`==?`、tuple 成员访问等（`class` 已于 t34 闭环基础子集）。
 
 ---
 
@@ -245,12 +245,20 @@
     - [x] `1/0 → +Infinity`、`-1/0 → -Infinity`、`0/0 → NaN`（不再报 Division by zero 运行时错误），与 t31 的 Infinity/NaN 语义自然衔接
     - [x] 取模除数为 0 同样遵循 IEEE 754 返回 NaN（原报 Modulo by zero）
     - [x] 新增端到端测试 DivisionByZeroIEEE754；interpreter_tests 98 全绿
+- [x] **class 基础支持 · Java/C# 风格最小子集（t34，已完成，经作者确认，见 uncategorized.md 附录）**：
+    - [x] 文法：`class 名 { (public|private)? (字段|方法|构造器) ... }`；字段 `type name (= expr)?;`、方法复用 `function` 过渡文法、构造器为**与类名同名 + `(` 前瞻**识别（合成 none 返回类型复用 FunctionStmt）；缺省访问级别 public
+    - [x] AST 新增 `PropertyAssignExpr`/`NewExpr`/`ThisExpr` 三节点 + visitor 接口（三处实现同步）；补 `ClassStmt::accept`（原缺失致链接错误）；词法层注册 `new`/`this` 关键字
+    - [x] parser：`parse_class_declaration`/`parse_class_member`；`parse_assignment` 将 `obj.name = v` 由 PropertyExpr 重组为 PropertyAssignExpr（仿 IndexAssignExpr）；`parse_primary` 支持 `new X(args)` 与 `this`
+    - [x] 语义层：**类实例统一按 object 动态放行**——`declared_classes_` 登记类名（重复定义报错）、`in_class_` 放行 this（类外报错）、`new` 未声明类报错、类名用作变量类型时转 KW_OBJECT；object 的属性/方法/字符串拼接均放行，字段/方法存在性与构造器元数推迟到运行期
+    - [x] 解释器：`Value` 新增 Instance 类型（`shared_ptr<InstanceData>{klass, fields}` **引用语义**，与数组一致）；`classes_` 注册表；`new` 时字段按初始化表达式求值（缺省 none）→ 查同名构造器调用（无构造器要求 0 实参）；方法调用 ScopeGuard 内绑定 `this` + 形参、捕获 ReturnSignal；`toString` 保留为实例兜底方法
+    - [x] 端到端测试 8 例：基本类（字段/构造器/方法/多实例）/无构造器/实例引用语义/方法互调（this.m(x)）/未定义字段与构造器元数运行期报错/未定义类与类外 this 语义层报错
+    - `interpreter_tests` 现 106 全绿；未做：继承（extends/base）、静态成员、方法重载、类作为一等值、字段类型运行期校验
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
-- [ ] parser 补齐已有 token 但缺失的语法（~~`switch`~~、~~`do-while`~~、~~复合赋值`~~、`class` 等）
+- [ ] parser 补齐已有 token 但缺失的语法（~~`switch`~~、~~`do-while`~~、~~复合赋值`~~、~~`class`（基础子集）~~ 等）
 
 ### M6 · LLVM 后端（路线 B，稳定后启动）
 - [ ] 引入 LLVM，设计 AST/新 IR → LLVM IR 的降级
@@ -295,7 +303,7 @@
 - [x] 源文件后缀：`.collie` 为主、`.col` 为别名 —— 已确认
 - [x] helloworld 的 `print`：内建函数 `print(...)`（任意实参）；字符串转义 `\n \t \\ \"` 由词法器解码，解释器原样输出 —— 已确认
 - [x] 数值除零行为：IEEE 754（`1/0 → +Infinity`、`0/0 → NaN`）—— 已确认（t33）
-- [x] `class` 纳入实现范围：按 **Java/C# 风格最小子集**实现（字段/方法/`new`/`this`，继承后续再做；以 uncategorized.md 附录示例为准）—— 已确认（t34 进行中）
+- [x] `class` 纳入实现范围：按 **Java/C# 风格最小子集**实现（字段/方法/`new`/`this`，继承后续再做；以 uncategorized.md 附录示例为准）—— 已确认（t34 已完成）
 - [ ] `tribool`（三态布尔）与 `==?` 运算符的确切语义？
 - [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
 
@@ -304,6 +312,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-26 `feat(lexer,parser,semantic,interpreter)`: 实现 class 基础支持（Java/C# 风格最小子集，t34）：注册 new/this 关键字；AST 新增 PropertyAssignExpr/NewExpr/ThisExpr 并补 ClassStmt::accept；parser 解析 class 声明（字段/方法/构造器同名识别/访问修饰符）、new/this、属性赋值重组；语义层类名登记 + object 动态放行（this 类外报错、未定义类报错、类名作变量类型转 object）；解释器 Value 新增 Instance（shared_ptr 引用语义）、字段初始化、构造器/方法调用绑定 this；新增 8 个端到端测试；interpreter_tests 106 全绿（M4/M5 t34）
 
 - 2026-07-25 `feat(interpreter)`: 除零改为 IEEE 754 语义（经作者确认，闭环 t31 遗留）：`1/0 → +Infinity`、`-1/0 → -Infinity`、`0/0 → NaN`，取模除数为 0 返回 NaN，不再报运行时错误；新增端到端测试；interpreter_tests 98 全绿（M4 t33）
 

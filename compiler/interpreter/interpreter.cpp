@@ -392,6 +392,25 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
     size_t line = expr.name().line();
     size_t column = expr.name().column();
 
+    // 类实例：分发用户定义方法（toString 保留为通用内建兜底）
+    if (object.is_instance()) {
+        const FunctionStmt* method = find_method(object.as_instance().klass, name);
+        if (method) {
+            std::vector<Value> args;
+            for (const auto& argument : expr.arguments()) {
+                args.push_back(evaluate(argument.get()));
+            }
+            result_ = call_class_method(object, method, args, line, column);
+            return;
+        }
+        if (name == "toString") {
+            result_ = Value::str(object.to_string());
+            return;
+        }
+        throw RuntimeError("Undefined method '" + name + "' on object",
+                           line, column);
+    }
+
     // 除 subString 外内建方法均为 0 参（语义层已校验，这里防御 object 动态路径）
     if (name != "subString" && !expr.arguments().empty()) {
         throw RuntimeError(name + "() expects no arguments", line, column);
@@ -506,6 +525,18 @@ void Interpreter::visitProperty(const PropertyExpr& expr) {
     const std::string name(expr.name().lexeme());
     size_t line = expr.name().line();
     size_t column = expr.name().column();
+
+    // 类实例：读取字段（字段需在类体中声明，未声明即报错）
+    if (object.is_instance()) {
+        auto& fields = object.as_instance().fields;
+        auto it = fields.find(name);
+        if (it == fields.end()) {
+            throw RuntimeError("Undefined property '" + name + "' on object",
+                               line, column);
+        }
+        result_ = it->second;
+        return;
+    }
 
     // 内建属性（见设计文档 03-character.md）：string 按 UTF-8 码点计数
     if (name == "length") {
@@ -818,8 +849,123 @@ void Interpreter::visitReturn(const ReturnStmt& stmt) {
 }
 
 void Interpreter::visitClass(const ClassStmt& stmt) {
-    throw RuntimeError("Classes are not supported yet", stmt.name().line(),
-                       stmt.name().column());
+    // 登记类声明（持有 AST 非拥有指针，AST 生命周期覆盖解释执行期）。
+    // 字段初始化与构造器执行延迟到 new 时进行。
+    classes_[std::string(stmt.name().lexeme())] = &stmt;
+}
+
+void Interpreter::visitNew(const NewExpr& expr) {
+    const std::string name(expr.class_name().lexeme());
+    size_t line = expr.class_name().line();
+    size_t column = expr.class_name().column();
+
+    auto it = classes_.find(name);
+    if (it == classes_.end()) {
+        throw RuntimeError("Undefined class '" + name + "'", line, column);
+    }
+    const ClassStmt* klass = it->second;
+
+    // 创建实例并初始化字段：有初始化表达式的求值，否则为 none
+    auto data = std::make_shared<InstanceData>();
+    data->klass = klass;
+    for (const auto& member : klass->members()) {
+        if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
+            Value init = field->initializer() ? evaluate(field->initializer())
+                                              : Value::none();
+            data->fields[std::string(field->name().lexeme())] = init;
+        }
+    }
+    Value instance = Value::instance(std::move(data));
+
+    // 求值构造器实参
+    std::vector<Value> args;
+    for (const auto& argument : expr.arguments()) {
+        args.push_back(evaluate(argument.get()));
+    }
+
+    // 构造器为与类名同名的成员函数；无构造器时要求 0 实参
+    const FunctionStmt* ctor = find_method(klass, name);
+    if (ctor) {
+        call_class_method(instance, ctor, args, line, column);
+    } else if (!args.empty()) {
+        throw RuntimeError("Class '" + name + "' has no constructor but got " +
+                               std::to_string(args.size()) + " argument(s)",
+                           line, column);
+    }
+
+    result_ = instance;
+}
+
+void Interpreter::visitThis(const ThisExpr& expr) {
+    Value* value = env_.get("this");
+    if (!value) {
+        throw RuntimeError("'this' can only be used inside a class method",
+                           expr.keyword().line(), expr.keyword().column());
+    }
+    result_ = *value;
+}
+
+void Interpreter::visitPropertyAssign(const PropertyAssignExpr& expr) {
+    Value object = evaluate(expr.object());
+    const std::string name(expr.name().lexeme());
+    size_t line = expr.name().line();
+    size_t column = expr.name().column();
+
+    if (!object.is_instance()) {
+        throw RuntimeError(std::string("Cannot assign property on ") +
+                               object.kind_name(),
+                           line, column);
+    }
+
+    Value value = evaluate(expr.value());
+    auto& fields = object.as_instance().fields;
+    auto it = fields.find(name);
+    if (it == fields.end()) {
+        throw RuntimeError("Undefined property '" + name + "' on object",
+                           line, column);
+    }
+    it->second = value;
+    result_ = value;  // 赋值表达式的值为所赋的值
+}
+
+const FunctionStmt* Interpreter::find_method(const ClassStmt* klass,
+                                             const std::string& name) {
+    for (const auto& member : klass->members()) {
+        if (auto* fn = dynamic_cast<const FunctionStmt*>(member.get())) {
+            if (fn->name().lexeme() == name) return fn;
+        }
+    }
+    return nullptr;
+}
+
+Value Interpreter::call_class_method(const Value& instance,
+                                     const FunctionStmt* method,
+                                     const std::vector<Value>& args,
+                                     size_t line, size_t column) {
+    // 元数检查（语义层对 object 动态放行，运行期是唯一门禁）
+    if (args.size() != method->parameters().size()) {
+        throw RuntimeError(
+            std::string(method->name().lexeme()) + "() expects " +
+                std::to_string(method->parameters().size()) +
+                " argument(s), got " + std::to_string(args.size()),
+            line, column);
+    }
+
+    // 方法作用域：绑定 this 与形参，捕获 ReturnSignal
+    ScopeGuard guard(env_);
+    env_.define("this", instance);
+    for (size_t i = 0; i < method->parameters().size(); ++i) {
+        env_.define(std::string(method->parameters()[i].name.lexeme()), args[i]);
+    }
+
+    try {
+        for (const auto& stmt : method->body()->statements()) {
+            execute(stmt.get());
+        }
+        return Value::none();  // 无显式 return
+    } catch (const ReturnSignal& ret) {
+        return ret.value;
+    }
 }
 
 void Interpreter::visitBreak(const BreakStmt& /*stmt*/) {

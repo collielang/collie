@@ -128,6 +128,10 @@ std::unique_ptr<Stmt> Parser::parse_declaration() {
             return parse_function_declaration();
         }
 
+        if (match(TokenType::KW_CLASS)) {
+            return parse_class_declaration();
+        }
+
         auto stmt = parse_statement();
         if (!stmt) {
             throw error(peek(), "Expected declaration or statement.");
@@ -239,6 +243,15 @@ std::unique_ptr<Expr> Parser::parse_assignment() {
             return std::make_unique<IndexAssignExpr>(
                 std::move(object), bracket, std::move(index_expr),
                 std::move(value));
+        }
+
+        // 属性赋值：obj.name = value（如 this.name = n）
+        if (auto* property = dynamic_cast<PropertyExpr*>(expr.get())) {
+            // 从原 PropertyExpr 中取回对象子表达式，重组为 PropertyAssignExpr。
+            Token name = property->name();
+            auto object = property->take_object();
+            return std::make_unique<PropertyAssignExpr>(
+                std::move(object), name, std::move(value));
         }
 
         throw error(equals, "Invalid assignment target.");
@@ -517,6 +530,29 @@ std::unique_ptr<Expr> Parser::parse_primary() {
 
     if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE)) {
         return std::make_unique<LiteralExpr>(previous());
+    }
+
+    // 对象实例化：new ClassName(arguments)
+    if (match(TokenType::KW_NEW)) {
+        Token class_name = consume(TokenType::IDENTIFIER, "Expect class name after 'new'.");
+        consume(TokenType::DELIMITER_LPAREN, "Expect '(' after class name.");
+        std::vector<std::unique_ptr<Expr>> arguments;
+        if (!check(TokenType::DELIMITER_RPAREN)) {
+            do {
+                auto argument = parse_expression();
+                if (!argument) {
+                    throw error(peek(), "Expect expression in constructor arguments.");
+                }
+                arguments.push_back(std::move(argument));
+            } while (match(TokenType::DELIMITER_COMMA));
+        }
+        consume(TokenType::DELIMITER_RPAREN, "Expect ')' after constructor arguments.");
+        return std::make_unique<NewExpr>(class_name, std::move(arguments));
+    }
+
+    // this：类方法/构造器体内引用当前实例
+    if (match(TokenType::KW_THIS)) {
+        return std::make_unique<ThisExpr>(previous());
     }
 
     if (match(TokenType::IDENTIFIER)) {
@@ -1267,6 +1303,95 @@ std::unique_ptr<Stmt> Parser::parse_function_declaration() {
     auto body = std::unique_ptr<BlockStmt>(dynamic_cast<BlockStmt*>(parse_block_statement().release()));
 
     return std::make_unique<FunctionStmt>(return_type, name, std::move(parameters), std::move(body));
+}
+
+/**
+ * @brief 解析类声明（`class` 已消费）
+ *
+ * 文法（Java/C# 风格最小子集，见 uncategorized.md 附录，经作者确认）：
+ *   classDecl -> "class" IDENTIFIER "{" classMember* "}"
+ */
+std::unique_ptr<Stmt> Parser::parse_class_declaration() {
+    Token name = consume(TokenType::IDENTIFIER, "Expect class name.");
+    consume(TokenType::DELIMITER_LBRACE, "Expect '{' before class body.");
+
+    std::vector<std::unique_ptr<Stmt>> members;
+    while (!check(TokenType::DELIMITER_RBRACE) && !is_at_end()) {
+        auto member = parse_class_member(name);
+        if (member) {
+            members.push_back(std::move(member));
+        }
+    }
+
+    consume(TokenType::DELIMITER_RBRACE, "Expect '}' after class body.");
+    return std::make_unique<ClassStmt>(name, std::move(members));
+}
+
+/**
+ * @brief 解析单个类成员
+ *
+ * 文法：
+ *   classMember -> ("public" | "private")? (field | method | constructor)
+ *   field       -> typeToken IDENTIFIER ("=" expression)? ";"
+ *   method      -> "function" IDENTIFIER "(" parameters? ")" typeToken block
+ *   constructor -> 类名 IDENTIFIER "(" parameters? ")" block（与类名同名，无返回类型）
+ */
+std::unique_ptr<Stmt> Parser::parse_class_member(const Token& class_name) {
+    // 可选访问修饰符（缺省为 public，与 Stmt 基类默认值一致）
+    bool is_public = true;
+    if (match(TokenType::KW_PUBLIC)) {
+        is_public = true;
+    } else if (match(TokenType::KW_PRIVATE)) {
+        is_public = false;
+    }
+
+    std::unique_ptr<Stmt> member;
+
+    if (match(TokenType::KW_FUNCTION)) {
+        // 方法：复用函数声明文法
+        member = parse_function_declaration();
+    } else if (check(TokenType::IDENTIFIER) &&
+               peek().lexeme() == class_name.lexeme() &&
+               peek_next().type() == TokenType::DELIMITER_LPAREN) {
+        // 构造器：与类名同名，无 function 前缀与返回类型
+        Token ctor_name = advance();
+        consume(TokenType::DELIMITER_LPAREN, "Expect '(' after constructor name.");
+        std::vector<Parameter> parameters;
+        if (!check(TokenType::DELIMITER_RPAREN)) {
+            do {
+                if (parameters.size() >= 255) {
+                    throw error(peek(), "Cannot have more than 255 parameters.");
+                }
+                Token param_name = consume(TokenType::IDENTIFIER, "Expect parameter name.");
+                Token param_type = consume_type_token("Expect parameter type.");
+                parameters.emplace_back(Parameter{param_type, param_name});
+            } while (match(TokenType::DELIMITER_COMMA));
+        }
+        consume(TokenType::DELIMITER_RPAREN, "Expect ')' after parameters.");
+        consume(TokenType::DELIMITER_LBRACE, "Expect '{' before constructor body.");
+        auto body = std::unique_ptr<BlockStmt>(
+            dynamic_cast<BlockStmt*>(parse_block_statement().release()));
+        // 构造器不写返回类型，合成 none 类型 token 复用 FunctionStmt 节点
+        Token return_type(TokenType::KW_NONE, "none", ctor_name.line(), ctor_name.column());
+        member = std::make_unique<FunctionStmt>(return_type, ctor_name,
+                                                std::move(parameters), std::move(body));
+    } else {
+        // 字段：`type name;` 或 `type name = expr;`
+        Token type = consume_type_token("Expect field type in class body.");
+        Token name = consume(TokenType::IDENTIFIER, "Expect field name.");
+        std::unique_ptr<Expr> initializer;
+        if (match(TokenType::OP_ASSIGN)) {
+            initializer = parse_expression();
+            if (!initializer) {
+                throw error(peek(), "Expect expression after '=' in field declaration.");
+            }
+        }
+        consume(TokenType::DELIMITER_SEMICOLON, "Expect ';' after field declaration.");
+        member = std::make_unique<VarDeclStmt>(type, name, std::move(initializer), false);
+    }
+
+    member->set_access(is_public);
+    return member;
 }
 
 // -----------------------------------------------------------------------------

@@ -63,6 +63,18 @@ void PropertyExpr::accept(ExprVisitor& visitor) const {
     visitor.visitProperty(*this);
 }
 
+void PropertyAssignExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitPropertyAssign(*this);
+}
+
+void NewExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitNew(*this);
+}
+
+void ThisExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitThis(*this);
+}
+
 void CallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitCall(*this);
 }
@@ -101,6 +113,10 @@ void BreakStmt::accept(StmtVisitor& visitor) const {
 
 void ContinueStmt::accept(StmtVisitor& visitor) const {
     visitor.visitContinue(*this);
+}
+
+void ClassStmt::accept(StmtVisitor& visitor) const {
+    visitor.visitClass(*this);
 }
 
 void TupleExpr::accept(ExprVisitor& visitor) const {

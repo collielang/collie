@@ -1006,3 +1006,163 @@ TEST(InterpreterEndToEnd, SubStringArityRejected) {
     analyzer.analyze(stmts);
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+// ---------------------------------------------------------------------------
+// class 基础（t34）：Java/C# 风格最小子集（字段/方法/构造器/new/this，
+// 见 uncategorized.md 附录，经作者确认）
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, ClassBasics) {
+    // 字段（含初始化/缺省）+ 构造器 + 方法 + this 读写字段 + 外部属性读写
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public string name;
+            private number age = 1;
+
+            public Animal(n string) {
+                this.name = n;
+            }
+
+            public function speak() none {
+                print(this.name + " makes a sound");
+            }
+
+            public function getAge() number {
+                return this.age;
+            }
+
+            public function birthday() none {
+                this.age = this.age + 1;
+            }
+        }
+
+        Animal a = new Animal("Buddy");
+        a.speak();
+        print(a.name);
+        print(a.getAge());
+        a.birthday();
+        print(a.getAge());
+        a.name = "Max";
+        a.speak();
+    )"), R"(Buddy makes a sound
+Buddy
+1
+2
+Max makes a sound
+)");
+}
+
+TEST(InterpreterEndToEnd, ClassWithoutConstructor) {
+    // 无构造器：new 0 实参，字段按初始化表达式/none 缺省
+    EXPECT_EQ(run_source(R"(
+        class Counter {
+            public number count = 0;
+
+            public function inc() none {
+                this.count = this.count + 1;
+            }
+        }
+
+        Counter c = new Counter();
+        c.inc();
+        c.inc();
+        print(c.count);
+    )"), "2\n");
+}
+
+TEST(InterpreterEndToEnd, ClassInstanceReferenceSemantics) {
+    // 实例为引用语义：赋值后两个变量共享同一对象
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public string name = "Rex";
+        }
+
+        Animal a = new Animal();
+        Animal b = a;
+        b.name = "Max";
+        print(a.name);
+    )"), "Max\n");
+}
+
+TEST(InterpreterEndToEnd, ClassMethodCallsMethod) {
+    // 方法内通过 this 调用同类其他方法；方法带参数
+    EXPECT_EQ(run_source(R"(
+        class Calc {
+            public number base = 10;
+
+            public function add(x number) number {
+                return this.base + x;
+            }
+
+            public function addTwice(x number) number {
+                return this.add(x) + this.add(x);
+            }
+        }
+
+        Calc calc = new Calc();
+        print(calc.add(5));
+        print(calc.addTwice(5));
+    )"), R"(15
+30
+)");
+}
+
+TEST(InterpreterEndToEnd, ClassUndefinedFieldRejected) {
+    // 未声明字段的读取：运行期报错（语义层对 object 动态放行）
+    collie::Lexer lexer(R"(
+        class Animal { public string name; }
+        Animal a = new Animal();
+        print(a.foo);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, ClassConstructorArityRejected) {
+    // 构造器实参数量不匹配：运行期报错
+    collie::Lexer lexer(R"(
+        class Animal {
+            public string name;
+            public Animal(n string) { this.name = n; }
+        }
+        Animal a = new Animal();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, UndefinedClassRejected) {
+    // new 未声明的类：语义层报错
+    collie::Lexer lexer(R"(object a = new Ghost();)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, ThisOutsideClassRejected) {
+    // 类外使用 this：语义层报错
+    collie::Lexer lexer(R"(print(this);)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
