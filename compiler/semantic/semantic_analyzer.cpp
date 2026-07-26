@@ -1071,6 +1071,10 @@ bool SemanticAnalyzer::can_implicit_convert(TokenType from, TokenType to) const 
     // 相同类型可以转换
     if (from == to) return true;
 
+    // object 动态放行（与 is_compatible_type 一致）：数组元素/实例字段等
+    // 动态值传参时运行期再按形参声明类型校验
+    if (from == TokenType::KW_OBJECT || to == TokenType::KW_OBJECT) return true;
+
     // 数值类型转换规则
     if (is_numeric_convertible(from) && is_numeric_convertible(to)) {
         // 允许从小类型到大类型的隐式转换

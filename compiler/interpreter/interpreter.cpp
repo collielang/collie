@@ -158,6 +158,9 @@ void Interpreter::visitAssign(const AssignExpr& expr) {
                            name.line(), name.column());
     }
     Value value = evaluate(expr.value());
+    // 按变量声明类型校验/隐式转换（未声明时返回 KW_OBJECT 放行，交给下方报 undefined）
+    value = coerce_to_declared(env_.declared_type(std::string(name.lexeme())),
+                               value, name.line(), name.column());
     if (!env_.assign(std::string(name.lexeme()), value)) {
         throw RuntimeError("Assignment to undefined variable '" +
                                std::string(name.lexeme()) + "'",
@@ -202,17 +205,21 @@ void Interpreter::visitCall(const CallExpr& expr) {
         args.push_back(evaluate(arg.get()));
     }
 
-    // 参数数量检查（语义层已验证，此为解释器兆底保护）
+    // 参数数量检查（语义层已验证，此为解释器兜底保护）
     if (args.size() != fn->parameters().size()) {
         throw RuntimeError("Expected " + std::to_string(fn->parameters().size()) +
                                " arguments but got " + std::to_string(args.size()),
                            expr.paren().line(), expr.paren().column());
     }
 
-    // 创建函数作用域并绑定形参
+    // 创建函数作用域并绑定形参（按形参声明类型校验/隐式转换）
     ScopeGuard guard(env_);
     for (size_t i = 0; i < fn->parameters().size(); ++i) {
-        env_.define(std::string(fn->parameters()[i].name.lexeme()), args[i]);
+        const Parameter& param = fn->parameters()[i];
+        Value bound = coerce_to_declared(param.type.type(), args[i],
+                                         param.name.line(), param.name.column());
+        env_.define(std::string(param.name.lexeme()), bound, false,
+                    param.type.type());
     }
 
     // 执行函数体，捕获 ReturnSignal
@@ -277,6 +284,47 @@ void Interpreter::call_builtin_to_number(const CallExpr& expr) {
     }
     result_ = to_number_value(evaluate(args[0].get()),
                               expr.paren().line(), expr.paren().column());
+}
+
+Value Interpreter::coerce_to_declared(TokenType declared, const Value& value,
+                                      size_t line, size_t column) {
+    switch (declared) {
+        case TokenType::KW_NUMBER:
+            if (!value.is_number()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to 'number' variable",
+                                   line, column);
+            }
+            return value;
+        case TokenType::KW_BOOL:
+            if (!value.is_bool()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to 'bool' variable",
+                                   line, column);
+            }
+            return value;
+        case TokenType::KW_ARRAY:
+            if (!value.is_array()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to 'array' variable",
+                                   line, column);
+            }
+            return value;
+        case TokenType::KW_STRING:
+            if (value.is_string()) {
+                return value;
+            }
+            // 语义层允许 number/bool 隐式转 string，运行期在此落地
+            if (value.is_number() || value.is_bool()) {
+                return Value::str(value.to_string());
+            }
+            throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                   value.kind_name() + " to 'string' variable",
+                               line, column);
+        default:
+            // object/类名（IDENTIFIER）等动态类型不校验
+            return value;
+    }
 }
 
 Value Interpreter::to_number_value(const Value& v, size_t line, size_t column) {
@@ -749,9 +797,15 @@ void Interpreter::visitExpression(const ExpressionStmt& stmt) {
 }
 
 void Interpreter::visitVarDecl(const VarDeclStmt& stmt) {
-    // TODO(interpreter): 依据声明类型做类型检查/隐式转换，目前按动态类型直接绑定初始值。
-    Value value = stmt.initializer() ? evaluate(stmt.initializer()) : Value::none();
-    env_.define(std::string(stmt.name().lexeme()), value, stmt.is_const());
+    // 按声明类型校验/隐式转换初始值（object/类名等动态类型放行）；
+    // 无初始化时绑定 none，不做校验（首次赋值时再检查）。
+    Value value = Value::none();
+    if (stmt.initializer()) {
+        value = coerce_to_declared(stmt.type().type(), evaluate(stmt.initializer()),
+                                   stmt.name().line(), stmt.name().column());
+    }
+    env_.define(std::string(stmt.name().lexeme()), value, stmt.is_const(),
+                stmt.type().type());
 }
 
 void Interpreter::visitBlock(const BlockStmt& stmt) {
@@ -951,11 +1005,15 @@ Value Interpreter::call_class_method(const Value& instance,
             line, column);
     }
 
-    // 方法作用域：绑定 this 与形参，捕获 ReturnSignal
+    // 方法作用域：绑定 this 与形参（按声明类型校验/隐式转换），捕获 ReturnSignal
     ScopeGuard guard(env_);
     env_.define("this", instance);
     for (size_t i = 0; i < method->parameters().size(); ++i) {
-        env_.define(std::string(method->parameters()[i].name.lexeme()), args[i]);
+        const Parameter& param = method->parameters()[i];
+        Value bound = coerce_to_declared(param.type.type(), args[i],
+                                         param.name.line(), param.name.column());
+        env_.define(std::string(param.name.lexeme()), bound, false,
+                    param.type.type());
     }
 
     try {

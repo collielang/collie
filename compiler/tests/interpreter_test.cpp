@@ -1166,3 +1166,117 @@ TEST(InterpreterEndToEnd, ThisOutsideClassRejected) {
     analyzer.analyze(stmts);
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+// ---------------------------------------------------------------------------
+// 运行期声明类型校验与隐式转换（t35）
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, StringImplicitConversionOnDecl) {
+    // 语义层允许 number/bool 隐式转 string，运行期真正转为字符串
+    //（此前变量实际绑定的仍是 number，s.length 会误报）
+    EXPECT_EQ(run_source(R"(
+        string s = 42;
+        print(s.length);
+        print(s + "!");
+        string b = true;
+        print(b);
+    )"), R"(2
+42!
+true
+)");
+}
+
+TEST(InterpreterEndToEnd, StringImplicitConversionOnAssign) {
+    // 赋值同样按声明类型隐式转换
+    EXPECT_EQ(run_source(R"(
+        string s = "a";
+        s = 5;
+        print(s.length);
+        print(s + "!");
+    )"), R"(1
+5!
+)");
+}
+
+TEST(InterpreterEndToEnd, ParamImplicitStringConversion) {
+    // 实参 number 传给 string 形参：运行期转字符串后绑定
+    EXPECT_EQ(run_source(R"(
+        function tag(s string) string {
+            return "<" + s + ">";
+        }
+        print(tag(42));
+    )"), R"(<42>
+)");
+}
+
+TEST(InterpreterEndToEnd, DeclTypeMismatchRuntimeRejected) {
+    // 动态路径（object）声明初始化：语义层放行，运行期拦截
+    collie::Lexer lexer(R"(
+        array a = [1, "x"];
+        number n = a[1];
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, AssignTypeMismatchRuntimeRejected) {
+    // 动态路径赋值给 number 变量：运行期拦截
+    collie::Lexer lexer(R"(
+        array a = ["x"];
+        number n = 1;
+        n = a[0];
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, ParamTypeMismatchRuntimeRejected) {
+    // 动态路径实参传给 number 形参：运行期拦截
+    collie::Lexer lexer(R"(
+        function twice(n number) number {
+            return n * 2;
+        }
+        array a = ["x"];
+        twice(a[0]);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, BoolDeclTypeMismatchRuntimeRejected) {
+    // 动态路径初始化 bool 变量：运行期拦截（bool 无隐式转换）
+    collie::Lexer lexer(R"(
+        array a = [1];
+        bool b = a[0];
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}

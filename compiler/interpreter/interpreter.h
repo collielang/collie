@@ -130,6 +130,11 @@ private:
                             const std::vector<Value>& args,
                             size_t line, size_t column);
 
+    /// @brief 按声明类型校验/隐式转换值（string ← number/bool 转字符串，
+    /// object/类名等动态类型放行），不兼容抛 RuntimeError
+    static Value coerce_to_declared(TokenType declared, const Value& value,
+                                    size_t line, size_t column);
+
     std::ostream& out_;
     Environment env_;
     Value result_;  ///< 最近一次表达式求值的结果
