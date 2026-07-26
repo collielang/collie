@@ -83,6 +83,7 @@ private:
     Token scan_identifier();     // 扫描标识符
     Token scan_number();         // 扫描数字
     Token scan_string();         // 扫描字符串
+    Token scan_interpolated_string(); // 扫描插值字符串 @"...{expr}..."（lexeme 保留引号内原文）
     Token scan_character();      // 扫描字符
 
     // 字符判断辅助方法

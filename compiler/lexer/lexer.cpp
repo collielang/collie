@@ -160,6 +160,10 @@ Token Lexer::next_token() {
     if (c == '"') {
         return scan_string();
     }
+    // 插值字符串 @"...{expr}..."（见设计文档 03-character.md）
+    if (c == '@' && peek_next() == '"') {
+        return scan_interpolated_string();
+    }
     if (c == '\'') {
         return scan_character();
     }
@@ -513,6 +517,43 @@ Token Lexer::scan_string() {
 
     advance(); // 消费结束的引号
     return Token(TokenType::LITERAL_STRING, value, line_, start_col);
+}
+
+Token Lexer::scan_interpolated_string() {
+    // 约定：进入时 position_ 位于 '@' 处，后跟开始的双引号。
+    // lexeme 保留引号内原文（转义序列不解码），由 parser 拆段脱糖：
+    // 文本段需区分 \{（字面花括号）与 {（插值开始），解码提前会丢失该信息。
+    size_t start_col = column_;
+    advance(); // 消费 '@'
+    advance(); // 消费开始的引号
+
+    std::string raw;
+    while (!is_at_end() && peek() != '"') {
+        char c = peek();
+        if (c == '\n') {
+            return make_error_token("Unterminated interpolated string");
+        }
+        if (c == '\\') {
+            // 转义序列原样保留两个字符，合法性由 parser 解码时校验
+            raw += advance();
+            if (is_at_end()) break;
+            raw += advance();
+        } else if (static_cast<unsigned char>(c) >= 0x80) {
+            // 校验并原样保留一个完整的 UTF-8 码点（非法序列会抛 LexError）
+            size_t cp_start = position_;
+            nextUtf8Char();
+            raw.append(source_.substr(cp_start, position_ - cp_start));
+        } else {
+            raw += advance();
+        }
+    }
+
+    if (is_at_end()) {
+        return make_error_token("Unterminated interpolated string");
+    }
+
+    advance(); // 消费结束的引号
+    return Token(TokenType::LITERAL_INTERPOLATED_STRING, raw, line_, start_col);
 }
 
 Token Lexer::scan_character() {

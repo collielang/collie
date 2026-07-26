@@ -90,6 +90,21 @@ TEST(LexerTest, InfinityNaNLiterals) {
     EXPECT_EQ(tokens[3].type(), TokenType::IDENTIFIER);
 }
 
+// 插值字符串 @"...{expr}..."：lexeme 保留引号内原文（见 03-character.md）
+TEST(LexerTest, InterpolatedStringLiteral) {
+    std::string source = "string s = @\"a{name}b\";";
+    Lexer lexer(source, Encoding::UTF8);
+
+    auto tokens = lexer.tokenize();
+    ASSERT_EQ(tokens.size() - 1, 5);
+    EXPECT_EQ(tokens[0].type(), TokenType::KW_STRING);
+    EXPECT_EQ(tokens[1].type(), TokenType::IDENTIFIER);
+    EXPECT_EQ(tokens[2].type(), TokenType::OP_ASSIGN);
+    EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_INTERPOLATED_STRING);
+    EXPECT_EQ(tokens[3].lexeme(), "a{name}b");
+    EXPECT_EQ(tokens[4].type(), TokenType::DELIMITER_SEMICOLON);
+}
+
 // 字符串测试
 TEST(LexerTest, StringLiterals) {
     std::string source = R"("Hello, world!" 'c')";

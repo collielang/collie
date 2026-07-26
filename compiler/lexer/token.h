@@ -24,6 +24,7 @@ enum class TokenType {
     LITERAL_CHAR,       // 字符字面量
     LITERAL_CHARACTER,  // UTF-16 字符字面量
     LITERAL_BOOL,       // 布尔字面量
+    LITERAL_INTERPOLATED_STRING, // 插值字符串字面量 @"...{expr}..."（lexeme 为引号内原文，由 parser 拆段脱糖）
 
     // 标识符
     IDENTIFIER,     // 标识符

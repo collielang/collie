@@ -831,6 +831,57 @@ true
 )");
 }
 
+// ===== 字符串插值 @"...{expr}..."（见设计文档 03-character.md） =====
+
+TEST(InterpreterEndToEnd, StringInterpolationBasic) {
+    // 文档示例：变量插值
+    EXPECT_EQ(run_source(R"(
+        string name = "Lily";
+        number age = 18;
+        string sex = "girl";
+        string str = @"{name} is {age}-year-old {sex}.";
+        print(str);
+    )"), "Lily is 18-year-old girl.\n");
+}
+
+TEST(InterpreterEndToEnd, StringInterpolationExpressions) {
+    // 插值段支持任意表达式：算术、方法调用、属性、三元
+    EXPECT_EQ(run_source(R"(
+        number n = 6;
+        string s = "hello";
+        print(@"{n * 7} and {s.length} and {n > 5 ? \"big\" : \"small\"}");
+    )"), "42 and 5 and big\n");
+}
+
+TEST(InterpreterEndToEnd, StringInterpolationEscapes) {
+    // \{ \} 输出字面花括号；常规转义与普通字符串一致；纯文本/空串退化
+    EXPECT_EQ(run_source(R"(
+        number x = 1;
+        print(@"\{x\} = {x}");
+        print(@"plain");
+        print(@"" + "empty");
+    )"), "{x} = 1\nplain\nempty\n");
+}
+
+TEST(InterpreterEndToEnd, StringInterpolationTypeIsString) {
+    // 脱糖结果为 string 类型：可参与拼接与方法调用
+    EXPECT_EQ(run_source(R"(
+        number n = 3;
+        string s = @"n={n}" + "!";
+        print(s);
+        print(@"  {n}  ".trim());
+    )"), "n=3!\n3\n");
+}
+
+TEST(InterpreterEndToEnd, StringInterpolationInvalidExprRejected) {
+    // 插值段非法表达式：解析期报错
+    collie::Lexer lexer("string s = @\"{1 +}\";");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    EXPECT_FALSE(parser.get_errors().empty());
+}
+
 TEST(InterpreterEndToEnd, UnknownMethodRejected) {
     // 未知方法在语义层报错
     collie::Lexer lexer(R"(number n = 1; n.foo();)");

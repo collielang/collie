@@ -316,6 +316,14 @@ private:
     std::unique_ptr<Expr> parse_primary();
 
     /**
+     * @brief 将插值字符串 token 脱糖为拼接表达式
+     * @param token LITERAL_INTERPOLATED_STRING token（lexeme 为引号内原文）
+     * @return 脱糖后的表达式：文本段与 toString(插值表达式) 用 '+' 串接
+     * @throws ParseError 插值表达式非法、花括号不匹配或转义序列非法时
+     */
+    std::unique_ptr<Expr> desugar_interpolated_string(const Token& token);
+
+    /**
      * @brief 完成函数调用的解析
      * @param callee 函数名token
      * @return 函数调用表达式的AST节点

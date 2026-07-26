@@ -28,6 +28,7 @@
 #include <cassert>
 #include <sstream>
 #include <iostream>
+#include "../lexer/lexer.h"
 #include "../utils/token_utils.h"
 
 namespace collie {
@@ -509,6 +510,11 @@ std::unique_ptr<Expr> Parser::parse_primary() {
         return std::make_unique<LiteralExpr>(previous());
     }
 
+    // 插值字符串 @"...{expr}..."：脱糖为文本段与 toString(expr) 的 '+' 拼接
+    if (match(TokenType::LITERAL_INTERPOLATED_STRING)) {
+        return desugar_interpolated_string(previous());
+    }
+
     if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE)) {
         return std::make_unique<LiteralExpr>(previous());
     }
@@ -577,6 +583,133 @@ std::unique_ptr<Expr> Parser::parse_primary() {
     }
 
     throw error(peek(), "Expect expression.");
+}
+
+std::unique_ptr<Expr> Parser::desugar_interpolated_string(const Token& token) {
+    // 脱糖规则（见设计文档 03-character.md）：@"a{x}b" → "a" + toString(x) + "b"。
+    // lexeme 为引号内原文（转义未解码）：文本段在此解码，额外支持 \{ \} 输出
+    // 字面花括号；插值段用子 Lexer/Parser 解析，段内 \" 解码为引号后再喂给子
+    // 解析器（允许 @"{ \"x\" }" 在插值内写字符串字面量）。
+    const std::string raw(token.lexeme());
+    size_t line = token.line();
+    size_t column = token.column();
+
+    // 文本段转义解码（与单行字符串一致，额外支持 \{ \}）
+    auto decode_text = [&](const std::string& text) {
+        std::string out;
+        for (size_t i = 0; i < text.size(); ++i) {
+            if (text[i] != '\\') {
+                out += text[i];
+                continue;
+            }
+            if (i + 1 >= text.size()) {
+                throw error(token, "Invalid escape sequence in interpolated string");
+            }
+            switch (text[++i]) {
+                case '"': out += '"'; break;
+                case '\\': out += '\\'; break;
+                case 'n': out += '\n'; break;
+                case 't': out += '\t'; break;
+                case 'r': out += '\r'; break;
+                case '{': out += '{'; break;
+                case '}': out += '}'; break;
+                default:
+                    throw error(token, "Invalid escape sequence in interpolated string");
+            }
+        }
+        return out;
+    };
+
+    std::vector<std::unique_ptr<Expr>> parts;
+    auto flush_text = [&](std::string& text) {
+        if (text.empty()) return;
+        parts.push_back(std::make_unique<LiteralExpr>(
+            Token(TokenType::LITERAL_STRING, decode_text(text), line, column)));
+        text.clear();
+    };
+
+    std::string text;
+    for (size_t i = 0; i < raw.size(); ++i) {
+        char c = raw[i];
+        if (c == '\\' && i + 1 < raw.size()) {
+            // 转义序列原样留在文本段，由 decode_text 统一解码
+            text += c;
+            text += raw[++i];
+            continue;
+        }
+        if (c == '}') {
+            throw error(token, "Unmatched '}' in interpolated string");
+        }
+        if (c != '{') {
+            text += c;
+            continue;
+        }
+
+        // 插值段：收集到匹配的 '}'（按深度计数，段内 \" 解码为引号）
+        std::string expr_src;
+        size_t depth = 1;
+        ++i;
+        for (; i < raw.size(); ++i) {
+            if (raw[i] == '\\' && i + 1 < raw.size() && raw[i + 1] == '"') {
+                expr_src += '"';
+                ++i;
+                continue;
+            }
+            if (raw[i] == '{') {
+                ++depth;
+            } else if (raw[i] == '}' && --depth == 0) {
+                break;
+            }
+            expr_src += raw[i];
+        }
+        if (depth != 0) {
+            throw error(token, "Unmatched '{' in interpolated string");
+        }
+
+        flush_text(text);
+
+        // 子解析插值表达式；子解析器的错误统一映射到外层 token 位置
+        std::unique_ptr<Expr> inner;
+        try {
+            Lexer sub_lexer(expr_src);
+            std::vector<Token> sub_tokens = sub_lexer.tokenize();
+            for (const Token& t : sub_tokens) {
+                if (t.type() == TokenType::TOKEN_ERROR) {
+                    throw ParseError("lex error", t.line(), t.column());
+                }
+            }
+            Parser sub_parser(sub_tokens);
+            inner = sub_parser.parse_expression();
+            if (!inner || !sub_parser.is_at_end()) {
+                throw ParseError("incomplete expression", line, column);
+            }
+        } catch (const std::exception&) {
+            throw error(token, "Invalid expression in string interpolation");
+        }
+
+        // 包一层 toString(...)，保证段类型为 string（与内建函数行为一致）
+        std::vector<std::unique_ptr<Expr>> args;
+        args.push_back(std::move(inner));
+        parts.push_back(std::make_unique<CallExpr>(
+            std::make_unique<IdentifierExpr>(
+                Token(TokenType::IDENTIFIER, "toString", line, column)),
+            Token(TokenType::DELIMITER_RPAREN, ")", line, column),
+            std::move(args)));
+    }
+    flush_text(text);
+
+    // 空串或纯文本退化为普通字符串字面量；多段用 '+' 左结合串接
+    if (parts.empty()) {
+        return std::make_unique<LiteralExpr>(
+            Token(TokenType::LITERAL_STRING, "", line, column));
+    }
+    std::unique_ptr<Expr> result = std::move(parts[0]);
+    Token plus(TokenType::OP_PLUS, "+", line, column);
+    for (size_t k = 1; k < parts.size(); ++k) {
+        result = std::make_unique<BinaryExpr>(std::move(result), plus,
+                                              std::move(parts[k]));
+    }
+    return result;
 }
 
 std::unique_ptr<Expr> Parser::finish_call(const Token& callee) {
