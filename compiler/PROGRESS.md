@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t29 完成）
+最后更新：2026-07-25（t30 完成）
 
 ---
 
@@ -225,6 +225,11 @@
     - [x] 恢复 `semantic_error_test.cpp` 4 个用例：`ErrorRecovery`/`ContinueAfterError`（`string x = 42;` 实为合法的 number→string 隐式转换，反转为 `number x = "42";` 构造真错误）、`FunctionErrors`（C 风格函数声明改写为 function 语法；3 处错误源实测 4 条——getString 级联 2 条：返回类型不匹配 + panic 后 return 不计入路径判定再报 must return）、`ErrorLocation`（同理反转类型方向，行号修正为 3——`R"(` 首行为空行；`EXPECT_EQ`→`ASSERT_EQ` 防错误数不符时越界崩溃）
     - [x] 盘点剩余禁用：`DISABLED_ArrayErrors` 依赖 `number[]` 语法；`semantic_analyzer_test.cpp` 10 个依赖未实现特性（byte/word/char 类型、未初始化流分析、不可达代码检查、C 风格函数）；`semantic_recovery_test.cpp` 14 个待下批评估
     - `semantic_tests` 现 33 通过 / 25 禁用（从 29/29）
+- [x] **恢复 DISABLED_ 语义测试第六批 · 错误恢复用例（t30，已完成）**：
+    - [x] 恢复 `semantic_recovery_test.cpp` 12 个用例：错误方向反转（string→number / number→bool 非法方向）+ C 风格函数改写为 function 语法（含 `none` 返回类型）+ 遮蔽合法化适配（ScopeLifetime/ResourceCleanup 内层同名变量遮蔽非错误，错误改用非法类型方向构造）
+    - [x] 实测级联计数并注释：ComplexExpression 3 源 4 条、RecursiveFunction 3 源 6 条（含 must-return 双级联）、ErrorRecoveryPriority 实测 2 条（undefined 后 panic 跳过同表达式剩余检查 + 初始化级联）
+    - [x] 仍禁用 2 个：`ComplexTypeConversionRecovery`（依赖 byte/word 类型）、`MemoryUsageRecovery`（1000 层深嵌套对递归下降 parser 有栈溢出风险且内存断言脆弱）
+    - `semantic_tests` 现 45 通过 / 13 禁用（从 33/25）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
@@ -283,6 +288,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(semantic)`: 恢复错误恢复类 DISABLED_ 语义测试 12 个（semantic_recovery_test.cpp）：错误方向反转 + function 语法改写 + 遮蔽合法化适配；实测并注释级联计数（ComplexExpression 4、RecursiveFunction 6、ErrorRecoveryPriority 2）；仍禁用 ComplexTypeConversionRecovery/MemoryUsageRecovery；semantic_tests 45 通过 / 13 禁用（M4 t30）
 
 - 2026-07-25 `test(semantic)`: 恢复错误收集类 DISABLED_ 语义测试：ErrorRecovery/ContinueAfterError/ErrorLocation（利用 string→number 非法方向构造错误，number→string 隐式转换实为合法）、FunctionErrors（改写为 function 语法，getString 级联 2 错共 4 条）；ErrorLocation 行号修正并改 ASSERT_EQ 防越界；semantic_tests 33 通过 / 25 禁用（M4 t29）
 
