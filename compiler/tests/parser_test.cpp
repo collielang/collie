@@ -118,6 +118,20 @@ public:
         result_ = out;
     }
 
+    void visitMethodCall(const MethodCallExpr& expr) override {
+        expr.object()->accept(*this);
+        std::string out = result_ + "." + std::string(expr.name().lexeme()) + "(";
+        bool first = true;
+        for (const auto& argument : expr.arguments()) {
+            if (!first) out += ", ";
+            argument->accept(*this);
+            out += result_;
+            first = false;
+        }
+        out += ")";
+        result_ = out;
+    }
+
     std::string result() const { return result_; }
 
 private:

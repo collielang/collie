@@ -27,6 +27,7 @@ class CallExpr;
 class ArrayLiteralExpr;
 class IndexExpr;
 class IndexAssignExpr;
+class MethodCallExpr;
 class TupleExpr;
 class TupleMemberExpr;
 class ExpressionStmt;
@@ -365,6 +366,29 @@ private:
 };
 
 /**
+ * @brief 方法调用表达式
+ * 语法：`object.method(arguments)`，如 `num.toString()`、`s.toNumber()`
+ */
+class MethodCallExpr : public Expr {
+public:
+    MethodCallExpr(std::unique_ptr<Expr> object, Token name,
+                   std::vector<std::unique_ptr<Expr>> arguments)
+        : object_(std::move(object)), name_(name),
+          arguments_(std::move(arguments)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* object() const { return object_.get(); }
+    const Token& name() const { return name_; }
+    const std::vector<std::unique_ptr<Expr>>& arguments() const { return arguments_; }
+
+private:
+    std::unique_ptr<Expr> object_;
+    Token name_;  // 方法名 token，用于分发与错误报告
+    std::vector<std::unique_ptr<Expr>> arguments_;
+};
+
+/**
  * @brief If 语句
  * 用于表示条件分支语句，包括条件、then分支和可选的else分支
  */
@@ -664,6 +688,9 @@ public:
 
     /// @brief 访问索引赋值表达式
     virtual void visitIndexAssign(const IndexAssignExpr& expr) = 0;
+
+    /// @brief 访问方法调用表达式
+    virtual void visitMethodCall(const MethodCallExpr& expr) = 0;
 };
 
 /**

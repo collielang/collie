@@ -65,6 +65,7 @@ private:
     void visitArrayLiteral(const ArrayLiteralExpr& expr) override;
     void visitIndex(const IndexExpr& expr) override;
     void visitIndexAssign(const IndexAssignExpr& expr) override;
+    void visitMethodCall(const MethodCallExpr& expr) override;
 
     // StmtVisitor 接口
     void visitExpression(const ExpressionStmt& stmt) override;
@@ -106,6 +107,10 @@ private:
     void call_builtin_len(const CallExpr& expr);
     void call_builtin_to_string(const CallExpr& expr);
     void call_builtin_to_number(const CallExpr& expr);
+
+    /// @brief 把值转为 number（string/bool/number），失败抛 RuntimeError；
+    /// toNumber 内建函数与 .toNumber() 方法共用
+    static Value to_number_value(const Value& v, size_t line, size_t column);
 
     std::ostream& out_;
     Environment env_;

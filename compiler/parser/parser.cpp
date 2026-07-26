@@ -435,16 +435,41 @@ std::unique_ptr<Expr> Parser::parse_unary() {
         throw error(peek(), "Expect expression.");
     }
 
-    // 后缀索引：expr[index]，支持链式（如二维数组 arr[i][j]）
-    while (check(TokenType::DELIMITER_LBRACKET)) {
-        Token bracket = advance();
-        auto index = parse_expression();
-        if (!index) {
-            throw error(peek(), "Expect index expression inside '[]'.");
+    // 后缀链：索引 expr[index] 与方法调用 expr.method(args)，可混合链式
+    // （如 arr[0].toString()、m[0][1]、n.toString()[0]）
+    while (true) {
+        if (check(TokenType::DELIMITER_LBRACKET)) {
+            Token bracket = advance();
+            auto index = parse_expression();
+            if (!index) {
+                throw error(peek(), "Expect index expression inside '[]'.");
+            }
+            consume(TokenType::DELIMITER_RBRACKET, "Expect ']' after index expression.");
+            expr = std::make_unique<IndexExpr>(std::move(expr), bracket,
+                                               std::move(index));
+            continue;
         }
-        consume(TokenType::DELIMITER_RBRACKET, "Expect ']' after index expression.");
-        expr = std::make_unique<IndexExpr>(std::move(expr), bracket,
-                                           std::move(index));
+        if (check(TokenType::DELIMITER_DOT)) {
+            advance(); // 消费 '.'
+            Token name = consume(TokenType::IDENTIFIER, "Expect method name after '.'.");
+            // 目前仅支持方法调用，属性访问（无括号）待后续设计
+            consume(TokenType::DELIMITER_LPAREN, "Expect '(' after method name.");
+            std::vector<std::unique_ptr<Expr>> arguments;
+            if (!check(TokenType::DELIMITER_RPAREN)) {
+                do {
+                    auto argument = parse_expression();
+                    if (!argument) {
+                        throw error(peek(), "Expect expression in method arguments.");
+                    }
+                    arguments.push_back(std::move(argument));
+                } while (match(TokenType::DELIMITER_COMMA));
+            }
+            consume(TokenType::DELIMITER_RPAREN, "Expect ')' after method arguments.");
+            expr = std::make_unique<MethodCallExpr>(std::move(expr), name,
+                                                    std::move(arguments));
+            continue;
+        }
+        break;
     }
 
     return expr;

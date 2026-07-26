@@ -67,6 +67,7 @@ private:
     void visitArrayLiteral(const ArrayLiteralExpr& expr) override;
     void visitIndex(const IndexExpr& expr) override;
     void visitIndexAssign(const IndexAssignExpr& expr) override;
+    void visitMethodCall(const MethodCallExpr& expr) override;
 
     // StmtVisitor 接口实现
     void visitVarDecl(const VarDeclStmt& stmt) override;

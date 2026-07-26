@@ -55,6 +55,10 @@ void IndexAssignExpr::accept(ExprVisitor& visitor) const {
     visitor.visitIndexAssign(*this);
 }
 
+void MethodCallExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitMethodCall(*this);
+}
+
 void CallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitCall(*this);
 }

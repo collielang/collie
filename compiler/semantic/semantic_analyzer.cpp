@@ -1382,6 +1382,78 @@ void SemanticAnalyzer::visitIndexAssign(const IndexAssignExpr& expr) {
     }
 }
 
+void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
+    try {
+        expr.object()->accept(*this);
+        TokenType object_type = current_type_;
+
+        const std::string name(expr.name().lexeme());
+
+        // 内建方法表（basic 版，均为 0 参，见设计文档 04-numeric.md）：
+        // - toString：任意值 -> string
+        // - toNumber：string/bool/number -> number
+        // - number 专属：abs/integerPart/decimalPart -> number，is* 系列 -> bool
+        // TODO(semantic): 待类型系统闭环后改为正式的类型方法符号表
+        static const std::unordered_map<std::string, TokenType> number_methods = {
+            {"abs", TokenType::KW_NUMBER},
+            {"integerPart", TokenType::KW_NUMBER},
+            {"decimalPart", TokenType::KW_NUMBER},
+            {"isInteger", TokenType::KW_BOOL},
+            {"isDecimal", TokenType::KW_BOOL},
+            {"isNaN", TokenType::KW_BOOL},
+            {"isInfinity", TokenType::KW_BOOL},
+            {"isFinite", TokenType::KW_BOOL},
+            {"isPositive", TokenType::KW_BOOL},
+            {"isNegative", TokenType::KW_BOOL},
+        };
+
+        TokenType result_type;
+        if (name == "toString") {
+            result_type = TokenType::KW_STRING;
+        } else if (name == "toNumber") {
+            // string/bool/number 可转数字（object 动态放行，运行期再检查）
+            if (object_type != TokenType::KW_STRING &&
+                object_type != TokenType::KW_BOOL &&
+                object_type != TokenType::KW_NUMBER &&
+                object_type != TokenType::KW_OBJECT) {
+                throw SemanticError(
+                    "toNumber() is not supported on type '" +
+                    std::string(token_type_to_string(object_type)) + "'",
+                    expr.name().line(), expr.name().column());
+            }
+            result_type = TokenType::KW_NUMBER;
+        } else if (number_methods.count(name) != 0) {
+            // number 专属方法（object 动态放行，运行期再检查）
+            if (object_type != TokenType::KW_NUMBER &&
+                object_type != TokenType::KW_OBJECT) {
+                throw SemanticError(
+                    "Method '" + name + "()' is only supported on numbers, got '" +
+                    std::string(token_type_to_string(object_type)) + "'",
+                    expr.name().line(), expr.name().column());
+            }
+            result_type = number_methods.at(name);
+        } else {
+            throw SemanticError("Unknown method '" + name + "'",
+                expr.name().line(), expr.name().column());
+        }
+
+        // 当前内建方法均为 0 参
+        if (!expr.arguments().empty()) {
+            throw SemanticError(name + "() expects no arguments",
+                expr.name().line(), expr.name().column());
+        }
+
+        current_type_ = result_type;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 void SemanticAnalyzer::visitTupleType(const TupleType& type) {
     try {
         std::vector<TokenType> element_types;

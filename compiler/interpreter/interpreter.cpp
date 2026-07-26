@@ -265,14 +265,16 @@ void Interpreter::call_builtin_to_number(const CallExpr& expr) {
         throw RuntimeError("toNumber() expects exactly 1 argument",
                            expr.paren().line(), expr.paren().column());
     }
-    Value v = evaluate(args[0].get());
+    result_ = to_number_value(evaluate(args[0].get()),
+                              expr.paren().line(), expr.paren().column());
+}
+
+Value Interpreter::to_number_value(const Value& v, size_t line, size_t column) {
     if (v.is_number()) {
-        result_ = v;
-        return;
+        return v;
     }
     if (v.is_bool()) {
-        result_ = Value::number(v.as_bool() ? 1.0 : 0.0);
-        return;
+        return Value::number(v.as_bool() ? 1.0 : 0.0);
     }
     if (v.is_string()) {
         const std::string& s = v.as_string();
@@ -282,17 +284,16 @@ void Interpreter::call_builtin_to_number(const CallExpr& expr) {
             // 允许尾部空白，其他尾部字符视为非法
             while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
             if (pos == s.size()) {
-                result_ = Value::number(n);
-                return;
+                return Value::number(n);
             }
         } catch (const std::exception&) {
             // fall through to error
         }
         throw RuntimeError("toNumber() cannot parse '" + s + "' as a number",
-                           expr.paren().line(), expr.paren().column());
+                           line, column);
     }
     throw RuntimeError(std::string("toNumber() cannot convert ") + v.kind_name(),
-                       expr.paren().line(), expr.paren().column());
+                       line, column);
 }
 
 void Interpreter::visitTuple(const TupleExpr& expr) {
@@ -360,6 +361,62 @@ void Interpreter::visitIndexAssign(const IndexAssignExpr& expr) {
     // 数组为引用语义：写入共享底层存储，对所有持有者可见。
     object.as_array()[i] = value;
     result_ = value;  // 赋值表达式的值为右侧值，支持链式赋值
+}
+
+void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
+    Value object = evaluate(expr.object());
+    const std::string name(expr.name().lexeme());
+    size_t line = expr.name().line();
+    size_t column = expr.name().column();
+
+    // 当前内建方法均为 0 参（语义层已校验，这里防御 object 动态路径）
+    if (!expr.arguments().empty()) {
+        throw RuntimeError(name + "() expects no arguments", line, column);
+    }
+
+    // 通用方法：与内建函数 toString/toNumber 行为一致
+    if (name == "toString") {
+        result_ = Value::str(object.to_string());
+        return;
+    }
+    if (name == "toNumber") {
+        result_ = to_number_value(object, line, column);
+        return;
+    }
+
+    // number 专属方法（见设计文档 04-numeric.md）
+    if (!object.is_number()) {
+        throw RuntimeError("Method '" + name + "()' is only supported on numbers, got " +
+                               std::string(object.kind_name()),
+                           line, column);
+    }
+    double a = object.as_number();
+    if (name == "abs") {
+        result_ = Value::number(std::fabs(a));
+    } else if (name == "integerPart") {
+        // 向零取整：-123.456.integerPart() == -123
+        result_ = Value::number(std::trunc(a));
+    } else if (name == "decimalPart") {
+        // 保留符号：-123.456.decimalPart() == -0.456
+        result_ = Value::number(a - std::trunc(a));
+    } else if (name == "isInteger") {
+        result_ = Value::boolean(std::isfinite(a) && a == std::floor(a));
+    } else if (name == "isDecimal") {
+        // 文档规定 Infinity/NaN 的 isInteger/isDecimal 均为 false
+        result_ = Value::boolean(std::isfinite(a) && a != std::floor(a));
+    } else if (name == "isNaN") {
+        result_ = Value::boolean(std::isnan(a));
+    } else if (name == "isInfinity") {
+        result_ = Value::boolean(std::isinf(a));
+    } else if (name == "isFinite") {
+        result_ = Value::boolean(std::isfinite(a));
+    } else if (name == "isPositive") {
+        result_ = Value::boolean(a > 0.0);   // NaN 与 0 均为 false
+    } else if (name == "isNegative") {
+        result_ = Value::boolean(a < 0.0);
+    } else {
+        throw RuntimeError("Unknown method '" + name + "'", line, column);
+    }
 }
 
 size_t Interpreter::normalize_index(const Value& index, size_t size,

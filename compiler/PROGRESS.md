@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t26 完成）
+最后更新：2026-07-25（t27 完成）
 
 ---
 
@@ -15,9 +15,9 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法），token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`) |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式) |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -207,6 +207,13 @@
     - [x] 端到端测试：floor 取模 3 文档用例/小数取模/字面量形式（3 例）+ lexer 字面量测试（2 例）
     - **范围决策**：int64/double 双内部表示**推迟**——文档中 number 的可观测语义（`1 == 1.0` 为 true、`1/3 → 0.333...`、整数显示不带小数点）当前 double 实现已全部满足，唯一需要双表示的 `12.00.toString(10) → "12.0"` 依赖尚未实现的方法调用语法；任意精度 integer/decimal 为独立大项，待类型系统闭环时一并设计
     - `interpreter_tests` 现 74 例全绿，`lexer_tests` 现 13 例全绿
+- [x] **方法调用语法 `expr.method(args)`（t27，已完成）**：
+    - [x] AST 新增 `MethodCallExpr` 节点 + `visitMethodCall` visitor 接口（三处实现同步：semantic/interpreter/parser_test）
+    - [x] parser 后缀链重构：索引 `[i]` 与方法调用 `.method(args)` 可混合链式（`arr[0].abs()`、`3.7.integerPart().toString()`）；属性访问（无括号）暂不支持待后续设计
+    - [x] 语义层内建方法表（均 0 参）：`toString`→string（任意接收者）、`toNumber`→number（string/bool/number）、number 专属 `abs`/`integerPart`/`decimalPart`→number、`isInteger`/`isDecimal`/`isNaN`/`isInfinity`/`isFinite`/`isPositive`/`isNegative`→bool；未知方法/接收者类型不符/带参均报错（object 动态放行）
+    - [x] 解释器分发实现：`integerPart` 向零取整、`decimalPart` 保留符号（文档 `-123.456` 用例）；抽出 `to_number_value` 辅助与内建函数 toNumber 共用
+    - [x] 端到端测试：number 谓词方法/abs 与取整/toString+toNumber（含数字字面量接收者 `12.toString()`）/链式混合/未知方法拒绝/错误接收者拒绝（6 例）
+    - `interpreter_tests` 现 80 例全绿；未做：带参方法（如 `toString(radix)`，文档示例疑似有误待确认）、string/array 方法、属性访问
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
@@ -265,6 +272,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `feat(parser,semantic,interpreter)`: 实现方法调用语法 `expr.method(args)`：AST 新增 MethodCallExpr、parser 后缀链支持索引与方法调用混合、语义层内建方法表（toString/toNumber 通用 + number 专属 abs/integerPart/decimalPart/is* 系列）、解释器分发实现并抽出 to_number_value 与内建函数共用；新增 6 个端到端测试；interpreter_tests 80 全绿（M4 t27）
 
 - 2026-07-25 `feat(interpreter,lexer)`: number 语义对齐设计规范：取模改为 floor 语义（Python 风格，`-1 % 5 == 4`，修复与 04-numeric.md 不符的 fmod 截断行为）；lexer 支持前导点小数 `.5` 与 `f` 后缀 `2f`（后缀不计入 lexeme）；int64/double 双表示推迟（当前无可观测差异）；新增 3 个端到端 + 2 个 lexer 测试；interpreter_tests 74 / lexer_tests 13 全绿（M4 t26）
 

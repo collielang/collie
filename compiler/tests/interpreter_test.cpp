@@ -691,3 +691,72 @@ TEST(InterpreterEndToEnd, StringIndexAssignRejected) {
     analyzer.analyze(stmts);
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+// 以下方法调用用例见设计文档 04-numeric.md
+TEST(InterpreterEndToEnd, MethodCallNumberPredicates) {
+    EXPECT_EQ(run_source(R"(
+        number n = 2025;
+        print(n.isInteger());
+        print(n.isPositive());
+        print(n.isFinite());
+        print(n.isDecimal());
+        print(n.isNegative());
+        print(n.isNaN());
+    )"), R"(true
+true
+true
+false
+false
+false
+)");
+}
+
+TEST(InterpreterEndToEnd, MethodCallAbsAndParts) {
+    EXPECT_EQ(run_source(R"(
+        number d = -123.456;
+        print(d.abs());
+        print(d.integerPart());
+        print(d.decimalPart());
+    )"), "123.456\n-123\n-0.456\n");
+}
+
+TEST(InterpreterEndToEnd, MethodCallToStringToNumber) {
+    // 与内建函数 toString/toNumber 行为一致；支持字面量接收者
+    EXPECT_EQ(run_source(R"(
+        number n = 42;
+        print(n.toString() + "!");
+        print("3.5".toNumber() + 1);
+        print(12.toString());
+    )"), "42!\n4.5\n12\n");
+}
+
+TEST(InterpreterEndToEnd, MethodCallChainedAndIndexed) {
+    // 链式调用与索引混合：数字字面量.方法().方法()、数组元素.方法()
+    EXPECT_EQ(run_source(R"(
+        print(3.7.integerPart().toString() + "|");
+        array arr = [-5, 2];
+        print(arr[0].abs());
+    )"), "3|\n5\n");
+}
+
+TEST(InterpreterEndToEnd, UnknownMethodRejected) {
+    // 未知方法在语义层报错
+    collie::Lexer lexer(R"(number n = 1; n.foo();)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, MethodCallWrongReceiverRejected) {
+    // number 专属方法用在字符串上：语义层报错
+    collie::Lexer lexer(R"(string s = "abc"; s.abs();)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
