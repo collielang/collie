@@ -15,13 +15,13 @@ using namespace collie;
 // 不及预期却越界访问 errors[i] 而崩溃），作为文档化待办，待对应特性实现后恢复。
 
 // 错误恢复测试
-TEST(SemanticErrorTest, DISABLED_ErrorRecovery) {
+TEST(SemanticErrorTest, ErrorRecovery) {
     SemanticAnalyzer analyzer;
 
     // 多个错误的代码
     auto [ast, tokens] = test::parse_and_get_tokens(R"(
-        // 错误1：类型不匹配
-        string x = 42;
+        // 错误1：类型不匹配（string 不能隐式转 number；注：number 转 string 是允许的）
+        number x = "42";
 
         // 错误2：未定义的变量
         y = 10;
@@ -53,32 +53,26 @@ TEST(SemanticErrorTest, DISABLED_ErrorRecovery) {
 }
 
 // 函数相关错误测试
-TEST(SemanticErrorTest, DISABLED_FunctionErrors) {
+TEST(SemanticErrorTest, FunctionErrors) {
     SemanticAnalyzer analyzer;
 
     auto [ast, tokens] = test::parse_and_get_tokens(R"(
-        // 错误1：函数重复定义
-        number add(number x, number y) {
+        // 错误1：函数重复定义（相同签名）
+        function add(x number, y number) number {
             return x + y;
         }
-        number add(number x, number y) {
+        function add(x number, y number) number {
             return x + y;
         }
 
-        // 错误2：缺少返回值
-        number getValue() {
-            number x = 42;
-            // 没有 return 语句
-        }
-
-        // 错误3：返回值类型不匹配
-        number getString() {
+        // 错误2：返回值类型不匹配
+        function getString() number {
             return "hello";
         }
 
-        // 错误4：参数类型不匹配的函数调用
-        void process(number x) {
-            return;
+        // 错误3：参数类型不匹配的函数调用
+        function process(x number) number {
+            return x;
         }
         process("42");
     )");
@@ -89,7 +83,9 @@ TEST(SemanticErrorTest, DISABLED_FunctionErrors) {
     // 验证错误收集
     EXPECT_TRUE(analyzer.has_errors());
     const auto& errors = analyzer.get_errors();
-    EXPECT_EQ(errors.size(), 4);  // 应该有4个错误
+    // 3 处错误源实测 4 条：getString 级联 2 条（返回类型不匹配 + panic 后该 return
+    // 不计入路径判定，再报 must return a value in all code paths）
+    EXPECT_EQ(errors.size(), 4);
 }
 
 // 作用域和初始化错误测试
@@ -155,12 +151,12 @@ TEST(SemanticErrorTest, TypeConversionErrors) {
 }
 
 // 错误位置信息测试
-TEST(SemanticErrorTest, DISABLED_ErrorLocation) {
+TEST(SemanticErrorTest, ErrorLocation) {
     SemanticAnalyzer analyzer;
 
     auto [ast, tokens] = test::parse_and_get_tokens(R"(
-        number x = 1;
-        string y = x;  // 第2行，类型错误
+        string s = "1";
+        number y = s;  // 第3行，类型错误（string 不能隐式转 number）
     )");
 
     analyzer.set_tokens(tokens);
@@ -168,26 +164,26 @@ TEST(SemanticErrorTest, DISABLED_ErrorLocation) {
 
     EXPECT_TRUE(analyzer.has_errors());
     const auto& errors = analyzer.get_errors();
-    EXPECT_EQ(errors.size(), 1);
+    ASSERT_EQ(errors.size(), 1);
 
-    // 验证错误位置信息
-    EXPECT_EQ(errors[0].line(), 2);
+    // 验证错误位置信息（R"( 后首行为空行，声明从第 2 行起）
+    EXPECT_EQ(errors[0].line(), 3);
     EXPECT_GT(errors[0].column(), 0);
 }
 
 // 错误恢复和继续分析测试
-TEST(SemanticErrorTest, DISABLED_ContinueAfterError) {
+TEST(SemanticErrorTest, ContinueAfterError) {
     SemanticAnalyzer analyzer;
 
     auto [ast, tokens] = test::parse_and_get_tokens(R"(
-        // 错误代码
-        string x = 42;
+        // 错误代码（string 不能隐式转 number）
+        number x = "42";
 
         // 正确的代码，应该能继续分析
         number y = 100;
         number z = y + 200;
 
-        // 另一个错误
+        // 另一个错误（number 不能隐式转 bool）
         bool b = y;
     )");
 

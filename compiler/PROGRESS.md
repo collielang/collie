@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-25（t28 完成）
+最后更新：2026-07-25（t29 完成）
 
 ---
 
@@ -221,6 +221,10 @@
     - [x] 端到端测试：length 属性/trim 系列/subString（含 UTF-8 多字节）/属性方法混合链式/未知属性拒绝/错误接收者拒绝/元数错误拒绝（7 例）
     - **待确认**：文档 `str.subString(6) // "llo world"` 示例与通用 `[start, end)` 语义矛盾（标准语义应为 `"world"`），按标准语义实现；`indent`/`dedent`/切片 `[a:b]`/`toCharacterArray` 推迟（依赖 character 类型或切片语法）
     - `interpreter_tests` 现 87 例全绿
+- [x] **恢复 DISABLED_ 语义测试第五批 · 错误收集用例（t29，已完成）**：
+    - [x] 恢复 `semantic_error_test.cpp` 4 个用例：`ErrorRecovery`/`ContinueAfterError`（`string x = 42;` 实为合法的 number→string 隐式转换，反转为 `number x = "42";` 构造真错误）、`FunctionErrors`（C 风格函数声明改写为 function 语法；3 处错误源实测 4 条——getString 级联 2 条：返回类型不匹配 + panic 后 return 不计入路径判定再报 must return）、`ErrorLocation`（同理反转类型方向，行号修正为 3——`R"(` 首行为空行；`EXPECT_EQ`→`ASSERT_EQ` 防错误数不符时越界崩溃）
+    - [x] 盘点剩余禁用：`DISABLED_ArrayErrors` 依赖 `number[]` 语法；`semantic_analyzer_test.cpp` 10 个依赖未实现特性（byte/word/char 类型、未初始化流分析、不可达代码检查、C 风格函数）；`semantic_recovery_test.cpp` 14 个待下批评估
+    - `semantic_tests` 现 33 通过 / 25 禁用（从 29/29）
 - [ ] 运行期声明类型与初始值类型校验（待排期）
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
@@ -279,6 +283,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-25 `test(semantic)`: 恢复错误收集类 DISABLED_ 语义测试：ErrorRecovery/ContinueAfterError/ErrorLocation（利用 string→number 非法方向构造错误，number→string 隐式转换实为合法）、FunctionErrors（改写为 function 语法，getString 级联 2 错共 4 条）；ErrorLocation 行号修正并改 ASSERT_EQ 防越界；semantic_tests 33 通过 / 25 禁用（M4 t29）
 
 - 2026-07-25 `feat(parser,semantic,interpreter)`: 实现 string/array 内建成员：AST 新增 PropertyExpr、parser 支持无括号属性访问；`length` 属性（string 码点数/array 元素数）；string 方法 trim/trimLeft/trimRight 与首个带参方法 subString(start[, end])（码点区间，end 缺省/-1/NaN 取 length）；新增 7 个端到端测试；interpreter_tests 87 全绿（M4 t28）
 
