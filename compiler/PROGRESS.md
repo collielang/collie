@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t48 进行中：LLVM 22.1.8 官方预编译包接入 CMake（可选 COLLIE_ENABLE_LLVM），llvm_smoke 冒烟验证 IRBuilder 全链路通过，既有 Debug 门禁 ctest 6/6 不受影响）
+最后更新：2026-07-26（t48 进行中：t48c 完成 AST → LLVM IR 降级设计文档 `compiler/codegen/README.md`：类型/降级映射表、CRT 链接方案拍板、差分测试策略、CG* 缺口登记）
 
 ---
 
@@ -329,8 +329,8 @@
 - [ ] **引入 LLVM，设计 AST/新 IR → LLVM IR 的降级（t48，进行中）**：
     - [x] 环境排查 + 安装方案拍板（t48a）：作者选定**官方预编译包**（`clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz`，解压至 `D:\Program\Development\Environment\llvm-21`）；下载步骤已写入贡献文档 compile-and-run（英文 + 中文 i18n，含「bin 加 PATH 可选」说明）；交叉编译/分发需求不锁死：各平台 CI 用各自渠道的 LLVM，target 后端预编译包全启用，静态链接自包含
     - [x] LLVM 依赖接入 CMake + 冒烟验证（t48b）：顶层 `COLLIE_ENABLE_LLVM` 选项（默认 OFF，不影响既有门禁/CI）+ `find_package(LLVM CONFIG)` + codegen 子目录（EXCLUDE_FROM_ALL）；`llvm_smoke` 工具 IRBuilder 构造 hello world 模块、verifyModule、打印 IR 全链路通过；踩坑两个：①官方包是 **/MT 静态 CRT**（非 /MD），需 CMP0091 NEW + 目标级 MSVC_RUNTIME_LIBRARY 对齐；② `LLVMConfig.cmake` 会改写顶层 `CMAKE_MSVC_RUNTIME_LIBRARY` 污染其后目标（collie 主程序 Debug 被带成 /MT Release 报 LNK2038），find_package 前后保存/恢复；回归全量 ctest 6/6
-    - [ ] AST → LLVM IR 降级设计文档（t48c）：范围先锁定 helloworld 最小子集（print/整数字面量/算术），产出 `compiler/codegen/README.md` 降级映射表
-- [ ] 生成本地二进制，跑通 helloworld 的编译产物
+    - [x] AST → LLVM IR 降级设计文档（t48c）：产出 `compiler/codegen/README.md`（以 SPEC.md 为语义依据）：阶段范围 S1 helloworld / S2 整数算术 / S3 变量控制流；类型映射（integer→i64 妥协、decimal→double）；降级映射表（print→puts/printf、`/` 恒小数 fdiv、`%` floor 取模 select 校正）；关键拍板：Release 配置全工程切 /MT 与 LLVM 对齐（Debug 门禁不动，t49 实施）；验证靠解释器/编译产物差分测试；缺口另开 CG* 编号登记（CG1 i64 非任意精度等 4 项）
+- [ ] CodeGenVisitor 第一版 + 生成本地二进制，跑通 helloworld 的编译产物（t49）
 
 ---
 
@@ -385,6 +385,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `docs(compiler)`: AST → LLVM IR 降级设计文档 `compiler/codegen/README.md`（t48c）：阶段范围 S1/S2/S3；类型映射（integer→i64 妥协登记 CG1、decimal→double）；降级映射表（print→puts/printf、`/` 恒小数 fdiv、`%` floor 取模 select 校正）；CRT 链接方案拍板（Release 全工程切 /MT，Debug 门禁不动，t49 实施）；验证策略：verifyModule 门禁 + 解释器/编译产物差分测试；CG1～CG4 缺口登记（M6 t48）
 - 2026-07-26 `build(compiler)`: LLVM 22.1.8 官方预编译包接入 CMake + 冒烟验证（t48a/t48b，M6 启动）：顶层 `COLLIE_ENABLE_LLVM` 选项（默认 OFF）+ `find_package(LLVM CONFIG)` + codegen 子目录（EXCLUDE_FROM_ALL）；`llvm_smoke` 工具 IRBuilder 构造 hello world 模块/verifyModule/打印 IR 全链路通过；CRT 对齐两坑：官方包为 /MT 静态 CRT（CMP0091 NEW + 目标级 MSVC_RUNTIME_LIBRARY）、`LLVMConfig.cmake` 污染顶层 `CMAKE_MSVC_RUNTIME_LIBRARY`（find_package 前后保存/恢复）；LLVM 下载步骤写入贡献文档 compile-and-run（英文 + 中文 i18n）；回归全量 ctest 6/6（M6 t48）
 - 2026-07-26 `feat(compiler)`: char/byte 类型 + 位运算符 `~ & | ^ << >>` + 十六进制字面量（t47，补齐 SPEC.md 缺口 G1）：lexer `0x`/`0X` hex 字面量；parser 新增 C 家族位运算优先级层（`|`<`^`<`&`<相等<关系<移位<加法）、`~` 接入 unary、char 字面量接入 primary；语义 `is_bit_type` 纳入 integer、`integer → byte/word` 静态放行；解释器 `~` BigInt 精确、二元位运算 int64 域（超范围/移位数越界报错）、coerce_to_declared 新增 byte 0-255/word 0-65535 范围校验；解锁 3 个禁用语义测试 + 新增 8 个测试；全量 ctest 6/6（M5 t47）
 - 2026-07-26 `docs(compiler)`: 新增 `compiler/SPEC.md` 语言规范草稿（t46，M5）：以实际实现为准逐条经代码核实（词法/字面量/类型系统与转换规则/运算符优先级与语义/语句/内建函数方法表/class 文法/执行模型与门禁/输出格式），「已知实现缺口」专节登记 G1–G10（位运算未解析、char/byte 类型不完整、形参/返回类型缺口、无重载分发、访问修饰符不强制等）；风险表清理两条过时条目（double 单表示已由 t42 解决、文档占位风险降级）（M5 t46）
