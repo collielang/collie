@@ -11,8 +11,8 @@
 
 | 阶段 | 支持面 | 验收 |
 |------|--------|------|
-| S1 | `print("字符串字面量")` 顶层语句 | helloworld.collie 编译为 .exe，输出与解释器一致 |
-| S2 | 整数字面量、`+ - * / %`、`print(整数表达式)` | 算术表达式编译执行，输出与解释器一致 |
+| S1 | `print("字符串字面量")` 顶层语句 | helloworld.collie 编译为 .exe，输出与解释器一致 **✅ t49** |
+| S2 | 整数字面量、`+ - * / %`、`print(整数表达式)` | 算术表达式编译执行，输出与解释器一致 **✅ t49** |
 | S3 | 变量声明/读写、bool、比较、`if`/`while` | 循环程序编译执行 |
 | 后续 | 函数、string 运行时、decimal 输出格式、class、BigInt | 逐任务扩展 |
 
@@ -74,14 +74,15 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 **驱动程序 `colliec`**（编译器 driver，区别于解释执行的 `collie`）要链接
 codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接混链会 LNK2038。拍板：
 
-> **工程级 CRT 规则调整（t49 实施）**：Debug 配置保持 `/MDd`（既有测试门禁、CI 完全不动）；
+> **工程级 CRT 规则调整（t49 已实施）**：Debug 配置保持 `/MDd`（既有测试门禁、CI 完全不动）；
 > **Release 配置全工程切到 `/MT`**（与 LLVM 对齐，顺带让发布产物自包含、免装 VC 运行时）。
 > 即顶层 `CMAKE_MSVC_RUNTIME_LIBRARY` 改为 `MultiThreaded$<$<CONFIG:Debug>:DebugDLL>`。
 > 测试仅在 Debug 配置跑（ctest -C Debug），不受影响；gtest 跟随同规则。
 
-**产物链路**：S1 先输出 `.ll` 文本落盘（验证降级正确性，可用 `llvm-21\bin\llc`/`clang`
-手动确认）；随后接 `TargetMachine::addPassesToEmitFile` 产 `.obj`，链接优先用
-LLVM 包自带 `lld-link`（免依赖 VS 环境变量），退路是 MSVC `link.exe`。
+**产物链路**（t49 第一版）：`colliec` 驱动跑前端门禁 → CodeGenerator 生成 IR → 写 `.ll` 落盘
+（verifyModule 门禁）→ 调 LLVM 包自带 `clang` 把 `.ll` 直接编链为 `.exe`（`--emit-llvm`
+可只停在 `.ll`）。后续再接 `TargetMachine::addPassesToEmitFile` 直出 `.obj` + `lld-link`，
+免道 clang 驱动。
 
 ## 六、验证策略
 

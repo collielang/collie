@@ -1,7 +1,7 @@
 # 设置 CMake 最低版本要求和项目名称
 cmake_minimum_required(VERSION 3.10)
 # MSVC 运行时库由 CMAKE_MSVC_RUNTIME_LIBRARY 变量/目标属性控制（CMP0091 NEW）：
-# 否则下方的全局 /MD 设置与 codegen 模块对齐 LLVM 静态 CRT 的属性覆盖都不生效
+# 否则下方的全局 CRT 规则（Debug=/MDd、Release=/MT）不生效
 cmake_policy(SET CMP0091 NEW)
 project(collie_compiler)
 
@@ -11,8 +11,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # MSVC 特定配置
 if(MSVC)
-    # 使用 MD 运行时库
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    # CRT 规则（t49 拍板，见 codegen/README.md 第五节）：
+    #   Debug  = /MDd（既有测试门禁、gtest、CI 不动）
+    #   Release = /MT 静态 CRT（与 LLVM 官方预编译包对齐，发布产物自包含）
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
     # 启用 UTF-8 编码支持
     add_compile_options("/utf-8")
     # 启用并行 PDB 写入

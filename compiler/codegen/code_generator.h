@@ -1,0 +1,126 @@
+/**
+ * @file code_generator.h
+ * @brief AST → LLVM IR 代码生成器（M6 t49，S1/S2 最小子集）
+ *
+ * 设计文档：compiler/codegen/README.md（类型映射/降级映射/阶段范围）。
+ * 支持面：print、字符串/整数/小数/布尔字面量、算术 + - * / %、一元负号。
+ * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
+ */
+#pragma once
+
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+
+#include "../parser/ast.h"
+
+namespace collie {
+
+/**
+ * @brief 代码生成期错误（不支持的构造、超出 i64 的整数字面量等）
+ */
+class CodeGenError : public std::runtime_error {
+public:
+    CodeGenError(const std::string& message, size_t line, size_t column)
+        : std::runtime_error(message), line_(line), column_(column) {}
+
+    size_t line() const { return line_; }
+    size_t column() const { return column_; }
+
+private:
+    size_t line_;
+    size_t column_;
+};
+
+/**
+ * @brief 树遍历代码生成器：顶层语句列表 → llvm::Module（@main 收拢）
+ *
+ * 与解释器同构的访问者实现；表达式结果经成员 last_value_ 侧信道传递
+ * （accept 无返回值），并附带 CGType 供 print 选格式符/算术选指令。
+ */
+class CodeGenerator : public ExprVisitor, public StmtVisitor {
+public:
+    CodeGenerator();
+
+    /// @brief 生成整个程序模块（顶层语句收拢进 @main），verifyModule 门禁失败抛 CodeGenError
+    void generate(const std::vector<std::unique_ptr<Stmt>>& statements,
+                  const std::string& module_name);
+
+    /// @brief 输出 .ll 文本（生成后调用）；驱动再调 LLVM 自带 clang 把 .ll 编成本地二进制
+    std::string emit_ir() const;
+
+    // ---- ExprVisitor ----
+    void visitLiteral(const LiteralExpr& expr) override;
+    void visitIdentifier(const IdentifierExpr& expr) override;
+    void visitBinary(const BinaryExpr& expr) override;
+    void visitUnary(const UnaryExpr& expr) override;
+    void visitAssign(const AssignExpr& expr) override;
+    void visitCall(const CallExpr& expr) override;
+    void visitTuple(const TupleExpr& expr) override;
+    void visitTernary(const TernaryExpr& expr) override;
+    void visitMultiMatch(const MultiMatchExpr& expr) override;
+    void visitArrayLiteral(const ArrayLiteralExpr& expr) override;
+    void visitIndex(const IndexExpr& expr) override;
+    void visitIndexAssign(const IndexAssignExpr& expr) override;
+    void visitMethodCall(const MethodCallExpr& expr) override;
+    void visitProperty(const PropertyExpr& expr) override;
+    void visitPropertyAssign(const PropertyAssignExpr& expr) override;
+    void visitNew(const NewExpr& expr) override;
+    void visitThis(const ThisExpr& expr) override;
+    void visitBaseCall(const BaseCallExpr& expr) override;
+    void visitBaseMethodCall(const BaseMethodCallExpr& expr) override;
+
+    // ---- StmtVisitor ----
+    void visitExpression(const ExpressionStmt& stmt) override;
+    void visitVarDecl(const VarDeclStmt& stmt) override;
+    void visitBlock(const BlockStmt& stmt) override;
+    void visitIf(const IfStmt& stmt) override;
+    void visitWhile(const WhileStmt& stmt) override;
+    void visitFor(const ForStmt& stmt) override;
+    void visitDoWhile(const DoWhileStmt& stmt) override;
+    void visitSwitch(const SwitchStmt& stmt) override;
+    void visitFunction(const FunctionStmt& stmt) override;
+    void visitReturn(const ReturnStmt& stmt) override;
+    void visitClass(const ClassStmt& stmt) override;
+    void visitBreak(const BreakStmt& stmt) override;
+    void visitContinue(const ContinueStmt& stmt) override;
+
+private:
+    /// @brief 生成值的编译期类型标记（选 printf 格式符与算术指令用）
+    enum class CGType {
+        Int,     // i64（integer / number 整数表示，妥协点 CG1）
+        Double,  // double（decimal / number 小数表示）
+        Bool,    // i1
+        Str,     // ptr → 常量字符串
+    };
+
+    struct CGValue {
+        llvm::Value* value = nullptr;
+        CGType type = CGType::Int;
+    };
+
+    /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
+    CGValue emit(const Expr* expr);
+
+    /// @brief print 内建：拼 printf 格式串（空格分隔 + 换行），一次 printf 调用
+    void gen_print(const CallExpr& expr);
+
+    /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
+    llvm::Value* to_double(const CGValue& v);
+
+    /// @brief 不支持的构造统一报错出口
+    [[noreturn]] void unsupported(const std::string& what, size_t line, size_t column);
+
+    llvm::LLVMContext context_;
+    std::unique_ptr<llvm::Module> module_;
+    llvm::IRBuilder<> builder_;
+    llvm::FunctionCallee printf_fn_;
+    CGValue last_value_;
+};
+
+} // namespace collie
