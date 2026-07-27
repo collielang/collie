@@ -1,0 +1,61 @@
+// a11 · 类（class 基础）
+// 演示：字段（初始化/缺省）、构造器、方法、this、访问修饰符、多实例、实例引用语义
+// 规范依据：uncategorized.md 附录（Java/C# 风格，t34 经作者确认的子集）
+
+class Point {
+    public number x;
+    public number y = 0;      // 字段缺省初始化
+
+    public Point(px number, py number) {
+        this.x = px;
+        this.y = py;
+    }
+
+    public function move(dx number, dy number) none {
+        this.x = this.x + dx;
+        this.y = this.y + dy;
+    }
+
+    public function describe() string {
+        return @"({this.x}, {this.y})";
+    }
+}
+
+class Counter {
+    private number count = 0;     // private 字段
+
+    public Counter() {
+    }
+
+    public function increment() none {
+        this.count = this.count + 1;
+    }
+
+    public function value() number {
+        return this.count;
+    }
+}
+
+// --- 多实例互不影响 ---
+Point p1 = new Point(1, 2);
+Point p2 = new Point(10, 20);
+p1.move(4, 4);
+print(p1.describe());    // (5, 6)
+print(p2.describe());    // (10, 20)
+
+// --- 外部属性读写 ---
+print(p1.x);             // 5
+p1.x = 100;
+print(p1.describe());    // (100, 6)
+
+// --- 方法维护内部状态 ---
+Counter c = new Counter();
+c.increment();
+c.increment();
+c.increment();
+print(c.value());        // 3
+
+// --- 实例引用语义：赋值共享同一对象 ---
+Counter alias = c;
+alias.increment();
+print(c.value());        // 4 —— alias 和 c 是同一实例

@@ -1,0 +1,53 @@
+// a09 · 函数（可运行子集：function 过渡文法）
+// 演示：定义/调用、参数与返回值、递归、提前 return、none 返回、函数互调
+// 规范依据：reference/grammer/function.md
+// 说明：当前为 `function` 关键字过渡文法（D10 决策）；C 风格多返回值等目标设计见 future.collie
+
+function add(a number, b number) number {
+    return a + b;
+}
+
+function greet(name string) string {
+    return @"Hello, {name}!";
+}
+
+// 递归：阶乘
+function factorial(n number) number {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// 提前 return：分类器
+function classify(x number) string {
+    if (x < 0) {
+        return "负数";
+    }
+    if (x == 0) {
+        return "零";
+    }
+    return "正数";
+}
+
+// none 返回类型：纯副作用函数
+function logLine(msg string) none {
+    print("[LOG] " + msg);
+}
+
+// 函数互调 + 嵌套调用
+function square(x number) number {
+    return x * x;
+}
+function sumOfSquares(a number, b number) number {
+    return add(square(a), square(b));
+}
+
+print(add(3, 4));            // 7
+print(greet("Collie"));      // Hello, Collie!
+print(factorial(10));        // 3628800
+print(classify(-5));
+print(classify(0));
+print(classify(42));
+logLine("系统启动");
+print(sumOfSquares(3, 4));   // 25

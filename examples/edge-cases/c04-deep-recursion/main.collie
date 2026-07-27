@@ -1,0 +1,28 @@
+// c04 · 深递归 —— 递归深度边界探测（栈耗尽风险实测）
+// 目的：找到解释器在默认栈下的可用递归深度量级，为排查栈溢出问题提供基准。
+// 深度参数放顶部，方便二分调参。
+
+const number SAFE_DEPTH = 1000;       // 实测安全深度（见 README）
+
+function countDown(n number) number {
+    if (n <= 0) {
+        return 0;
+    }
+    return countDown(n - 1);
+}
+
+// 带累积计算的递归（栈帧更大）
+function sumTo(n number) number {
+    if (n <= 0) {
+        return 0;
+    }
+    return n + sumTo(n - 1);
+}
+
+// 陷阱：相互递归（isEven/isOdd）当前无法实现 ——
+// 语义分析是单遍顺序的，前向引用报 Undefined variable 'isOdd'（见 README）
+
+print(countDown(SAFE_DEPTH));         // 0
+print(sumTo(100));                    // 5050
+print(sumTo(SAFE_DEPTH));             // 500500
+print("深递归测试完成");

@@ -1,0 +1,100 @@
+// b05 · 数字工具集 —— 素数判定 / 最大公约数 / 数位分解 / 幂运算 / 四舍五入
+// 覆盖 number 内建方法（abs/integerPart/decimalPart/isInteger）与手写数学工具。
+
+function isPrime(n number) bool {
+    if (n < 2) {
+        return false;
+    }
+    number i = 2;
+    while (i * i <= n) {
+        if (n % i == 0) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+function gcd(a number, b number) number {
+    a = a.abs();
+    b = b.abs();
+    while (b != 0) {
+        number t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+function digitSum(n number) number {
+    n = n.abs();
+    number sum = 0;
+    while (n > 0) {
+        sum = sum + n % 10;
+        n = ((n - n % 10) / 10);
+    }
+    return sum;
+}
+
+function power(base_ number, exp number) number {
+    number result = 1;
+    for (number i = 0; i < exp; i = i + 1) {
+        result = result * base_;
+    }
+    return result;
+}
+
+// 四舍五入到 places 位小数
+function roundTo(x number, places number) number {
+    number factor = power(10, places);
+    number scaled = x * factor;
+    number frac = scaled.decimalPart();
+    number base2 = scaled.integerPart();
+    if (frac >= 0.5) {
+        base2 = base2 + 1;
+    }
+    return base2 / factor;
+}
+
+// ---- 素数 ----
+print(isPrime(2));                    // true
+print(isPrime(17));                   // true
+print(isPrime(1));                    // false
+print(isPrime(100));                  // false
+
+// 打印 30 以内素数
+string primes = "";
+for (number n = 2; n <= 30; n = n + 1) {
+    if (isPrime(n)) {
+        primes = primes + toString(n) + " ";
+    }
+}
+print(primes.trim());                 // 2 3 5 7 11 13 17 19 23 29
+
+// ---- GCD ----
+print(gcd(48, 18));                   // 6
+print(gcd(-48, 18));                  // 6（abs 处理负数）
+print(gcd(7, 13));                    // 1（互素）
+print(gcd(0, 5));                     // 5
+
+// ---- 数位和 ----
+print(digitSum(12345));               // 15
+print(digitSum(-999));                // 27
+print(digitSum(0));                   // 0
+
+// ---- 幂 ----
+print(power(2, 10));                  // 1024
+print(power(5, 0));                   // 1
+
+// ---- 四舍五入 ----
+print(roundTo(3.14159, 2));           // 3.14
+print(roundTo(2.675, 2));             // 2.68 或 2.67（浮点表示影响，以实测为准）
+print(roundTo(1.005, 0));             // 1
+
+// ---- 内建判定 ----
+number x = 42;
+number y = 3.14;
+print(x.isInteger());                 // true
+print(y.isInteger());                 // false
+print(y.integerPart());               // 3
+print((0 - y).abs());                 // 3.14

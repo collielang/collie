@@ -1,0 +1,29 @@
+// e02 · 语义错误集 —— 语法全对但语义非法，验证语义分析器的检出面与报错质量
+// 预期：非零退出码 + 多条语义错误（能否一次报全，还是首错即停？）。
+
+// [1] 未定义变量
+print(undefinedVar);
+
+// [2] 类型不匹配：number 接字符串
+number n = "hello";
+
+// [3] const 重新赋值
+const number LIMIT = 10;
+LIMIT = 20;
+
+// [4] 重复声明
+number dup = 1;
+number dup = 2;
+
+// [5] 函数实参个数错误
+function add(a number, b number) number {
+    return a + b;
+}
+number r = add(1);
+
+// [6] bool 位置放 number
+if (123) {
+    print("不应到达");
+}
+
+print("如果看到这行，说明语义错误未被拦截 —— 这是 BUG");

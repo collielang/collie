@@ -1,0 +1,50 @@
+// c01 · 数值极限与浮点边界 —— IEEE 754 行为的系统验证
+// 除零 / Infinity 运算 / NaN 传播 / 精度损失 / 极大极小数 / 负零
+
+// ---- 除零家族（IEEE 754，已实现决策）----
+print(1 / 0);                         // Infinity
+print(-1 / 0);                        // -Infinity
+print(0 / 0);                         // NaN
+
+// ---- Infinity 运算 ----
+number inf = 1 / 0;
+print(inf + 1);                       // Infinity
+print(inf - inf);                     // NaN
+print(inf * 0);                       // NaN
+print(1 / inf);                       // 0
+print(-inf);                          // -Infinity
+
+// ---- NaN 传播与自反性 ----
+number nan = 0 / 0;
+print(nan + 100);                     // NaN
+print(nan == nan);                    // false（IEEE 754：NaN 不等于自身）
+print(nan != nan);                    // true
+
+// ---- 经典精度陷阱 ----
+print(0.1 + 0.2);                     // 0.30000000000000004（或实现的显示形式）
+print(0.1 + 0.2 == 0.3);              // false
+// 正确姿势：容差比较
+number diff = (0.1 + 0.2 - 0.3).abs();
+print(diff < 0.0000000001);           // true
+
+// ---- 大数与小数的表示边界 ----
+print(9007199254740992);              // 2^53，double 精确整数上界
+print(9007199254740992 + 1);          // 仍是 2^53（精度丢失，+1 无效）
+print(1e308);                         // 接近 double 上限
+print(1e308 * 10);                    // Infinity（上溢）
+print(5e-324);                        // double 最小次正规数
+print(5e-324 / 2);                    // 0（下溢归零）
+
+// ---- 负零 ----
+print(0 == -0);                       // true
+print(1 / -0);                        // -Infinity（能区分出 -0）
+
+// ---- floor 取模在负数上的行为（与 C 系语言不同！）----
+print(-7 % 3);                        // 2（floor 语义，非 -1）
+print(7 % -3);                        // -2
+print(-7 % -3);                       // -1
+
+// ---- 科学计数法 / 简写字面量边界 ----
+print(.5 + .5);                       // 1
+print(2e3);                           // 2000
+print(1.5e-2);                        // 0.015

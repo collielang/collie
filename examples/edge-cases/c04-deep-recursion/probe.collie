@@ -1,0 +1,15 @@
+// c04 附件 · 递归深度极限探测 —— 调大 DEPTH 直至崩溃，记录量级
+// 预期：超过 C++ 原生栈容量时进程崩溃（无友好错误），量级见 README。
+
+const number DEPTH = 6500;
+
+function countDown(n number) number {
+    if (n <= 0) {
+        return 0;
+    }
+    return countDown(n - 1);
+}
+
+print(@"探测深度：{DEPTH}");
+print(countDown(DEPTH));
+print("存活");

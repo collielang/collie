@@ -1,0 +1,40 @@
+// a10 · 数组与容器 —— 规范目标版（当前不可运行部分）
+// 状态：⛔ 等待特性 —— 切片、展开、+= 拼接、索引复合赋值、List/Set/Map 容器
+// 规范依据：reference/data-type/reference-data-type/01-container/ 与 draft.md
+// 待特性落地后，本文件内容应合并回 main.collie
+
+array a = [1, 2, 3];
+
+// --- 切片 ---
+print(a[1:-1]);        // [2]
+array b = a[:];        // 浅拷贝（区别于引用赋值）
+b[0] = 99;
+print(a);              // [1, 2, 3]（不受影响）
+
+// --- 展开（浅拷贝的另一种写法）---
+array c = [...a];
+print(c);              // [1, 2, 3]
+
+// --- 数组拼接 ---
+a += [4, 5];
+print(a);              // [1, 2, 3, 4, 5]
+
+// --- 索引复合赋值 ---
+a[0] += 100;
+print(a[0]);           // 101
+
+// --- List / Set / Map 容器（泛型）---
+List<object> numList = new List<object>();
+numList.addToLast(1);
+numList.addToLast(2);
+numList.addToLast(3);
+print(numList.last());     // 3
+numList.popFirst();
+print(numList);            // [2, 3]
+
+Map<string, object> scores = new Map<string, object>();
+scores.put("alice", 90);
+scores.put("bob", 85);
+for (key, val : scores) {
+    print(@"{key}: {val}");
+}

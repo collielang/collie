@@ -1,0 +1,29 @@
+// d01 · 循环吞吐 —— 纯 while/for 计数压测（解释器分发开销基准）
+// 负载参数放顶部；输出校验和用于验证正确性。量级实测见 README。
+
+const number N = 1000000;             // 一百万次迭代
+
+// for 版本
+number sum1 = 0;
+for (number i = 0; i < N; i = i + 1) {
+    sum1 = sum1 + 1;
+}
+print(@"for 完成：{sum1}");           // 1000000
+
+// while 版本
+number sum2 = 0;
+number j = 0;
+while (j < N) {
+    sum2 = sum2 + 2;
+    j = j + 1;
+}
+print(@"while 完成：{sum2}");         // 2000000
+
+// 带算术负载的循环（乘/模混合）
+number acc = 0;
+for (number k = 1; k <= 100000; k = k + 1) {
+    acc = (acc + k * 7) % 1000003;
+}
+print(@"算术校验和：{acc}");
+
+print("d01 完成");

@@ -1,0 +1,49 @@
+// c03 · 数组边界 —— 空数组 / 单元素 / 越界访问 / 负索引边界 / 深嵌套 / 引用别名陷阱
+// 注意：越界访问的行为（报错 or 崩溃 or 默认值）正是本例要实测记录的。
+
+// ---- 空数组 ----
+array empty = [];
+print(len(empty));                    // 0
+print(empty);                         // []
+print(empty == []);                   // true（深度相等）
+
+// ---- 单元素与尾逗号 ----
+array one = [42,];
+print(len(one));                      // 1
+print(one[0]);                        // 42
+print(one[-1]);                       // 42（负索引即首）
+
+// ---- 混合类型数组 ----
+array mixed = [1, "two", true, [3, 4]];
+print(len(mixed));                    // 4
+print(mixed[3]);                      // [3, 4]
+
+// ---- 深嵌套（5 层） ----
+array deep = [[[[[99]]]]];
+print(deep[0][0][0][0][0]);           // 99
+
+// ---- 引用别名陷阱 ----
+array origin = [1, 2, 3];
+array alias = origin;                 // 引用，不是拷贝！
+alias[0] = 100;
+print(origin);                        // [100, 2, 3] —— 原数组被改
+print(origin == alias);               // true
+
+// 深度相等 vs 引用
+array clone = [100, 2, 3];
+print(origin == clone);               // true（深度相等，非引用比较）
+
+// 嵌套数组里的引用共享
+array inner = [7];
+array outer1 = [inner];
+array outer2 = [inner];
+inner[0] = 77;
+print(outer1);                        // [[77]]
+print(outer2);                        // [[77]] —— 同一 inner 被共享
+
+// ---- 负索引边界 ----
+array a3 = [10, 20, 30];
+print(a3[-3]);                        // 10（-len 恰好到头）
+
+// 越界访问演示在 oob.collie（预期以运行时错误退出，退出码 1）
+print("c03 main 完成");

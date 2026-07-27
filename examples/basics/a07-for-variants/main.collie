@@ -1,0 +1,38 @@
+// a07 · for 循环家族（可运行子集：经典三段式 for）
+// 演示：for (初始化; 条件; 更新)、嵌套 for、循环中 break/continue
+// 规范依据：reference/grammer/control-flow.md
+// 说明：for-each / for-range / for-number / for! 见同目录 future.collie（等待特性）
+
+// --- 经典 for ---
+number total = 0;
+for (number i = 1; i <= 100; i += 1) {
+    total += i;
+}
+print(@"1..100 求和 = {total}");   // 5050
+
+// --- 嵌套 for：九九乘法表（节选前 3 行）---
+for (number row = 1; row <= 3; row += 1) {
+    string line = "";
+    for (number col = 1; col <= row; col += 1) {
+        line = line + @"{col}x{row}={col * row} ";
+    }
+    print(line);
+}
+
+// --- for 中的 break / continue ---
+for (number n = 1; n <= 10; n += 1) {
+    if (n % 3 != 0) {
+        continue;
+    }
+    if (n > 7) {
+        break;
+    }
+    print(@"3 的倍数: {n}");       // 3, 6
+}
+
+// --- 空缺三段式：省略初始化/更新 ---
+number countdown = 3;
+for (; countdown > 0;) {
+    print(@"倒计时 {countdown}");
+    countdown -= 1;
+}

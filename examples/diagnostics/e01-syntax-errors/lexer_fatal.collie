@@ -1,0 +1,5 @@
+// e01 附件 · 词法级致命错误 —— @ 后不跟字符串
+// 预期：退出码 1，仅一行 "Error during tokenization: Unexpected character"。
+// 诊断质量问题：无行列号、无源码片段，且词法错误直接中止 —— 后续所有错误被掩盖。
+
+number c = @;

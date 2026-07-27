@@ -1,0 +1,27 @@
+// b01 · FizzBuzz —— 最经典的控制流 + 取模练习
+// 全部使用已实现特性：for、%、if/else if、字符串插值。
+
+const number LIMIT = 20;
+
+for (number i = 1; i <= LIMIT; i = i + 1) {
+    if (i % 15 == 0) {
+        print("FizzBuzz");
+    } else if (i % 3 == 0) {
+        print("Fizz");
+    } else if (i % 5 == 0) {
+        print("Buzz");
+    } else {
+        print(i);
+    }
+}
+
+// 变体：用 switch 归类余数（switch 值直接跟块，多值逗号分隔）
+number n = 7;
+switch (n % 3) {
+    0 {
+        print(@"{n} 是 3 的倍数");
+    }
+    1, 2 {
+        print(@"{n} 不是 3 的倍数");
+    }
+}

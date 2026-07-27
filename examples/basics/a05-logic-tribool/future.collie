@@ -1,0 +1,34 @@
+// a05 · 逻辑类型 —— 规范目标版（当前不可运行部分）
+// 状态：⛔ 等待特性 —— tribool / unset / ==? 多目运算符 / 扩展三目 a ? 1 : 2 : 3
+// 规范依据：reference/data-type/primitive-data-type/05-logical.md
+// 说明：tribool 与 ==? 在 PROGRESS.md 中登记为「半截特性」（token 有、语法语义未闭环），
+//      且确切语义仍在「待与作者确认」清单中。
+// 待特性落地后，本文件内容应合并回 main.collie
+
+// --- 三态布尔：true / false / unset ---
+tribool t = unset;
+print(t);            // unset
+print(!unset == unset);  // true：unset 取反仍为 unset
+
+// 与 bool 比较
+tribool ta = unset;
+bool tb = false;
+print(ta == tb);     // false
+print(ta == !tb);    // false
+
+// --- ==? 多目运算符（原始写法）---
+bool cond = true;
+number r1 = cond ==? true: 1, false: 2;
+print(r1);           // 1
+
+tribool s = unset;
+number r2 = s ==? unset: 1, true: 2, false: 3;
+print(r2);           // 1
+
+// 多值合并分支 + 兜底
+number r3 = s ==? unset, true: 1, 2;
+print(r3);           // 1
+
+// --- 扩展三目（三分支简化形式）---
+number r4 = s ? 1 : 2 : 3;
+print(r4);           // 3（unset 走第三分支）

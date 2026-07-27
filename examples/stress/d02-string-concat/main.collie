@@ -1,0 +1,38 @@
+// d02 · 字符串拼接压测 —— 累积拼接的 O(n²) 风险实测
+// 每次 s = s + piece 都可能整串复制；量级故意分级，观察增长曲线。
+
+const number SMALL = 1000;
+const number MEDIUM = 5000;
+const number LARGE = 20000;
+
+function buildString(n number) string {
+    string s = "";
+    for (number i = 0; i < n; i = i + 1) {
+        s = s + "x";
+    }
+    return s;
+}
+
+string s1 = buildString(SMALL);
+print(@"SMALL({SMALL}) 长度 = {s1.length}");
+
+string s2 = buildString(MEDIUM);
+print(@"MEDIUM({MEDIUM}) 长度 = {s2.length}");
+
+string s3 = buildString(LARGE);
+print(@"LARGE({LARGE}) 长度 = {s3.length}");
+
+// 长串上的方法调用是否仍然正确
+print(s3[0]);                         // x
+print(s3[-1]);                        // x
+print(s3.subString(0, 5));            // xxxxx
+
+// 中文码点长串（UTF-8 多字节路径）
+string zh = "";
+for (number i = 0; i < 2000; i = i + 1) {
+    zh = zh + "犬";
+}
+print(@"中文长串码点数 = {zh.length}");   // 2000
+print(zh[1999]);                      // 犬
+
+print("d02 完成");

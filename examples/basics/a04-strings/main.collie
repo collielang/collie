@@ -1,0 +1,39 @@
+// a04 · 字符串
+// 演示：@"{}" 插值、UTF-8 码点索引、内建方法、length 属性、多行字符串
+// 规范依据：reference/data-type/primitive-data-type/03-character.md
+
+string name = "Collie";
+number age = 3;
+
+// --- 字符串插值（@ 前缀 + {expr}，非 ${}）---
+print(@"{name} is {age} years old");
+print(@"1 + 2 = {1 + 2}");
+print(@"literal braces: \{not interpolated\}");
+
+// --- UTF-8 码点索引（支持负索引）---
+// 注意：word 是位类型关键字（06-bitwise.md），不能用作变量名
+string text = "牧羊犬Collie";
+print(text.length);    // 9：按码点计数，不是字节数
+print(text[0]);        // 牧
+print(text[2]);        // 犬
+print(text[3]);        // C
+print(text[-1]);       // e（负索引从末尾数）
+
+// --- 内建方法 ---
+string padded = "  hello world  ";
+print("[" + padded.trim() + "]");
+print("[" + padded.trimLeft() + "]");
+print("[" + padded.trimRight() + "]");
+print("hello world".subString(0, 5));  // hello
+print("hello world".subString(6));     // world
+print("牧羊犬".subString(1, 2));        // 羊
+
+// --- 拼接与隐式转换 ---
+print("Age: " + age);
+
+// --- 多行字符串（""" 定界，按首行缩进自动 dedent）---
+string poem = """
+    牧羊犬看守羊群，
+    编译器看守类型。
+    """;
+print(poem);

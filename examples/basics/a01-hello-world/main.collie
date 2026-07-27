@@ -1,0 +1,13 @@
+// a01 · Hello World
+// 演示：print 内建函数、单行/多行注释、字符串转义
+// 规范依据：reference/grammer/basic-grammer.md
+
+print("Hello, World!");
+print("你好，牧羊犬！");    // UTF-8 中文直接输出
+
+/* 多行注释：
+   支持的转义字符：\n 换行、\t 制表、\" 引号、\\ 反斜杠 */
+print("Line1\nLine2");
+print("Tab\tSeparated");
+print("She said: \"Collie!\"");
+print("Backslash: \\");

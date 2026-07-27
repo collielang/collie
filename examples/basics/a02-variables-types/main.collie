@@ -1,0 +1,33 @@
+// a02 · 变量与类型
+// 演示：基础类型声明、none 空值、const 常量、object 动态类型、隐式转换
+// 规范依据：reference/data-type/
+
+number n = 42;             // 数字（整数与小数统一为 number）
+number pi = 3.14159;
+string s = "collie";
+bool flag = true;
+array arr = [1, 2, 3];
+object anything = "动态类型，先放字符串";
+
+print(n);
+print(pi);
+print(s);
+print(flag);
+print(arr);
+print(anything);
+
+// none 空值字面量当前尚不可解析（见同目录 future.collie）
+
+// const 常量：禁止重新赋值（违规示例见 diagnostics/e02-semantic-errors）
+const number MAX_SIZE = 100;
+print(MAX_SIZE);
+
+// 隐式转换：number/bool 可以隐式转为 string（反方向不允许）
+string fromNumber = 123;
+string fromBool = false;
+print(fromNumber);
+print(fromBool);
+
+// object 动态重绑定为其他类型
+anything = 999;
+print(anything);

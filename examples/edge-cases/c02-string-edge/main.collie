@@ -1,0 +1,52 @@
+// c02 · 字符串边界 —— 空串 / Unicode 多语言 / emoji / 索引边界 / 插值嵌套 / 转义全家桶
+
+// ---- 空串边界 ----
+string empty = "";
+print(empty.length);                  // 0
+print(empty == "");                   // true
+print(empty + "x" + empty);           // x
+print(empty.trim());                  // （空行）
+
+// ---- Unicode：多语言码点长度 ----
+string zh = "牧羊犬";
+string mixed = "Collie牧羊犬123";
+print(zh.length);                     // 3（码点数，非字节数）
+print(mixed.length);                  // 12
+print(zh[0]);                         // 牧
+print(zh[-1]);                        // 犬（负索引）
+
+// ---- emoji（BMP 之外的码点，4 字节 UTF-8）----
+string dog = "🐕";
+print(dog.length);                    // 1 或 2 —— 码点级应为 1，实测见 README
+string mix2 = "a🐕b";
+print(mix2.length);
+print(mix2[1]);                       // 期望 🐕（若按码点索引）
+
+// ---- 索引边界 ----
+string s = "abc";
+print(s[0]);                          // a
+print(s[2]);                          // c
+print(s[-3]);                         // a（负索引到头）
+
+// ---- 转义全家桶 ----
+print("Tab:\tEnd");
+print("Newline:\n(second line)");
+print("Quote:\" Backslash:\\");
+
+// ---- 插值边界：嵌套表达式 / 连续插值 / 空插值旁路 ----
+number x = 7;
+print(@"{x}{x}{x}");                  // 777（连续插值无分隔）
+print(@"{x + x * 2}");                // 21（插值内完整表达式）
+// 陷阱：插值内嵌插值字符串 @"{@"inner"}" 不支持，报 Unmatched '{' in interpolated string
+print(@"literal only");               // 无占位符的 @ 字符串
+
+// ---- 比较边界 ----
+print("a" < "b");                     // true（字典序）
+print("A" < "a");                     // true（大写码点小）
+print("牧" > "z");                    // true（中文码点大）
+print("abc" == "abc");                // true
+
+// ---- 长拼接链 ----
+string chain = "1" + "2" + "3" + "4" + "5" + "6" + "7" + "8" + "9" + "0";
+print(chain);                         // 1234567890
+print(chain.length);                  // 10

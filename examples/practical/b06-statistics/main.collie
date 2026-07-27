@@ -1,0 +1,87 @@
+// b06 · 统计分析 —— 均值 / 中位数 / 众数 / 极差 / 方差（总体）
+// 数据集就地排序后计算分位；演示"无 Map 容器时用双层循环求众数"的写法。
+
+function mean(data array) number {
+    number sum = 0;
+    for (number i = 0; i < len(data); i = i + 1) {
+        sum = sum + data[i];
+    }
+    return sum / len(data);
+}
+
+function sortInPlace(data array) none {
+    number n = len(data);
+    for (number i = 0; i < n - 1; i = i + 1) {
+        for (number j = 0; j < n - 1 - i; j = j + 1) {
+            if (data[j] > data[j + 1]) {
+                number tmp = data[j];
+                data[j] = data[j + 1];
+                data[j + 1] = tmp;
+            }
+        }
+    }
+}
+
+// 前置条件：data 已升序
+function median(data array) number {
+    number n = len(data);
+    number mid = ((n - (n % 2)) / 2);
+    if (n % 2 == 1) {
+        return data[mid];
+    }
+    number a = data[mid - 1];
+    number b = data[mid];
+    return (a + b) / 2;
+}
+
+// 众数：出现次数最多的值（并列时取先出现的）；无 Map，双层循环 O(n^2)
+function mode(data array) number {
+    number bestVal = data[0];
+    number bestCount = 0;
+    for (number i = 0; i < len(data); i = i + 1) {
+        number current = data[i];
+        number count = 0;
+        for (number j = 0; j < len(data); j = j + 1) {
+            number other = data[j];
+            if (other == current) {
+                count = count + 1;
+            }
+        }
+        if (count > bestCount) {
+            bestCount = count;
+            bestVal = current;
+        }
+    }
+    return bestVal;
+}
+
+function variance(data array) number {
+    number m = mean(data);
+    number sumSq = 0;
+    for (number i = 0; i < len(data); i = i + 1) {
+        number d = data[i] - m;
+        sumSq = sumSq + d * d;
+    }
+    return sumSq / len(data);
+}
+
+array scores = [72, 85, 93, 85, 60, 78, 85, 90];
+
+print(@"样本：{scores}");
+print(@"均值 = {mean(scores)}");            // 81
+print(@"众数 = {mode(scores)}");            // 85（出现 3 次）
+print(@"方差 = {variance(scores)}");        // 总体方差
+
+sortInPlace(scores);
+print(@"排序 = {scores}");
+print(@"中位数 = {median(scores)}");        // 85（偶数个取中间两数平均：85, 85）
+number minV = scores[0];
+number maxV = scores[-1];                    // 负索引取尾
+print(@"极差 = {maxV - minV}");             // 33
+
+// 边界：单元素数据集
+array one = [42];
+print(mean(one));                            // 42
+print(median(one));                          // 42
+print(mode(one));                            // 42
+print(variance(one));                        // 0

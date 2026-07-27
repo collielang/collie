@@ -1,0 +1,85 @@
+// b07 · 银行账户 —— 类的实战：封装状态 + 业务规则校验 + 交易计数
+// 覆盖：构造器、方法返回 bool 表示业务成败、this、实例隔离、引用语义转账。
+
+class BankAccount {
+    public string owner;
+    private number balance;
+    private number txCount;
+
+    public BankAccount(ownerName string, initial number) {
+        this.owner = ownerName;
+        this.balance = initial;
+        this.txCount = 0;
+    }
+
+    public function deposit(amount number) bool {
+        if (amount <= 0) {
+            print(@"[{this.owner}] 存款金额必须为正：{amount}");
+            return false;
+        }
+        this.balance = this.balance + amount;
+        this.txCount = this.txCount + 1;
+        return true;
+    }
+
+    public function withdraw(amount number) bool {
+        if (amount <= 0) {
+            print(@"[{this.owner}] 取款金额必须为正：{amount}");
+            return false;
+        }
+        if (amount > this.balance) {
+            print(@"[{this.owner}] 余额不足：需要 {amount}，仅有 {this.balance}");
+            return false;
+        }
+        this.balance = this.balance - amount;
+        this.txCount = this.txCount + 1;
+        return true;
+    }
+
+    public function getBalance() number {
+        return this.balance;
+    }
+
+    public function report() none {
+        print(@"{this.owner}：余额 {this.balance}，交易 {this.txCount} 笔");
+    }
+}
+
+// 陷阱：类类型不能作函数参数（语义分析报 Unknown method/property），
+// 转账逻辑只能写在顶层或类方法内 —— 见 README。
+
+BankAccount alice = new BankAccount("Alice", 100);
+BankAccount bob = new BankAccount("Bob", 50);
+
+// 正常操作
+alice.deposit(200);
+alice.withdraw(30);
+alice.report();                       // 余额 270，交易 2 笔
+
+// 业务规则拦截
+alice.deposit(-5);                    // 拒绝
+alice.withdraw(10000);                // 余额不足
+alice.report();                       // 数据不变：余额 270，交易 2 笔
+
+// 转账（顶层内联：alice -> bob，金额 70）
+// 陷阱：方法调用直接作 if 条件也被拒，需先赋给 bool 变量
+bool ok1 = alice.withdraw(70);
+if (ok1) {
+    bob.deposit(70);
+    print("转账成功：Alice -> Bob，金额 70");
+}
+alice.report();                       // 200
+bob.report();                         // 120
+
+// 转账失败不影响双方（bob 余额不足）
+bool ok2 = bob.withdraw(9999);
+if (ok2) {
+    alice.deposit(9999);
+} else {
+    print("转账失败：Bob -> Alice，金额 9999");
+}
+bob.report();                         // 120
+
+// 实例隔离：修改 alice 不影响 bob
+print(alice.getBalance());            // 200
+print(bob.getBalance());              // 120

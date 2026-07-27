@@ -1,0 +1,38 @@
+// a08 · label 语句
+// 状态：⛔ 等待特性 —— label 定义、break label、continue label 均未实现
+// 规范依据：reference/grammer/control-flow.md（label 语句章节）
+// 本文件按规范目标语法书写，README 记录当前实际报错
+
+// --- 嵌套循环：continue 到外层 ---
+outer_loop: for (number x = 0; x < 5; x += 1) {
+    for (number y = 0; y < 5; y += 1) {
+        if (x + y > 5) {
+            continue outer_loop;   // 跳过外层循环的当前轮
+        }
+        print(@"x={x}, y={y}");
+    }
+}
+
+// --- 嵌套循环：break 到外层 ---
+search: for (number i = 0; i < 10; i += 1) {
+    for (number j = 0; j < 10; j += 1) {
+        if (i * j == 42) {
+            print(@"找到 {i} x {j} = 42");
+            break search;          // 直接跳出两层循环
+        }
+    }
+}
+
+// --- 代码块 label：break 跳出嵌套块 ---
+function foo() none {
+    logic1: {
+        print("进入 logic1");
+        logic2: {
+            print("进入 logic2");
+            break logic1;          // 直接跳出到 logic1 之后
+        }
+        print("这行不会执行");
+    }
+    print("foo 结束");
+}
+foo();

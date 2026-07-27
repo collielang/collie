@@ -1,0 +1,39 @@
+// a07 · for 循环家族 —— 规范目标版（当前不可运行部分）
+// 状态：⛔ 等待特性 —— for-each / for-range / for-number / for! 死循环
+// 规范依据：reference/grammer/control-flow.md
+// 待特性落地后，本文件内容应合并回 main.collie
+
+array fruits = ["apple", "banana", "cherry"];
+
+// --- for-each：遍历数组 ---
+for (item : fruits) {          // 也可写作 for (item in fruits)
+    print(item);
+}
+
+// 需要下标时
+for (item, index : fruits) {
+    print(@"{index}: {item}");
+}
+
+// --- for-number：循环 N 次 ---
+for (3) {
+    print("重复三次");
+}
+for (i : 3) {                  // i 从 0 到 2
+    print(i);
+}
+
+// --- for-range：区间循环 ---
+for (i : 1, 5) {               // i 从 1 到 4（共 4 次）
+    print(i);
+}
+
+// --- for! 死循环（等价 while(true)）---
+number count = 0;
+for! {
+    count += 1;
+    if (count >= 3) {
+        break;
+    }
+}
+print(count);                  // 3

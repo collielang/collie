@@ -1,0 +1,91 @@
+// b09 · 矩阵运算 —— 二维数组：转置 / 矩阵加法 / 矩阵乘法 / 单位矩阵判定
+// 无二维字面量限制验证：array 元素可以是 array（嵌套字面量）。
+// 陷阱：无 push，结果矩阵必须用嵌套字面量预先给定形状（本例固定 2x3 / 3x2 / 2x2）。
+
+// 打印矩阵（逐行）
+function printMatrix(m array) none {
+    for (number i = 0; i < len(m); i = i + 1) {
+        print(m[i]);
+    }
+}
+
+array a = [
+    [1, 2, 3],
+    [4, 5, 6],
+];
+
+array b = [
+    [10, 20, 30],
+    [40, 50, 60],
+];
+
+// ---- 矩阵加法：c = a + b（2x3，结果预置全 0）----
+array sum = [
+    [0, 0, 0],
+    [0, 0, 0],
+];
+for (number i = 0; i < 2; i = i + 1) {
+    for (number j = 0; j < 3; j = j + 1) {
+        number x = a[i][j];
+        number y = b[i][j];
+        sum[i][j] = x + y;
+    }
+}
+print("a + b =");
+printMatrix(sum);                     // [11, 22, 33] / [44, 55, 66]
+
+// ---- 转置：t = aᵀ（3x2）----
+array t = [
+    [0, 0],
+    [0, 0],
+    [0, 0],
+];
+for (number i = 0; i < 2; i = i + 1) {
+    for (number j = 0; j < 3; j = j + 1) {
+        t[j][i] = a[i][j];
+    }
+}
+print("aᵀ =");
+printMatrix(t);                       // [1, 4] / [2, 5] / [3, 6]
+
+// ---- 矩阵乘法：p = a(2x3) × t(3x2) = 2x2 ----
+array p = [
+    [0, 0],
+    [0, 0],
+];
+for (number i = 0; i < 2; i = i + 1) {
+    for (number j = 0; j < 2; j = j + 1) {
+        number acc = 0;
+        for (number k = 0; k < 3; k = k + 1) {
+            number av = a[i][k];
+            number tv = t[k][j];
+            acc = acc + av * tv;
+        }
+        p[i][j] = acc;
+    }
+}
+print("a × aᵀ =");
+printMatrix(p);                       // [14, 32] / [32, 77]
+
+// ---- 单位矩阵判定 ----
+function isIdentity(m array) bool {
+    for (number i = 0; i < len(m); i = i + 1) {
+        for (number j = 0; j < len(m[i]); j = j + 1) {
+            number v = m[i][j];
+            if (i == j && v != 1) {
+                return false;
+            }
+            if (i != j && v != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+array eye = [
+    [1, 0],
+    [0, 1],
+];
+print(isIdentity(eye));               // true
+print(isIdentity(p));                 // false

@@ -1,0 +1,60 @@
+// d06 · 嵌套循环组合复杂度 —— O(n²)/O(n³) 负载、循环内 break/continue、二维数组全扫描
+// 量级刻意压在秒级以内（防挂死）：调大参数前先看 README 的量级换算。
+
+const number N2 = 1000;    // O(n²) 规模：1000×1000 = 100 万次内层体
+const number N3 = 80;      // O(n³) 规模：80³ = 51.2 万次内层体
+
+// 1. O(n²) 双层循环
+number acc2 = 0;
+for (number i = 0; i < N2; i = i + 1) {
+    for (number j = 0; j < N2; j = j + 1) {
+        acc2 = acc2 + 1;
+    }
+}
+print(@"O(n²) 计数 = {acc2}");           // 1000000
+
+// 2. O(n³) 三层循环
+number acc3 = 0;
+for (number i = 0; i < N3; i = i + 1) {
+    for (number j = 0; j < N3; j = j + 1) {
+        for (number k = 0; k < N3; k = k + 1) {
+            acc3 = acc3 + 1;
+        }
+    }
+}
+print(@"O(n³) 计数 = {acc3}");           // 512000
+
+// 3. 深层嵌套中的 break/continue（只作用于所在层）
+number hits = 0;
+for (number i = 0; i < 100; i = i + 1) {
+    for (number j = 0; j < 100; j = j + 1) {
+        if (j % 2 == 0) {
+            continue;                    // 跳过内层偶数
+        }
+        if (j > 50) {
+            break;                       // 只跳出内层
+        }
+        hits = hits + 1;
+    }
+}
+print(@"break/continue 命中 = {hits}"); // 每轮 j=1,3,...,49 共 25 次 × 100 = 2500
+
+// 4. 二维数组全扫描（4×4 矩阵重复扫 10000 遍）
+array grid = [
+    [1, 2, 3, 4],
+    [5, 6, 7, 8],
+    [9, 10, 11, 12],
+    [13, 14, 15, 16],
+];
+number gridSum = 0;
+for (number r = 0; r < 10000; r = r + 1) {
+    for (number i = 0; i < 4; i = i + 1) {
+        for (number j = 0; j < 4; j = j + 1) {
+            number cell = grid[i][j];
+            gridSum = gridSum + cell;
+        }
+    }
+}
+print(@"二维扫描总和 = {gridSum}");      // 136 * 10000 = 1360000
+
+print("d06 完成");

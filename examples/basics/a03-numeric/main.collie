@@ -1,0 +1,45 @@
+// a03 · 数值类型
+// 演示：字面量形式、floor 取模、IEEE 754 特殊值、number 内建方法
+// 规范依据：reference/data-type/primitive-data-type/04-numeric.md
+
+// --- 字面量形式 ---
+number a = 123;
+number b = 3.14;
+number c = .5;         // 前导点小数
+number d = 2f;         // f 后缀，等价 2.0
+number e = 1.5e3;      // 科学计数法 → 1500
+print(a);
+print(b);
+print(c);
+print(d);
+print(e);
+
+// --- floor 取模（Python 风格，结果符号随除数）---
+print(-1 % 5);         // 4
+print(-1 % -5);        // -1
+print(1 % -5);         // -4
+print(7 % 3);          // 1
+
+// --- IEEE 754 特殊值 ---
+print(1 / 0);          // +Infinity
+print(-1 / 0);         // -Infinity
+print(0 / 0);          // NaN
+print(7 % 0);          // NaN
+number inf = Infinity;
+number nan = NaN;
+print(inf);
+print(nan == nan);     // false：NaN 不等于任何值，包括自身
+
+// --- number 内建方法 ---
+number x = -123.456;
+print(x.abs());            // 123.456
+print(x.integerPart());    // -123（向零取整）
+print(x.decimalPart());    // -0.456（保留符号）
+print(x.isNegative());     // true
+print(3.14.isDecimal());   // true
+print(42.isInteger());     // true
+print((1 / 0).isInfinity()); // true
+
+// --- 与字符串互转 ---
+print("12.5".toNumber() + 0.5);  // 13
+print(255.toString() + "!");     // 255!

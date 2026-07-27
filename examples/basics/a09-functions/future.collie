@@ -1,0 +1,28 @@
+// a09 · 函数 —— 规范目标版（当前不可运行部分）
+// 状态：⛔ 等待特性 —— C 风格声明、多返回值、具名实参、可空参数、函数作为值
+// 规范依据：reference/grammer/function.md 与 draft.md（D10：文档为目标设计，parser 为过渡文法）
+// 待特性落地后，本文件内容应合并回 main.collie
+
+// --- C 风格声明 + 多返回值（编译期隐式转换为元组返回）---
+public number, string getAge() {
+    return 18, "Alice";
+}
+number age, string name = getAge();
+print(age);
+print(name);
+
+// --- 具名实参（可乱序、可省略可空参数）---
+private none fooBar(number? age, string? name) {
+    print(@"age={age}, name={name}");
+}
+fooBar(age: 18, name: "Alice");
+fooBar(name: "Bob");
+
+// --- 函数作为值传递 ---
+function apply(f function, x number) number {
+    return f(x);
+}
+function double_it(x number) number {
+    return x * 2;
+}
+print(apply(double_it, 21));   // 42

@@ -1,0 +1,46 @@
+// a12 · 继承（可运行子集）
+// 演示：extends 单继承、字段/方法沿继承链查找、方法覆写、: base(args) 构造器委托、多级继承
+// 规范依据：uncategorized.md 附录（t38 已实现）
+// 说明：base.method() 显式父类调用与 @override 注解见 future.collie（t39 进行中）
+
+class Animal {
+    public string name;
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function speak() string {
+        return this.name + " makes a sound";
+    }
+
+    public function intro() string {
+        return @"I am {this.name}";    // 子类继承此方法
+    }
+}
+
+class Dog extends Animal {
+    public Dog(n string) : base(n) {   // 构造器委托给父类
+    }
+
+    // 覆写父类方法
+    public function speak() string {
+        return this.name + " says Woof!";
+    }
+}
+
+// 多级继承：Puppy -> Dog -> Animal
+class Puppy extends Dog {
+    public Puppy() : base("Puppy") {
+    }
+}
+
+Animal generic = new Animal("Generic");
+Dog rex = new Dog("Rex");
+Puppy pup = new Puppy();
+
+print(generic.speak());   // Generic makes a sound
+print(rex.speak());       // Rex says Woof!（覆写生效）
+print(rex.intro());       // I am Rex（继承自 Animal）
+print(pup.speak());       // Puppy says Woof!（沿链找到 Dog 的覆写）
+print(pup.intro());       // I am Puppy（沿链找到 Animal 的方法）

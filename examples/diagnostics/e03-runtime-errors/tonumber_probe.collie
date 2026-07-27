@@ -1,0 +1,10 @@
+// e03 附件 · toNumber 解析非数字串
+// 目的：观察运行时对非法转换的处理 —— 报错中止？返回哨兵值？静默 0？
+
+string bad = "12ab";
+number x = toNumber(bad);
+print(@"toNumber(\"12ab\") = {x}");
+string worse = "hello";
+number y = toNumber(worse);
+print(@"toNumber(\"hello\") = {y}");
+print("toNumber 探测完成");

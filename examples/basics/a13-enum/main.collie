@@ -1,0 +1,46 @@
+// a13 · 枚举（规范目标示例，当前 ⛔ 等待特性）
+// 规范出处：data-type/primitive-data-type/07-enum.md、draft.md/uncategorized.md
+// 状态：enum 尚未实现，本文件当前无法解析；特性落地后应可直接运行。
+
+// ---- 1. 基础枚举 ----
+enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
+Season current = Season.Autumn;
+print(current);                      // 期望：Autumn（或实现定义的枚举值表示）
+print(current == Season.Autumn);     // 期望：true
+
+// ---- 2. 枚举属性（07-enum.md）----
+enum Weekday(string label) {
+    Monday(label = "周一"),
+    Saturday(label = "周六"),
+    Sunday(label = "周日"),
+}
+
+Weekday day = Weekday.Saturday;
+print(day.label);                    // 期望：周六
+
+// ---- 3. 枚举属性 + 枚举值（07-enum.md）----
+enum Level(string desc) : number {
+    Low(desc = "低") = 1,
+    Medium(desc = "中") = 2,
+    High(desc = "高") = 3,
+}
+
+Level lv = Level.High;
+print(lv.desc);                      // 期望：高
+print(lv === 3);                     // 期望：true（枚举值比较）
+
+// ---- 4. 枚举参与 switch ----
+switch (current) {
+    Season.Spring, Season.Summer {
+        print("上半年");
+    }
+    Season.Autumn, Season.Winter {
+        print("下半年");             // 期望走到这里
+    }
+}

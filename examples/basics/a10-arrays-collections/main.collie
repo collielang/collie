@@ -1,0 +1,47 @@
+// a10 · 数组与容器（可运行子集：array 基础）
+// 演示：字面量、索引读写、负索引、嵌套数组、引用语义、len/length、深度相等
+// 规范依据：reference/data-type/reference-data-type/01-container/
+// 说明：切片/展开/拼接/List/Map 等见同目录 future.collie（等待特性）
+
+array nums = [1, 2, 3, 4, 5];
+print(nums);           // [1, 2, 3, 4, 5]
+print(len(nums));      // 5（内建函数）
+print(nums.length);    // 5（属性）
+print(nums[0]);        // 1
+print(nums[-1]);       // 5（负索引取末尾）
+
+// 索引赋值
+nums[0] = 10;
+print(nums);           // [10, 2, 3, 4, 5]
+
+// 嵌套数组（二维）与链式索引
+array matrix = [[1, 2], [3, 4]];
+print(matrix[1][0]);   // 3
+
+// 尾逗号合法（便于版本管理逐行 diff）
+array trailing = [
+    "alpha",
+    "beta",
+];
+print(trailing);
+
+// 混合类型元素
+array mixed = [1, "two", true];
+print(mixed);
+
+// --- 引用语义：赋值共享底层数组（陷阱！）---
+array a1 = [1, 2, 3];
+array a2 = a1;         // a2 与 a1 指向同一底层数组
+a2[0] = 99;
+print(a1);             // [99, 2, 3] —— a1 也变了
+
+// --- 数组相等：深度比较 ---
+print([1, 2, 3] == [1, 2, 3]);   // true
+
+// --- 遍历（当前用经典 for + 下标）---
+array prices = [12.5, 3.2, 8.8];
+number total = 0;
+for (number i = 0; i < len(prices); i += 1) {
+    total += prices[i];
+}
+print(@"总价 = {total}");

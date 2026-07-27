@@ -1,0 +1,30 @@
+// a05 · 逻辑类型（可运行子集：bool 与三目运算符）
+// 演示：bool、逻辑运算短路求值、三目运算符简化形式
+// 规范依据：reference/data-type/primitive-data-type/05-logical.md
+// 说明：tribool/unset/==? 多目运算符见同目录 future.collie（等待特性）
+
+bool a = true;
+bool b = !a;
+print(a);            // true
+print(b);            // false
+print(a == false);   // false
+print(a == true);    // true
+
+// --- 三目运算符（简化形式）---
+print(a ? 1 : 2);    // 1
+print(b ? 1 : 2);    // 2
+
+// 嵌套右结合
+number score = 85;
+string grade = score >= 90 ? "A" : score >= 60 ? "B" : "C";
+print(grade);        // B
+
+// --- 短路求值：右侧不该被求值时，副作用不会发生 ---
+function loudTrue() bool {
+    print("  <- 副作用发生了！");
+    return true;
+}
+
+print(false && loudTrue());  // false（右侧被短路，无副作用输出）
+print(true || loudTrue());   // true （右侧被短路，无副作用输出）
+print(true && loudTrue());   // 先输出副作用行，再输出 true

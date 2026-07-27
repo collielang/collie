@@ -1,0 +1,74 @@
+// b08 · 状态机 —— 订单生命周期：created -> paid -> shipped -> delivered（任意态可 -> cancelled）
+// enum 未实现，用 string 常量模拟状态；switch 驱动状态转移表。
+
+const string ST_CREATED = "created";
+const string ST_PAID = "paid";
+const string ST_SHIPPED = "shipped";
+const string ST_DELIVERED = "delivered";
+const string ST_CANCELLED = "cancelled";
+
+class Order {
+    public string id;
+    public string state;
+    private number transitions;
+
+    public Order(orderId string) {
+        this.id = orderId;
+        this.state = ST_CREATED;
+        this.transitions = 0;
+    }
+
+    // 返回 bool：转移是否合法
+    public function handle(event string) bool {
+        string next = "";
+        switch (this.state) {
+            "created" {
+                if (event == "pay") { next = ST_PAID; }
+                if (event == "cancel") { next = ST_CANCELLED; }
+            }
+            "paid" {
+                if (event == "ship") { next = ST_SHIPPED; }
+                if (event == "cancel") { next = ST_CANCELLED; }
+            }
+            "shipped" {
+                if (event == "deliver") { next = ST_DELIVERED; }
+            }
+            "delivered", "cancelled" {
+                // 终态：任何事件都非法
+            }
+        }
+        if (next == "") {
+            print(@"[{this.id}] 非法转移：{this.state} --{event}-->（忽略）");
+            return false;
+        }
+        print(@"[{this.id}] {this.state} --{event}--> {next}");
+        this.state = next;
+        this.transitions = this.transitions + 1;
+        return true;
+    }
+
+    public function summary() none {
+        print(@"[{this.id}] 终态：{this.state}，共 {this.transitions} 次转移");
+    }
+}
+
+// ---- 正常流：全链路 ----
+Order o1 = new Order("A001");
+o1.handle("pay");
+o1.handle("ship");
+o1.handle("deliver");
+o1.handle("pay");                     // 终态后非法
+o1.summary();                         // delivered，3 次
+
+// ---- 取消流 ----
+Order o2 = new Order("A002");
+o2.handle("pay");
+o2.handle("cancel");                  // paid 可取消
+o2.handle("ship");                    // 已取消，非法
+o2.summary();                         // cancelled，2 次
+
+// ---- 乱序事件全被拦截 ----
+Order o3 = new Order("A003");
+o3.handle("deliver");                 // created 不能直接送达
+o3.handle("ship");                    // created 不能直接发货
+o3.summary();                         // created，0 次

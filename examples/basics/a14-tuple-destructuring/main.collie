@@ -1,0 +1,42 @@
+// a14 · 元组与解构（规范目标示例，当前 ⛔ 等待特性）
+// 规范出处：data-type/reference-data-type/03-tuple.md、draft.md（多变量赋值/交换/多返回值）
+// 状态：Tuple / 解构 / 多返回值均未实现，本文件当前无法解析。
+
+// ---- 1. 具名元组（03-tuple.md）----
+Tuple person = (name: "Alice", age: 18);
+print(person.name);                  // 期望：Alice
+print(person.age);                   // 期望：18
+
+// ---- 2. 多变量同时赋值（draft.md）----
+number a, number b = 1, 2;
+print(a);                            // 期望：1
+print(b);                            // 期望：2
+
+// ---- 3. 交换变量（draft.md：a, b = b, a）----
+a, b = b, a;
+print(a);                            // 期望：2
+print(b);                            // 期望：1
+
+// 三变量轮转
+number c = 3;
+a, b, c = c, a, b;
+print(@"{a} {b} {c}");               // 期望：3 2 1
+
+// ---- 4. 多返回值函数（隐式元组，draft.md/function.md）----
+function minMax(values array) number, number {
+    number lo = values[0];
+    number hi = values[0];
+    for (number i = 1; i < len(values); i = i + 1) {
+        if (values[i] < lo) { lo = values[i]; }
+        if (values[i] > hi) { hi = values[i]; }
+    }
+    return lo, hi;
+}
+
+number low, number high = minMax([7, 2, 9, 4]);
+print(low);                          // 期望：2
+print(high);                         // 期望：9
+
+// ---- 5. 元组接收多返回值 ----
+Tuple range = minMax([5, 1, 8]);
+print(range);                        // 期望：(1, 8)（表示形式以实现为准）

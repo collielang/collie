@@ -1,0 +1,63 @@
+// d05 · 对象压测 —— 大量对象创建 / 字段读写 / 方法调用 / 继承链方法
+// 无对象容器（数组只装基础值），采用「循环内反复 new + 即弃」模拟对象洪峰。
+
+const number OBJECTS = 50000;      // new 次数
+const number FIELD_OPS = 100000;   // 单对象字段读写次数
+const number METHOD_CALLS = 50000; // 方法调用次数
+
+class Counter {
+    public number value;
+
+    public Counter(start number) {
+        this.value = start;
+    }
+
+    public function bump() number {
+        number v = this.value;
+        this.value = v + 1;
+        return this.value;
+    }
+}
+
+class DoubleCounter extends Counter {
+    public DoubleCounter(start number) : base(start) {
+    }
+
+    public function bumpTwice() number {
+        number a = this.bump();
+        number b = this.bump();
+        return b;
+    }
+}
+
+// 1. 对象创建洪峰：每轮 new 一个即弃，最后一个留校验
+number lastStart = 0;
+for (number i = 0; i < OBJECTS; i = i + 1) {
+    Counter tmp = new Counter(i);
+    lastStart = tmp.value;
+}
+print(@"最后对象初值 = {lastStart}");      // 49999
+
+// 2. 单对象字段读写热循环
+Counter hot = new Counter(0);
+for (number i = 0; i < FIELD_OPS; i = i + 1) {
+    number v = hot.value;
+    hot.value = v + 1;
+}
+print(@"字段读写终值 = {hot.value}");      // 100000
+
+// 3. 方法调用热循环
+Counter m = new Counter(0);
+for (number i = 0; i < METHOD_CALLS; i = i + 1) {
+    number r = m.bump();
+}
+print(@"方法调用终值 = {m.value}");        // 50000
+
+// 4. 继承链方法（子类方法内两次调父类方法）
+DoubleCounter d = new DoubleCounter(0);
+for (number i = 0; i < 10000; i = i + 1) {
+    number r = d.bumpTwice();
+}
+print(@"继承链终值 = {d.value}");          // 20000
+
+print("d05 完成");

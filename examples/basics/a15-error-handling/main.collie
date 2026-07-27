@@ -1,0 +1,49 @@
+// a15 · 错误处理（规范目标示例，当前 ⛔ 等待特性）
+// 规范出处：grammer/error-handling.md（TODO 占位）、uncategorized.md「错误处理」/「错误处理与异常捕获」附录
+// 状态：try/catch/finally/throw 均未实现，本文件当前无法解析。
+
+// ---- 1. 传统 try-catch-finally（uncategorized.md）----
+try {
+    number x = 10 / 0;               // 规范目标：抛出异常（当前实现为 IEEE 754 Infinity，见 a03）
+    print(x);
+} catch (Exception e) {
+    print("Error: " + e.message);    // 期望：Error: Division by zero
+} finally {
+    print("Cleanup completed");      // 期望：Cleanup completed
+}
+
+// ---- 2. 主动抛出与自定义信息 ----
+function checkAge(age number) none {
+    if (age < 0) {
+        throw new Exception("年龄不能为负数");
+    }
+    print(@"年龄合法：{age}");
+}
+
+try {
+    checkAge(25);                    // 期望：年龄合法：25
+    checkAge(-1);                    // 期望：抛出并进入 catch
+} catch (Exception e) {
+    print("捕获：" + e.message);     // 期望：捕获：年龄不能为负数
+}
+
+// ---- 3. try-with-resources（uncategorized.md）----
+try (stream = openFile("data.txt")) {
+    string content = stream.readAll();
+    print(content);
+} catch (Exception e) {
+    print("Error while reading file: " + e.message);
+} finally {
+    print("资源已自动关闭");
+}
+
+// ---- 4. 嵌套 try 与异常向外传播 ----
+try {
+    try {
+        throw new Exception("内层异常");
+    } finally {
+        print("内层 finally 先执行");
+    }
+} catch (Exception e) {
+    print("外层捕获：" + e.message); // 期望：外层捕获：内层异常
+}

@@ -1,0 +1,61 @@
+// a16 · 位类型与位运算（规范目标示例，当前 ⛔ 等待特性）
+// 规范出处：data-type/primitive-data-type/06-bitwise.md
+// 状态：bit/byte/word/dword 类型、二进制字面量按位运算符均未实现，本文件当前无法解析。
+// 注意：byte/word/dword 均为保留关键字（word 陷阱已在 a04 验证）。
+
+// ---- 1. 位运算基础（06-bitwise.md 原文示例）----
+byte a = 0b10101010;
+byte b = 0b11001100;
+
+byte andResult = a & b;              // 期望：0b10001000
+byte orResult = a | b;               // 期望：0b11101110
+byte xorResult = a ^ b;              // 期望：0b01100110
+byte notResult = ~a;                 // 期望：0b01010101
+
+print(andResult);
+print(orResult);
+print(xorResult);
+print(notResult);
+
+// ---- 2. 移位 ----
+byte shifted1 = a << 2;              // 期望：0b10101000（8 位内截断）
+byte shifted2 = a >> 2;              // 期望：0b00101010
+print(shifted1);
+print(shifted2);
+
+// ---- 3. bit / word / dword 字面量与组合 ----
+bit b0 = 0b0;
+bit b1 = 1;
+word w = 0xFF00;
+dword dw = 0xFF00FF00;
+print(b0);
+print(b1);
+print(w.getHighByte());              // 期望：0xFF
+print(w.getLowByte());               // 期望：0x00
+print(dw);
+
+// ---- 4. 位提取/位设置（06-bitwise.md 工具函数）----
+function getBit(value byte, position number) bit {
+    return (value >> position) & 1;
+}
+
+function setBit(value byte, position number, newBit bit) byte {
+    if (newBit == 1) {
+        return value | (1 << position);
+    } else {
+        return value & ~(1 << position);
+    }
+}
+
+byte flags = 0b00000000;
+flags = setBit(flags, 3, 1);
+print(getBit(flags, 3));             // 期望：1
+print(getBit(flags, 4));             // 期望：0
+
+// ---- 5. 位复合赋值 ----
+byte mask = 0b00001111;
+mask &= 0b01010101;                  // 期望：0b00000101
+mask |= 0b10000000;                  // 期望：0b10000101
+mask ^= 0b11111111;                  // 期望：0b01111010
+mask <<= 1;                          // 期望：0b11110100
+print(mask);

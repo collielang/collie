@@ -1,0 +1,30 @@
+// a12 · 继承 —— 规范目标版（当前不可运行部分）
+// 状态：⛔ 等待特性 —— base.method() 显式父类方法调用（t39 进行中）、@override 注解
+// 规范依据：uncategorized.md 附录（base 关键字按 C# 风格设计）
+// 待特性落地后，本文件内容应合并回 main.collie
+
+class Animal {
+    public string name;
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function speak() string {
+        return this.name + " makes a sound";
+    }
+}
+
+class Cat extends Animal {
+    public Cat(n string) : base(n) {
+    }
+
+    @override
+    public function speak() string {
+        // 复用父类实现再扩展：绕过子类覆写、从父类链查找
+        return base.speak() + " ... meow!";
+    }
+}
+
+Cat kitty = new Cat("Kitty");
+print(kitty.speak());     // Kitty makes a sound ... meow!

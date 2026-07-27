@@ -1,0 +1,40 @@
+// d04 · 函数调用开销压测 —— 小函数海量调用 / 递归求和 / 多参数传递
+// 树遍历解释器中函数调用（新环境帧 + 参数绑定）是典型热点，本例单独量化。
+
+const number CALLS = 200000;       // 小函数调用次数
+const number REC_DEPTH = 5000;     // 递归深度（低于 6500 崩溃线，见 c04）
+
+// 1. 无参小函数
+function tick() number {
+    return 1;
+}
+
+number sum1 = 0;
+for (number i = 0; i < CALLS; i = i + 1) {
+    sum1 = sum1 + tick();
+}
+print(@"无参调用校验和 = {sum1}");     // 200000
+
+// 2. 三参数函数（参数绑定开销）
+function mix(a number, b number, c number) number {
+    return a + b * 2 + c * 3;
+}
+
+number sum2 = 0;
+for (number i = 0; i < CALLS; i = i + 1) {
+    sum2 = sum2 + mix(1, 1, 1);
+}
+print(@"三参调用校验和 = {sum2}");     // 200000 * 6 = 1200000
+
+// 3. 递归求和：sumTo(n) = n + sumTo(n-1)，深度 5000
+function sumTo(n number) number {
+    if (n <= 0) {
+        return 0;
+    }
+    return n + sumTo(n - 1);
+}
+
+number sum3 = sumTo(REC_DEPTH);
+print(@"递归求和(5000) = {sum3}");     // 5000*5001/2 = 12502500
+
+print("d04 完成");

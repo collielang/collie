@@ -1,0 +1,104 @@
+// b10 · JSON 构造器 —— 字符串拼接手写 JSON 序列化（无标准库 json 模块时的实用写法）
+// 覆盖：转义处理、数组/对象嵌套构造、类封装 builder 风格。
+
+// 字符串转义：\ " 换行（仅演示常见三种）
+function escapeJson(s string) string {
+    string out = "";
+    for (number i = 0; i < s.length; i = i + 1) {
+        string c = s[i];
+        if (c == "\\") {
+            out = out + "\\\\";
+        } else if (c == "\"") {
+            out = out + "\\\"";
+        } else if (c == "\n") {
+            out = out + "\\n";
+        } else {
+            out = out + c;
+        }
+    }
+    return out;
+}
+
+function jsonString(s string) string {
+    return "\"" + escapeJson(s) + "\"";
+}
+
+// number 数组 -> JSON 数组
+function jsonNumberArray(arr array) string {
+    string out = "[";
+    for (number i = 0; i < len(arr); i = i + 1) {
+        if (i > 0) {
+            out = out + ",";
+        }
+        number v = arr[i];
+        out = out + toString(v);
+    }
+    return out + "]";
+}
+
+// 键值对累积构造对象（builder 风格）
+class JsonObjectBuilder {
+    private string body;
+
+    public JsonObjectBuilder() {
+        this.body = "";
+    }
+
+    public function addString(key string, value string) none {
+        this.appendRaw(jsonString(key) + ":" + jsonString(value));
+    }
+
+    public function addNumber(key string, value number) none {
+        this.appendRaw(jsonString(key) + ":" + toString(value));
+    }
+
+    public function addBool(key string, value bool) none {
+        this.appendRaw(jsonString(key) + ":" + toString(value));
+    }
+
+    public function addRaw(key string, rawValue string) none {
+        this.appendRaw(jsonString(key) + ":" + rawValue);
+    }
+
+    private function appendRaw(pair string) none {
+        // 陷阱：this.body != "" 直接比较被语义分析拒绝，先落局部变量
+        string current = this.body;
+        if (current != "") {
+            this.body = this.body + ",";
+        }
+        this.body = this.body + pair;
+    }
+
+    public function build() string {
+        return "{" + this.body + "}";
+    }
+}
+
+// ---- 基础值 ----
+print(jsonString("hello"));                    // "hello"
+print(jsonString("say \"hi\" and \\ end"));    // 转义验证
+print(jsonNumberArray([1, 2.5, -3]));          // [1,2.5,-3]
+print(jsonNumberArray([]));                    // []
+
+// ---- 对象构造 ----
+JsonObjectBuilder user = new JsonObjectBuilder();
+user.addString("name", "牧羊犬");
+user.addNumber("age", 3);
+user.addBool("trained", true);
+user.addRaw("scores", jsonNumberArray([98, 95, 100]));
+print(user.build());
+
+// ---- 嵌套对象 ----
+JsonObjectBuilder addr = new JsonObjectBuilder();
+addr.addString("city", "Shanghai");
+addr.addString("street", "Collie Road");
+
+JsonObjectBuilder profile = new JsonObjectBuilder();
+profile.addString("owner", "Coz");
+profile.addRaw("address", addr.build());
+profile.addRaw("tags", "[\"dog\",\"smart\"]");
+print(profile.build());
+
+// ---- 空对象 ----
+JsonObjectBuilder emptyObj = new JsonObjectBuilder();
+print(emptyObj.build());                       // {}

@@ -1,0 +1,63 @@
+// c05 · 作用域与遮蔽 —— 块级作用域 / 变量遮蔽 / 循环变量隔离 / const 保护 / 函数参数遮蔽全局
+
+number x = 1;
+
+// ---- 块内遮蔽 ----
+{
+    number x = 2;                     // 遮蔽外层 x
+    print(x);                         // 2
+    {
+        number x = 3;                 // 再遮蔽
+        print(x);                     // 3
+    }
+    print(x);                         // 2（内层遮蔽结束）
+}
+print(x);                             // 1（外层不受影响）
+
+// ---- 块内修改外层（不声明则是赋值）----
+number y = 10;
+{
+    y = 20;                           // 无声明 -> 修改外层
+}
+print(y);                             // 20
+
+// ---- for 循环变量隔离 ----
+for (number i = 0; i < 2; i = i + 1) {
+    number local = i * 10;
+    print(local);                     // 0 / 10
+}
+number i = 99;                        // 循环后可重新声明 i
+print(i);                             // 99
+
+// ---- 函数参数遮蔽全局 ----
+number value = 100;
+
+function double_(value number) number {
+    value = value * 2;                // 只改形参
+    return value;
+}
+
+print(double_(5));                    // 10
+print(value);                         // 100（全局不受影响）
+
+// ---- 函数内访问全局 ----
+function readGlobal() number {
+    return value + 1;
+}
+print(readGlobal());                  // 101
+
+// ---- const 与遮蔽 ----
+const number LIMIT = 50;
+{
+    number LIMIT = 60;                // 块内用普通变量遮蔽 const（若允许）
+    print(LIMIT);                     // 60
+}
+print(LIMIT);                         // 50
+
+// ---- 字符串/数组的遮蔽同样成立 ----
+array arr = [1];
+{
+    array arr = [2];
+    print(arr);                       // [2]
+}
+print(arr);                           // [1]

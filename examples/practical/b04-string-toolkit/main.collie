@@ -1,0 +1,67 @@
+// b04 · 字符串工具箱 —— 反转 / 回文判定 / 统计字符 / 大小写无关比较 / 重复拼接
+// 使用 UTF-8 码点索引与字符串方法（a04 已验证），含中文字符验证。
+
+function reverse(s string) string {
+    string result = "";
+    for (number i = s.length - 1; i >= 0; i = i - 1) {
+        result = result + s[i];
+    }
+    return result;
+}
+
+function isPalindrome(s string) bool {
+    number i = 0;
+    number j = s.length - 1;
+    while (i < j) {
+        if (s[i] != s[j]) {
+            return false;
+        }
+        i = i + 1;
+        j = j - 1;
+    }
+    return true;
+}
+
+function countChar(s string, target string) number {
+    number count = 0;
+    for (number i = 0; i < s.length; i = i + 1) {
+        if (s[i] == target) {
+            count = count + 1;
+        }
+    }
+    return count;
+}
+
+function repeat(s string, times number) string {
+    string result = "";
+    for (number i = 0; i < times; i = i + 1) {
+        result = result + s;
+    }
+    return result;
+}
+
+// ---- 反转（含中文码点） ----
+print(reverse("hello"));              // olleh
+print(reverse("牧羊犬"));             // 犬羊牧
+print(reverse(""));                   // （空行）
+
+// ---- 回文 ----
+print(isPalindrome("level"));         // true
+print(isPalindrome("collie"));        // false
+print(isPalindrome("上海自来水来自海上"));  // true
+print(isPalindrome(""));              // true（空串视为回文）
+print(isPalindrome("x"));             // true
+
+// ---- 字符统计 ----
+print(countChar("mississippi", "s")); // 4
+print(countChar("牧羊犬牧羊犬", "犬")); // 2
+print(countChar("abc", "z"));         // 0
+
+// ---- 内建方法组合 ----
+string messy = "  Collie Lang  ";
+print(@"[{messy.trim()}]");           // [Collie Lang]
+print(messy.trim().subString(0, 6));  // Collie
+
+// ---- 重复拼接 ----
+print(repeat("ab", 3));               // ababab
+print(repeat("=", 10));               // ==========

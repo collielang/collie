@@ -1,0 +1,7 @@
+// c03 附件 · 越界访问 —— 预期以运行时错误退出（退出码 1）
+// 用于验证运行时诊断质量：错误应带行列号并立即中止。
+
+array a3 = [10, 20, 30];
+print("before out-of-bounds");
+print(a3[3]);                         // Index 3 out of range (size 3)
+print("after out-of-bounds");         // 不应执行到这里

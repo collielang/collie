@@ -1,0 +1,14 @@
+// a02 · 变量与类型 —— 规范目标版（当前不可运行部分）
+// 状态：⛔ 等待特性 —— none 字面量作为表达式尚未被 parser 支持
+// 规范依据：reference/data-type/primitive-data-type/02-none.md
+// 当前实际行为：Parse error: Expect expression.（none 无法出现在表达式位置）
+// 待特性落地后，本文件内容应合并回 main.collie
+
+// none：空值字面量
+object nothing = none;
+print(nothing);
+
+// 重新赋值为 none
+object holder = 1;
+holder = none;
+print(holder);
