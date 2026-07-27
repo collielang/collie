@@ -571,8 +571,10 @@ TEST(SemanticRecoveryTest, LoopConditionRecovery) {
     EXPECT_GE(errors.size(), 3);
 }
 
-// 测试复杂的类型转换错误恢复
-TEST(SemanticRecoveryTest, DISABLED_ComplexTypeConversionRecovery) {
+// 测试复杂的类型转换错误恢复（t47 恢复：byte/word 位类型链路已实现）
+// 适配说明：原用例期望 `string s1 = n;` 报错，但现行实现允许 number 隐式转
+// string（t35 落地，见 is_string_convertible），改用 tribool ← number（确实报错）
+TEST(SemanticRecoveryTest, ComplexTypeConversionRecovery) {
     SemanticAnalyzer analyzer;
 
     auto [ast, tokens] = test::parse_and_get_tokens(R"(
@@ -582,9 +584,9 @@ TEST(SemanticRecoveryTest, DISABLED_ComplexTypeConversionRecovery) {
         number n = w;    // 正确：word 可以转换为 number
 
         // 错误：不允许的类型转换
-        string s1 = n;   // 错误1：number 不能直接转换为 string
+        tribool t1 = n;  // 错误1：number 不能转换为 tribool
         bool b1 = w;     // 错误2：word 不能转换为 bool
-        byte b2 = n;     // 错误3：number 不能自动转换为 byte（可能溢出）
+        byte b2 = n;     // 错误3：number 不能自动转换为 byte（可能含小数/溢出）
 
         // 测试运算中的类型转换
         number result = (b + w) * n;  // 正确：自动提升为 number
@@ -718,6 +720,8 @@ TEST(SemanticRecoveryTest, RecoveryRobustness) {
 }
 
 // 测试错误恢复过程中的内存使用
+// 保持禁用（t47 盘点）：依赖 getCurrentMemoryUsage 内存剖析辅助，与语言特性无关，
+// 待性能剖析基建就绪后再评估
 TEST(SemanticRecoveryTest, DISABLED_MemoryUsageRecovery) {
     SemanticAnalyzer analyzer;
 

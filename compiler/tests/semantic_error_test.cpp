@@ -144,10 +144,12 @@ TEST(SemanticErrorTest, TypeConversionErrors) {
     analyzer.set_tokens(tokens);
     analyzer.analyze(ast);
 
-    // 验证错误收集
+    // 验证错误收集（t47 适配：`&` 可解析后，错误2 报“位操作数类型错误”后 panic
+    // 再级联一条初始化类型错误，与 ExpressionRecovery 的既定恢复语义一致，
+    // 共 5 条）
     EXPECT_TRUE(analyzer.has_errors());
     const auto& errors = analyzer.get_errors();
-    EXPECT_EQ(errors.size(), 4);  // 应该有4个错误
+    EXPECT_EQ(errors.size(), 5);
 }
 
 // 错误位置信息测试
@@ -223,6 +225,8 @@ TEST(SemanticErrorTest, ErrorMessageFormat) {
 }
 
 // 数组错误测试
+// 保持禁用（t47 盘点）：依赖未实现的 `number[]` 元素类型数组语法与静态越界检查，
+// 现行仅有无类型参数的 array（见 SPEC.md 已知缺口）
 TEST(SemanticErrorTest, DISABLED_ArrayErrors) {
     SemanticAnalyzer analyzer;
 

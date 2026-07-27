@@ -98,6 +98,8 @@ private:
     Value eval_binary(const Token& op, const Value& left, const Value& right);
     Value eval_arithmetic(const Token& op, const Value& left, const Value& right);
     Value eval_comparison(const Token& op, const Value& left, const Value& right);
+    /// 位运算 & | ^ << >>（t47）：两侧须为整数值，int64 域内求值
+    Value eval_bitwise(const Token& op, const Value& left, const Value& right);
     static bool values_equal(const Value& left, const Value& right);
 
     /// @brief 条件真值（if/while/for/do-while）：tribool 不能直接作条件

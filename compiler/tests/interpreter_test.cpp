@@ -2427,3 +2427,87 @@ TEST(InterpreterEndToEnd, TupleDeclTypeMismatchRuntimeRejected) {
     EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
 }
 
+// ---------- t47：位运算符与 hex 字面量 ----------
+
+TEST(InterpreterEndToEnd, HexLiteralAndBitwiseOps) {
+    // hex 字面量按十进制输出；~ 走 BigInt 精确（~x = -x-1），其余 int64 域
+    EXPECT_EQ(run_source(R"(
+        print(0x10);
+        print(0xFF & 0x0F);
+        print(0x0F | 0xF0);
+        print(0xFF ^ 0x0F);
+        print(1 << 4);
+        print(0xFF >> 4);
+        print(~0);
+        print(~0xFF);
+    )"), R"(16
+15
+255
+240
+16
+15
+-1
+-256
+)");
+}
+
+TEST(InterpreterEndToEnd, BitwisePrecedence) {
+    // 优先级（C 家族）：`|` < `^` < `&`；移位低于加减
+    EXPECT_EQ(run_source(R"(
+        print(1 | 2 ^ 3 & 4);
+        print(1 << 2 + 1);
+        print(0xF0 | 0xFF & 0x0F);
+    )"), "3\n8\n255\n");
+}
+
+TEST(InterpreterEndToEnd, ByteWordDeclarationAndRange) {
+    // integer 可窄化赋 byte/word（静态放行 + 运行期范围校验通过）
+    EXPECT_EQ(run_source(R"(
+        byte b = 0xFF & 0x0F;
+        word w = 0xFFFF;
+        print(b, w);
+    )"), "15 65535\n");
+}
+
+TEST(InterpreterEndToEnd, ByteRangeOverflowRuntimeRejected) {
+    // byte 超上界（256 > 255）：静态放行（byte ← integer），运行期拦截
+    collie::Lexer lexer(R"(byte b = 256;)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, ByteNegativeRuntimeRejected) {
+    // ~0xFF = -256：低于 byte 下界 0，运行期拦截
+    collie::Lexer lexer(R"(byte b = ~0xFF;)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, ShiftCountOutOfRangeThrows) {
+    // 移位数限 0-63（int64 域），越界报运行时错误而非静默截断
+    collie::Lexer lexer(R"(print(1 << 64);)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+

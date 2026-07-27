@@ -401,16 +401,72 @@ std::unique_ptr<Expr> Parser::parse_logical_or() {
 }
 
 std::unique_ptr<Expr> Parser::parse_logical_and() {
-    auto expr = parse_equality();
+    auto expr = parse_bit_or();
     if (!expr) {
         throw error(peek(), "Expect expression.");
     }
 
     while (match(TokenType::OP_AND)) {
         Token op = previous();
-        auto right = parse_equality();
+        auto right = parse_bit_or();
         if (!right) {
             throw error(peek(), "Expect expression after '&&'.");
+        }
+        expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
+    }
+
+    return expr;
+}
+
+// 位运算优先级（t47，与 C 家族一致）：`|` < `^` < `&` < 相等比较；
+// 移位 `<< >>` 另居关系比较与加减之间（见 parse_shift）
+std::unique_ptr<Expr> Parser::parse_bit_or() {
+    auto expr = parse_bit_xor();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
+
+    while (match(TokenType::OP_BIT_OR)) {
+        Token op = previous();
+        auto right = parse_bit_xor();
+        if (!right) {
+            throw error(peek(), "Expect expression after '|'.");
+        }
+        expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
+    }
+
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::parse_bit_xor() {
+    auto expr = parse_bit_and();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
+
+    while (match(TokenType::OP_BIT_XOR)) {
+        Token op = previous();
+        auto right = parse_bit_and();
+        if (!right) {
+            throw error(peek(), "Expect expression after '^'.");
+        }
+        expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
+    }
+
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::parse_bit_and() {
+    auto expr = parse_equality();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
+
+    while (match(TokenType::OP_BIT_AND)) {
+        Token op = previous();
+        auto right = parse_equality();
+        if (!right) {
+            throw error(peek(), "Expect expression after '&'.");
         }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
@@ -437,7 +493,7 @@ std::unique_ptr<Expr> Parser::parse_equality() {
 }
 
 std::unique_ptr<Expr> Parser::parse_comparison() {
-    auto expr = parse_term();
+    auto expr = parse_shift();
     if (!expr) {
         throw error(peek(), "Expect expression.");
     }
@@ -449,9 +505,27 @@ std::unique_ptr<Expr> Parser::parse_comparison() {
         TokenType::OP_LESS_EQ
     })) {
         Token op = previous();
-        auto right = parse_term();
+        auto right = parse_shift();
         if (!right) {
             throw error(peek(), "Expect expression after comparison operator.");
+        }
+        expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
+    }
+
+    return expr;
+}
+
+std::unique_ptr<Expr> Parser::parse_shift() {
+    auto expr = parse_term();
+    if (!expr) {
+        throw error(peek(), "Expect expression.");
+    }
+
+    while (match({TokenType::OP_BIT_LSHIFT, TokenType::OP_BIT_RSHIFT})) {
+        Token op = previous();
+        auto right = parse_term();
+        if (!right) {
+            throw error(peek(), "Expect expression after shift operator.");
         }
         expr = std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
     }
@@ -496,7 +570,7 @@ std::unique_ptr<Expr> Parser::parse_factor() {
 }
 
 std::unique_ptr<Expr> Parser::parse_unary() {
-    if (match({TokenType::OP_NOT, TokenType::OP_MINUS})) {
+    if (match({TokenType::OP_NOT, TokenType::OP_MINUS, TokenType::OP_BIT_NOT})) {
         Token op = previous();
         auto right = parse_unary();
         if (!right) {
@@ -581,6 +655,11 @@ std::unique_ptr<Expr> Parser::parse_primary() {
     }
 
     if (match(TokenType::LITERAL_STRING)) {
+        return std::make_unique<LiteralExpr>(previous());
+    }
+
+    // 字符字面量 'a'（含 UTF-16 多字节字符，t47）
+    if (match(TokenType::LITERAL_CHAR) || match(TokenType::LITERAL_CHARACTER)) {
         return std::make_unique<LiteralExpr>(previous());
     }
 

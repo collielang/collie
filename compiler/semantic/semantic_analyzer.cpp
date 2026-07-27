@@ -126,11 +126,16 @@ void SemanticAnalyzer::visitLiteral(const LiteralExpr& expr) {
         case TokenType::LITERAL_NUMBER: {
             // 数字字面量类型推导（t42，见 04-numeric.md）：
             // - Infinity/NaN 只归 number（既非 integer 也非 decimal）
+            // - 十六进制 0xFF 恒为 integer（t47，先于 .eEf 检查，避免
+            //   0xFE/0xef 中的十六进制数字 e/E/f 被误判为小数）
             // - 含 '.'/'e'/'E'/'f' 的为 decimal（如 3.14 / 1e3 / 2f）
             // - 其余为 integer（任意精度，自动扩容）
             std::string_view lexeme = expr.token().lexeme();
             if (lexeme == "Infinity" || lexeme == "NaN") {
                 current_type_ = TokenType::KW_NUMBER;
+            } else if (lexeme.size() > 1 && lexeme[0] == '0' &&
+                       (lexeme[1] == 'x' || lexeme[1] == 'X')) {
+                current_type_ = TokenType::KW_INTEGER;
             } else if (lexeme.find_first_of(".eEf") != std::string_view::npos) {
                 current_type_ = TokenType::KW_DECIMAL;
             } else {
@@ -921,6 +926,9 @@ bool SemanticAnalyzer::is_bit_type(TokenType type) const {
     switch (type) {
         case TokenType::KW_BYTE:
         case TokenType::KW_WORD:
+        // integer 也可参与位运算（t47）：hex 字面量如 0xFF 推导为 integer，
+        // 位运算在整数域内定义；decimal/number（可能含小数）不参与
+        case TokenType::KW_INTEGER:
             return true;
         default:
             return false;
@@ -1001,6 +1009,13 @@ bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) 
             return true;
         }
         if (expected == TokenType::KW_WORD && actual == TokenType::KW_BYTE) {
+            return true;
+        }
+        // integer（精确整数）可窄化到 byte/word（t47）：静态放行，
+        // 运行期由 coerce_to_declared 做范围校验（byte 0-255、word 0-65535）；
+        // number/decimal（可能含小数）不可隐式窄化到位类型
+        if ((expected == TokenType::KW_BYTE || expected == TokenType::KW_WORD) &&
+            actual == TokenType::KW_INTEGER) {
             return true;
         }
     }

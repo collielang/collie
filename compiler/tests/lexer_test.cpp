@@ -74,6 +74,34 @@ TEST(LexerTest, NumberFSuffixNotGreedy) {
     EXPECT_EQ(tokens[1].lexeme(), "fx");
 }
 
+// 十六进制整数字面量（t47）：lexeme 保留 0x 前缀原文，含 E/f 十六进制位不被误判小数
+TEST(LexerTest, HexIntegerLiterals) {
+    std::string source = "0xFF 0X1f 0xef 0xFE;";
+    Lexer lexer(source, Encoding::UTF8);
+
+    auto tokens = lexer.tokenize();
+    ASSERT_EQ(tokens.size() - 1, 5);
+    EXPECT_EQ(tokens[0].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[0].lexeme(), "0xFF");
+    EXPECT_EQ(tokens[1].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[1].lexeme(), "0X1f");
+    EXPECT_EQ(tokens[2].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[2].lexeme(), "0xef");
+    EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_NUMBER);
+    EXPECT_EQ(tokens[3].lexeme(), "0xFE");
+    EXPECT_EQ(tokens[4].type(), TokenType::DELIMITER_SEMICOLON);
+}
+
+// 缺十六进制位的 0x 报错
+TEST(LexerTest, HexLiteralMissingDigits) {
+    std::string source = "0x;";
+    Lexer lexer(source, Encoding::UTF8);
+
+    auto tokens = lexer.tokenize();
+    ASSERT_GE(tokens.size(), 1u);
+    EXPECT_EQ(tokens[0].type(), TokenType::INVALID);
+}
+
 // 特殊数值字面量 Infinity/NaN 归为数字字面量；大小写敏感（见 04-numeric.md）
 TEST(LexerTest, InfinityNaNLiterals) {
     std::string source = "Infinity NaN infinity nan";

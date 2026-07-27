@@ -264,9 +264,39 @@ private:
      * @throws ParseError 如果逻辑与表达式语法不正确
      *
      * 逻辑与表达式语法：
-     * equality ("&&" equality)*
+     * bitOr ("&&" bitOr)*
      */
     std::unique_ptr<Expr> parse_logical_and();
+
+    /**
+     * @brief 解析按位或表达式（t47，优先级低于 `^`，高于 `&&`）
+     * @return 按位或表达式的AST节点
+     * @throws ParseError 如果按位或表达式语法不正确
+     *
+     * 按位或表达式语法：
+     * bitXor ("|" bitXor)*
+     */
+    std::unique_ptr<Expr> parse_bit_or();
+
+    /**
+     * @brief 解析按位异或表达式（t47）
+     * @return 按位异或表达式的AST节点
+     * @throws ParseError 如果按位异或表达式语法不正确
+     *
+     * 按位异或表达式语法：
+     * bitAnd ("^" bitAnd)*
+     */
+    std::unique_ptr<Expr> parse_bit_xor();
+
+    /**
+     * @brief 解析按位与表达式（t47，优先级低于相等比较，与 C 家族一致）
+     * @return 按位与表达式的AST节点
+     * @throws ParseError 如果按位与表达式语法不正确
+     *
+     * 按位与表达式语法：
+     * equality ("&" equality)*
+     */
+    std::unique_ptr<Expr> parse_bit_and();
 
     /**
      * @brief 解析相等性比较表达式
@@ -284,9 +314,19 @@ private:
      * @throws ParseError 如果关系比较表达式语法不正确
      *
      * 关系比较表达式语法：
-     * term ((">" | ">=" | "<" | "<=") term)*
+     * shift ((">" | ">=" | "<" | "<=") shift)*
      */
     std::unique_ptr<Expr> parse_comparison();
+
+    /**
+     * @brief 解析移位表达式（t47，优先级高于关系比较、低于加减）
+     * @return 移位表达式的AST节点
+     * @throws ParseError 如果移位表达式语法不正确
+     *
+     * 移位表达式语法：
+     * term (("<<" | ">>") term)*
+     */
+    std::unique_ptr<Expr> parse_shift();
 
     /**
      * @brief 解析加减表达式
@@ -314,7 +354,7 @@ private:
      * @throws ParseError 如果一元表达式语法不正确
      *
      * 一元表达式语法：
-     * ("!" | "-") unary | primary
+     * ("!" | "-" | "~") unary | primary
      */
     std::unique_ptr<Expr> parse_unary();
 

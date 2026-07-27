@@ -383,6 +383,26 @@ Token Lexer::scan_number() {
     size_t start_col = column_;
     bool has_dot = false;
 
+    // 十六进制整数字面量 0xFF / 0X1f（t47，见 draft.md 位类型示例 0xAB）：
+    // lexeme 保留 0x 前缀原文，由下游按前缀识别；不支持小数/科学计数法/f 后缀
+    auto is_hex_digit = [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+               (c >= 'A' && c <= 'F');
+    };
+    if (peek() == '0' && (peek_next() == 'x' || peek_next() == 'X')) {
+        advance(); // 消费 '0'
+        advance(); // 消费 'x'/'X'
+        if (is_at_end() || !is_hex_digit(peek())) {
+            return make_error_token("Expected hexadecimal digits after '0x'");
+        }
+        while (!is_at_end() && is_hex_digit(peek())) {
+            advance();
+        }
+        std::string_view hex = std::string_view(source_).substr(
+            start_pos, position_ - start_pos);
+        return Token(TokenType::LITERAL_NUMBER, hex, line_, start_col);
+    }
+
     // 整数部分
     while (!is_at_end() && is_digit(peek())) {
         advance();

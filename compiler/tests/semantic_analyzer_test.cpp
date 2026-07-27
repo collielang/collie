@@ -188,7 +188,7 @@ TEST(SemanticAnalyzerTest, TypeChecking) {
 
 /**
  * 一元操作符测试（从 DISABLED_ 部分迁移到新 API，t17）
- * 位取反（~）和类型错误检测依赖未实现的特性，拆分到 DISABLED_BitwiseNegateAndUnaryTypeCheck。
+ * 位取反（~）和类型错误检测拆分到 BitwiseNegateAndUnaryTypeCheck（t47 已恢复）。
  */
 TEST(SemanticAnalyzerTest, UnaryOperators) {
     // 数字取负
@@ -208,21 +208,25 @@ TEST(SemanticAnalyzerTest, UnaryOperators) {
     }
 }
 
-// 位取反（~ 运算符未实现）和一元类型错误检测（语义层未实现）
-TEST(SemanticAnalyzerTest, DISABLED_BitwiseNegateAndUnaryTypeCheck) {
-    SemanticAnalyzer analyzer;
-
-    // 位运算取反
-    EXPECT_NO_THROW({
+/**
+ * 位取反与一元类型错误检测（t47 恢复：~ 与 hex 字面量已实现，EXPECT_THROW 迁移 has_errors）
+ */
+TEST(SemanticAnalyzerTest, BitwiseNegateAndUnaryTypeCheck) {
+    // 位运算取反：hex 字面量推导为 integer（位类型），~ 后保持原类型，可赋 byte
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("byte x = ~0xFF;");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "bitwise negate on hex literal should pass";
+    }
 
-    // 类型错误: ! 应用于 number 应报错
-    EXPECT_THROW({
+    // 类型错误: ! 应用于 number 应报错（! 只接受 bool/tribool）
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse("number x = !42;");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "unary not on number should fail";
+    }
 }
 
 /**
@@ -252,7 +256,7 @@ TEST(SemanticAnalyzerTest, ReturnStatement) {
 
 /**
  * 二元操作符测试（从 DISABLED_ 部分迁移到新 API，t17）
- * 比较运算（char 字面量）和位运算（byte/hex）依赖未实现的 parser 特性，拆分到 DISABLED_BitAndCharOperators。
+ * 比较运算（char 字面量）和位运算（byte/hex）拆分到 BitAndCharOperators（t47 已恢复）。
  */
 TEST(SemanticAnalyzerTest, BinaryOperators) {
     // 字符串连接
@@ -303,20 +307,24 @@ TEST(SemanticAnalyzerTest, BinaryOperators) {
     }
 }
 
-// 位运算、char 字面量比较、类型错误检测（依赖未实现的 parser 特性或语义检查）
-TEST(SemanticAnalyzerTest, DISABLED_BitAndCharOperators) {
-    SemanticAnalyzer analyzer;
-
-    // 比较运算（char 字面量）
-    EXPECT_NO_THROW({
+/**
+ * 位运算、char 字面量比较与类型错误检测（t47 恢复：位运算优先级层与 hex
+ * 字面量已实现，EXPECT_THROW 迁移 has_errors）
+ */
+TEST(SemanticAnalyzerTest, BitAndCharOperators) {
+    // 比较运算（char 字面量，is_ordered_type 含 char）
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             bool b3 = 'a' >= 'b';
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "char comparison should pass";
+    }
 
-    // 位运算
-    EXPECT_NO_THROW({
+    // 位运算：hex 字面量为 integer，结果可窄化赋 byte（运行期范围校验）
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(
             byte b1 = 0xFF & 0x0F;
             byte b2 = 0x0F | 0xF0;
@@ -325,23 +333,32 @@ TEST(SemanticAnalyzerTest, DISABLED_BitAndCharOperators) {
             byte b5 = 0xFF >> 4;
         )");
         analyzer.analyze(ast);
-    });
+        EXPECT_FALSE(analyzer.has_errors()) << "bitwise operations should pass";
+    }
 
-    // 类型错误
-    EXPECT_THROW({
+    // 类型错误：bool 不是数值类型，不可参与算术
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(string s = 42 + true;)");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "number + bool should fail";
+    }
 
-    EXPECT_THROW({
+    // 类型错误：number 与 string 不可比较
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(bool b = 1 + 2 < "hello";)");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "number < string should fail";
+    }
 
-    EXPECT_THROW({
+    // 类型错误：bool + number 同样报错
+    {
+        SemanticAnalyzer analyzer;
         auto ast = parse(R"(number n = true + 42;)");
         analyzer.analyze(ast);
-    }, SemanticError);
+        EXPECT_TRUE(analyzer.has_errors()) << "bool + number should fail";
+    }
 }
 
 /**

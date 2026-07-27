@@ -63,6 +63,21 @@ void Interpreter::visitLiteral(const LiteralExpr& expr) {
                 result_ = Value::number(std::numeric_limits<double>::infinity());
             } else if (lexeme == "NaN") {
                 result_ = Value::number(std::numeric_limits<double>::quiet_NaN());
+            } else if (lexeme.size() > 1 && lexeme[0] == '0' &&
+                       (lexeme[1] == 'x' || lexeme[1] == 'X')) {
+                // 十六进制整数字面量（t47）：逐位 *16+digit 累积为 BigInt，
+                // 任意精度精确（不经 64 位）
+                BigInt acc(0);
+                BigInt sixteen(16);
+                for (size_t i = 2; i < lexeme.size(); ++i) {
+                    char c = lexeme[i];
+                    int d;
+                    if (c >= '0' && c <= '9') d = c - '0';
+                    else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+                    else d = c - 'A' + 10;
+                    acc = acc * sixteen + BigInt(static_cast<long long>(d));
+                }
+                result_ = Value::integer(std::move(acc));
             } else if (lexeme.find_first_of(".eEf") == std::string::npos) {
                 // 整数字面量（t42）：BigInt 任意精度承载，不经 double 不丢精度
                 result_ = Value::integer(BigInt::from_decimal_string(lexeme));
@@ -175,6 +190,14 @@ void Interpreter::visitUnary(const UnaryExpr& expr) {
             } else {
                 result_ = Value::boolean(!operand.is_truthy());
             }
+            break;
+        case TokenType::OP_BIT_NOT:
+            // 位取反（t47）：整数值走 BigInt 精确（~x = -x-1，任意精度）
+            if (!operand.is_integer_value()) {
+                throw RuntimeError("Bitwise '~' requires an integer",
+                                   op.line(), op.column());
+            }
+            result_ = Value::integer(operand.as_integer().negated() - BigInt(1));
             break;
         default:
             throw RuntimeError("Unsupported unary operator", op.line(), op.column());
@@ -355,6 +378,28 @@ Value Interpreter::coerce_to_declared(TokenType declared, const Value& value,
                 return Value::number(value.as_number());
             }
             return value;
+        case TokenType::KW_BYTE:
+        case TokenType::KW_WORD: {
+            // 位类型运行期校验（t47）：须为整数值，byte 0-255、word 0-65535
+            const char* name = (declared == TokenType::KW_BYTE) ? "byte" : "word";
+            if (!value.is_number() || !value.is_integer_value()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to '" + name +
+                                       "' variable",
+                                   line, column);
+            }
+            const BigInt& iv = value.as_integer();
+            const long long max_val =
+                (declared == TokenType::KW_BYTE) ? 255LL : 65535LL;
+            if (BigInt::compare(iv, BigInt(0)) < 0 ||
+                BigInt::compare(iv, BigInt(max_val)) > 0) {
+                throw RuntimeError(std::string("Value out of range for '") + name +
+                                       "' (expected 0-" + std::to_string(max_val) +
+                                       ", got " + iv.to_string() + ")",
+                                   line, column);
+            }
+            return value;
+        }
         case TokenType::KW_BOOL:
             if (!value.is_bool()) {
                 throw RuntimeError(std::string("Type mismatch: cannot assign ") +
@@ -919,6 +964,13 @@ Value Interpreter::eval_binary(const Token& op, const Value& left, const Value& 
         case TokenType::OP_LESS_EQ:
             return eval_comparison(op, left, right);
 
+        case TokenType::OP_BIT_AND:
+        case TokenType::OP_BIT_OR:
+        case TokenType::OP_BIT_XOR:
+        case TokenType::OP_BIT_LSHIFT:
+        case TokenType::OP_BIT_RSHIFT:
+            return eval_bitwise(op, left, right);
+
         default:
             throw RuntimeError("Unsupported binary operator", op.line(), op.column());
     }
@@ -981,6 +1033,51 @@ Value Interpreter::eval_arithmetic(const Token& op, const Value& left, const Val
         }
         default:
             throw RuntimeError("Unsupported arithmetic operator", op.line(), op.column());
+    }
+}
+
+Value Interpreter::eval_bitwise(const Token& op, const Value& left, const Value& right) {
+    // 位运算仅在整数域内定义（t47）：两侧必须是整数值；
+    // 求值走 int64 路径（超出 64 位范围报运行时错误，不静默截断）
+    if (!left.is_integer_value() || !right.is_integer_value()) {
+        throw RuntimeError("Bitwise operands must be integers",
+                           op.line(), op.column());
+    }
+    auto to_i64 = [&op](const Value& v) -> long long {
+        try {
+            return std::stoll(v.as_integer().to_string());
+        } catch (const std::out_of_range&) {
+            throw RuntimeError("Bitwise operand out of 64-bit range",
+                               op.line(), op.column());
+        }
+    };
+    long long a = to_i64(left);
+    long long b = to_i64(right);
+
+    switch (op.type()) {
+        case TokenType::OP_BIT_AND:
+            return Value::integer(BigInt(a & b));
+        case TokenType::OP_BIT_OR:
+            return Value::integer(BigInt(a | b));
+        case TokenType::OP_BIT_XOR:
+            return Value::integer(BigInt(a ^ b));
+        case TokenType::OP_BIT_LSHIFT:
+        case TokenType::OP_BIT_RSHIFT: {
+            // 移位数限 0-63，避免 C++ 未定义行为
+            if (b < 0 || b > 63) {
+                throw RuntimeError("Shift count must be in range 0-63",
+                                   op.line(), op.column());
+            }
+            if (op.type() == TokenType::OP_BIT_LSHIFT) {
+                // 无符号域内左移再转回，回避负数左移的 UB
+                return Value::integer(BigInt(static_cast<long long>(
+                    static_cast<unsigned long long>(a) << b)));
+            }
+            // 右移为算术移位（符号位扩展，C++20 起标准保证）
+            return Value::integer(BigInt(a >> b));
+        }
+        default:
+            throw RuntimeError("Unsupported bitwise operator", op.line(), op.column());
     }
 }
 
