@@ -1,9 +1,11 @@
 /**
  * @file code_generator.h
- * @brief AST → LLVM IR 代码生成器（M6 t49，S1/S2 最小子集）
+ * @brief AST → LLVM IR 代码生成器（M6 t49/t50，S1–S3 子集）
  *
  * 设计文档：compiler/codegen/README.md（类型映射/降级映射/阶段范围）。
- * 支持面：print、字符串/整数/小数/布尔字面量、算术 + - * / %、一元负号。
+ * 支持面：print、字符串/整数/小数/布尔字面量、算术 + - * / %、一元负号；
+ * S3（t50）：变量声明/赋值（integer/decimal/bool/string）、比较、
+ * 短路 && || 与 !、if/else、while、块作用域遮蔽。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -11,6 +13,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <llvm/IR/IRBuilder.h>
@@ -104,11 +107,35 @@ private:
         CGType type = CGType::Int;
     };
 
+    /// @brief 变量存储槽（entry 块 alloca）+ 编译期类型（S3 t50）
+    struct CGVar {
+        llvm::AllocaInst* slot = nullptr;
+        CGType type = CGType::Int;
+    };
+
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
     CGValue emit(const Expr* expr);
 
     /// @brief print 内建：拼 printf 格式串（空格分隔 + 换行），一次 printf 调用
     void gen_print(const CallExpr& expr);
+
+    /// @brief 逻辑 && / ||：短路求值（与解释器对齐），仅 bool 域（tribool 属后续）
+    void gen_logical(const BinaryExpr& expr);
+
+    /// @brief 声明类型 token → CGType（S3 支持 integer/decimal/bool/string，其余报缺口）
+    CGType declared_cgtype(const Token& type_token);
+
+    /// @brief CGType → 对应的 LLVM 存储类型
+    llvm::Type* llvm_type_of(CGType type);
+
+    /// @brief 在函数 entry 块创建 alloca（IR 规范位置，利于后续 mem2reg）
+    llvm::AllocaInst* create_entry_alloca(llvm::Type* type, const std::string& name);
+
+    /// @brief 待存值对齐槽类型：仅 integer→decimal 隐式提升（与语义层一致），其余不匹配报错
+    llvm::Value* coerce_for_slot(const CGValue& v, CGType slot_type, const Token& where);
+
+    /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
+    CGVar* lookup_var(const std::string& name);
 
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
@@ -121,6 +148,8 @@ private:
     llvm::IRBuilder<> builder_;
     llvm::FunctionCallee printf_fn_;
     CGValue last_value_;
+    /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
+    std::vector<std::unordered_map<std::string, CGVar>> scopes_;
 };
 
 } // namespace collie

@@ -1,6 +1,6 @@
 /**
  * @file code_generator.cpp
- * @brief AST → LLVM IR 代码生成器实现（M6 t49，S1/S2 最小子集）
+ * @brief AST → LLVM IR 代码生成器实现（M6 t49/t50，S1–S3 子集）
  *
  * 降级规则见 compiler/codegen/README.md 第四节；语义依据 compiler/SPEC.md。
  */
@@ -35,6 +35,10 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     auto* main_fn = llvm::Function::Create(
         main_type, llvm::Function::ExternalLinkage, "main", module_.get());
     builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "entry", main_fn));
+
+    // 顶层作用域（块进出时 push/pop，支持遮蔽）
+    scopes_.clear();
+    scopes_.emplace_back();
 
     for (const auto& stmt : statements) {
         stmt->accept(*this);
@@ -109,6 +113,12 @@ void CodeGenerator::visitLiteral(const LiteralExpr& expr) {
                            CGType::Double};
             return;
         }
+        case TokenType::KW_TRUE:
+            last_value_ = {builder_.getInt1(true), CGType::Bool};
+            return;
+        case TokenType::KW_FALSE:
+            last_value_ = {builder_.getInt1(false), CGType::Bool};
+            return;
         case TokenType::LITERAL_BOOL:
             last_value_ = {builder_.getInt1(lexeme == "true"), CGType::Bool};
             return;
@@ -119,6 +129,14 @@ void CodeGenerator::visitLiteral(const LiteralExpr& expr) {
 
 void CodeGenerator::visitBinary(const BinaryExpr& expr) {
     const Token& op = expr.op();
+
+    // && / || 需短路求值（与解释器对齐，interpreter.cpp visitBinary），
+    // 必须先于下方的两侧急切求值处理
+    if (op.type() == TokenType::OP_AND || op.type() == TokenType::OP_OR) {
+        gen_logical(expr);
+        return;
+    }
+
     CGValue lhs = emit(expr.left());
     CGValue rhs = emit(expr.right());
 
@@ -181,6 +199,46 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             }
             return;
         }
+        case TokenType::OP_EQUAL:
+        case TokenType::OP_NOT_EQUAL:
+        case TokenType::OP_LESS:
+        case TokenType::OP_LESS_EQ:
+        case TokenType::OP_GREATER:
+        case TokenType::OP_GREATER_EQ: {
+            // 比较运算（S3 t50）：bool 仅支持 ==/!=；数值混型提升为 double 后 fcmp，
+            // 纯整数走 icmp；!= 用 UNE（NaN != NaN 为 true，IEEE 语义与解释器一致）
+            const TokenType t = op.type();
+            if (lhs.type == CGType::Bool && rhs.type == CGType::Bool &&
+                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                llvm::Value* v = t == TokenType::OP_EQUAL
+                                     ? builder_.CreateICmpEQ(lhs.value, rhs.value, "cmptmp")
+                                     : builder_.CreateICmpNE(lhs.value, rhs.value, "cmptmp");
+                last_value_ = {v, CGType::Bool};
+                return;
+            }
+            require_numeric(lhs);
+            require_numeric(rhs);
+            llvm::Value* v = nullptr;
+            if (lhs.type == CGType::Double || rhs.type == CGType::Double) {
+                llvm::Value* l = to_double(lhs);
+                llvm::Value* r = to_double(rhs);
+                v = t == TokenType::OP_EQUAL      ? builder_.CreateFCmpOEQ(l, r, "cmptmp")
+                  : t == TokenType::OP_NOT_EQUAL  ? builder_.CreateFCmpUNE(l, r, "cmptmp")
+                  : t == TokenType::OP_LESS       ? builder_.CreateFCmpOLT(l, r, "cmptmp")
+                  : t == TokenType::OP_LESS_EQ    ? builder_.CreateFCmpOLE(l, r, "cmptmp")
+                  : t == TokenType::OP_GREATER    ? builder_.CreateFCmpOGT(l, r, "cmptmp")
+                                                  : builder_.CreateFCmpOGE(l, r, "cmptmp");
+            } else {
+                v = t == TokenType::OP_EQUAL      ? builder_.CreateICmpEQ(lhs.value, rhs.value, "cmptmp")
+                  : t == TokenType::OP_NOT_EQUAL  ? builder_.CreateICmpNE(lhs.value, rhs.value, "cmptmp")
+                  : t == TokenType::OP_LESS       ? builder_.CreateICmpSLT(lhs.value, rhs.value, "cmptmp")
+                  : t == TokenType::OP_LESS_EQ    ? builder_.CreateICmpSLE(lhs.value, rhs.value, "cmptmp")
+                  : t == TokenType::OP_GREATER    ? builder_.CreateICmpSGT(lhs.value, rhs.value, "cmptmp")
+                                                  : builder_.CreateICmpSGE(lhs.value, rhs.value, "cmptmp");
+            }
+            last_value_ = {v, CGType::Bool};
+            return;
+        }
         default:
             unsupported("binary operator '" + std::string(op.lexeme()) + "'",
                         op.line(), op.column());
@@ -189,6 +247,15 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
 
 void CodeGenerator::visitUnary(const UnaryExpr& expr) {
     const Token& op = expr.op();
+    if (op.type() == TokenType::OP_NOT) {
+        // 逻辑非（S3 t50）：仅 bool 域（tribool 属后续阶段）
+        CGValue v = emit(expr.operand());
+        if (v.type != CGType::Bool) {
+            unsupported("'!' on non-bool operand", op.line(), op.column());
+        }
+        last_value_ = {builder_.CreateNot(v.value, "nottmp"), CGType::Bool};
+        return;
+    }
     if (op.type() != TokenType::OP_MINUS) {
         unsupported("unary operator '" + std::string(op.lexeme()) + "'",
                     op.line(), op.column());
@@ -254,6 +321,44 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
     builder_.CreateCall(printf_fn_, args);
 }
 
+void CodeGenerator::gen_logical(const BinaryExpr& expr) {
+    // 短路降级（与解释器对齐）：&& 左侧为 false / || 左侧为 true 时右侧不求值；
+    // 仅 bool 域（tribool Kleene 逻辑属后续阶段）；phi 汇合两条边的值
+    const Token& op = expr.op();
+    const bool is_and = op.type() == TokenType::OP_AND;
+
+    CGValue lhs = emit(expr.left());
+    if (lhs.type != CGType::Bool) {
+        unsupported("non-bool operand of '" + std::string(op.lexeme()) + "'",
+                    op.line(), op.column());
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* rhs_bb = llvm::BasicBlock::Create(context_, is_and ? "and.rhs" : "or.rhs", fn);
+    auto* merge_bb = llvm::BasicBlock::Create(context_, is_and ? "and.end" : "or.end", fn);
+    llvm::BasicBlock* lhs_end = builder_.GetInsertBlock();
+    if (is_and) {
+        builder_.CreateCondBr(lhs.value, rhs_bb, merge_bb); // false 短路
+    } else {
+        builder_.CreateCondBr(lhs.value, merge_bb, rhs_bb); // true 短路
+    }
+
+    builder_.SetInsertPoint(rhs_bb);
+    CGValue rhs = emit(expr.right());
+    if (rhs.type != CGType::Bool) {
+        unsupported("non-bool operand of '" + std::string(op.lexeme()) + "'",
+                    op.line(), op.column());
+    }
+    llvm::BasicBlock* rhs_end = builder_.GetInsertBlock(); // 右侧可能自带嵌套分支
+    builder_.CreateBr(merge_bb);
+
+    builder_.SetInsertPoint(merge_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(builder_.getInt1Ty(), 2,
+                                            is_and ? "andtmp" : "ortmp");
+    phi->addIncoming(lhs.value, lhs_end); // 短路边：左值即结果
+    phi->addIncoming(rhs.value, rhs_end);
+    last_value_ = {phi, CGType::Bool};
+}
+
 // ---------------- 语句 ----------------
 
 void CodeGenerator::visitExpression(const ExpressionStmt& stmt) {
@@ -263,10 +368,30 @@ void CodeGenerator::visitExpression(const ExpressionStmt& stmt) {
 // ---------------- 范围外节点：显式报错，绝不静默错编 ----------------
 
 void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
-    unsupported("identifier '" + std::string(expr.name().lexeme()) + "'",
-                expr.name().line(), expr.name().column());
+    const std::string name(expr.name().lexeme());
+    CGVar* var = lookup_var(name);
+    if (!var) {
+        unsupported("identifier '" + name + "'",
+                    expr.name().line(), expr.name().column());
+    }
+    last_value_ = {builder_.CreateLoad(llvm_type_of(var->type), var->slot, name),
+                   var->type};
 }
-void CodeGenerator::visitAssign(const AssignExpr&) { unsupported("assignment", 0, 0); }
+
+void CodeGenerator::visitAssign(const AssignExpr& expr) {
+    const std::string name(expr.name().lexeme());
+    CGVar* var = lookup_var(name);
+    if (!var) {
+        unsupported("assignment to undeclared '" + name + "'",
+                    expr.name().line(), expr.name().column());
+    }
+    CGValue v = emit(expr.value());
+    llvm::Value* stored = coerce_for_slot(v, var->type, expr.name());
+    builder_.CreateStore(stored, var->slot);
+    // 赋值表达式的值 = 存入后的值（与解释器一致）
+    last_value_ = {stored, var->type};
+}
+
 void CodeGenerator::visitTuple(const TupleExpr&) { unsupported("tuple", 0, 0); }
 void CodeGenerator::visitTernary(const TernaryExpr&) { unsupported("ternary", 0, 0); }
 void CodeGenerator::visitMultiMatch(const MultiMatchExpr&) { unsupported("'==?'", 0, 0); }
@@ -281,10 +406,82 @@ void CodeGenerator::visitThis(const ThisExpr&) { unsupported("'this'", 0, 0); }
 void CodeGenerator::visitBaseCall(const BaseCallExpr&) { unsupported("'base' call", 0, 0); }
 void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr&) { unsupported("'base' method call", 0, 0); }
 
-void CodeGenerator::visitVarDecl(const VarDeclStmt&) { unsupported("variable declaration", 0, 0); }
-void CodeGenerator::visitBlock(const BlockStmt&) { unsupported("block statement", 0, 0); }
-void CodeGenerator::visitIf(const IfStmt&) { unsupported("'if'", 0, 0); }
-void CodeGenerator::visitWhile(const WhileStmt&) { unsupported("'while'", 0, 0); }
+void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
+    // 无初始化时解释器绑 none（动态哨兵值），静态降级无对应表示，明确拒编
+    if (!stmt.initializer()) {
+        unsupported("variable declaration without initializer",
+                    stmt.name().line(), stmt.name().column());
+    }
+    CGType type = declared_cgtype(stmt.type());
+    CGValue init = emit(stmt.initializer());
+    llvm::Value* stored = coerce_for_slot(init, type, stmt.name());
+    const std::string name(stmt.name().lexeme());
+    llvm::AllocaInst* slot = create_entry_alloca(llvm_type_of(type), name);
+    builder_.CreateStore(stored, slot);
+    scopes_.back()[name] = {slot, type}; // 同名直接遮蔽（重复声明由语义层拦截）
+}
+
+void CodeGenerator::visitBlock(const BlockStmt& stmt) {
+    scopes_.emplace_back();
+    for (const auto& inner : stmt.statements()) {
+        inner->accept(*this);
+    }
+    scopes_.pop_back();
+}
+
+void CodeGenerator::visitIf(const IfStmt& stmt) {
+    // 条件必须为 bool（t43c 语义层已强制，此处防御）
+    CGValue cond = emit(stmt.condition());
+    if (cond.type != CGType::Bool) {
+        unsupported("non-bool 'if' condition",
+                    stmt.if_token().line(), stmt.if_token().column());
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* then_bb = llvm::BasicBlock::Create(context_, "if.then", fn);
+    auto* else_bb = stmt.else_branch()
+                        ? llvm::BasicBlock::Create(context_, "if.else", fn)
+                        : nullptr;
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "if.end", fn);
+    builder_.CreateCondBr(cond.value, then_bb, else_bb ? else_bb : merge_bb);
+
+    builder_.SetInsertPoint(then_bb);
+    stmt.then_branch()->accept(*this);
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+        builder_.CreateBr(merge_bb);
+    }
+    if (else_bb) {
+        builder_.SetInsertPoint(else_bb);
+        stmt.else_branch()->accept(*this);
+        if (!builder_.GetInsertBlock()->getTerminator()) {
+            builder_.CreateBr(merge_bb);
+        }
+    }
+    builder_.SetInsertPoint(merge_bb);
+}
+
+void CodeGenerator::visitWhile(const WhileStmt& stmt) {
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* cond_bb = llvm::BasicBlock::Create(context_, "while.cond", fn);
+    auto* body_bb = llvm::BasicBlock::Create(context_, "while.body", fn);
+    auto* end_bb = llvm::BasicBlock::Create(context_, "while.end", fn);
+    builder_.CreateBr(cond_bb);
+
+    builder_.SetInsertPoint(cond_bb);
+    CGValue cond = emit(stmt.condition());
+    if (cond.type != CGType::Bool) {
+        unsupported("non-bool 'while' condition",
+                    stmt.while_token().line(), stmt.while_token().column());
+    }
+    builder_.CreateCondBr(cond.value, body_bb, end_bb);
+
+    builder_.SetInsertPoint(body_bb);
+    stmt.body()->accept(*this);
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+        builder_.CreateBr(cond_bb);
+    }
+    builder_.SetInsertPoint(end_bb);
+}
+
 void CodeGenerator::visitFor(const ForStmt&) { unsupported("'for'", 0, 0); }
 void CodeGenerator::visitDoWhile(const DoWhileStmt&) { unsupported("'do-while'", 0, 0); }
 void CodeGenerator::visitSwitch(const SwitchStmt&) { unsupported("'switch'", 0, 0); }
@@ -295,6 +492,62 @@ void CodeGenerator::visitBreak(const BreakStmt&) { unsupported("'break'", 0, 0);
 void CodeGenerator::visitContinue(const ContinueStmt&) { unsupported("'continue'", 0, 0); }
 
 // ---------------- 辅助 ----------------
+
+CodeGenerator::CGType CodeGenerator::declared_cgtype(const Token& type_token) {
+    switch (type_token.type()) {
+        case TokenType::KW_INTEGER: return CGType::Int;
+        case TokenType::KW_DECIMAL: return CGType::Double;
+        case TokenType::KW_BOOL:    return CGType::Bool;
+        case TokenType::KW_STRING:  return CGType::Str;
+        case TokenType::KW_NUMBER:
+            // number 需整数/小数双表示（缺口 CG5，见 codegen/README.md）
+            unsupported("'number' variable (gap CG5: needs tagged int/decimal repr)",
+                        type_token.line(), type_token.column());
+        default:
+            unsupported("variable type '" + std::string(type_token.lexeme()) + "'",
+                        type_token.line(), type_token.column());
+    }
+}
+
+llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
+    switch (type) {
+        case CGType::Int:    return builder_.getInt64Ty();
+        case CGType::Double: return builder_.getDoubleTy();
+        case CGType::Bool:   return builder_.getInt1Ty();
+        case CGType::Str:    return llvm::PointerType::getUnqual(context_);
+    }
+    return builder_.getInt64Ty(); // 不可达，压编译器警告
+}
+
+llvm::AllocaInst* CodeGenerator::create_entry_alloca(llvm::Type* type,
+                                                     const std::string& name) {
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::IRBuilder<> tmp(&fn->getEntryBlock(), fn->getEntryBlock().begin());
+    return tmp.CreateAlloca(type, nullptr, name);
+}
+
+llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
+                                            const Token& where) {
+    if (v.type == slot_type) {
+        return v.value;
+    }
+    // 仅 integer → decimal 隐式提升（与语义层/解释器 coerce_to_declared 一致）
+    if (slot_type == CGType::Double && v.type == CGType::Int) {
+        return builder_.CreateSIToFP(v.value, builder_.getDoubleTy());
+    }
+    unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
+                where.line(), where.column());
+}
+
+CodeGenerator::CGVar* CodeGenerator::lookup_var(const std::string& name) {
+    for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+        auto found = it->find(name);
+        if (found != it->end()) {
+            return &found->second;
+        }
+    }
+    return nullptr;
+}
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {
     switch (v.type) {

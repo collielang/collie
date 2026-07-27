@@ -13,7 +13,7 @@
 |------|--------|------|
 | S1 | `print("字符串字面量")` 顶层语句 | helloworld.collie 编译为 .exe，输出与解释器一致 **✅ t49** |
 | S2 | 整数字面量、`+ - * / %`、`print(整数表达式)` | 算术表达式编译执行，输出与解释器一致 **✅ t49** |
-| S3 | 变量声明/读写、bool、比较、`if`/`while` | 循环程序编译执行 |
+| S3 | 变量声明/读写、bool、比较、`if`/`while` | 循环程序编译执行，输出与解释器一致 **✅ t50** |
 | 后续 | 函数、string 运行时、decimal 输出格式、class、BigInt | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、字符串插值（parser 已脱糖为拼接，
@@ -60,6 +60,19 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `a % b`（整数） | **floor 取模**（SPEC §4，Python 风格）：`r = srem a, b`；`if (r != 0 && (r < 0) != (b < 0)) r += b`（select 实现，无分支） |
 | 一元 `-a` | `sub i64 0, %a`（整数）/ `fneg`（小数） |
 | 顶层语句序列 | 依序生成进 `@main` entry 起始的基本块链 |
+
+**S3 降级补充（t50 实现）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 变量声明 `integer/decimal/bool/string x = init` | entry 块头部 `alloca`（利于 mem2reg）+ `store`；无初始化拒编（解释器绑 none 无静态对应）；`number` 变量拒编（双表示需运行时标记，缺口 CG5） |
+| 读变量 / 赋值 | `load` / `store`；仅 integer→decimal 槽隐式提升（`sitofp`，与语义层一致） |
+| 块作用域遮蔽 | `scopes_` 作用域栈（vector<unordered_map>），逆向查找 |
+| 比较 `== != < <= > >=` | 纯整数 `icmp eq/ne/slt/sle/sgt/sge`；含小数一侧统一 `sitofp` 后 `fcmp oeq/une/olt/ole/ogt/oge`（`!=` 用 UNE 保 NaN 语义）；bool 仅 `==`/`!=` |
+| `&&` / `\|\|` | **短路**（与解释器 Kleene 实现对齐）：`condbr` + merge 块 `phi i1` 双入边 |
+| `!a` | `xor i1 %a, true`（CreateNot），仅 bool |
+| `if`/`else` | then/else/merge 基本块 + 终结符防御（已有 terminator 不补 br） |
+| `while` | cond/body/end 基本块，回边 br cond |
 
 **print 后续演进**：S2 之后 print 需要匹配解释器的 `to_string` 全部格式
 （decimal 6 位有效数字、整值小数按整数打印、`+Infinity`/`NaN`、bool/none/数组格式），

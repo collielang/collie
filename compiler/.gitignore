@@ -22,6 +22,8 @@ CMakeCache.txt
 CMakeFiles/
 *.cmake
 !CMakeLists.txt
+# 差分测试脚本是源文件，需纳入版本控制（t50）
+!codegen/tests/run_diff_test.cmake
 
 # Compiled files
 *.obj

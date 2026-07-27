@@ -1,0 +1,6 @@
+// t50 S1 差分用例：print + 字面量算术（原 t49 手工验证用例入库）
+print("Hello, World!");
+print("sum:", 1 + 2 * 3);
+print("div:", 7 / 2);
+print("mod:", -1 % 5);
+print("neg:", -42);

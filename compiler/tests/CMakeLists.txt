@@ -96,6 +96,27 @@ set_tests_properties(cli_syntax_error_gate PROPERTIES
     PASS_REGULAR_EXPRESSION "syntax error"
     FAIL_REGULAR_EXPRESSION "42")
 
+# codegen 差分测试（t50，Release 专属）：colliec 编译产物 vs collie 解释器输出
+# 逐字节比对；用例在 codegen/tests/diff_cases/。
+# 注册在本目录而非 codegen/：codegen 子目录以 EXCLUDE_FROM_ALL 接入，
+# 其 add_test 不会进 CTestTestfile（CMake 既定行为）。
+# 仅 Release 配置生效（codegen 目标与 LLVM /MT 库仅 Release 可链）：
+#   先 Release 构建 collie + colliec，再 ctest -C Release -R codegen_diff
+# Debug 门禁（ctest -C Debug）不受影响。
+if(COLLIE_ENABLE_LLVM)
+    set(_codegen_dir ${CMAKE_CURRENT_SOURCE_DIR}/../codegen)
+    foreach(_case s1_hello s3_control_flow)
+        add_test(NAME codegen_diff_${_case}
+            COMMAND ${CMAKE_COMMAND}
+                -DCOLLIEC=$<TARGET_FILE:colliec>
+                -DCOLLIE=$<TARGET_FILE:collie>
+                -DSOURCE=${_codegen_dir}/tests/diff_cases/${_case}.collie
+                -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/codegen_diff_work
+                -P ${_codegen_dir}/tests/run_diff_test.cmake
+            CONFIGURATIONS Release)
+    endforeach()
+endif()
+
 # MSVC 特定配置
 if(MSVC)
     target_compile_options(test_utils PRIVATE "/utf-8" "/FS" "/MP")

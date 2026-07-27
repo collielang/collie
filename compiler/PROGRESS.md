@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t49 完成：CodeGenerator 第一版 + colliec 驱动，helloworld/整数算术编译为本地 .exe 端到端跑通，与解释器差分验证逐字节一致；Release 全工程切 /MT，Debug 门禁 ctest 6/6 不受影响）
+最后更新：2026-07-26（t50 完成：codegen 扩展 S3——变量/赋值/比较/短路逻辑/if/while + 差分测试自动化进 ctest；下一步 t51 待定）
 
 ---
 
@@ -335,7 +335,13 @@
     - [x] CodeGenerator（t49b）：实现 ExprVisitor/StmtVisitor 全接口，S1/S2 范围内降级（print→单次 printf（格式串编译期拼接，空格分隔+换行与解释器对齐）、整数→i64、`/` 恒小数 fdiv、`%` floor 取模 select 校正、一元负号）；范围外节点显式报 CodeGenError 绝不静默错编；verifyModule 门禁；模块显式设宿主 triple
     - [x] colliec 驱动（t49c）：前端门禁（词法/语法/语义与 collie 主程序同标准）→ 写 .ll → 调 LLVM 包自带 clang 编链为 .exe（COLLIE_LLVM_BIN 烘焙自 LLVM_TOOLS_BINARY_DIR）；`--emit-llvm`/`-o` 选项
     - [x] 验证（t49d）：helloworld+算术 5 语句用例编译执行，与解释器输出 `fc` 逐字节一致（差分测试首次落地）；回归全量 ctest 6/6
-- [ ] codegen 扩展 S3（变量/bool/比较/if/while）+ 差分测试自动化进测试体系（t50）
+- [x] codegen 扩展 S3 + 差分测试自动化进测试体系（t50，S3）
+    - 范围拍板：变量声明（integer/decimal/bool/string，须带初始化）、赋值（integer→decimal 隐式提升）、比较 `== != < <= > >=`、逻辑 `&& || !`（短路，与解释器对齐）、if/else、while、块作用域遮蔽
+    - 范围外登记：`number` 变量需整数/小数双表示（缺口 CG5，待运行时垫片/标记表示）；tribool/for/break/continue/函数 后续阶段
+    - 差分测试自动化：Release 专属 ctest（CONFIGURATIONS Release）+ `cmake -P` 比对脚本（colliec 编译产物 vs collie 解释器输出）
+    - 实现：CGVar{alloca 槽,类型} + scopes_ 作用域栈（entry 块头 alloca 利于 mem2reg）；比较纯整数 icmp/含小数 fcmp（!= 用 UNE 保 NaN）；&&/|| 短路 condbr+phi；if/while 标准基本块 + 终结符防御；bool 字面量 true/false 是 KW_TRUE/KW_FALSE
+    - 踩坑：EXCLUDE_FROM_ALL 子目录 add_test 不进 CTestTestfile → 差分测试注册挪 tests/；`codegen` 是 CMake 保留目标名（CMP0171）→ 改名 collie_codegen；语义层拒整数/小数混型字面量比较（用例改用 decimal 变量）
+    - 验证：ctest -C Release 差分 s1_hello+s3_control_flow 各 100% 逐字节一致；Debug 门禁全量 ctest 6/6 不受影响（codegen_diff CONFIGURATIONS Release 不进 Debug）
 
 ---
 
@@ -390,6 +396,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen 扩展 S3 + 差分测试自动化进 ctest（t50，M6）：`code_generator.{h,cpp}` 新增 S3 降级——变量声明（integer/decimal/bool/string，entry 块头 alloca 利于 mem2reg，须带初始化否则拒编，`number` 变量拒编登记缺口 CG5）、赋值（仅 integer→decimal sitofp 提升）、比较 `== != < <= > >=`（纯整数 icmp/含小数 fcmp，`!=` 用 UNE 保 NaN，bool 仅 ==/!=）、逻辑 `&& || !`（短路 condbr+phi，与解释器 Kleene 对齐）、if/else、while、块作用域遮蔽（scopes_ 栈）、bool 字面量 KW_TRUE/KW_FALSE；差分测试自动化：`codegen/tests/run_diff_test.cmake` 四步比对脚本（colliec 编译产物 vs collie 解释器逐字节）+ `tests/CMakeLists.txt` 注册 codegen_diff_{s1_hello,s3_control_flow}（if COLLIE_ENABLE_LLVM + CONFIGURATIONS Release）；踩坑：EXCLUDE_FROM_ALL 子目录 add_test 不进 CTestTestfile（注册挪 tests/）、`codegen` 保留目标名 CMP0171（改名 collie_codegen）；ctest -C Release 差分 2/2 逐字节一致，Debug 全量 ctest 6/6 不受影响（M6 t50）
 - 2026-07-26 `feat(compiler)`: CodeGenerator 第一版 + colliec 本地编译驱动（t49，M6）：Release 全工程切 /MT 静态 CRT（t49a，Debug 保持 /MDd，门禁 ctest 6/6 不受影响）；`codegen/code_generator.{h,cpp}` 实现 S1/S2 降级（print→printf 编译期格式串、`/` 恒小数 fdiv、`%` floor 取模 srem+select 校正、一元负号；范围外节点统一抛 CodeGenError 绝不静默错编；verifyModule 门禁）；`colliec_main.cpp` 驱动：前端三层门禁→写 .ll→调 LLVM 包 clang 编链本地 .exe（`--emit-llvm`/`-o` 选项，COLLIE_LLVM_BIN 编译期烘焙）；t49_hello.collie 端到端跑通，编译产物与 Debug 解释器输出 fc 逐字节一致（首个解释器/编译产物差分验证）（M6 t49）
 - 2026-07-26 `docs(compiler)`: AST → LLVM IR 降级设计文档 `compiler/codegen/README.md`（t48c）：阶段范围 S1/S2/S3；类型映射（integer→i64 妥协登记 CG1、decimal→double）；降级映射表（print→puts/printf、`/` 恒小数 fdiv、`%` floor 取模 select 校正）；CRT 链接方案拍板（Release 全工程切 /MT，Debug 门禁不动，t49 实施）；验证策略：verifyModule 门禁 + 解释器/编译产物差分测试；CG1～CG4 缺口登记（M6 t48）
 - 2026-07-26 `build(compiler)`: LLVM 22.1.8 官方预编译包接入 CMake + 冒烟验证（t48a/t48b，M6 启动）：顶层 `COLLIE_ENABLE_LLVM` 选项（默认 OFF）+ `find_package(LLVM CONFIG)` + codegen 子目录（EXCLUDE_FROM_ALL）；`llvm_smoke` 工具 IRBuilder 构造 hello world 模块/verifyModule/打印 IR 全链路通过；CRT 对齐两坑：官方包为 /MT 静态 CRT（CMP0091 NEW + 目标级 MSVC_RUNTIME_LIBRARY）、`LLVMConfig.cmake` 污染顶层 `CMAKE_MSVC_RUNTIME_LIBRARY`（find_package 前后保存/恢复）；LLVM 下载步骤写入贡献文档 compile-and-run（英文 + 中文 i18n）；回归全量 ctest 6/6（M6 t48）

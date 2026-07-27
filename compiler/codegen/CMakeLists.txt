@@ -31,10 +31,11 @@ endif()
 # 注意：codegen/colliec 保持 RTTI 开启（AST 访问者用 dynamic_cast）；
 # 不继承 LLVM 类，与无 RTTI 的 LLVM 静态库混链无 typeinfo 问题。
 
-add_library(codegen STATIC code_generator.cpp)
-target_include_directories(codegen SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS})
-target_compile_definitions(codegen PUBLIC ${LLVM_DEFINITIONS_LIST})
-target_link_libraries(codegen
+# 目标名用 collie_codegen：裸名 codegen 是 CMake 保留目标名（CMP0171）
+add_library(collie_codegen STATIC code_generator.cpp)
+target_include_directories(collie_codegen SYSTEM PUBLIC ${LLVM_INCLUDE_DIRS})
+target_compile_definitions(collie_codegen PUBLIC ${LLVM_DEFINITIONS_LIST})
+target_link_libraries(collie_codegen
     PUBLIC
         parser
         lexer
@@ -45,11 +46,16 @@ target_link_libraries(codegen
 # 本地编译驱动：前端门禁 + 代码生成出 .ll，再调 LLVM 包自带 clang 链成二进制；
 # COLLIE_LLVM_BIN 烘焙 clang 所在目录（来自 LLVMConfig 的 LLVM_TOOLS_BINARY_DIR）
 add_executable(colliec colliec_main.cpp)
-target_link_libraries(colliec PRIVATE codegen semantic)
+target_link_libraries(colliec PRIVATE collie_codegen semantic)
 target_compile_definitions(colliec PRIVATE
     COLLIE_LLVM_BIN="${LLVM_TOOLS_BINARY_DIR}")
 
 if(MSVC)
-    target_compile_options(codegen PRIVATE "/utf-8" "/FS" "/MP")
+    target_compile_options(collie_codegen PRIVATE "/utf-8" "/FS" "/MP")
     target_compile_options(colliec PRIVATE "/utf-8" "/FS" "/MP")
 endif()
+
+# ---- t50：差分测试（Release 专属）----
+# 用例在 tests/diff_cases/，比对脚本为 tests/run_diff_test.cmake。
+# 注意：ctest 注册在 ../tests/CMakeLists.txt——本目录以 EXCLUDE_FROM_ALL 接入，
+# 在此 add_test 不会进 CTestTestfile（CMake 既定行为）。

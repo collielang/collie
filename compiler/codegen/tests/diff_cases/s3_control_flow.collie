@@ -1,0 +1,31 @@
+// t50 S3 差分用例：变量/赋值/比较/短路逻辑/if/while/块作用域遮蔽
+integer i = 0;
+integer sum = 0;
+while (i < 10) {
+    i = i + 1;
+    if (i % 2 == 0) {
+        sum = sum + i;
+    } else {
+        sum = sum + 1;
+    }
+}
+print("sum:", sum, i == 10);
+
+decimal d = 1;
+d = d + 0.5;
+print("d:", d, d >= 1.5, d != 1.5);
+
+bool flag = true;
+bool other = false;
+print("logic:", flag && other, flag || other, !flag);
+
+string s = "collie";
+if (flag && !other) {
+    string s = "shadow";
+    print("inner:", s);
+} else {
+    print("unreachable");
+}
+print("outer:", s);
+
+print("cmp:", d < 2.5, 2 <= 2, 5 > 4, 4 >= 5);
