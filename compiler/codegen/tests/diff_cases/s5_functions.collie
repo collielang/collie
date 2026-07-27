@@ -1,0 +1,38 @@
+// t52 S5 差分用例：函数声明/调用/return/递归
+function add(a integer, b integer) integer {
+    return a + b;
+}
+
+function fib(n integer) integer {
+    if (n < 2) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+function mix(x integer, y decimal) decimal {
+    return x * y;
+}
+
+function greet(name string) none {
+    print("hello,", name);
+}
+
+// 两分支均 return：尾块不可达（codegen 补 unreachable）
+function absval(v integer) integer {
+    if (v < 0) {
+        return -v;
+    } else {
+        return v;
+    }
+}
+
+print("add:", add(3, 4));
+print("fib:", fib(10));
+print("mix:", mix(3, 2.5));
+greet("collie");
+print("abs:", absval(-9), absval(9));
+
+integer promoted = add(1, 2);
+decimal d = mix(promoted, 1.5);
+print("chain:", d);

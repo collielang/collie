@@ -1,6 +1,6 @@
 /**
  * @file code_generator.cpp
- * @brief AST → LLVM IR 代码生成器实现（M6 t49/t50/t51，S1–S4 子集）
+ * @brief AST → LLVM IR 代码生成器实现（M6 t49–t52，S1–S5 子集）
  *
  * 降级规则见 compiler/codegen/README.md 第四节；语义依据 compiler/SPEC.md。
  */
@@ -8,13 +8,37 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <set>
 
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
 
 namespace collie {
+
+namespace {
+
+/// 块是否从函数 entry 可达（S5 t52）：return/break 后的 dead 块会被
+/// 外层控制流补 br 挂到后续块上，单看前驱数会误判可达，须从 entry 遍历
+ bool reachable_from_entry(llvm::BasicBlock* target) {
+    llvm::Function* fn = target->getParent();
+    std::vector<llvm::BasicBlock*> stack{&fn->getEntryBlock()};
+    std::set<llvm::BasicBlock*> visited;
+    while (!stack.empty()) {
+        llvm::BasicBlock* bb = stack.back();
+        stack.pop_back();
+        if (!visited.insert(bb).second) continue;
+        if (bb == target) return true;
+        for (llvm::BasicBlock* succ : llvm::successors(bb)) {
+            stack.push_back(succ);
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 CodeGenerator::CodeGenerator() : builder_(context_) {}
 
@@ -29,6 +53,15 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         builder_.getInt32Ty(), {llvm::PointerType::getUnqual(context_)},
         /*isVarArg=*/true);
     printf_fn_ = module_->getOrInsertFunction("printf", printf_type);
+
+    // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
+    functions_.clear();
+    in_function_ = false;
+    for (const auto& stmt : statements) {
+        if (const auto* fn_stmt = dynamic_cast<const FunctionStmt*>(stmt.get())) {
+            declare_function(*fn_stmt);
+        }
+    }
 
     // 顶层语句收拢进 @main（与解释器"脚本式执行"语义对齐）
     auto* main_type = llvm::FunctionType::get(builder_.getInt32Ty(), /*isVarArg=*/false);
@@ -279,6 +312,38 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
         gen_print(expr);
         return;
     }
+    // 用户自定义顶层函数（S5 t52）：查第一遍建好的原型表
+    if (callee) {
+        auto it = functions_.find(std::string(callee->name().lexeme()));
+        if (it != functions_.end()) {
+            const CGFunction& info = it->second;
+            const auto& arguments = expr.arguments();
+            if (arguments.size() != info.param_types.size()) {
+                // 元数不匹配属重载选择（语义层支持但 codegen 仅单签名）
+                unsupported("call arity mismatch (overloads not supported)",
+                            expr.paren().line(), expr.paren().column());
+            }
+            std::vector<llvm::Value*> args;
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                CGValue a = emit(arguments[i].get());
+                // 实参按形参类型对齐：仅 integer→decimal 隐式提升（与解释器 coerce 一致）
+                if (a.type != info.param_types[i]) {
+                    if (info.param_types[i] == CGType::Double && a.type == CGType::Int) {
+                        a = {to_double(a), CGType::Double};
+                    } else {
+                        unsupported("argument type mismatch",
+                                    expr.paren().line(), expr.paren().column());
+                    }
+                }
+                args.push_back(a.value);
+            }
+            llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+            last_value_ = (info.ret_type == CGType::Void)
+                              ? CGValue{nullptr, CGType::Void}
+                              : CGValue{call, info.ret_type};
+            return;
+        }
+    }
     unsupported("function call", expr.paren().line(), expr.paren().column());
 }
 
@@ -315,6 +380,10 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 args.push_back(builder_.CreateSelect(v.value, true_str, false_str));
                 break;
             }
+            case CGType::Void:
+                // none 返回函数的调用结果无值可打（解释器打 none，降级无对应表示）
+                unsupported("print of 'none' value",
+                            expr.paren().line(), expr.paren().column());
         }
     }
     format += '\n';
@@ -556,8 +625,109 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
 }
 
 void CodeGenerator::visitSwitch(const SwitchStmt&) { unsupported("'switch'", 0, 0); }
-void CodeGenerator::visitFunction(const FunctionStmt&) { unsupported("function declaration", 0, 0); }
-void CodeGenerator::visitReturn(const ReturnStmt&) { unsupported("'return'", 0, 0); }
+
+void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
+    // 函数体生成（第二遍，S5 t52）：原型已在第一遍建好
+    const std::string name(stmt.name().lexeme());
+    if (in_function_) {
+        unsupported("nested function declaration",
+                    stmt.name().line(), stmt.name().column());
+    }
+    auto it = functions_.find(name);
+    if (it == functions_.end()) {
+        // 非顶层位置的函数声明（块内等）未进原型表
+        unsupported("function declaration outside top level",
+                    stmt.name().line(), stmt.name().column());
+    }
+    const CGFunction& info = it->second;
+
+    // 保存 @main（或外层）生成现场，函数体用独立的变量环境/循环栈；
+    // 函数内仅参数与局部变量可见（顶层变量住 @main 栈槽，跨函数不可访问，
+    // 引用外层变量会走 identifier 未找到拒编）
+    llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
+    auto saved_scopes = std::move(scopes_);
+    auto saved_loops = std::move(loops_);
+    scopes_.clear();
+    scopes_.emplace_back();
+    loops_.clear();
+    in_function_ = true;
+    current_ret_type_ = info.ret_type;
+
+    builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "entry", info.fn));
+    // 形参落栈槽（与局部变量同机制，可被赋值/遮蔽）
+    size_t i = 0;
+    for (auto& arg : info.fn->args()) {
+        const Parameter& param = stmt.parameters()[i];
+        const std::string pname(param.name.lexeme());
+        arg.setName(pname);
+        llvm::AllocaInst* slot =
+            create_entry_alloca(llvm_type_of(info.param_types[i]), pname);
+        builder_.CreateStore(&arg, slot);
+        scopes_.back()[pname] = {slot, info.param_types[i]};
+        ++i;
+    }
+
+    for (const auto& body_stmt : stmt.body()->statements()) {
+        body_stmt->accept(*this);
+    }
+
+    // 尾块收尾：none 函数补 ret void（与解释器无显式 return 返 none 对齐）；
+    // 非 none 函数的不可达尾块（各分支均已 return）补 unreachable，
+    // 可达尾块无 return 则拒编（解释器此处返 none，静态返回类型无对应表示）
+    llvm::BasicBlock* tail = builder_.GetInsertBlock();
+    if (!tail->getTerminator()) {
+        if (info.ret_type == CGType::Void) {
+            builder_.CreateRetVoid();
+        } else if (!reachable_from_entry(tail)) {
+            builder_.CreateUnreachable();
+        } else {
+            throw CodeGenError(
+                "codegen: function '" + name + "' may reach end without return",
+                stmt.name().line(), stmt.name().column());
+        }
+    }
+
+    in_function_ = false;
+    current_ret_type_ = CGType::Void;
+    scopes_ = std::move(saved_scopes);
+    loops_ = std::move(saved_loops);
+    builder_.SetInsertPoint(saved_bb);
+}
+
+void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
+    if (!in_function_) {
+        unsupported("'return' outside function",
+                    stmt.keyword().line(), stmt.keyword().column());
+    }
+    if (current_ret_type_ == CGType::Void) {
+        // none 函数：仅允许裸 return（带值属语义层拦截面，此处防御）
+        if (stmt.value()) {
+            unsupported("return value in 'none' function",
+                        stmt.keyword().line(), stmt.keyword().column());
+        }
+        builder_.CreateRetVoid();
+    } else {
+        if (!stmt.value()) {
+            unsupported("missing return value",
+                        stmt.keyword().line(), stmt.keyword().column());
+        }
+        CGValue v = emit(stmt.value());
+        // 返回值按声明返回类型对齐：仅 integer→decimal 提升（与解释器 t37 一致）
+        if (v.type != current_ret_type_) {
+            if (current_ret_type_ == CGType::Double && v.type == CGType::Int) {
+                v = {to_double(v), CGType::Double};
+            } else {
+                unsupported("return type mismatch",
+                            stmt.keyword().line(), stmt.keyword().column());
+            }
+        }
+        builder_.CreateRet(v.value);
+    }
+    // return 后同块死代码仍需插入点（与 break/continue 同机制）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "ret.dead", fn));
+}
+
 void CodeGenerator::visitClass(const ClassStmt&) { unsupported("'class'", 0, 0); }
 
 void CodeGenerator::visitBreak(const BreakStmt& stmt) {
@@ -606,6 +776,7 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Double: return builder_.getDoubleTy();
         case CGType::Bool:   return builder_.getInt1Ty();
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
+        case CGType::Void:   return builder_.getVoidTy();
     }
     return builder_.getInt64Ty(); // 不可达，压编译器警告
 }
@@ -640,6 +811,32 @@ CodeGenerator::CGVar* CodeGenerator::lookup_var(const std::string& name) {
     return nullptr;
 }
 
+void CodeGenerator::declare_function(const FunctionStmt& stmt) {
+    const std::string name(stmt.name().lexeme());
+    if (functions_.count(name) != 0) {
+        // 语义层支持同名重载，codegen 第一期仅单签名
+        unsupported("function overloading for '" + name + "'",
+                    stmt.name().line(), stmt.name().column());
+    }
+    // none 返回降级 void；其余返回/参数类型限 declared_cgtype 支持面
+    const CGType ret = stmt.return_type().type() == TokenType::KW_NONE
+                           ? CGType::Void
+                           : declared_cgtype(stmt.return_type());
+    std::vector<CGType> param_types;
+    std::vector<llvm::Type*> llvm_params;
+    for (const auto& param : stmt.parameters()) {
+        CGType t = declared_cgtype(param.type);
+        param_types.push_back(t);
+        llvm_params.push_back(llvm_type_of(t));
+    }
+    auto* fn_type = llvm::FunctionType::get(llvm_type_of(ret), llvm_params,
+                                            /*isVarArg=*/false);
+    // 符号名加 "collie." 前缀：用户标识符无 '.'，天然不与 main/printf 等 C 符号冲突
+    auto* fn = llvm::Function::Create(fn_type, llvm::Function::InternalLinkage,
+                                      "collie." + name, module_.get());
+    functions_[name] = {fn, std::move(param_types), ret};
+}
+
 void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     // 三分支 tribool 形式 a ? x : y : z 属 tribool 后续阶段，拒编
     if (expr.unset_expr() != nullptr) {
@@ -667,7 +864,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
 
     // 两分支类型统一：同型直用；int/double 混型统一提升为 double（与算术混型一致）
     CGType result_type;
-    if (tv.type == ev.type) {
+    if (tv.type == ev.type && tv.type != CGType::Void) {
         result_type = tv.type;
     } else if ((tv.type == CGType::Int || tv.type == CGType::Double) &&
                (ev.type == CGType::Int || ev.type == CGType::Double)) {

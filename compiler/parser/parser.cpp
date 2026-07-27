@@ -991,7 +991,7 @@ Token Parser::consume(TokenType type, const std::string& message) {
 }
 
 Token Parser::consume_type_token(const std::string& message) {
-    // 接受 IDENTIFIER 或任何类型关键字作为合法的类型标识
+    // 接受 IDENTIFIER 或任何类型关键字作为合法的类型标识（与 parse_declaration 对齐）
     TokenType t = peek().type();
     if (t == TokenType::IDENTIFIER ||
         t == TokenType::KW_NUMBER  || t == TokenType::KW_STRING ||
@@ -999,7 +999,10 @@ Token Parser::consume_type_token(const std::string& message) {
         t == TokenType::KW_VOID    || t == TokenType::KW_CHAR   ||
         t == TokenType::KW_CHARACTER || t == TokenType::KW_BYTE ||
         t == TokenType::KW_WORD    || t == TokenType::KW_OBJECT ||
-        t == TokenType::KW_ARRAY   || t == TokenType::KW_TUPLE) {
+        t == TokenType::KW_ARRAY   || t == TokenType::KW_TUPLE  ||
+        t == TokenType::KW_INTEGER || t == TokenType::KW_DECIMAL ||
+        t == TokenType::KW_TRIBOOL || t == TokenType::KW_DWORD  ||
+        t == TokenType::KW_BIT) {
         return advance();
     }
     throw ParseError(message, peek().line(), peek().column());

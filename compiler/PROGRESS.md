@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t51 完成：codegen S4 循环控制流补全——for/do-while/break/continue + 二元三元表达式，附带修复 parser for 初始化类型列表缺口）
+最后更新：2026-07-26（t52 完成：codegen S5 函数支持——顶层 function 声明/调用/return/递归，两遍原型+函数体生成）
 
 ---
 
@@ -348,6 +348,12 @@
     - 实现：LoopContext{continue_target, break_target} 栈 loops_；for 初始化限自身作用域 + cond/body/inc/end 四块（continue 跳 inc，与解释器 continue 后仍执行增量对齐）；do-while 先 br body 保至少执行一次；break/continue CreateBr 后落 `*.dead` 死代码块（IR 每块仅一终结符）；gen_ternary then/else/merge + PHI，混型提升指令落在各自分支块内
     - 踩坑：parser parse_for_statement 初始化类型匹配列表历史缺口（仅 number/string/bool/character/IDENTIFIER，`for (integer i = ...)` 直接语法错误）——对齐 parse_declaration 完整类型列表修复，解释器/编译器共同受益，并补 parser 防退化测试 ForStatementIntegerInitializer
     - 验证：新增差分用例 s4_loops.collie（for 累加/continue/break/do-while/while 内 break-continue/三元/嵌套三元），ctest -C Release 差分 3/3 逐字节一致；Debug 门禁 ctest 6/6 全过
+- [x] codegen S5 函数支持（t52）
+    - 范围拍板：顶层 `function name(param type, ...) retType { ... }` 声明与调用、`return`、递归；参数/返回类型限 integer/decimal/bool/string，`none` 返回降级 void；两遍处理（先建全部原型再生成函数体，递归天然可用）；实参按形参类型 coerce（integer→decimal 提升）
+    - 范围外登记：嵌套函数、同名重载（语义层支持但 codegen 拒编）、函数作值传递；非 none 函数可达末尾无 return 拒编（不可达尾块补 unreachable）
+    - 实现：CGType 新增 Void（none 返回函数调用结果）；CGFunction{fn,param_types,ret_type} 表 functions_；generate() 第一遍 declare_function 建全部原型（符号名 `collie.<name>` + InternalLinkage）；visitFunction 现场保存/恢复（插入点/scopes_/loops_）后用全新作用域生成函数体，形参 entry alloca+store 落栈；visitCall 查表 + 实参 int→double coerce；visitReturn 求值+coerce 后落 ret.dead 块；gen_print/gen_ternary 加 Void 防御
+    - 踩坑：①parser consume_type_token 类型关键字列表历史缺口（缺 KW_INTEGER/KW_DECIMAL/KW_TRIBOOL/KW_DWORD/KW_BIT）→ `(a integer, ...)` 参数/返回类型语法错误，补齐并加防退化测试 FunctionDeclarationBuiltinTypeParams（继 t51 parse_for_statement 后第二个同类缺口）；②尾块可达性用 `pred_empty` 启发式失效——if/else 双分支均 return 时各 dead 块被 visitIf 补 br 到 merge，merge 有前驱但从 entry 不可达 → 改 reachable_from_entry 从 entry DFS 遍历 successors 真实判定
+    - 验证：新增差分用例 s5_functions.collie（add 多参/fib 递归/mix 混型/greet none 副作用/absval 双分支 return），ctest -C Release 差分 4/4 逐字节一致；Debug 门禁 ctest 6/6 全过
 
 ---
 
@@ -402,6 +408,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen 扩展 S5 函数 + 修复 parser 参数类型 token 缺口（t52，M6）：顶层 `function name(param type, ...) retType` 声明/调用/`return`/递归；两遍处理（generate() 第一遍 declare_function 建全部原型→递归/前向调用天然可用，符号名 `collie.<name>`+InternalLinkage；第二遍 visitFunction 现场保存/恢复后生成函数体）；CGType 新增 Void（none 返回降 void）；形参 entry alloca+store，实参/返回值仅 integer→decimal 提升；visitReturn 落 ret.dead 块；尾块收尾（void 补 RetVoid/不可达补 unreachable/可达无 return 拒编，可达性用 entry 起 DFS 判定）；同名重载/嵌套函数拒编；修复 parser consume_type_token 类型关键字列表缺口（缺 KW_INTEGER/KW_DECIMAL/KW_TRIBOOL/KW_DWORD/KW_BIT，影响函数参数/返回类型与类字段）+ 防退化测试；新增差分用例 s5_functions.collie，ctest -C Release 差分 4/4 逐字节一致，Debug 门禁 6/6（M6 t52）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S4 循环控制流 + 修复 parser for 初始化类型缺口（t51，M6）：LoopContext 栈支撑 break/continue（break→end、continue→while/do-while 的 cond、for 的 inc，与解释器对齐；CreateBr 后落 `*.dead` 块保每块单终结符）；for 初始化限自身作用域 + cond/body/inc/end 四块；do-while 先 br body 保至少执行一次；gen_ternary（bool 条件 CondBr + PHI 汇合，int/double 混型在各分支块内提升 double，三分支 tribool 拒编）；修复 parser parse_for_statement 初始化类型列表历史缺口（缺 integer/decimal/tribool 等，对齐 parse_declaration，解释器/编译器共同受益）+ 防退化测试；新增差分用例 s4_loops.collie，ctest -C Release 差分 3/3 逐字节一致，Debug 门禁 6/6（M6 t51）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S3 + 差分测试自动化进 ctest（t50，M6）：`code_generator.{h,cpp}` 新增 S3 降级——变量声明（integer/decimal/bool/string，entry 块头 alloca 利于 mem2reg，须带初始化否则拒编，`number` 变量拒编登记缺口 CG5）、赋值（仅 integer→decimal sitofp 提升）、比较 `== != < <= > >=`（纯整数 icmp/含小数 fcmp，`!=` 用 UNE 保 NaN，bool 仅 ==/!=）、逻辑 `&& || !`（短路 condbr+phi，与解释器 Kleene 对齐）、if/else、while、块作用域遮蔽（scopes_ 栈）、bool 字面量 KW_TRUE/KW_FALSE；差分测试自动化：`codegen/tests/run_diff_test.cmake` 四步比对脚本（colliec 编译产物 vs collie 解释器逐字节）+ `tests/CMakeLists.txt` 注册 codegen_diff_{s1_hello,s3_control_flow}（if COLLIE_ENABLE_LLVM + CONFIGURATIONS Release）；踩坑：EXCLUDE_FROM_ALL 子目录 add_test 不进 CTestTestfile（注册挪 tests/）、`codegen` 保留目标名 CMP0171（改名 collie_codegen）；ctest -C Release 差分 2/2 逐字节一致，Debug 全量 ctest 6/6 不受影响（M6 t50）
 - 2026-07-26 `feat(compiler)`: CodeGenerator 第一版 + colliec 本地编译驱动（t49，M6）：Release 全工程切 /MT 静态 CRT（t49a，Debug 保持 /MDd，门禁 ctest 6/6 不受影响）；`codegen/code_generator.{h,cpp}` 实现 S1/S2 降级（print→printf 编译期格式串、`/` 恒小数 fdiv、`%` floor 取模 srem+select 校正、一元负号；范围外节点统一抛 CodeGenError 绝不静默错编；verifyModule 门禁）；`colliec_main.cpp` 驱动：前端三层门禁→写 .ll→调 LLVM 包 clang 编链本地 .exe（`--emit-llvm`/`-o` 选项，COLLIE_LLVM_BIN 编译期烘焙）；t49_hello.collie 端到端跑通，编译产物与 Debug 解释器输出 fc 逐字节一致（首个解释器/编译产物差分验证）（M6 t49）

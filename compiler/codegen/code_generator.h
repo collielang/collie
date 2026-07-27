@@ -1,12 +1,13 @@
 /**
  * @file code_generator.h
- * @brief AST → LLVM IR 代码生成器（M6 t49/t50/t51，S1–S4 子集）
+ * @brief AST → LLVM IR 代码生成器（M6 t49–t52，S1–S5 子集）
  *
  * 设计文档：compiler/codegen/README.md（类型映射/降级映射/阶段范围）。
  * 支持面：print、字符串/整数/小数/布尔字面量、算术 + - * / %、一元负号；
  * S3（t50）：变量声明/赋值（integer/decimal/bool/string）、比较、
  * 短路 && || 与 !、if/else、while、块作用域遮蔽；
- * S4（t51）：for/do-while/break/continue、二元三元表达式 a ? x : y。
+ * S4（t51）：for/do-while/break/continue、二元三元表达式 a ? x : y；
+ * S5（t52）：顶层函数声明/调用/return/递归（两遍：先建原型再生成函数体）。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -101,6 +102,7 @@ private:
         Double,  // double（decimal / number 小数表示）
         Bool,    // i1
         Str,     // ptr → 常量字符串
+        Void,    // 无值（none 返回函数的调用结果，S5 t52）
     };
 
     struct CGValue {
@@ -119,6 +121,13 @@ private:
     struct LoopContext {
         llvm::BasicBlock* continue_target = nullptr;
         llvm::BasicBlock* break_target = nullptr;
+    };
+
+    /// @brief 顶层函数信息（S5 t52）：两遍处理第一遍建原型登记于此
+    struct CGFunction {
+        llvm::Function* fn = nullptr;
+        std::vector<CGType> param_types;
+        CGType ret_type = CGType::Void; // Void 即 none 返回
     };
 
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
@@ -148,6 +157,9 @@ private:
     /// @brief 二元三元表达式 a ? x : y：bool 条件 + PHI 汇合（分支类型不同时 int→double 提升）
     void gen_ternary(const TernaryExpr& expr);
 
+    /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void
+    void declare_function(const FunctionStmt& stmt);
+
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
 
@@ -163,6 +175,12 @@ private:
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;
     /// 循环上下文栈：break/continue 查最内层跳转目标（S4 t51）
     std::vector<LoopContext> loops_;
+    /// 顶层函数表（S5 t52）：名字 → 原型；第一遍填充，递归/前向调用天然可用
+    std::unordered_map<std::string, CGFunction> functions_;
+    /// 当前是否在生成函数体（顶层 return / 嵌套函数拒编用）
+    bool in_function_ = false;
+    /// 当前函数的返回类型（visitReturn 校验/提升用；Void 即 none）
+    CGType current_ret_type_ = CGType::Void;
 };
 
 } // namespace collie

@@ -15,7 +15,8 @@
 | S2 | 整数字面量、`+ - * / %`、`print(整数表达式)` | 算术表达式编译执行，输出与解释器一致 **✅ t49** |
 | S3 | 变量声明/读写、bool、比较、`if`/`while` | 循环程序编译执行，输出与解释器一致 **✅ t50** |
 | S4 | `for`/`do-while`、`break`/`continue`、二分支三元 `a ? x : y` | 循环控制流程序编译执行，输出与解释器一致 **✅ t51** |
-| 后续 | 函数、string 运行时、decimal 输出格式、class、BigInt | 逐任务扩展 |
+| S5 | 顶层函数声明/调用/`return`/递归 | 函数程序编译执行，输出与解释器一致 **✅ t52** |
+| 后续 | string 运行时、decimal 输出格式、class、BigInt | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、字符串插值（parser 已脱糖为拼接，
 依赖 string 运行时）、`==?`、异常语义。CodeGenVisitor 遇到不支持的节点**显式报错**
@@ -83,6 +84,16 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `do-while` | body/cond/end 基本块，先无条件 br body（至少执行一次），cond 判真回 body |
 | `break`/`continue` | loop 上下文栈 `loops_` 记录目标块：break → end；continue → while/do-while 的 cond、for 的 inc（与解释器 continue 后仍执行增量一致）；CreateBr 后落入 `*.dead` 死代码块（IR 每块仅一个终结符） |
 | 三元 `a ? x : y` | bool 条件 CondBr + then/else/merge 块，merge 处 PHI 汇合；分支 int/double 混型时在各自分支块内提升 double；三分支 tribool 形式报不支持 |
+
+**S5 降级补充（t52 实现）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 顶层函数声明 | 两遍处理：第一遍扫顶层建全部原型（递归/前向调用天然可用），第二遍生成函数体；符号名 `collie.<name>` + InternalLinkage（用户标识符无 '.'，不与 main/printf 冲突）；同名重载拒编；嵌套函数拒编 |
+| 参数/返回类型 | 限 integer/decimal/bool/string；`none` 返回降 void（CGType::Void）；实参/返回值仅 integer→decimal 隐式提升（与解释器 coerce 一致） |
+| 函数体生成 | 现场保存/恢复（插入点/作用域栈/循环栈）；形参 entry 块 alloca+store 落栈槽；函数内仅形参+局部可见，引用顶层变量拒编（顶层变量住 @main 栈槽） |
+| `return` | 求值 + coerce 后 CreateRet；void 函数仅裸 return；后续指令落 `ret.dead` 块 |
+| 尾块收尾 | void 补 RetVoid（对齐解释器返 none）；非 void 不可达尾块补 unreachable；可达无 return 拒编；可达性用 entry 起 DFS 判定（dead 块被外层控制流补 br 后单看前驱会误判） |
 
 **print 后续演进**：S2 之后 print 需要匹配解释器的 `to_string` 全部格式
 （decimal 6 位有效数字、整值小数按整数打印、`+Infinity`/`NaN`、bool/none/数组格式），

@@ -615,6 +615,21 @@ TEST(ParserTest, FunctionDeclaration) {
     EXPECT_EQ(visitor.result(), "Num add(Num a, Num b) {\n  return (a+b);\n}");
 }
 
+// 防退化：内建类型关键字作参数/返回类型（consume_type_token 曾漏 KW_INTEGER/KW_DECIMAL，t52 修复）
+TEST(ParserTest, FunctionDeclarationBuiltinTypeParams) {
+    std::string source = "function mix(x integer, y decimal) decimal { return x * y; }";
+    Lexer lexer(source);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
+
+    auto stmt = parser.parse();
+    ASSERT_NE(stmt, nullptr);
+
+    TestStmtVisitor visitor;
+    stmt->accept(visitor);
+    EXPECT_EQ(visitor.result(), "decimal mix(integer x, decimal y) {\n  return (x*y);\n}");
+}
+
 // 函数调用测试
 TEST(ParserTest, FunctionCall) {
     std::string source = "add(1, 2 * 3);";
