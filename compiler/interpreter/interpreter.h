@@ -73,6 +73,7 @@ private:
     void visitNew(const NewExpr& expr) override;
     void visitThis(const ThisExpr& expr) override;
     void visitBaseCall(const BaseCallExpr& expr) override;
+    void visitBaseMethodCall(const BaseMethodCallExpr& expr) override;
 
     // StmtVisitor 接口
     void visitExpression(const ExpressionStmt& stmt) override;

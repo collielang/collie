@@ -1580,3 +1580,156 @@ TEST(InterpreterEndToEnd, SelfExtendSemanticRejected) {
     analyzer.analyze(stmts);
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+TEST(InterpreterEndToEnd, BaseMethodCallBypassesOverride) {
+    // base.method()：覆写方法内显式调父类实现，绕过自身覆写
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public function speak() string {
+                return "...";
+            }
+        }
+
+        class Dog extends Animal {
+            public function speak() string {
+                return base.speak() + " Woof!";
+            }
+        }
+
+        Dog d = new Dog();
+        print(d.speak());
+    )"), R"(... Woof!
+)");
+}
+
+TEST(InterpreterEndToEnd, BaseMethodCallWithArguments) {
+    // base.method(args)：实参求值后传给父类方法，this 仍为当前实例
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public string name = "Animal";
+
+            public function greet(who string) string {
+                return this.name + " greets " + who;
+            }
+        }
+
+        class Dog extends Animal {
+            public function greet(who string) string {
+                return base.greet(who) + "!";
+            }
+        }
+
+        Dog d = new Dog();
+        d.name = "Rex";
+        print(d.greet("Tom"));
+    )"), R"(Rex greets Tom!
+)");
+}
+
+TEST(InterpreterEndToEnd, BaseMethodCallMultiLevel) {
+    // 多级继承：base 按“定义当前方法的类”的父类解析，逐级上调不死循环
+    EXPECT_EQ(run_source(R"(
+        class A {
+            public function chain() string {
+                return "A";
+            }
+        }
+
+        class B extends A {
+            public function chain() string {
+                return base.chain() + "B";
+            }
+        }
+
+        class C extends B {
+            public function chain() string {
+                return base.chain() + "C";
+            }
+        }
+
+        C c = new C();
+        print(c.chain());
+    )"), R"(ABC
+)");
+}
+
+TEST(InterpreterEndToEnd, BaseMethodCallSkipsIntermediateOverride) {
+    // base 从直接父类链查找：父类未覆写时命中祖父类实现
+    EXPECT_EQ(run_source(R"(
+        class A {
+            public function speak() string {
+                return "from A";
+            }
+        }
+
+        class B extends A { }
+
+        class C extends B {
+            public function speak() string {
+                return base.speak() + " via C";
+            }
+        }
+
+        C c = new C();
+        print(c.speak());
+    )"), R"(from A via C
+)");
+}
+
+TEST(InterpreterEndToEnd, BaseMethodCallUndefinedMethodThrows) {
+    // 父类链上无该方法：运行期报错
+    collie::Lexer lexer(R"(
+        class Animal { }
+        class Dog extends Animal {
+            public function speak() string {
+                return base.speak();
+            }
+        }
+        Dog d = new Dog();
+        d.speak();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, BaseMethodCallWithoutSuperclassThrows) {
+    // 无父类的类方法内写 base.method()：运行期报错
+    collie::Lexer lexer(R"(
+        class Animal {
+            public function speak() string {
+                return base.speak();
+            }
+        }
+        Animal a = new Animal();
+        a.speak();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, BaseMethodCallOutsideClassSemanticRejected) {
+    // 类外写 base.method()：语义阶段报错
+    collie::Lexer lexer(R"(
+        base.speak();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}

@@ -1021,6 +1021,46 @@ void Interpreter::visitBaseCall(const BaseCallExpr& expr) {
     result_ = Value::none();
 }
 
+void Interpreter::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
+    size_t line = expr.keyword().line();
+    size_t column = expr.keyword().column();
+
+    // base 按“定义当前方法的类”的父类解析，从父类链查找方法，
+    // 绕过子类覆写（C# 语义）
+    if (!current_class_ || !current_class_->has_superclass()) {
+        throw RuntimeError(
+            "'base' requires the enclosing class to have a superclass",
+            line, column);
+    }
+    const ClassStmt* super = superclass_of(current_class_);
+
+    Value* self = env_.get("this");
+    if (!self) {
+        throw RuntimeError("'base' can only be used inside a class method",
+                           line, column);
+    }
+    // 拷贝一份：call_class_method 内 ScopeGuard 压栈可能重分配环境存储，
+    // 直接引用 env_ 内部指针会悬空
+    Value self_value = *self;
+
+    std::vector<Value> args;
+    for (const auto& argument : expr.arguments()) {
+        args.push_back(evaluate(argument.get()));
+    }
+
+    const std::string method_name(expr.method().lexeme());
+    const ClassStmt* defining_class = nullptr;
+    const FunctionStmt* method = find_method(super, method_name, &defining_class);
+    if (!method) {
+        throw RuntimeError(
+            "Undefined method '" + method_name + "' in superclass chain of '" +
+                std::string(current_class_->name().lexeme()) + "'",
+            line, column);
+    }
+    result_ = call_class_method(self_value, method, defining_class, args,
+                                line, column);
+}
+
 void Interpreter::visitPropertyAssign(const PropertyAssignExpr& expr) {
     Value object = evaluate(expr.object());
     const std::string name(expr.name().lexeme());

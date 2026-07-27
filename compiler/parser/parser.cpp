@@ -555,6 +555,32 @@ std::unique_ptr<Expr> Parser::parse_primary() {
         return std::make_unique<ThisExpr>(previous());
     }
 
+    // base.method(args)：显式父类方法调用（C# 语义）；base 不是一等值，
+    // 必须紧跟 `.方法名(实参)`，在 primary 层一次性解析完整调用
+    if (match(TokenType::KW_BASE)) {
+        Token keyword = previous();
+        consume(TokenType::DELIMITER_DOT, "Expect '.' after 'base'.");
+        Token method = consume(TokenType::IDENTIFIER,
+                               "Expect method name after 'base.'.");
+        consume(TokenType::DELIMITER_LPAREN, "Expect '(' after base method name.");
+        std::vector<std::unique_ptr<Expr>> arguments;
+        if (!check(TokenType::DELIMITER_RPAREN)) {
+            do {
+                if (arguments.size() >= 255) {
+                    throw error(peek(), "Cannot have more than 255 arguments.");
+                }
+                auto argument = parse_expression();
+                if (!argument) {
+                    throw error(peek(), "Expect expression in base method arguments.");
+                }
+                arguments.push_back(std::move(argument));
+            } while (match(TokenType::DELIMITER_COMMA));
+        }
+        consume(TokenType::DELIMITER_RPAREN, "Expect ')' after base method arguments.");
+        return std::make_unique<BaseMethodCallExpr>(keyword, method,
+                                                    std::move(arguments));
+    }
+
     if (match(TokenType::IDENTIFIER)) {
         Token name = previous();
         // 检查是否是函数调用

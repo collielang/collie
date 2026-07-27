@@ -1729,6 +1729,30 @@ void SemanticAnalyzer::visitBaseCall(const BaseCallExpr& expr) {
     }
 }
 
+void SemanticAnalyzer::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
+    // base.method(args)：只能在类内使用；父类存在性/方法存在性/元数
+    // 运行期检查（与类实例方法调用一致），此处仅分析实参表达式
+    try {
+        if (!in_class_) {
+            throw SemanticError(
+                "'base' can only be used inside a class",
+                expr.keyword().line(), expr.keyword().column());
+        }
+        for (const auto& argument : expr.arguments()) {
+            argument->accept(*this);
+        }
+        // 返回类型运行期确定，object 动态放行
+        current_type_ = TokenType::KW_OBJECT;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // 私有辅助方法
 // -----------------------------------------------------------------------------

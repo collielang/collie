@@ -175,6 +175,19 @@ public:
         result_ = out;
     }
 
+    void visitBaseMethodCall(const BaseMethodCallExpr& expr) override {
+        std::string out = "base." + std::string(expr.method().lexeme()) + "(";
+        bool first = true;
+        for (const auto& arg : expr.arguments()) {
+            if (!first) out += ", ";
+            arg->accept(*this);
+            out += result_;
+            first = false;
+        }
+        out += ")";
+        result_ = out;
+    }
+
     std::string result() const { return result_; }
 
 private:

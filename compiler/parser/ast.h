@@ -33,6 +33,7 @@ class PropertyAssignExpr;
 class NewExpr;
 class ThisExpr;
 class BaseCallExpr;
+class BaseMethodCallExpr;
 class TupleExpr;
 class TupleMemberExpr;
 class ExpressionStmt;
@@ -493,6 +494,29 @@ private:
 };
 
 /**
+ * @brief base 显式父类方法调用表达式
+ * 语法：方法体内 `base.method(arguments)`（C# 语义），
+ * 从“定义当前方法的类”的父类链开始查找，绕过子类覆写
+ */
+class BaseMethodCallExpr : public Expr {
+public:
+    BaseMethodCallExpr(Token keyword, Token method,
+                       std::vector<std::unique_ptr<Expr>> arguments)
+        : keyword_(keyword), method_(method), arguments_(std::move(arguments)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Token& keyword() const { return keyword_; }
+    const Token& method() const { return method_; }
+    const std::vector<std::unique_ptr<Expr>>& arguments() const { return arguments_; }
+
+private:
+    Token keyword_;  // base 关键字 token，用于错误报告
+    Token method_;   // 方法名 token
+    std::vector<std::unique_ptr<Expr>> arguments_;
+};
+
+/**
  * @brief If 语句
  * 用于表示条件分支语句，包括条件、then分支和可选的else分支
  */
@@ -810,6 +834,9 @@ public:
 
     /// @brief 访问 base 构造器委托调用表达式
     virtual void visitBaseCall(const BaseCallExpr& expr) = 0;
+
+    /// @brief 访问 base 显式父类方法调用表达式
+    virtual void visitBaseMethodCall(const BaseMethodCallExpr& expr) = 0;
 };
 
 /**
