@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（已完成 t45：tuple 最小闭环——字面量/命名字段/`t[0]`/`t.name`/`t.get("key")`，经作者确认访问语法）
+最后更新：2026-07-26（已完成 t46：M5 语言规范草稿 `compiler/SPEC.md`——以实际实现为准逐条经代码核实，含 10 项已知实现缺口 G1–G10）
 
 ---
 
@@ -311,7 +311,10 @@
     - [x] 新增 15 个端到端测试（字面量/索引/命名字段/单命名元素/get 动态键/length/toString/混合元素/相等比较/函数返回/分组不受影响/四项拒绝）；全量 ctest 6/6
 
 ### M5 · 语言规范 & 语法闭环（持续）
-- [ ] 沉淀一份「实际实现」为准的语言规范草稿
+- [x] **沉淀一份「实际实现」为准的语言规范草稿（t46，已完成）**：
+    - [x] 从代码盘点实现面（关键字表/运算符与优先级/字面量/语句/类型与转换规则/内建函数方法表/class 文法/执行模型）
+    - [x] 撰写 `compiler/SPEC.md` 规范草稿（十章 + 「已知实现缺口」专节 G1–G10：位运算 token 未解析、char/byte 等类型仅声明放行、形参/返回类型缺 integer/decimal/tribool、运行期无重载分发、访问修饰符不强制等）；凭记忆表述逐条回查代码修正（print 分隔符/小数输出格式/null 兜底现状）
+    - [x] 风险表过时条目清理（double 单表示已被 t42 解决；文档占位风险更新为 SPEC.md 已建立）
 - [ ] parser 补齐已有 token 但缺失的语法（~~`switch`~~、~~`do-while`~~、~~复合赋值`~~、~~`class`（基础子集）~~ 等）
 
 ### M6 · LLVM 后端（路线 B，稳定后启动）
@@ -342,11 +345,11 @@
 | 语义错误被静默吞掉（main 不检查 errors） | ✅ 已修复 | M2：`main.cpp` 检查 `has_errors()` 逐条上报并非零退出 |
 | 语义分析对未声明函数调用（如 `print(a)`）疑似死循环卡住 | ✅ 已修复 | M2：parser 驱动循环加进度守卫、semantic `synchronize`/`advance_token` 防空防下溢 |
 | `std::codecvt` 已弃用 | 🟡 中 | M1 随 UTF-8 管线一并移除 |
-| 设计愿景 > 已实现，文档多为占位 | 🟡 中 | M5 以实现为准逐步沉淀规范 |
+| 设计愿景 > 已实现，文档多为占位 | 🟢 低 | ✅ t46 建立 `compiler/SPEC.md` 实现规范草稿（以代码为准逐条核实，差距登记为缺口 G1–G10），后续随任务同步更新 |
 | 依赖在线拉取 GoogleTest | 🟢 低 | M0 改离线友好，评估 doctest |
 | 无 CI / 无端到端测试 | 🟢 低 | ✅ CI 已加（M3，Windows+Linux 矩阵，跑 `lexer_tests`+`interpreter_tests`）；端到端测试已随 M4 解释器建立 |
 | 用户自定义函数不可执行 | ✅ 已修复 | t11 完成：Value+Function、ReturnSignal、visitFunction/visitCall/visitReturn，递归可用 |
-| 数字类型统一用 `double`，未区分 integer/decimal | 🟡 中 | 解释器 `Value` 暂以 `double` 承载，代码记 TODO；类型系统闭环时再拆分 |
+| 数字类型统一用 `double`，未区分 integer/decimal | ✅ 已修复 | t42：BigInt 任意精度整数 + Value 整数/小数双表示，integer/decimal/number 三类型闭环 |
 
 ---
 
@@ -371,6 +374,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `docs(compiler)`: 新增 `compiler/SPEC.md` 语言规范草稿（t46，M5）：以实际实现为准逐条经代码核实（词法/字面量/类型系统与转换规则/运算符优先级与语义/语句/内建函数方法表/class 文法/执行模型与门禁/输出格式），「已知实现缺口」专节登记 G1–G10（位运算未解析、char/byte 类型不完整、形参/返回类型缺口、无重载分发、访问修饰符不强制等）；风险表清理两条过时条目（double 单表示已由 t42 解决、文档占位风险降级）（M5 t46）
 - 2026-07-26 `feat(compiler)`: tuple 最小闭环（t45，经作者确认访问语法 `t[0]`/`t.name`/`t.get("key")`）：词法注册 `Tuple` 关键字；parser 命名元组字面量（`IDENTIFIER :` 前瞻，首元素带名无逗号也是元组）+ `Tuple` 声明/返回类型，删除 `.0` 死代码（parse_postfix/parse_tuple_type/parse_type/TupleMemberExpr）；语义层 KW_TUPLE 接入索引/属性/get/length 并拒绝索引赋值；解释器 Value 新增不可变 Tuple（元素+平行名字表）含负索引/相等深比较/coerce；新增 15 个端到端测试；全量 ctest 6/6；同步修正 uncategorized.md 两处矛盾示例并补充中文 03-tuple.md 成员访问节（M4 t45）
 - 2026-07-26 `feat(compiler)`: `==?` 通用多路匹配运算符（t44，经作者确认语义与消歧义规则）：AST 新增 MultiMatchExpr；parser 在 parse_ternary 层解析（末尾裸表达式 = 默认分支、其余裸值与后面最近「值: 结果」归组）；语义层候选值可比性/tribool 穷尽三态/非 tribool 必须默认分支/结果类型兼容检查；解释器按序匹配首命中 + 惰性求值；同步修正 uncategorized.md 示例 5（默认在前写法废弃）；新增 8 个端到端测试；全量 ctest 6/6（M4 t44）
 - 2026-07-26 `feat(compiler)`: tribool 三态布尔类型闭环（t43，经作者确认语义）：`unset` 字面量 + Value 层 Tri 三态（编码使 Kleene AND/OR 退化为 min/max）；`! && ||` Kleene 三值逻辑（保留短路，混合运算结果加宽为 tribool）；条件语句必须 bool（语义拦截 + 运行期 condition_truthy 防御）；bool → tribool 单向加宽；`==`/`!=` 三态比较；内建方法 isTrue/isFalse/isUnset；三分支三元 `a ? x : y : z`（需 tribool 条件，两分支时 unset 走 false 分支）；新增 11 个端到端测试；全量 ctest 6/6（M4 t43）
