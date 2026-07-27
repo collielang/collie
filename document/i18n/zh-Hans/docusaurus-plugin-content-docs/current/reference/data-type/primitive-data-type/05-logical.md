@@ -60,6 +60,15 @@ a ==? false: 1, 2
 
 三态布尔类型由布尔类型扩展而来，添加了 `unset` 选项。`unset` 取反仍为 `unset`，其他特性均与布尔类型一致。
 
+> 参考: Kleene 三值逻辑
+
+:::warning[TODO]
+tribool 参与逻辑运算符（! && ||）时，unset 如何处理？文档只定义了 ==? 和三元，没写逻辑运算。
+我觉得 Kleene 三值逻辑更合适，但是放在if(tribool)这里不允许，也就是说，这里必须 if(tribool.isTrue()) /isFalse/isUnset，或者 if (tribool ==unset) / true/false 这几种写法明确含义。（可以理解为，isTrue/isFalse/isUnset是tribool类型的自带属性，而 if() 条件必须是 bool）
+`==?` 多路匹配运算符是否通用于任意类型（number/string 等），还是仅限 tribool？
+任意可 == 比较的值都能匹配（类 switch 表达式），与文档长示例一致。tribool 要求穷尽三态或给默认分支；其他类型必须有默认分支。
+:::
+
 ### 🏅语法示例
 
 - 定义三态布尔类型：
