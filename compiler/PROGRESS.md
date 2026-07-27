@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t35 完成）
+最后更新：2026-07-26（t36 完成）
 
 ---
 
@@ -17,7 +17,7 @@
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法、特殊数值 `Infinity`/`NaN`、插值字符串 `@"...{expr}..."`），token 种类丰富 |
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`)、**class 声明（字段/方法/构造器）与 `new`/`this`/属性赋值** |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）**、**运行期声明类型校验（变量/形参，string ← number/bool 隐式转换落地）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）**、**运行期声明类型校验（变量/形参/类字段，string ← number/bool 隐式转换落地）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -259,7 +259,13 @@
     - [x] 四处接入：变量声明初始化、变量赋值、函数形参绑定、类方法/构造器形参绑定（修复 `string s = 42;` 后 `s.length` 误报——此前变量实际绑定的仍是 number）
     - [x] 修复语义层 `can_implicit_convert` 缺 object 动态放行（与 `is_compatible_type` 不一致，致动态实参传参被误拒）
     - [x] 端到端测试 7 例：声明/赋值/传参的 string 隐式转换 + 动态路径 number/bool/形参不匹配运行期拦截
-    - `interpreter_tests` 现 113 全绿；未做：类字段类型运行期校验（字段声明类型待接入）、函数返回值类型校验
+    - `interpreter_tests` 现 113 全绿；未做：类字段类型运行期校验（已于 t36 闭环）、函数返回值类型校验
+- [x] **类字段类型运行期校验（t36，已完成，t35 遗留项闭环）**：
+    - [x] 解释器新增 `find_field` 辅助（在类成员中查字段声明，与 `find_method` 对称）
+    - [x] `visitNew` 字段初始化、`visitPropertyAssign` 字段赋值均接入 `coerce_to_declared`（含构造器内 `this.x = v` 路径）
+    - [x] 修复 parser `consume_type_token` 缺 `object`/`array`：此前形参类型不能写 `object`/`array`（变量声明可以，属 parser 缺口）
+    - [x] 端到端测试 4 例：字段初始化/赋值的 string 隐式转换、动态路径字段初始化/赋值类型不匹配运行期拦截
+    - `interpreter_tests` 现 117 全绿；未做：函数返回值类型校验
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
 ### M5 · 语言规范 & 语法闭环（持续）
@@ -318,6 +324,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-26 `feat(interpreter),fix(parser)`: 类字段类型运行期校验（t36，闭环 t35 遗留项）：新增 find_field 辅助，visitNew 字段初始化与 visitPropertyAssign 字段赋值接入 coerce_to_declared；修复 parser consume_type_token 缺 object/array 致形参类型不能写这两个关键字；新增 4 个端到端测试；interpreter_tests 117 全绿（M4 t36）
 
 - 2026-07-26 `feat(interpreter),fix(semantic)`: 运行期声明类型校验与隐式转换（t35）：Environment 记录声明类型，新增 coerce_to_declared（number/bool/array 严格匹配、string ← number/bool 转字符串、object/类名动态放行），接入变量声明/赋值/函数形参/类方法形参四处；修复语义层 can_implicit_convert 缺 object 动态放行；新增 7 个端到端测试；interpreter_tests 113 全绿（M4 t35）
 

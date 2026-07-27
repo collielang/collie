@@ -125,6 +125,10 @@ private:
     static const FunctionStmt* find_method(const ClassStmt* klass,
                                            const std::string& name);
 
+    /// @brief 在类成员中查找指定名字的字段声明，未找到返回 nullptr
+    static const VarDeclStmt* find_field(const ClassStmt* klass,
+                                         const std::string& name);
+
     /// @brief 执行类方法/构造器：新作用域内绑定 this 与形参，捕获 return
     Value call_class_method(const Value& instance, const FunctionStmt* method,
                             const std::vector<Value>& args,

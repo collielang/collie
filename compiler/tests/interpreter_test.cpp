@@ -1280,3 +1280,82 @@ TEST(InterpreterEndToEnd, BoolDeclTypeMismatchRuntimeRejected) {
     collie::Interpreter interpreter(out);
     EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
 }
+
+// ---------------------------------------------------------------------------
+// 类字段类型运行期校验（t36）
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, FieldImplicitStringConversion) {
+    // 字段初始化与字段赋值均按字段声明类型隐式转换
+    EXPECT_EQ(run_source(R"(
+        class Tag {
+            public string label = 42;
+
+            public function Tag() none {
+            }
+        }
+        Tag t = new Tag();
+        print(t.label.length);
+        t.label = true;
+        print(t.label + "!");
+    )"), R"(2
+true!
+)");
+}
+
+TEST(InterpreterEndToEnd, FieldCtorAssignImplicitConversion) {
+    // 构造器内 this.x = 实参 同样经字段声明类型转换
+    EXPECT_EQ(run_source(R"(
+        class Box {
+            public string content = "";
+
+            public function Box(v object) none {
+                this.content = v;
+            }
+        }
+        Box b = new Box(99);
+        print(b.content.length);
+    )"), R"(2
+)");
+}
+
+TEST(InterpreterEndToEnd, FieldInitTypeMismatchRuntimeRejected) {
+    // 字段初始化表达式动态路径类型不匹配：运行期拦截
+    collie::Lexer lexer(R"(
+        array a = ["x"];
+        class Counter {
+            public number count = a[0];
+        }
+        Counter c = new Counter();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, FieldAssignTypeMismatchRuntimeRejected) {
+    // 字段赋值动态路径类型不匹配：运行期拦截
+    collie::Lexer lexer(R"(
+        class Counter {
+            public number count = 0;
+        }
+        array a = ["x"];
+        Counter c = new Counter();
+        c.count = a[0];
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}

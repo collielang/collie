@@ -919,13 +919,19 @@ void Interpreter::visitNew(const NewExpr& expr) {
     }
     const ClassStmt* klass = it->second;
 
-    // 创建实例并初始化字段：有初始化表达式的求值，否则为 none
+    // 创建实例并初始化字段：有初始化表达式的求值后按字段声明类型
+    // 校验/隐式转换，否则为 none
     auto data = std::make_shared<InstanceData>();
     data->klass = klass;
     for (const auto& member : klass->members()) {
         if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
-            Value init = field->initializer() ? evaluate(field->initializer())
-                                              : Value::none();
+            Value init = Value::none();
+            if (field->initializer()) {
+                init = coerce_to_declared(field->type().type(),
+                                          evaluate(field->initializer()),
+                                          field->name().line(),
+                                          field->name().column());
+            }
             data->fields[std::string(field->name().lexeme())] = init;
         }
     }
@@ -978,6 +984,10 @@ void Interpreter::visitPropertyAssign(const PropertyAssignExpr& expr) {
         throw RuntimeError("Undefined property '" + name + "' on object",
                            line, column);
     }
+    // 按字段声明类型校验/隐式转换
+    if (const VarDeclStmt* field = find_field(object.as_instance().klass, name)) {
+        value = coerce_to_declared(field->type().type(), value, line, column);
+    }
     it->second = value;
     result_ = value;  // 赋值表达式的值为所赋的值
 }
@@ -987,6 +997,16 @@ const FunctionStmt* Interpreter::find_method(const ClassStmt* klass,
     for (const auto& member : klass->members()) {
         if (auto* fn = dynamic_cast<const FunctionStmt*>(member.get())) {
             if (fn->name().lexeme() == name) return fn;
+        }
+    }
+    return nullptr;
+}
+
+const VarDeclStmt* Interpreter::find_field(const ClassStmt* klass,
+                                           const std::string& name) {
+    for (const auto& member : klass->members()) {
+        if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
+            if (field->name().lexeme() == name) return field;
         }
     }
     return nullptr;

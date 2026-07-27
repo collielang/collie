@@ -811,7 +811,8 @@ Token Parser::consume_type_token(const std::string& message) {
         t == TokenType::KW_BOOL    || t == TokenType::KW_NONE   ||
         t == TokenType::KW_VOID    || t == TokenType::KW_CHAR   ||
         t == TokenType::KW_CHARACTER || t == TokenType::KW_BYTE ||
-        t == TokenType::KW_WORD) {
+        t == TokenType::KW_WORD    || t == TokenType::KW_OBJECT ||
+        t == TokenType::KW_ARRAY) {
         return advance();
     }
     throw ParseError(message, peek().line(), peek().column());
