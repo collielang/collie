@@ -1,5 +1,8 @@
 # 设置 CMake 最低版本要求和项目名称
 cmake_minimum_required(VERSION 3.10)
+# MSVC 运行时库由 CMAKE_MSVC_RUNTIME_LIBRARY 变量/目标属性控制（CMP0091 NEW）：
+# 否则下方的全局 /MD 设置与 codegen 模块对齐 LLVM 静态 CRT 的属性覆盖都不生效
+cmake_policy(SET CMP0091 NEW)
 project(collie_compiler)
 
 # 编译器设置
@@ -72,6 +75,23 @@ add_subdirectory(lexer)
 add_subdirectory(parser)
 add_subdirectory(semantic)
 add_subdirectory(interpreter)
+
+# LLVM 后端（M6，可选，默认关闭，不影响现有测试门禁与 CI）：
+#   cmake .. -DCOLLIE_ENABLE_LLVM=ON -DLLVM_DIR=<llvm解压路径>/lib/cmake/llvm
+# 注意：官方预编译包仅提供 Release + /MT（静态 CRT）库，codegen 相关目标须以 Release 配置构建
+# 并在模块内单独对齐 /MT；子目录以 EXCLUDE_FROM_ALL 加入，避免 Debug 全量构建时误链 Release LLVM 库。
+option(COLLIE_ENABLE_LLVM "Build the LLVM codegen backend" OFF)
+if(COLLIE_ENABLE_LLVM)
+    # LLVMConfig.cmake 会把 CMAKE_MSVC_RUNTIME_LIBRARY 改写为 MultiThreaded(/MT)，
+    # 污染其后定义的所有目标（如 collie）：find_package 前后保存/恢复本工程设置
+    set(_collie_msvc_runtime "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+    find_package(LLVM REQUIRED CONFIG)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "${_collie_msvc_runtime}")
+    message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} at ${LLVM_DIR}")
+    separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+    add_subdirectory(codegen EXCLUDE_FROM_ALL)
+endif()
+
 if(COLLIE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

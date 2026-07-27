@@ -12,6 +12,29 @@ sidebar_label: 编译和运行指南
 - Visual Studio 2019/2022 (Windows)
 - 或 GCC/Clang (Linux/macOS)
 
+## LLVM 依赖（本地代码生成后端所需）
+
+LLVM 本地代码生成后端（开发中，见 `compiler/PROGRESS.md` 里程碑 M6）需要 **LLVM 开发库**（头文件 + 静态库 + CMake config）。Windows 下获取方式如下：
+
+1. 打开 [LLVM GitHub Releases 页面](https://github.com/llvm/llvm-project/releases)，选择最新稳定版（如 21.x 或 20.1.x 系列）。
+2. 下载资产 **`clang+llvm-<版本>-x86_64-pc-windows-msvc.tar.xz`**（约 900 MB）。
+
+   :::warning
+   注意下载的是这个 tar.xz 压缩包，**不是** `LLVM-<版本>-win64.exe` 安装器——安装器只包含 clang/lld 可执行文件，**不含** `find_package(LLVM)` 所需的开发库。
+   :::
+
+3. 解压到一个稳定且不含空格的路径（如 `D:\Program\Development\Environment\llvm-21`）。解压后应能在该目录下找到 `lib\cmake\llvm\LLVMConfig.cmake`。
+4. 配置项目时通过 `LLVM_DIR` 告诉 CMake 它的位置：
+   ```bash
+   cmake .. -DLLVM_DIR=<解压路径>\lib\cmake\llvm
+   ```
+
+:::tip 把 `bin` 加入 `PATH` 有必要吗？
+把 `<解压路径>\bin` 加入 `PATH` 是**可选的**：构建通过 `LLVM_DIR` 定位 LLVM 并静态链接，完全不依赖 `PATH`。但加上对开发很方便：`llc`、`opt`、`llvm-as` 等命令行工具可直接使用，便于检查生成的 LLVM IR。
+:::
+
+Linux/macOS 下直接用系统包管理器安装开发库：`sudo apt install llvm-dev`（Ubuntu）或 `brew install llvm`（macOS）。
+
 ## Windows 下编译和运行
 
 ### 前置要求

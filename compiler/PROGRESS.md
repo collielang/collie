@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（完成 t47：char/byte 类型 + 位运算符 `~ & | ^ << >>` + 十六进制字面量——补齐缺口 G1，解锁 3 个禁用语义测试，全量 ctest 6/6）
+最后更新：2026-07-26（t48 进行中：LLVM 22.1.8 官方预编译包接入 CMake（可选 COLLIE_ENABLE_LLVM），llvm_smoke 冒烟验证 IRBuilder 全链路通过，既有 Debug 门禁 ctest 6/6 不受影响）
 
 ---
 
@@ -326,7 +326,10 @@
     - [x] 新增测试：lexer 2 个（hex 字面量/缺位报错）+ 解释器端到端 6 个（位运算求值/优先级/byte・word 声明/超界拦截×2/移位数越界）；全量 ctest 6/6
 
 ### M6 · LLVM 后端（路线 B，稳定后启动）
-- [ ] 引入 LLVM，设计 AST/新 IR → LLVM IR 的降级
+- [ ] **引入 LLVM，设计 AST/新 IR → LLVM IR 的降级（t48，进行中）**：
+    - [x] 环境排查 + 安装方案拍板（t48a）：作者选定**官方预编译包**（`clang+llvm-22.1.8-x86_64-pc-windows-msvc.tar.xz`，解压至 `D:\Program\Development\Environment\llvm-21`）；下载步骤已写入贡献文档 compile-and-run（英文 + 中文 i18n，含「bin 加 PATH 可选」说明）；交叉编译/分发需求不锁死：各平台 CI 用各自渠道的 LLVM，target 后端预编译包全启用，静态链接自包含
+    - [x] LLVM 依赖接入 CMake + 冒烟验证（t48b）：顶层 `COLLIE_ENABLE_LLVM` 选项（默认 OFF，不影响既有门禁/CI）+ `find_package(LLVM CONFIG)` + codegen 子目录（EXCLUDE_FROM_ALL）；`llvm_smoke` 工具 IRBuilder 构造 hello world 模块、verifyModule、打印 IR 全链路通过；踩坑两个：①官方包是 **/MT 静态 CRT**（非 /MD），需 CMP0091 NEW + 目标级 MSVC_RUNTIME_LIBRARY 对齐；② `LLVMConfig.cmake` 会改写顶层 `CMAKE_MSVC_RUNTIME_LIBRARY` 污染其后目标（collie 主程序 Debug 被带成 /MT Release 报 LNK2038），find_package 前后保存/恢复；回归全量 ctest 6/6
+    - [ ] AST → LLVM IR 降级设计文档（t48c）：范围先锁定 helloworld 最小子集（print/整数字面量/算术），产出 `compiler/codegen/README.md` 降级映射表
 - [ ] 生成本地二进制，跑通 helloworld 的编译产物
 
 ---
@@ -382,6 +385,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `build(compiler)`: LLVM 22.1.8 官方预编译包接入 CMake + 冒烟验证（t48a/t48b，M6 启动）：顶层 `COLLIE_ENABLE_LLVM` 选项（默认 OFF）+ `find_package(LLVM CONFIG)` + codegen 子目录（EXCLUDE_FROM_ALL）；`llvm_smoke` 工具 IRBuilder 构造 hello world 模块/verifyModule/打印 IR 全链路通过；CRT 对齐两坑：官方包为 /MT 静态 CRT（CMP0091 NEW + 目标级 MSVC_RUNTIME_LIBRARY）、`LLVMConfig.cmake` 污染顶层 `CMAKE_MSVC_RUNTIME_LIBRARY`（find_package 前后保存/恢复）；LLVM 下载步骤写入贡献文档 compile-and-run（英文 + 中文 i18n）；回归全量 ctest 6/6（M6 t48）
 - 2026-07-26 `feat(compiler)`: char/byte 类型 + 位运算符 `~ & | ^ << >>` + 十六进制字面量（t47，补齐 SPEC.md 缺口 G1）：lexer `0x`/`0X` hex 字面量；parser 新增 C 家族位运算优先级层（`|`<`^`<`&`<相等<关系<移位<加法）、`~` 接入 unary、char 字面量接入 primary；语义 `is_bit_type` 纳入 integer、`integer → byte/word` 静态放行；解释器 `~` BigInt 精确、二元位运算 int64 域（超范围/移位数越界报错）、coerce_to_declared 新增 byte 0-255/word 0-65535 范围校验；解锁 3 个禁用语义测试 + 新增 8 个测试；全量 ctest 6/6（M5 t47）
 - 2026-07-26 `docs(compiler)`: 新增 `compiler/SPEC.md` 语言规范草稿（t46，M5）：以实际实现为准逐条经代码核实（词法/字面量/类型系统与转换规则/运算符优先级与语义/语句/内建函数方法表/class 文法/执行模型与门禁/输出格式），「已知实现缺口」专节登记 G1–G10（位运算未解析、char/byte 类型不完整、形参/返回类型缺口、无重载分发、访问修饰符不强制等）；风险表清理两条过时条目（double 单表示已由 t42 解决、文档占位风险降级）（M5 t46）
 - 2026-07-26 `feat(compiler)`: tuple 最小闭环（t45，经作者确认访问语法 `t[0]`/`t.name`/`t.get("key")`）：词法注册 `Tuple` 关键字；parser 命名元组字面量（`IDENTIFIER :` 前瞻，首元素带名无逗号也是元组）+ `Tuple` 声明/返回类型，删除 `.0` 死代码（parse_postfix/parse_tuple_type/parse_type/TupleMemberExpr）；语义层 KW_TUPLE 接入索引/属性/get/length 并拒绝索引赋值；解释器 Value 新增不可变 Tuple（元素+平行名字表）含负索引/相等深比较/coerce；新增 15 个端到端测试；全量 ctest 6/6；同步修正 uncategorized.md 两处矛盾示例并补充中文 03-tuple.md 成员访问节（M4 t45）

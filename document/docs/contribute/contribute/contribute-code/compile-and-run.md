@@ -12,6 +12,29 @@ This document explains how to compile and run the project on different operating
 - Visual Studio 2019/2022 (Windows)
 - or GCC/Clang (Linux/macOS)
 
+## LLVM Dependency (for the native code generation backend)
+
+The LLVM native code generation backend (work in progress, see `compiler/PROGRESS.md` milestone M6) requires the **LLVM development libraries** (headers + static libraries + CMake config). On Windows, get them as follows:
+
+1. Open the [LLVM GitHub Releases page](https://github.com/llvm/llvm-project/releases) and pick the latest stable release (e.g. the 21.x or 20.1.x series).
+2. Download the asset **`clang+llvm-<version>-x86_64-pc-windows-msvc.tar.xz`** (~900 MB).
+
+   :::warning
+   Make sure to download this tar.xz archive, **not** the `LLVM-<version>-win64.exe` installer — the installer only ships the clang/lld executables and does **not** include the development libraries needed for `find_package(LLVM)`.
+   :::
+
+3. Extract it to a stable path without spaces (e.g. `D:\Program\Development\Environment\llvm-21`). After extraction you should be able to find `lib\cmake\llvm\LLVMConfig.cmake` under that directory.
+4. When configuring the project, point CMake at it via `LLVM_DIR`:
+   ```bash
+   cmake .. -DLLVM_DIR=<extract-path>\lib\cmake\llvm
+   ```
+
+:::tip Is adding `bin` to `PATH` necessary?
+Adding `<extract-path>\bin` to your `PATH` is **optional**: the build locates LLVM via `LLVM_DIR` and links the libraries statically, so `PATH` is not consulted at all. It is still convenient for development, because it puts command-line tools such as `llc`, `opt` and `llvm-as` at your fingertips for inspecting the generated LLVM IR.
+:::
+
+On Linux/macOS the development libraries are available from the system package manager instead: `sudo apt install llvm-dev` (Ubuntu) or `brew install llvm` (macOS).
+
 ## Compilation and Execution on Windows
 
 ### Prerequisites
