@@ -63,8 +63,11 @@ void Interpreter::visitLiteral(const LiteralExpr& expr) {
                 result_ = Value::number(std::numeric_limits<double>::infinity());
             } else if (lexeme == "NaN") {
                 result_ = Value::number(std::numeric_limits<double>::quiet_NaN());
+            } else if (lexeme.find_first_of(".eEf") == std::string::npos) {
+                // 整数字面量（t42）：BigInt 任意精度承载，不经 double 不丢精度
+                result_ = Value::integer(BigInt::from_decimal_string(lexeme));
             } else {
-                // 词法器保证 lexeme 是合法数字串
+                // 小数字面量（含 '.'/'e'/'f'）：stod 解析自然停在 'f' 后缀处
                 result_ = Value::number(std::stod(lexeme));
             }
             break;
@@ -139,7 +142,12 @@ void Interpreter::visitUnary(const UnaryExpr& expr) {
             if (!operand.is_number()) {
                 throw RuntimeError("Unary '-' requires a number", op.line(), op.column());
             }
-            result_ = Value::number(-operand.as_number());
+            // 整数值走 BigInt 精确取负，保持整数表示（t42）
+            if (operand.is_integer_value()) {
+                result_ = Value::integer(operand.as_integer().negated());
+            } else {
+                result_ = Value::number(-operand.as_number());
+            }
             break;
         case TokenType::OP_NOT:
             result_ = Value::boolean(!operand.is_truthy());
@@ -257,14 +265,15 @@ void Interpreter::call_builtin_len(const CallExpr& expr) {
     }
     Value v = evaluate(args[0].get());
     if (v.is_array()) {
-        result_ = Value::number(static_cast<double>(v.as_array().size()));
+        result_ = Value::integer(BigInt(static_cast<long long>(v.as_array().size())));
         return;
     }
     if (!v.is_string()) {
         throw RuntimeError(std::string("len() expects a string or array, got ") + v.kind_name(),
                            expr.paren().line(), expr.paren().column());
     }
-    result_ = Value::number(static_cast<double>(utf8_length(v.as_string())));
+    // 长度恒为整数（t42）
+    result_ = Value::integer(BigInt(static_cast<long long>(utf8_length(v.as_string()))));
 }
 
 void Interpreter::call_builtin_to_string(const CallExpr& expr) {
@@ -296,6 +305,30 @@ Value Interpreter::coerce_to_declared(TokenType declared, const Value& value,
                 throw RuntimeError(std::string("Type mismatch: cannot assign ") +
                                        value.kind_name() + " to 'number' variable",
                                    line, column);
+            }
+            return value;
+        case TokenType::KW_INTEGER:
+            // integer 只接受整数表示的值（t42）：decimal 不可隐式窄化
+            if (!value.is_number()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to 'integer' variable",
+                                   line, column);
+            }
+            if (!value.is_integer_value()) {
+                throw RuntimeError(
+                    "Type mismatch: cannot assign decimal value to 'integer' variable",
+                    line, column);
+            }
+            return value;
+        case TokenType::KW_DECIMAL:
+            // decimal 接受任意数值；整数值隐式加宽为小数表示（t42）
+            if (!value.is_number()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to 'decimal' variable",
+                                   line, column);
+            }
+            if (value.is_integer_value()) {
+                return Value::number(value.as_number());
             }
             return value;
         case TokenType::KW_BOOL:
@@ -334,7 +367,8 @@ Value Interpreter::to_number_value(const Value& v, size_t line, size_t column) {
         return v;
     }
     if (v.is_bool()) {
-        return Value::number(v.as_bool() ? 1.0 : 0.0);
+        // bool 转整数 0/1（t42：保持整数表示）
+        return Value::integer(BigInt(v.as_bool() ? 1 : 0));
     }
     if (v.is_string()) {
         // 两端去空白后解析；不可解析的字符串按文档返回 NaN（见 04-numeric.md：
@@ -351,6 +385,20 @@ Value Interpreter::to_number_value(const Value& v, size_t line, size_t column) {
         }
         if (s == "-Infinity") {
             return Value::number(-std::numeric_limits<double>::infinity());
+        }
+        // 纯整数形式（可带符号）走 BigInt 精确转换，不经 double 不丢精度（t42）
+        if (!s.empty()) {
+            size_t digits_begin = (s[0] == '+' || s[0] == '-') ? 1 : 0;
+            bool all_digits = digits_begin < s.size();
+            for (size_t i = digits_begin; i < s.size(); ++i) {
+                if (!std::isdigit(static_cast<unsigned char>(s[i]))) {
+                    all_digits = false;
+                    break;
+                }
+            }
+            if (all_digits) {
+                return Value::integer(BigInt::from_decimal_string(s));
+            }
         }
         try {
             size_t pos = 0;
@@ -544,6 +592,25 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
                                std::string(object.kind_name()),
                            line, column);
     }
+    // 整数表示的精确路径（t42）：超大整数经 double 会丢精度/饱和为 Infinity，
+    // 故直接按 BigInt 回答；整数恒有限、恒非 NaN/Infinity
+    if (object.is_integer_value()) {
+        const BigInt& n = object.as_integer();
+        if (name == "abs") {
+            result_ = Value::integer(n.sign() < 0 ? n.negated() : n);
+            return;
+        }
+        if (name == "integerPart") { result_ = Value::integer(n); return; }
+        if (name == "decimalPart") { result_ = Value::integer(BigInt(0)); return; }
+        if (name == "isInteger")   { result_ = Value::boolean(true); return; }
+        if (name == "isDecimal")   { result_ = Value::boolean(false); return; }
+        if (name == "isNaN")       { result_ = Value::boolean(false); return; }
+        if (name == "isInfinity")  { result_ = Value::boolean(false); return; }
+        if (name == "isFinite")    { result_ = Value::boolean(true); return; }
+        if (name == "isPositive")  { result_ = Value::boolean(n.sign() > 0); return; }
+        if (name == "isNegative")  { result_ = Value::boolean(n.sign() < 0); return; }
+        throw RuntimeError("Unknown method '" + name + "'", line, column);
+    }
     double a = object.as_number();
     if (name == "abs") {
         result_ = Value::number(std::fabs(a));
@@ -591,16 +658,17 @@ void Interpreter::visitProperty(const PropertyExpr& expr) {
         return;
     }
 
-    // 内建属性（见设计文档 03-character.md）：string 按 UTF-8 码点计数
+    // 内建属性（见设计文档 03-character.md）：string 按 UTF-8 码点计数；
+    // 长度恒为整数（t42）
     if (name == "length") {
         if (object.is_string()) {
-            result_ = Value::number(
-                static_cast<double>(utf8_length(object.as_string())));
+            result_ = Value::integer(
+                BigInt(static_cast<long long>(utf8_length(object.as_string()))));
             return;
         }
         if (object.is_array()) {
-            result_ = Value::number(
-                static_cast<double>(object.as_array().size()));
+            result_ = Value::integer(
+                BigInt(static_cast<long long>(object.as_array().size())));
             return;
         }
         throw RuntimeError(
@@ -715,6 +783,27 @@ Value Interpreter::eval_arithmetic(const Token& op, const Value& left, const Val
         throw RuntimeError("Arithmetic operands must be numbers", op.line(), op.column());
     }
 
+    // 双整数精确路径（t42）：+ - * % 走 BigInt，自动扩容不溢出；
+    // 除法恒产小数（Python 式 true division），落到下方 double 路径；
+    // 取模除数为 0 时同样落到 double 路径得 NaN（保持 IEEE 754 语义）
+    if (left.is_integer_value() && right.is_integer_value()) {
+        const BigInt& ia = left.as_integer();
+        const BigInt& ib = right.as_integer();
+        switch (op.type()) {
+            case TokenType::OP_PLUS:     return Value::integer(ia + ib);
+            case TokenType::OP_MINUS:    return Value::integer(ia - ib);
+            case TokenType::OP_MULTIPLY: return Value::integer(ia * ib);
+            case TokenType::OP_MODULO:
+                // floor 语义（Python 风格）：结果符号与除数一致
+                if (!ib.is_zero()) {
+                    return Value::integer(ia.floor_mod(ib));
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
     double a = left.as_number();
     double b = right.as_number();
     switch (op.type()) {
@@ -744,6 +833,17 @@ Value Interpreter::eval_arithmetic(const Token& op, const Value& left, const Val
 }
 
 Value Interpreter::eval_comparison(const Token& op, const Value& left, const Value& right) {
+    // 双整数走 BigInt 精确比较（t42，超大整数不受 double 精度影响）
+    if (left.is_integer_value() && right.is_integer_value()) {
+        int c = BigInt::compare(left.as_integer(), right.as_integer());
+        switch (op.type()) {
+            case TokenType::OP_GREATER:    return Value::boolean(c > 0);
+            case TokenType::OP_LESS:       return Value::boolean(c < 0);
+            case TokenType::OP_GREATER_EQ: return Value::boolean(c >= 0);
+            case TokenType::OP_LESS_EQ:    return Value::boolean(c <= 0);
+            default: break;
+        }
+    }
     // 数字比较
     if (left.is_number() && right.is_number()) {
         double a = left.as_number();
@@ -777,7 +877,12 @@ bool Interpreter::values_equal(const Value& left, const Value& right) {
     switch (left.kind()) {
         case Value::Kind::None:   return true;
         case Value::Kind::Bool:   return left.as_bool() == right.as_bool();
-        case Value::Kind::Number: return left.as_number() == right.as_number();
+        case Value::Kind::Number:
+            // 双整数走 BigInt 精确相等（t42）；混合表示按 double 视图比较（5 == 5.0）
+            if (left.is_integer_value() && right.is_integer_value()) {
+                return BigInt::compare(left.as_integer(), right.as_integer()) == 0;
+            }
+            return left.as_number() == right.as_number();
         case Value::Kind::String: return left.as_string() == right.as_string();
         case Value::Kind::Array: {
             // 数组按元素逐个深度比较

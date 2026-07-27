@@ -1862,3 +1862,156 @@ TEST(InterpreterEndToEnd, UnknownAnnotationSyntaxRejected) {
     auto stmts = parser.parse_program();
     EXPECT_FALSE(parser.get_errors().empty());
 }
+
+// ---------------------------------------------------------------------------
+// number/integer/decimal 三类型区分（t42：Python 式任意精度整数自动扩容）
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, BigIntegerExactArithmetic) {
+    // 超出 double 精度范围的整数精确算术（BigInt 自动扩容）
+    EXPECT_EQ(run_source(R"(
+        print(999999999999999999999 + 1);
+        print(123456789012345678901234567890 * 10);
+        print(1000000000000000000000 - 1);
+    )"), R"(1000000000000000000000
+1234567890123456789012345678900
+999999999999999999999
+)");
+}
+
+TEST(InterpreterEndToEnd, BigIntegerExactComparison) {
+    // 相邻超大整数精确区分（若经 double 会塔缩为相等）
+    EXPECT_EQ(run_source(R"(
+        print(999999999999999999999 == 999999999999999999998);
+        print(999999999999999999999 > 999999999999999999998);
+    )"), R"(false
+true
+)");
+}
+
+TEST(InterpreterEndToEnd, IntegerDivisionProducesDecimal) {
+    // 除法恒产小数（Python 式 true division）；整除结果打印仍无小数点
+    EXPECT_EQ(run_source(R"(
+        print(1 / 2);
+        print(4 / 2);
+        decimal half = 1 / 2;
+        print(half);
+    )"), R"(0.5
+2
+0.5
+)");
+}
+
+TEST(InterpreterEndToEnd, BigIntegerFloorModulo) {
+    // 整数取模走 BigInt floor 语义（结果符号与除数一致），超大整数同样精确
+    EXPECT_EQ(run_source(R"(
+        print(-1 % 5);
+        print(1 % -5);
+        print(10000000000000000000000 % 7);
+    )"), R"(4
+-4
+4
+)");
+}
+
+TEST(InterpreterEndToEnd, IntegerDecimalDeclarations) {
+    // integer/decimal 声明；integer -> decimal 隐式加宽；number 为超类型
+    EXPECT_EQ(run_source(R"(
+        integer i = 123456789012345678901234567890;
+        decimal d = 3.5;
+        decimal widened = 2;
+        number n = 42;
+        print(i);
+        print(d);
+        print(widened);
+        print(n);
+    )"), R"(123456789012345678901234567890
+3.5
+2
+42
+)");
+}
+
+TEST(InterpreterEndToEnd, MixedIntegerDecimalArithmetic) {
+    // 整数与小数混合运算：落到 double 路径，结果为 decimal
+    EXPECT_EQ(run_source(R"(
+        print(1 + 2.5);
+        print(2 * 3.5);
+        print(5 == 5.0);
+    )"), R"(3.5
+7
+true
+)");
+}
+
+TEST(InterpreterEndToEnd, BigIntegerBuiltinMethods) {
+    // 整数表示的 number 方法走 BigInt 精确路径（不受 double 饱和影响）
+    EXPECT_EQ(run_source(R"(
+        integer big = 999999999999999999999;
+        print(big.isInteger());
+        print(big.isFinite());
+        print((0 - big).abs());
+        print(len("abc") + 1);
+    )"), R"(true
+true
+999999999999999999999
+4
+)");
+}
+
+TEST(InterpreterEndToEnd, ToNumberBigIntegerStringExact) {
+    // 纯整数字符串转数字走 BigInt 精确转换，不经 double 不丢精度
+    EXPECT_EQ(run_source(R"(
+        print(toNumber("123456789012345678901234567890"));
+        print(toNumber("-42"));
+        print(toNumber(true));
+    )"), R"(123456789012345678901234567890
+-42
+1
+)");
+}
+
+TEST(InterpreterEndToEnd, DecimalToIntegerSemanticRejected) {
+    // decimal 字面量赋给 integer：语义阶段拒绝（不可隐式窄化）
+    collie::Lexer lexer(R"(
+        integer i = 1.5;
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, NumberToIntegerRuntimeChecked) {
+    // number -> integer 静态放行；运行期按实际表示校验：小数值拒绝
+    collie::Lexer lexer(R"(
+        function f() number {
+            return 1.5;
+        }
+        integer i = f();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, NumberToIntegerRuntimeAccepted) {
+    // number -> integer：运行期值确为整数表示时放行
+    EXPECT_EQ(run_source(R"(
+        function f() number {
+            return 40 + 2;
+        }
+        integer i = f();
+        print(i);
+    )"), R"(42
+)");
+}
+

@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "big_int.h"
+
 namespace collie {
 
 // 前置声明（避免包含完整 ast.h）
@@ -27,8 +29,9 @@ struct InstanceData;  // 定义在 Value 之后（字段表持有 Value）
  *
  * v1 支持七种值：none（空）、bool、number、string、function、array、instance。
  * 数组与类实例为引用语义（shared_ptr 共享底层存储），赋值/传参共享同一对象。
- * TODO(interpreter): Collie 语言区分 integer/decimal 等数值子类型，
- *   目前解释器统一用 double 承载 number，暂不区分整型/浮点型的溢出与精度语义。
+ * number 内部双表示（t42，经作者确认的 Python 式设计）：整数值用 BigInt
+ * 任意精度承载（自动扩容，无溢出），小数值用 double（IEEE 754）；
+ * 静态类型 number 是 integer/decimal 的超类型，两种表示都算 is_number()。
  */
 class Value {
 public:
@@ -44,6 +47,14 @@ public:
     }
     static Value number(double n) {
         Value v; v.kind_ = Kind::Number; v.num_ = n; return v;
+    }
+    /// 整数值（BigInt 任意精度承载；打印/精确算术走整数路径）
+    static Value integer(BigInt n) {
+        Value v;
+        v.kind_ = Kind::Number;
+        v.num_is_int_ = true;
+        v.big_ = std::move(n);
+        return v;
     }
     static Value str(std::string s) {
         Value v; v.kind_ = Kind::String; v.str_ = std::move(s); return v;
@@ -65,13 +76,21 @@ public:
     bool is_none() const { return kind_ == Kind::None; }
     bool is_bool() const { return kind_ == Kind::Bool; }
     bool is_number() const { return kind_ == Kind::Number; }
+    /// number 且内部为整数表示（integer 类型值）
+    bool is_integer_value() const { return kind_ == Kind::Number && num_is_int_; }
+    /// number 且内部为小数表示（decimal 类型值）
+    bool is_decimal_value() const { return kind_ == Kind::Number && !num_is_int_; }
     bool is_string() const { return kind_ == Kind::String; }
     bool is_function() const { return kind_ == Kind::Function; }
     bool is_array() const { return kind_ == Kind::Array; }
     bool is_instance() const { return kind_ == Kind::Instance; }
 
     bool as_bool() const { return bool_; }
-    double as_number() const { return num_; }
+    /// 数值的 double 视图：整数表示时转 double（超大整数有精度损失，
+    /// 仅供混合算术/比较等小数路径使用；精确路径用 as_integer）
+    double as_number() const { return num_is_int_ ? big_.to_double() : num_; }
+    /// 整数表示的 BigInt（仅当 is_integer_value() 时有效）
+    const BigInt& as_integer() const { return big_; }
     const std::string& as_string() const { return str_; }
     const FunctionStmt* as_function() const { return fn_; }
     ArrayStorage& as_array() { return *arr_; }
@@ -88,7 +107,7 @@ public:
         switch (kind_) {
             case Kind::None:     return false;
             case Kind::Bool:     return bool_;
-            case Kind::Number:   return num_ != 0.0;
+            case Kind::Number:   return num_is_int_ ? !big_.is_zero() : num_ != 0.0;
             case Kind::String:   return !str_.empty();
             case Kind::Function: return true;  // 函数值始终为真
             case Kind::Array:    return arr_ && !arr_->empty();
@@ -108,6 +127,8 @@ public:
             case Kind::String:   return str_;
             case Kind::Function: return "<function>";
             case Kind::Number: {
+                // 整数表示：BigInt 精确打印（任意位数不丢精度）
+                if (num_is_int_) return big_.to_string();
                 // 特殊数值按文档格式输出（见 04-numeric.md）：
                 // NaN / +Infinity / -Infinity
                 if (std::isnan(num_)) return "NaN";
@@ -152,7 +173,9 @@ public:
 private:
     Kind kind_;
     bool bool_ = false;
+    bool num_is_int_ = false;  ///< number 的内部表示：true=BigInt 整数，false=double 小数
     double num_ = 0.0;
+    BigInt big_;               ///< 整数表示（num_is_int_ 为 true 时有效）
     std::string str_;
     const FunctionStmt* fn_ = nullptr;
     std::shared_ptr<ArrayStorage> arr_;  ///< 数组存储（引用语义，赋值共享）

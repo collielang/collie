@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t40 @override 注解完成）
+最后更新：2026-07-26（t42 完成：数字类型 number/integer/decimal 三类型区分，integer 任意精度自动扩容）
 
 ---
 
@@ -287,7 +287,12 @@
     - [x] parser：`classMember -> annotation* 修饰符? 成员`；`@override` 仅可标注方法（字段/构造器报语法错）；`@deprecated` 接受暂不生效（TODO 调用处告警）；未知注解报语法错；`FunctionStmt` 增 `is_override` 标志
     - [x] 语义层：`declared_classes_` 升级为 `unordered_map<string, const ClassStmt*>`，新增 `find_method_in_hierarchy`；`@override` 方法校验父类链确有同名方法，否则 record_error（不中断成员分析）
     - [x] 端到端测试 7 例：覆写标注正常运行、命中祖父类方法、@deprecated 无副作用、父类链无同名方法/无父类语义报错、标注字段语法报错、未知注解语法报错；`interpreter_tests` 现 142 全绿，全量 ctest 6/6
-- [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
+- [x] **数字类型 number/integer/decimal 区分（t42，已完成）**：经作者确认，只保留三类型，Python 式自动扩容（integer 任意精度，使用者无需考虑溢出/精度）；定宽类型留待后续单独实现
+    - [x] 解释器新增 `BigInt`（base 2^32 limbs，schoolbook 乘法 + 二进制长除 + floor_mod）；`Value` 双表示（Kind::Number 内 `num_is_int_` 标志，整数 BigInt / 小数 double）
+    - [x] lexer：f 后缀计入 lexeme（下游据 lexeme 中的 '.'/'e'/'f' 判定 integer/decimal）
+    - [x] 语义层：字面量推导（无 '.'/'e'/'f' 且非 Infinity/NaN → integer，否则 decimal，Infinity/NaN → number）；integer → decimal/number 隐式加宽，decimal → integer 拒绝，number → integer/decimal 静态放行运行期校验；`/` 恒产 decimal（Python true division）；common_type 含 decimal → decimal；len/length → integer
+    - [x] 解释器：整数字面量走 BigInt 不经 double；双整数 `+ - * %` 精确路径（% 为 floor 语义，除零/模零仍落 IEEE 754 路径得 Infinity/NaN）；比较/相等双整数精确；coerce_to_declared 支持 integer（拒小数值）/decimal（整数加宽）；toNumber 整数串/bool → integer；整数的 abs/isInteger 等方法走 BigInt 精确路径
+    - [x] 端到端测试 11 例：超大整数精确算术/比较、除法恒 decimal、大整数 floor 取模、integer/decimal 声明与加宽、混合算术、大整数方法、toNumber 精确转换、decimal→integer 语义拒绝、number→integer 运行期校验两例；`interpreter_tests` 现 153 全绿，全量 ctest 6/6
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
@@ -346,6 +351,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: 数字类型 number/integer/decimal 三类型区分（t42，经作者确认 Python 式设计）：解释器新增 BigInt（base 2^32，任意精度自动扩容）与 Value 双表示；lexer f 后缀计入 lexeme；语义层字面量推导/转换规则（integer→decimal 加宽、decimal→integer 拒绝、number 超类型）与 `/` 恒产 decimal；解释器双整数 `+ - * %` 精确路径、比较/相等精确、coerce/toNumber/len/数字方法整数路径；新增 11 个端到端测试；interpreter_tests 153 全绿（M4 t42）
 - 2026-07-26 `feat(compiler)`: @override 注解（t40）：lexer 新增 ANNOTATION token（@名字，与 @" 插值共存）；parser 类成员注解解析（@override 仅限方法，@deprecated 接受不生效，未知注解报错）；语义层类表升级为 map 并新增 find_method_in_hierarchy，@override 校验父类链确有同名方法；新增 7 个端到端测试；interpreter_tests 142 全绿（M4 t40）
 - 2026-07-26 `feat(compiler)`: base.method() 显式父类方法调用（t39）：AST 新增 BaseMethodCallExpr，parser 在 primary 层解析（base 非一等值，必须紧跟方法调用）；解释器从 current_class_ 的父类链查找绕过覆写，以 defining_class 上下文执行；语义层类外报错；新增 7 个端到端测试；interpreter_tests 135 全绿（M4 t39）
 - 2026-07-26 `feat(compiler)`: class 继承（t38）：`extends` 单继承 + 构造器委托 `: base(args)`（脱糖为体首语句）；字段/方法沿继承链查找与覆写，字段初始化 base-first，current_class_ 上下文使 base 按定义类父类解析；语义层父类已声明/非自身检查；新增 8 个端到端测试；interpreter_tests 128 全绿（M4 t38）

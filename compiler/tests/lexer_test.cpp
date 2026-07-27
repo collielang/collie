@@ -51,13 +51,13 @@ TEST(LexerTest, NumberLiteralForms) {
     EXPECT_EQ(tokens[0].type(), TokenType::LITERAL_NUMBER);
     EXPECT_EQ(tokens[0].lexeme(), ".5");
     EXPECT_EQ(tokens[1].type(), TokenType::LITERAL_NUMBER);
-    EXPECT_EQ(tokens[1].lexeme(), "2");    // f 后缀不计入 lexeme
+    EXPECT_EQ(tokens[1].lexeme(), "2f");  // f 后缀计入 lexeme（t42：下游据此判定 decimal）
     EXPECT_EQ(tokens[2].type(), TokenType::LITERAL_NUMBER);
     EXPECT_EQ(tokens[2].lexeme(), "3.14");
     EXPECT_EQ(tokens[3].type(), TokenType::LITERAL_NUMBER);
     EXPECT_EQ(tokens[3].lexeme(), "1e3");
     EXPECT_EQ(tokens[4].type(), TokenType::LITERAL_NUMBER);
-    EXPECT_EQ(tokens[4].lexeme(), "2.5");  // f 后缀不计入 lexeme
+    EXPECT_EQ(tokens[4].lexeme(), "2.5f");  // f 后缀计入 lexeme（t42）
     EXPECT_EQ(tokens[5].type(), TokenType::DELIMITER_SEMICOLON);
 }
 

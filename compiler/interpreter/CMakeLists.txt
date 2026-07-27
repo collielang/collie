@@ -3,6 +3,7 @@
 # 设置源文件
 set(INTERPRETER_SOURCES
     interpreter.cpp
+    big_int.cpp
 )
 
 # 构建 interpreter 静态库

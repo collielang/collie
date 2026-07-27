@@ -123,9 +123,21 @@ void SemanticAnalyzer::synchronize() {
 void SemanticAnalyzer::visitLiteral(const LiteralExpr& expr) {
     // 根据字面量的token类型设置当前类型
     switch (expr.token().type()) {
-        case TokenType::LITERAL_NUMBER:
-            current_type_ = TokenType::KW_NUMBER;
+        case TokenType::LITERAL_NUMBER: {
+            // 数字字面量类型推导（t42，见 04-numeric.md）：
+            // - Infinity/NaN 只归 number（既非 integer 也非 decimal）
+            // - 含 '.'/'e'/'E'/'f' 的为 decimal（如 3.14 / 1e3 / 2f）
+            // - 其余为 integer（任意精度，自动扩容）
+            std::string_view lexeme = expr.token().lexeme();
+            if (lexeme == "Infinity" || lexeme == "NaN") {
+                current_type_ = TokenType::KW_NUMBER;
+            } else if (lexeme.find_first_of(".eEf") != std::string_view::npos) {
+                current_type_ = TokenType::KW_DECIMAL;
+            } else {
+                current_type_ = TokenType::KW_INTEGER;
+            }
             break;
+        }
         case TokenType::LITERAL_STRING:
             current_type_ = TokenType::KW_STRING;
             break;
@@ -199,6 +211,9 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
                     right_type == TokenType::KW_OBJECT) {
                     // 含动态操作数时结果按 number 处理
                     current_type_ = TokenType::KW_NUMBER;
+                } else if (expr.op().type() == TokenType::OP_DIVIDE) {
+                    // 除法恒产小数（t42，Python 式 true division）：整数相除也得 decimal
+                    current_type_ = TokenType::KW_DECIMAL;
                 } else {
                     current_type_ = common_type(left_type, right_type);
                 }
@@ -670,7 +685,8 @@ void SemanticAnalyzer::visitCall(const CallExpr& expr) {
                         throw SemanticError("len() expects a string or array argument",
                             builtin->name().line(), builtin->name().column());
                     }
-                    current_type_ = TokenType::KW_NUMBER;
+                    // 长度恒为整数（t42）
+                    current_type_ = TokenType::KW_INTEGER;
                 } else if (builtin->name().lexeme() == "toString") {
                     current_type_ = TokenType::KW_STRING;
                 } else {
@@ -909,6 +925,8 @@ TokenType SemanticAnalyzer::check_type(const Expr& expr) {
 bool SemanticAnalyzer::is_numeric_type(TokenType type) const {
     switch (type) {
         case TokenType::KW_NUMBER:
+        case TokenType::KW_INTEGER:
+        case TokenType::KW_DECIMAL:
         case TokenType::KW_BYTE:
         case TokenType::KW_WORD:
             return true;
@@ -927,6 +945,8 @@ bool SemanticAnalyzer::is_string_convertible(TokenType type) const {
         case TokenType::KW_CHAR:
         case TokenType::KW_CHARACTER:
         case TokenType::KW_NUMBER:
+        case TokenType::KW_INTEGER:
+        case TokenType::KW_DECIMAL:
         case TokenType::KW_BOOL:
         case TokenType::KW_BYTE:
         case TokenType::KW_WORD:
@@ -952,6 +972,20 @@ bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) 
         // 允许从小类型到大类型的隐式转换
         if (expected == TokenType::KW_NUMBER) {
             return true;  // 任何数值类型都可以转换为 number
+        }
+        // t42 三类型规则（见 04-numeric.md）：
+        // - integer -> decimal 隐式加宽；
+        // - number -> integer/decimal 静态放行，运行期由 coerce_to_declared 校验
+        //   （与 object 下转政策一致）；decimal -> integer 不允许（需显式转换）
+        if (expected == TokenType::KW_DECIMAL &&
+            (actual == TokenType::KW_INTEGER || actual == TokenType::KW_NUMBER ||
+             actual == TokenType::KW_BYTE || actual == TokenType::KW_WORD)) {
+            return true;
+        }
+        if (expected == TokenType::KW_INTEGER &&
+            (actual == TokenType::KW_NUMBER || actual == TokenType::KW_BYTE ||
+             actual == TokenType::KW_WORD)) {
+            return true;
         }
         if (expected == TokenType::KW_WORD && actual == TokenType::KW_BYTE) {
             return true;
@@ -1040,6 +1074,8 @@ bool SemanticAnalyzer::is_string_concatenable(TokenType type) const {
            type == TokenType::KW_CHAR ||
            type == TokenType::KW_CHARACTER ||
            type == TokenType::KW_NUMBER ||
+           type == TokenType::KW_INTEGER ||
+           type == TokenType::KW_DECIMAL ||
            type == TokenType::KW_BOOL ||
            type == TokenType::KW_OBJECT;
 }
@@ -1080,6 +1116,18 @@ bool SemanticAnalyzer::can_implicit_convert(TokenType from, TokenType to) const 
         // 允许从小类型到大类型的隐式转换
         if (from == TokenType::KW_BYTE && to == TokenType::KW_NUMBER) return true;
         if (from == TokenType::KW_WORD && to == TokenType::KW_NUMBER) return true;
+        // t42 三类型规则（与 is_compatible_type 保持一致）
+        if (to == TokenType::KW_NUMBER &&
+            (from == TokenType::KW_INTEGER || from == TokenType::KW_DECIMAL)) {
+            return true;
+        }
+        if (to == TokenType::KW_DECIMAL &&
+            (from == TokenType::KW_INTEGER || from == TokenType::KW_NUMBER)) {
+            return true;
+        }
+        if (to == TokenType::KW_INTEGER && from == TokenType::KW_NUMBER) {
+            return true;
+        }
     }
 
     // 字符类型转换规则
@@ -1099,9 +1147,14 @@ TokenType SemanticAnalyzer::common_type(TokenType t1, TokenType t2) const {
 
     // 数值类型的共同类型
     if (is_numeric_convertible(t1) && is_numeric_convertible(t2)) {
-        // 返回最大的类型
+        // 返回最大的类型：number 是 integer/decimal 的超类型；
+        // integer 与 decimal 混合运算结果为 decimal（t42，见 04-numeric.md）
         if (t1 == TokenType::KW_NUMBER || t2 == TokenType::KW_NUMBER)
             return TokenType::KW_NUMBER;
+        if (t1 == TokenType::KW_DECIMAL || t2 == TokenType::KW_DECIMAL)
+            return TokenType::KW_DECIMAL;
+        if (t1 == TokenType::KW_INTEGER || t2 == TokenType::KW_INTEGER)
+            return TokenType::KW_INTEGER;
         if (t1 == TokenType::KW_WORD || t2 == TokenType::KW_WORD)
             return TokenType::KW_WORD;
         return TokenType::KW_BYTE;
@@ -1151,6 +1204,8 @@ bool SemanticAnalyzer::is_synchronization_point() const {
         case TokenType::KW_FUNCTION:
         case TokenType::KW_CLASS:
         case TokenType::KW_NUMBER:
+        case TokenType::KW_INTEGER:
+        case TokenType::KW_DECIMAL:
         case TokenType::KW_STRING:
         case TokenType::KW_BOOL:
         case TokenType::KW_CHAR:
@@ -1425,10 +1480,10 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
         if (name == "toString") {
             result_type = TokenType::KW_STRING;
         } else if (name == "toNumber") {
-            // string/bool/number 可转数字（object 动态放行，运行期再检查）
+            // string/bool/数值可转数字（object 动态放行，运行期再检查）
             if (object_type != TokenType::KW_STRING &&
                 object_type != TokenType::KW_BOOL &&
-                object_type != TokenType::KW_NUMBER &&
+                !is_numeric_type(object_type) &&
                 object_type != TokenType::KW_OBJECT) {
                 throw SemanticError(
                     "toNumber() is not supported on type '" +
@@ -1437,8 +1492,8 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
             }
             result_type = TokenType::KW_NUMBER;
         } else if (number_methods.count(name) != 0) {
-            // number 专属方法（object 动态放行，运行期再检查）
-            if (object_type != TokenType::KW_NUMBER &&
+            // number 专属方法（integer/decimal 同样适用；object 动态放行，运行期再检查）
+            if (!is_numeric_type(object_type) &&
                 object_type != TokenType::KW_OBJECT) {
                 throw SemanticError(
                     "Method '" + name + "()' is only supported on numbers, got '" +
@@ -1507,7 +1562,7 @@ void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
         const std::string name(expr.name().lexeme());
 
         // 内建属性表（basic 版，见设计文档 03-character.md）：
-        // - length：string/array -> number
+        // - length：string/array -> integer（长度恒为整数，t42）
         if (name == "length") {
             if (object_type != TokenType::KW_STRING &&
                 object_type != TokenType::KW_ARRAY &&
@@ -1517,7 +1572,7 @@ void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
                     std::string(token_type_to_string(object_type)) + "'",
                     expr.name().line(), expr.name().column());
             }
-            current_type_ = TokenType::KW_NUMBER;
+            current_type_ = TokenType::KW_INTEGER;
         } else if (object_type == TokenType::KW_OBJECT) {
             // 用户类实例的字段读取：object 动态放行，字段存在性运行期检查
             current_type_ = TokenType::KW_OBJECT;
