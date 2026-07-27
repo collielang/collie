@@ -2015,3 +2015,153 @@ TEST(InterpreterEndToEnd, NumberToIntegerRuntimeAccepted) {
 )");
 }
 
+TEST(InterpreterEndToEnd, TriboolUnsetLiteralAndWidening) {
+    // unset 字面量；bool -> tribool 隐式加宽（声明与重新赋值均生效）
+    EXPECT_EQ(run_source(R"(
+        tribool t = unset;
+        print(t);
+        t = true;
+        print(t);
+        t = false;
+        print(t);
+        print(toString(unset));
+    )"), R"(unset
+true
+false
+unset
+)");
+}
+
+TEST(InterpreterEndToEnd, TriboolKleeneLogic) {
+    // Kleene 三值逻辑真值表（t43，经作者确认）：
+    // unset&&false=false、unset&&true=unset、unset||true=true、unset||false=unset、!unset=unset
+    EXPECT_EQ(run_source(R"(
+        tribool u = unset;
+        print(u && false);
+        print(u && true);
+        print(u || true);
+        print(u || false);
+        print(!u);
+        print(!true && u);
+    )"), R"(false
+unset
+true
+unset
+unset
+false
+)");
+}
+
+TEST(InterpreterEndToEnd, TriboolEqualityComparison) {
+    // tribool 与 bool/unset 等值比较：三态一致才相等
+    EXPECT_EQ(run_source(R"(
+        tribool t = unset;
+        print(t == unset);
+        print(t == true);
+        print(t != false);
+        t = true;
+        print(t == true);
+        print(t == unset);
+    )"), R"(true
+false
+true
+true
+false
+)");
+}
+
+TEST(InterpreterEndToEnd, TriboolIsTrueIsFalseIsUnset) {
+    // tribool 自带判定方法，返回 bool，可直接作 if 条件
+    EXPECT_EQ(run_source(R"(
+        tribool t = unset;
+        print(t.isUnset(), t.isTrue(), t.isFalse());
+        t = true;
+        if (t.isTrue()) {
+            print("yes");
+        }
+    )"), R"(true false false
+yes
+)");
+}
+
+TEST(InterpreterEndToEnd, TriboolTwoBranchTernaryUnsetTakesFalse) {
+    // 两分支三元：unset 走 false 分支（见 uncategorized.md）
+    EXPECT_EQ(run_source(R"(
+        tribool t = unset;
+        print(t ? "yes" : "no");
+    )"), R"(no
+)");
+}
+
+TEST(InterpreterEndToEnd, TriboolThreeBranchTernary) {
+    // 三分支三元 a ? x : y : z：true/false/unset 各取一支
+    EXPECT_EQ(run_source(R"(
+        tribool t = unset;
+        print(t ? "T" : "F" : "U");
+        t = true;
+        print(t ? "T" : "F" : "U");
+        t = false;
+        print(t ? "T" : "F" : "U");
+    )"), R"(U
+T
+F
+)");
+}
+
+TEST(InterpreterEndToEnd, TriboolIfConditionSemanticRejected) {
+    // if 条件必须是 bool：tribool 直接作条件在语义阶段拒绝（t43，经作者确认）
+    collie::Lexer lexer(R"(
+        tribool t = true;
+        if (t) {
+            print(1);
+        }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, ThreeBranchTernaryBoolConditionRejected) {
+    // 三分支三元要求 tribool 条件：bool 条件在语义阶段拒绝
+    collie::Lexer lexer(R"(
+        bool b = true;
+        print(b ? 1 : 2 : 3);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, TriboolToBoolSemanticRejected) {
+    // tribool -> bool 反向收窄不允许（需 isTrue() 等显式判定）
+    collie::Lexer lexer(R"(
+        tribool t = true;
+        bool b = t;
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, TriboolMixedLogicResultWidens) {
+    // bool 与 tribool 混合逻辑运算：结果为 tribool；纯 bool 仍为 bool
+    EXPECT_EQ(run_source(R"(
+        tribool u = unset;
+        tribool r = true && u;
+        print(r);
+        bool b = true && false;
+        print(b);
+    )"), R"(unset
+false
+)");
+}
+

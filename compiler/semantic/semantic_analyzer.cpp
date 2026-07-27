@@ -150,6 +150,10 @@ void SemanticAnalyzer::visitLiteral(const LiteralExpr& expr) {
         case TokenType::KW_FALSE:
             current_type_ = TokenType::KW_BOOL;
             break;
+        case TokenType::KW_UNSET:
+            // unset 为 tribool 专属字面量（t43，见 draft.md）
+            current_type_ = TokenType::KW_TRIBOOL;
+            break;
         default: {
             std::string message = "Invalid literal type";
             throw SemanticError(message, expr.token().line(), expr.token().column());
@@ -245,12 +249,19 @@ void SemanticAnalyzer::visitBinary(const BinaryExpr& expr) {
 
             case TokenType::OP_AND:
             case TokenType::OP_OR:
-                // 逻辑运算
-                if (left_type != TokenType::KW_BOOL || right_type != TokenType::KW_BOOL) {
+                // 逻辑运算：bool/tribool 均可参与（t43，Kleene 三值逻辑，
+                // 经作者确认）；任一操作数为 tribool 时结果为 tribool
+                if ((left_type != TokenType::KW_BOOL &&
+                     left_type != TokenType::KW_TRIBOOL) ||
+                    (right_type != TokenType::KW_BOOL &&
+                     right_type != TokenType::KW_TRIBOOL)) {
                     throw SemanticError("Boolean operands expected for logical operation",
                         expr.op().line(), expr.op().column());
                 }
-                current_type_ = TokenType::KW_BOOL;
+                current_type_ = (left_type == TokenType::KW_TRIBOOL ||
+                                 right_type == TokenType::KW_TRIBOOL)
+                    ? TokenType::KW_TRIBOOL
+                    : TokenType::KW_BOOL;
                 break;
 
             case TokenType::OP_BIT_AND:
@@ -863,11 +874,13 @@ void SemanticAnalyzer::visitUnary(const UnaryExpr& expr) {
                 break;
 
             case TokenType::OP_NOT:
-                if (operand_type != TokenType::KW_BOOL) {
+                // 逻辑非：bool -> bool；tribool -> tribool（Kleene：!unset = unset，t43）
+                if (operand_type != TokenType::KW_BOOL &&
+                    operand_type != TokenType::KW_TRIBOOL) {
                     throw SemanticError("Boolean operand expected for logical not",
                         expr.op().line(), expr.op().column());
                 }
-                current_type_ = TokenType::KW_BOOL;
+                current_type_ = operand_type;
                 break;
 
             case TokenType::OP_BIT_NOT:
@@ -996,6 +1009,10 @@ bool SemanticAnalyzer::is_compatible_type(TokenType expected, TokenType actual) 
     if (expected == TokenType::KW_CHARACTER && actual == TokenType::KW_CHAR) {
         return true;
     }
+    // tribool 接受 bool 隐式加宽（t43：true/false 可赋给 tribool，反向不行）
+    if (expected == TokenType::KW_TRIBOOL && actual == TokenType::KW_BOOL) {
+        return true;
+    }
     if (expected == TokenType::KW_STRING) {
         return is_string_convertible(actual);
     }
@@ -1100,6 +1117,12 @@ bool SemanticAnalyzer::is_comparable_type(TokenType left, TokenType right) const
         return true;
     }
 
+    // tribool 与 bool 可等值比较（t43：t == true / t == unset 等写法）
+    if ((left == TokenType::KW_TRIBOOL && right == TokenType::KW_BOOL) ||
+        (left == TokenType::KW_BOOL && right == TokenType::KW_TRIBOOL)) {
+        return true;
+    }
+
     return false;
 }
 
@@ -1134,6 +1157,9 @@ bool SemanticAnalyzer::can_implicit_convert(TokenType from, TokenType to) const 
     if (from == TokenType::KW_CHAR && to == TokenType::KW_CHARACTER) return true;
     if (from == TokenType::KW_CHAR && to == TokenType::KW_STRING) return true;
     if (from == TokenType::KW_CHARACTER && to == TokenType::KW_STRING) return true;
+
+    // bool -> tribool 隐式加宽（t43，与 is_compatible_type 保持一致）
+    if (from == TokenType::KW_BOOL && to == TokenType::KW_TRIBOOL) return true;
 
     // 任何类型都可以转换为字符串
     if (to == TokenType::KW_STRING && is_string_convertible(from)) return true;
@@ -1208,6 +1234,7 @@ bool SemanticAnalyzer::is_synchronization_point() const {
         case TokenType::KW_DECIMAL:
         case TokenType::KW_STRING:
         case TokenType::KW_BOOL:
+        case TokenType::KW_TRIBOOL:
         case TokenType::KW_CHAR:
         case TokenType::KW_BYTE:
         case TokenType::KW_WORD:
@@ -1318,9 +1345,19 @@ void SemanticAnalyzer::visitTernary(const TernaryExpr& expr) {
         expr.condition()->accept(*this);
         TokenType cond_type = current_type_;
 
-        // 条件必须是布尔型
-        if (cond_type != TokenType::KW_BOOL) {
+        // 条件必须是布尔或三态布尔（t43，见 uncategorized.md：
+        // tribool 两分支时 unset 走 false 分支）
+        if (cond_type != TokenType::KW_BOOL &&
+            cond_type != TokenType::KW_TRIBOOL) {
             throw SemanticError("Ternary condition must be a boolean expression",
+                expr.question_token().line(), expr.question_token().column());
+        }
+
+        // 三分支形式 a ? x : y : z 仅适用于 tribool 条件（t43）
+        if (expr.unset_expr() != nullptr &&
+            cond_type != TokenType::KW_TRIBOOL) {
+            throw SemanticError(
+                "Three-branch ternary requires a tribool condition",
                 expr.question_token().line(), expr.question_token().column());
         }
 
@@ -1336,6 +1373,18 @@ void SemanticAnalyzer::visitTernary(const TernaryExpr& expr) {
             && !is_compatible_type(else_type, then_type)) {
             throw SemanticError("Ternary branches must have compatible types",
                 expr.question_token().line(), expr.question_token().column());
+        }
+
+        // 第三分支（unset）同样需与 then 分支兼容
+        if (expr.unset_expr() != nullptr) {
+            expr.unset_expr()->accept(*this);
+            TokenType unset_type = current_type_;
+            if (unset_type != then_type &&
+                !is_compatible_type(then_type, unset_type) &&
+                !is_compatible_type(unset_type, then_type)) {
+                throw SemanticError("Ternary branches must have compatible types",
+                    expr.question_token().line(), expr.question_token().column());
+            }
         }
 
         // 结果类型取 then 分支类型
@@ -1479,6 +1528,17 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
         size_t max_args = 0;
         if (name == "toString") {
             result_type = TokenType::KW_STRING;
+        } else if (name == "isTrue" || name == "isFalse" || name == "isUnset") {
+            // tribool 专属方法（t43，经作者确认：条件语境需显式判断，
+            // 返回 bool；object 动态放行，运行期再检查）
+            if (object_type != TokenType::KW_TRIBOOL &&
+                object_type != TokenType::KW_OBJECT) {
+                throw SemanticError(
+                    "Method '" + name + "()' is only supported on tribool, got '" +
+                    std::string(token_type_to_string(object_type)) + "'",
+                    expr.name().line(), expr.name().column());
+            }
+            result_type = TokenType::KW_BOOL;
         } else if (name == "toNumber") {
             // string/bool/数值可转数字（object 动态放行，运行期再检查）
             if (object_type != TokenType::KW_STRING &&

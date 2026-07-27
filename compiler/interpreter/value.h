@@ -27,15 +27,19 @@ struct InstanceData;  // 定义在 Value 之后（字段表持有 Value）
 /**
  * @brief 解释器运行期的值
  *
- * v1 支持七种值：none（空）、bool、number、string、function、array、instance。
+ * v1 支持八种值：none（空）、bool、tribool、number、string、function、array、instance。
  * 数组与类实例为引用语义（shared_ptr 共享底层存储），赋值/传参共享同一对象。
  * number 内部双表示（t42，经作者确认的 Python 式设计）：整数值用 BigInt
  * 任意精度承载（自动扩容，无溢出），小数值用 double（IEEE 754）；
  * 静态类型 number 是 integer/decimal 的超类型，两种表示都算 is_number()。
+ * tribool 为三态布尔（t43，经作者确认）：true/false/unset，与 bool 独立。
  */
 class Value {
 public:
-    enum class Kind { None, Bool, Number, String, Function, Array, Instance };
+    enum class Kind { None, Bool, Tribool, Number, String, Function, Array, Instance };
+
+    /// tribool 的三态；数值编码满足 Kleene 逻辑 AND=min、OR=max
+    enum class Tri : uint8_t { False = 0, Unset = 1, True = 2 };
 
     using ArrayStorage = std::vector<Value>;
 
@@ -44,6 +48,9 @@ public:
     static Value none() { return Value(); }
     static Value boolean(bool b) {
         Value v; v.kind_ = Kind::Bool; v.bool_ = b; return v;
+    }
+    static Value tribool(Tri t) {
+        Value v; v.kind_ = Kind::Tribool; v.tri_ = t; return v;
     }
     static Value number(double n) {
         Value v; v.kind_ = Kind::Number; v.num_ = n; return v;
@@ -75,6 +82,7 @@ public:
     Kind kind() const { return kind_; }
     bool is_none() const { return kind_ == Kind::None; }
     bool is_bool() const { return kind_ == Kind::Bool; }
+    bool is_tribool() const { return kind_ == Kind::Tribool; }
     bool is_number() const { return kind_ == Kind::Number; }
     /// number 且内部为整数表示（integer 类型值）
     bool is_integer_value() const { return kind_ == Kind::Number && num_is_int_; }
@@ -86,6 +94,7 @@ public:
     bool is_instance() const { return kind_ == Kind::Instance; }
 
     bool as_bool() const { return bool_; }
+    Tri as_tribool() const { return tri_; }
     /// 数值的 double 视图：整数表示时转 double（超大整数有精度损失，
     /// 仅供混合算术/比较等小数路径使用；精确路径用 as_integer）
     double as_number() const { return num_is_int_ ? big_.to_double() : num_; }
@@ -100,13 +109,15 @@ public:
 
     /**
      * @brief 真值判断
-     * none -> false；bool -> 原值；number -> 非零为真；string -> 非空为真；
+     * none -> false；bool -> 原值；tribool -> 仅 true 为真（unset 为假，见文档
+     * 两分支三元 unset 走 false 分支）；number -> 非零为真；string -> 非空为真；
      * array -> 非空为真。
      */
     bool is_truthy() const {
         switch (kind_) {
             case Kind::None:     return false;
             case Kind::Bool:     return bool_;
+            case Kind::Tribool:  return tri_ == Tri::True;
             case Kind::Number:   return num_is_int_ ? !big_.is_zero() : num_ != 0.0;
             case Kind::String:   return !str_.empty();
             case Kind::Function: return true;  // 函数值始终为真
@@ -124,6 +135,8 @@ public:
         switch (kind_) {
             case Kind::None:     return "none";
             case Kind::Bool:     return bool_ ? "true" : "false";
+            case Kind::Tribool:
+                return tri_ == Tri::True ? "true" : (tri_ == Tri::False ? "false" : "unset");
             case Kind::String:   return str_;
             case Kind::Function: return "<function>";
             case Kind::Number: {
@@ -161,6 +174,7 @@ public:
         switch (kind_) {
             case Kind::None:     return "none";
             case Kind::Bool:     return "bool";
+            case Kind::Tribool:  return "tribool";
             case Kind::Number:   return "number";
             case Kind::String:   return "string";
             case Kind::Function: return "function";
@@ -173,6 +187,7 @@ public:
 private:
     Kind kind_;
     bool bool_ = false;
+    Tri tri_ = Tri::Unset;     ///< tribool 三态（缺省 unset，见 draft.md）
     bool num_is_int_ = false;  ///< number 的内部表示：true=BigInt 整数，false=double 小数
     double num_ = 0.0;
     BigInt big_;               ///< 整数表示（num_is_int_ 为 true 时有效）

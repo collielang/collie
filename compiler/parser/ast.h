@@ -273,17 +273,21 @@ private:
 /**
  * @brief 三元条件表达式
  * 用于表示 condition ? then_expr : else_expr
+ * tribool 条件支持三分支形式（t43，见 uncategorized.md）：
+ * condition ? then_expr : else_expr : unset_expr（unset_expr 可为空）
  */
 class TernaryExpr : public Expr {
 public:
     TernaryExpr(std::unique_ptr<Expr> condition,
                 Token question_token,
                 std::unique_ptr<Expr> then_expr,
-                std::unique_ptr<Expr> else_expr)
+                std::unique_ptr<Expr> else_expr,
+                std::unique_ptr<Expr> unset_expr = nullptr)
         : condition_(std::move(condition)),
           question_token_(question_token),
           then_expr_(std::move(then_expr)),
-          else_expr_(std::move(else_expr)) {}
+          else_expr_(std::move(else_expr)),
+          unset_expr_(std::move(unset_expr)) {}
 
     void accept(ExprVisitor& visitor) const override;
 
@@ -291,12 +295,15 @@ public:
     const Token& question_token() const { return question_token_; }
     const Expr* then_expr() const { return then_expr_.get(); }
     const Expr* else_expr() const { return else_expr_.get(); }
+    /// 第三分支（unset）；两分支形式时为 nullptr
+    const Expr* unset_expr() const { return unset_expr_.get(); }
 
 private:
     std::unique_ptr<Expr> condition_;
     Token question_token_;
     std::unique_ptr<Expr> then_expr_;
     std::unique_ptr<Expr> else_expr_;
+    std::unique_ptr<Expr> unset_expr_;
 };
 
 /**

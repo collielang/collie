@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t42 完成：数字类型 number/integer/decimal 三类型区分，integer 任意精度自动扩容）
+最后更新：2026-07-26（t43 完成：tribool 三态布尔类型闭环，Kleene 三值逻辑 + 条件必须 bool + 三分支三元）
 
 ---
 
@@ -293,6 +293,11 @@
     - [x] 语义层：字面量推导（无 '.'/'e'/'f' 且非 Infinity/NaN → integer，否则 decimal，Infinity/NaN → number）；integer → decimal/number 隐式加宽，decimal → integer 拒绝，number → integer/decimal 静态放行运行期校验；`/` 恒产 decimal（Python true division）；common_type 含 decimal → decimal；len/length → integer
     - [x] 解释器：整数字面量走 BigInt 不经 double；双整数 `+ - * %` 精确路径（% 为 floor 语义，除零/模零仍落 IEEE 754 路径得 Infinity/NaN）；比较/相等双整数精确；coerce_to_declared 支持 integer（拒小数值）/decimal（整数加宽）；toNumber 整数串/bool → integer；整数的 abs/isInteger 等方法走 BigInt 精确路径
     - [x] 端到端测试 11 例：超大整数精确算术/比较、除法恒 decimal、大整数 floor 取模、integer/decimal 声明与加宽、混合算术、大整数方法、toNumber 精确转换、decimal→integer 语义拒绝、number→integer 运行期校验两例；`interpreter_tests` 现 153 全绿，全量 ctest 6/6
+- [x] **tribool 三态布尔类型闭环（t43，已完成，经作者确认语义）**：
+    - [x] `unset` 字面量（parser primary + 语义推导 KW_TRIBOOL）；Value 层 Tribool 三态表示（`Tri` 编码 False=0 < Unset=1 < True=2，使 Kleene AND/OR 退化为 min/max）；`coerce_to_declared` 支持 tribool（接受 bool 加宽，反向 tribool → bool 拒绝）
+    - [x] Kleene 三值逻辑（`! && ||`，保留短路：AND 遇 false、OR 遇 true；任一操作数 tribool → 结果 tribool）；`if/while/for/do-while` 条件必须 bool（语义层拦截 + 运行期 `condition_truthy` 防御动态路径）
+    - [x] tribool 内建方法 `isTrue()/isFalse()/isUnset()` 返回 bool；`==`/`!=` 支持与 true/false/unset 比较（三态一致才相等）
+    - [x] 三分支三元 `a ? 1 : 2 : 3`（要求 tribool 条件；两分支时 unset 走 false 分支，见文档）；新增 11 个端到端测试，全量 ctest 6/6
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
@@ -342,7 +347,10 @@
 - [x] helloworld 的 `print`：内建函数 `print(...)`（任意实参）；字符串转义 `\n \t \\ \"` 由词法器解码，解释器原样输出 —— 已确认
 - [x] 数值除零行为：IEEE 754（`1/0 → +Infinity`、`0/0 → NaN`）—— 已确认（t33）
 - [x] `class` 纳入实现范围：按 **Java/C# 风格最小子集**实现（字段/方法/`new`/`this`，继承后续再做；以 uncategorized.md 附录示例为准）—— 已确认（t34 已完成）
-- [ ] `tribool`（三态布尔）与 `==?` 运算符的确切语义？
+- [x] `tribool`（三态布尔）与 `==?` 运算符的确切语义 —— 已确认（t43/t44）：
+    - 逻辑运算 `! && ||` 采用 **Kleene 三值逻辑**（`!unset=unset`、`unset&&false=false`、`unset&&true=unset`、`unset||true=true`、`unset||false=unset`）
+    - **`if()`/条件表达式必须是 bool**，tribool 不能直接作条件；需显式写 `t.isTrue()/.isFalse()/.isUnset()`（tribool 内建方法，返回 bool）或 `t == true/false/unset`
+    - `==?` 是**通用多路匹配**运算符（不限 tribool，类 switch 表达式）；tribool 匹配需穷尽三态或给默认分支，其他类型必须有默认分支；命中第一个匹配分支（见 uncategorized.md 运算符节）
 - [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
 
 ---
@@ -351,6 +359,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: tribool 三态布尔类型闭环（t43，经作者确认语义）：`unset` 字面量 + Value 层 Tri 三态（编码使 Kleene AND/OR 退化为 min/max）；`! && ||` Kleene 三值逻辑（保留短路，混合运算结果加宽为 tribool）；条件语句必须 bool（语义拦截 + 运行期 condition_truthy 防御）；bool → tribool 单向加宽；`==`/`!=` 三态比较；内建方法 isTrue/isFalse/isUnset；三分支三元 `a ? x : y : z`（需 tribool 条件，两分支时 unset 走 false 分支）；新增 11 个端到端测试；全量 ctest 6/6（M4 t43）
 - 2026-07-26 `feat(compiler)`: 数字类型 number/integer/decimal 三类型区分（t42，经作者确认 Python 式设计）：解释器新增 BigInt（base 2^32，任意精度自动扩容）与 Value 双表示；lexer f 后缀计入 lexeme；语义层字面量推导/转换规则（integer→decimal 加宽、decimal→integer 拒绝、number 超类型）与 `/` 恒产 decimal；解释器双整数 `+ - * %` 精确路径、比较/相等精确、coerce/toNumber/len/数字方法整数路径；新增 11 个端到端测试；interpreter_tests 153 全绿（M4 t42）
 - 2026-07-26 `feat(compiler)`: @override 注解（t40）：lexer 新增 ANNOTATION token（@名字，与 @" 插值共存）；parser 类成员注解解析（@override 仅限方法，@deprecated 接受不生效，未知注解报错）；语义层类表升级为 map 并新增 find_method_in_hierarchy，@override 校验父类链确有同名方法；新增 7 个端到端测试；interpreter_tests 142 全绿（M4 t40）
 - 2026-07-26 `feat(compiler)`: base.method() 显式父类方法调用（t39）：AST 新增 BaseMethodCallExpr，parser 在 primary 层解析（base 非一等值，必须紧跟方法调用）；解释器从 current_class_ 的父类链查找绕过覆写，以 defining_class 上下文执行；语义层类外报错；新增 7 个端到端测试；interpreter_tests 135 全绿（M4 t39）

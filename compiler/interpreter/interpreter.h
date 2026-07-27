@@ -100,6 +100,10 @@ private:
     Value eval_comparison(const Token& op, const Value& left, const Value& right);
     static bool values_equal(const Value& left, const Value& right);
 
+    /// @brief 条件真值（if/while/for/do-while）：tribool 不能直接作条件
+    /// （t43，经作者确认，需显式 isTrue()/== 判断），违反抛 RuntimeError
+    static bool condition_truthy(const Value& value, const Token& keyword);
+
     /// @brief 归一化索引（支持负索引，-1 为末尾），越界抛 RuntimeError
     static size_t normalize_index(const Value& index, size_t size,
                                   const Token& bracket);

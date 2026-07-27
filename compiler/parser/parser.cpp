@@ -314,8 +314,18 @@ std::unique_ptr<Expr> Parser::parse_ternary() {
         if (!else_expr) {
             throw error(peek(), "Expect expression after ':'.");
         }
+        // tribool 三分支形式（t43）：cond ? then : else : unset；
+        // 第二个 ':' 贪心归属最内层三元
+        std::unique_ptr<Expr> unset_expr;
+        if (match(TokenType::OP_COLON)) {
+            unset_expr = parse_ternary();
+            if (!unset_expr) {
+                throw error(peek(), "Expect expression after second ':'.");
+            }
+        }
         return std::make_unique<TernaryExpr>(std::move(expr), question,
-                                             std::move(then_expr), std::move(else_expr));
+                                             std::move(then_expr), std::move(else_expr),
+                                             std::move(unset_expr));
     }
 
     return expr;
@@ -528,7 +538,8 @@ std::unique_ptr<Expr> Parser::parse_primary() {
         return desugar_interpolated_string(previous());
     }
 
-    if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE)) {
+    if (match(TokenType::LITERAL_BOOL) || match(TokenType::KW_TRUE) || match(TokenType::KW_FALSE) ||
+        match(TokenType::KW_UNSET)) {
         return std::make_unique<LiteralExpr>(previous());
     }
 

@@ -83,6 +83,10 @@ void Interpreter::visitLiteral(const LiteralExpr& expr) {
         case TokenType::KW_FALSE:
             result_ = Value::boolean(false);
             break;
+        case TokenType::KW_UNSET:
+            // unset 为 tribool 专属字面量（t43，见 draft.md）
+            result_ = Value::tribool(Value::Tri::Unset);
+            break;
         case TokenType::LITERAL_BOOL:
             result_ = Value::boolean(lexeme == "true");
             break;
@@ -110,22 +114,32 @@ void Interpreter::visitBinary(const BinaryExpr& expr) {
     const Token& op = expr.op();
 
     // 逻辑运算需要短路求值：先算左侧，必要时才算右侧。
-    if (op.type() == TokenType::OP_AND) {
+    // bool/tribool 混合按 Kleene 三值逻辑（t43，经作者确认）：
+    // Tri 编码 False=0 < Unset=1 < True=2，AND 取 min、OR 取 max；
+    // 任一操作数为 tribool 时结果为 tribool，否则保持 bool。
+    if (op.type() == TokenType::OP_AND || op.type() == TokenType::OP_OR) {
+        const bool is_and = op.type() == TokenType::OP_AND;
+        auto tri_of = [](const Value& v) {
+            if (v.is_tribool()) return static_cast<int>(v.as_tribool());
+            return v.is_truthy() ? 2 : 0;  // 非 tribool 沿用真值判断（object 动态路径）
+        };
         Value left = evaluate(expr.left());
-        if (!left.is_truthy()) {
-            result_ = Value::boolean(false);
+        int l = tri_of(left);
+        // 短路：AND 遇确定 False、OR 遇确定 True 时右侧不求值
+        if ((is_and && l == 0) || (!is_and && l == 2)) {
+            result_ = left.is_tribool()
+                ? Value::tribool(static_cast<Value::Tri>(l))
+                : Value::boolean(l == 2);
             return;
         }
-        result_ = Value::boolean(evaluate(expr.right()).is_truthy());
-        return;
-    }
-    if (op.type() == TokenType::OP_OR) {
-        Value left = evaluate(expr.left());
-        if (left.is_truthy()) {
-            result_ = Value::boolean(true);
-            return;
+        Value right = evaluate(expr.right());
+        int r = tri_of(right);
+        int combined = is_and ? std::min(l, r) : std::max(l, r);
+        if (left.is_tribool() || right.is_tribool()) {
+            result_ = Value::tribool(static_cast<Value::Tri>(combined));
+        } else {
+            result_ = Value::boolean(combined == 2);
         }
-        result_ = Value::boolean(evaluate(expr.right()).is_truthy());
         return;
     }
 
@@ -150,7 +164,17 @@ void Interpreter::visitUnary(const UnaryExpr& expr) {
             }
             break;
         case TokenType::OP_NOT:
-            result_ = Value::boolean(!operand.is_truthy());
+            // Kleene 非（t43）：!unset = unset；tribool 结果仍为 tribool
+            if (operand.is_tribool()) {
+                Value::Tri t = operand.as_tribool();
+                result_ = Value::tribool(
+                    t == Value::Tri::Unset
+                        ? Value::Tri::Unset
+                        : (t == Value::Tri::True ? Value::Tri::False
+                                                 : Value::Tri::True));
+            } else {
+                result_ = Value::boolean(!operand.is_truthy());
+            }
             break;
         default:
             throw RuntimeError("Unsupported unary operator", op.line(), op.column());
@@ -338,6 +362,18 @@ Value Interpreter::coerce_to_declared(TokenType declared, const Value& value,
                                    line, column);
             }
             return value;
+        case TokenType::KW_TRIBOOL:
+            // tribool 接受 bool 隐式加宽（t43）；反向（tribool -> bool）不允许
+            if (value.is_tribool()) {
+                return value;
+            }
+            if (value.is_bool()) {
+                return Value::tribool(value.as_bool() ? Value::Tri::True
+                                                      : Value::Tri::False);
+            }
+            throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                   value.kind_name() + " to 'tribool' variable",
+                               line, column);
         case TokenType::KW_ARRAY:
             if (!value.is_array()) {
                 throw RuntimeError(std::string("Type mismatch: cannot assign ") +
@@ -429,6 +465,22 @@ void Interpreter::visitTupleMember(const TupleMemberExpr& expr) {
 
 void Interpreter::visitTernary(const TernaryExpr& expr) {
     Value cond = evaluate(expr.condition());
+    // tribool 三分支形式 a ? x : y : z（t43，见 uncategorized.md）：
+    // 按三态选择分支；两分支时 unset 走 false 分支（is_truthy 对
+    // unset 为假，天然满足文档语义）
+    if (expr.unset_expr() != nullptr) {
+        if (!cond.is_tribool()) {
+            // 语义层已拦静态可知情况；这里防御 object 动态路径
+            throw RuntimeError("Three-branch ternary requires a tribool condition",
+                               expr.question_token().line(),
+                               expr.question_token().column());
+        }
+        switch (cond.as_tribool()) {
+            case Value::Tri::True:  result_ = evaluate(expr.then_expr()); return;
+            case Value::Tri::False: result_ = evaluate(expr.else_expr()); return;
+            case Value::Tri::Unset: result_ = evaluate(expr.unset_expr()); return;
+        }
+    }
     if (cond.is_truthy()) {
         result_ = evaluate(expr.then_expr());
     } else {
@@ -524,6 +576,20 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
     }
     if (name == "toNumber") {
         result_ = to_number_value(object, line, column);
+        return;
+    }
+
+    // tribool 专属方法（t43，经作者确认：条件语境需显式判断，返回 bool）
+    if (name == "isTrue" || name == "isFalse" || name == "isUnset") {
+        if (!object.is_tribool()) {
+            throw RuntimeError("Method '" + name + "()' is only supported on tribool, got " +
+                                   std::string(object.kind_name()),
+                               line, column);
+        }
+        Value::Tri t = object.as_tribool();
+        result_ = Value::boolean(name == "isTrue"    ? t == Value::Tri::True
+                                 : name == "isFalse" ? t == Value::Tri::False
+                                                     : t == Value::Tri::Unset);
         return;
     }
 
@@ -873,6 +939,19 @@ Value Interpreter::eval_comparison(const Token& op, const Value& left, const Val
 }
 
 bool Interpreter::values_equal(const Value& left, const Value& right) {
+    // tribool 与 bool 可等值比较（t43：t == true / t == unset）：三态一致才相等，
+    // unset 与 true/false 均不等；与其他类型比较恒不等
+    if (left.is_tribool() || right.is_tribool()) {
+        auto tri_of = [](const Value& v) {
+            if (v.is_tribool()) return static_cast<int>(v.as_tribool());
+            return v.as_bool() ? 2 : 0;
+        };
+        if ((left.is_tribool() || left.is_bool()) &&
+            (right.is_tribool() || right.is_bool())) {
+            return tri_of(left) == tri_of(right);
+        }
+        return false;
+    }
     if (left.kind() != right.kind()) return false;
     switch (left.kind()) {
         case Value::Kind::None:   return true;
@@ -899,6 +978,19 @@ bool Interpreter::values_equal(const Value& left, const Value& right) {
     return false;
 }
 
+bool Interpreter::condition_truthy(const Value& value, const Token& keyword) {
+    // tribool 不能直接作条件（t43，经作者确认）：必须显式写
+    // isTrue()/isFalse()/isUnset() 或与 true/false/unset 比较，避免
+    // unset 语义含糊；语义层已拦静态可知情况，这里防御动态路径
+    if (value.is_tribool()) {
+        throw RuntimeError(
+            "Condition must be a bool; tribool requires explicit "
+            "isTrue()/isFalse()/isUnset()",
+            keyword.line(), keyword.column());
+    }
+    return value.is_truthy();
+}
+
 // -----------------------------------------------------------------------------
 // 语句
 // -----------------------------------------------------------------------------
@@ -923,7 +1015,7 @@ void Interpreter::visitBlock(const BlockStmt& stmt) {
 }
 
 void Interpreter::visitIf(const IfStmt& stmt) {
-    if (evaluate(stmt.condition()).is_truthy()) {
+    if (condition_truthy(evaluate(stmt.condition()), stmt.if_token())) {
         execute(stmt.then_branch());
     } else if (stmt.else_branch()) {
         execute(stmt.else_branch());
@@ -931,7 +1023,7 @@ void Interpreter::visitIf(const IfStmt& stmt) {
 }
 
 void Interpreter::visitWhile(const WhileStmt& stmt) {
-    while (evaluate(stmt.condition()).is_truthy()) {
+    while (condition_truthy(evaluate(stmt.condition()), stmt.while_token())) {
         try {
             execute(stmt.body());
         } catch (const BreakSignal&) {
@@ -948,7 +1040,8 @@ void Interpreter::visitFor(const ForStmt& stmt) {
     if (stmt.initializer()) {
         execute(stmt.initializer());
     }
-    while (stmt.condition() == nullptr || evaluate(stmt.condition()).is_truthy()) {
+    while (stmt.condition() == nullptr ||
+           condition_truthy(evaluate(stmt.condition()), stmt.for_token())) {
         try {
             execute(stmt.body());
         } catch (const BreakSignal&) {
@@ -971,7 +1064,7 @@ void Interpreter::visitDoWhile(const DoWhileStmt& stmt) {
         } catch (const ContinueSignal&) {
             continue;
         }
-    } while (evaluate(stmt.condition()).is_truthy());
+    } while (condition_truthy(evaluate(stmt.condition()), stmt.do_token()));
 }
 
 void Interpreter::visitSwitch(const SwitchStmt& stmt) {
