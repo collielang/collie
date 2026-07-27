@@ -1601,6 +1601,22 @@ void SemanticAnalyzer::visitClass(const ClassStmt& stmt) {
                 "Class '" + name + "' is already defined",
                 stmt.name().line(), stmt.name().column());
         }
+
+        // 继承检查：父类必须已声明且不能是自身（单继承，见 uncategorized.md）
+        if (stmt.has_superclass()) {
+            const std::string super_name(stmt.superclass().lexeme());
+            if (super_name == name) {
+                throw SemanticError(
+                    "Class '" + name + "' cannot extend itself",
+                    stmt.superclass().line(), stmt.superclass().column());
+            }
+            if (declared_classes_.count(super_name) == 0) {
+                throw SemanticError(
+                    "Undefined superclass '" + super_name + "'",
+                    stmt.superclass().line(), stmt.superclass().column());
+            }
+        }
+
         declared_classes_.insert(name);
     } catch (const SemanticError& error) {
         record_error(error);
@@ -1680,6 +1696,29 @@ void SemanticAnalyzer::visitThis(const ThisExpr& expr) {
                 expr.keyword().line(), expr.keyword().column());
         }
         current_type_ = TokenType::KW_OBJECT;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
+void SemanticAnalyzer::visitBaseCall(const BaseCallExpr& expr) {
+    // parser 仅在构造器 `: base(args)` 后缀处生成该节点，类外不可达；
+    // 父类构造器存在性/元数运行期检查，此处仅分析实参表达式
+    try {
+        if (!in_class_) {
+            throw SemanticError(
+                "'base' can only be used inside a class constructor",
+                expr.keyword().line(), expr.keyword().column());
+        }
+        for (const auto& argument : expr.arguments()) {
+            argument->accept(*this);
+        }
+        current_type_ = TokenType::KW_NONE;
 
     } catch (const SemanticError& error) {
         record_error(error);

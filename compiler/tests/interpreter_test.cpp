@@ -1086,12 +1086,13 @@ TEST(InterpreterEndToEnd, ClassInstanceReferenceSemantics) {
 
 TEST(InterpreterEndToEnd, ClassMethodCallsMethod) {
     // 方法内通过 this 调用同类其他方法；方法带参数
+    // （字段名避开 base：t38 起 base 为保留关键字）
     EXPECT_EQ(run_source(R"(
         class Calc {
-            public number base = 10;
+            public number offset = 10;
 
             public function add(x number) number {
-                return this.base + x;
+                return this.offset + x;
             }
 
             public function addTwice(x number) number {
@@ -1408,4 +1409,174 @@ TEST(InterpreterEndToEnd, ReturnTypeMismatchRuntimeRejected) {
     std::ostringstream out;
     collie::Interpreter interpreter(out);
     EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+// ---------------------------------------------------------------------------
+// class 继承（t38：extends / base 构造器委托）
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, InheritFieldAndMethod) {
+    // 子类继承父类字段与方法
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public string name = "generic";
+
+            public function speak() string {
+                return this.name + " makes a sound";
+            }
+        }
+
+        class Dog extends Animal {
+        }
+
+        Dog d = new Dog();
+        print(d.name);
+        print(d.speak());
+    )"), R"(generic
+generic makes a sound
+)");
+}
+
+TEST(InterpreterEndToEnd, InheritMethodOverride) {
+    // 子类同名方法覆写父类实现（沿链查找子类优先）
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public function speak() string {
+                return "...";
+            }
+        }
+
+        class Dog extends Animal {
+            public function speak() string {
+                return "Woof!";
+            }
+        }
+
+        Animal a = new Animal();
+        Dog d = new Dog();
+        print(a.speak());
+        print(d.speak());
+    )"), R"(...
+Woof!
+)");
+}
+
+TEST(InterpreterEndToEnd, BaseConstructorDelegation) {
+    // 构造器 `: base(args)` 委托：父类构造器先执行，初始化继承字段
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public string name;
+
+            public Animal(name string) {
+                this.name = name;
+            }
+        }
+
+        class Dog extends Animal {
+            public number age;
+
+            public Dog(name string, age number) : base(name) {
+                this.age = age;
+            }
+        }
+
+        Dog d = new Dog("Rex", 3);
+        print(d.name);
+        print(d.age);
+    )"), R"(Rex
+3
+)");
+}
+
+TEST(InterpreterEndToEnd, MultiLevelInheritanceBaseChain) {
+    // 多级继承：base 按“定义构造器的类”的父类解析，逐级委托不死循环
+    EXPECT_EQ(run_source(R"(
+        class A {
+            public string trace = "";
+
+            public A() {
+                this.trace = this.trace + "A";
+            }
+        }
+
+        class B extends A {
+            public B() : base() {
+                this.trace = this.trace + "B";
+            }
+        }
+
+        class C extends B {
+            public C() : base() {
+                this.trace = this.trace + "C";
+            }
+        }
+
+        C c = new C();
+        print(c.trace);
+    )"), R"(ABC
+)");
+}
+
+TEST(InterpreterEndToEnd, InheritedFieldRuntimeTypeChecked) {
+    // 继承字段的赋值同样沿链找到声明类型做运行期校验（number 字段拒绝数组）
+    collie::Lexer lexer(R"(
+        class Animal { public number age = 0; }
+        class Dog extends Animal { }
+        Dog d = new Dog();
+        d.age = [1, 2];
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, BaseWithoutSuperclassRejected) {
+    // 无父类的类写 `: base()`：运行期报错
+    collie::Lexer lexer(R"(
+        class Animal {
+            public Animal() : base() {}
+        }
+        Animal a = new Animal();
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, UndefinedSuperclassSemanticRejected) {
+    // 父类未声明：语义阶段报错
+    collie::Lexer lexer(R"(
+        class Dog extends Animal { }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, SelfExtendSemanticRejected) {
+    // 类不能继承自身：语义阶段报错
+    collie::Lexer lexer(R"(
+        class Dog extends Dog { }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
 }

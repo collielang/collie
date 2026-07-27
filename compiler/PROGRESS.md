@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t37 完成）
+最后更新：2026-07-26（t38 class 继承完成：extends 单继承 + base 构造器委托）
 
 ---
 
@@ -15,9 +15,9 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法、特殊数值 `Infinity`/`NaN`、插值字符串 `@"...{expr}..."`），token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`)、**class 声明（字段/方法/构造器）与 `new`/`this`/属性赋值** |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`)、**class 声明（字段/方法/构造器）与 `new`/`this`/属性赋值、继承 `extends` 与构造器委托 `: base(args)`（脱糖为构造器体首条语句）** |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）**、**运行期声明类型校验（变量/形参/类字段/返回值，string ← number/bool 隐式转换落地）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）**、**class 继承（单继承，字段/方法沿继承链查找与覆写，字段初始化 base-first，base 构造器委托按定义类的父类解析）**、**运行期声明类型校验（变量/形参/类字段/返回值，string ← number/bool 隐式转换落地）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
@@ -270,6 +270,13 @@
     - [x] `visitCall` 与 `call_class_method` 捕获 ReturnSignal 时返回值经 `coerce_to_declared`（仅校验显式 return 路径；无 return 返回 none 不校验；返回类型 none/void 走 default 分支自然放行）
     - [x] 端到端测试 3 例：函数/类方法返回值 string 隐式转换、动态路径返回值类型不匹配运行期拦截
     - `interpreter_tests` 现 120 全绿；至此运行期类型校验链闭环（声明/赋值/形参/字段/返回值）
+- [x] **class 继承（t38，已完成）**：文法按 uncategorized.md 附录：`class Dog extends Animal`，构造器委托 `: base(args)`；最小子集：单继承、字段/方法沿继承链查找与覆写；`base.method()` 显式父类调用后续再做
+    - [x] 关键字 `extends`/`base` 三处注册；AST 新增 `BaseCallExpr`，`ClassStmt` 加 superclass Token；parser 解析 extends 与 `: base(args)`（脱糖为构造器体首条 ExpressionStmt）
+    - [x] 语义层：父类必须已声明、不能继承自身；visitBaseCall 类外报错
+    - [x] 解释器：`find_method`/`find_field` 沿继承链查找（子类优先实现覆写）；`visitNew` 字段初始化沿链 base-first；`current_class_` 上下文（RAII 切换）使 base 按“定义构造器的类”的父类解析，多级继承逐级委托不死循环；构造器不继承、子类无构造器时不隐式调父类构造器
+    - [x] 修复 visitBaseCall 中直接引用 `env_.get("this")` 返回指针的悬空问题（call_class_method 内 ScopeGuard 压栈可能重分配环境存储，先拷贝再传）
+    - [x] 既有测试 `ClassMethodCallsMethod` 字段名 `base` 改为 `offset`（`base` 自 t38 起为保留关键字，与 C# 一致）
+    - [x] 端到端测试 8 例：继承字段/方法、方法覆写、base 委托、多级继承 base 链、继承字段运行期类型校验、无父类写 base 运行期报错、父类未声明/继承自身语义报错；`interpreter_tests` 现 128 全绿，全量 ctest 6/6
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
 ### M5 · 语言规范 & 语法闭环（持续）
@@ -329,6 +336,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: class 继承（t38）：`extends` 单继承 + 构造器委托 `: base(args)`（脱糖为体首语句）；字段/方法沿继承链查找与覆写，字段初始化 base-first，current_class_ 上下文使 base 按定义类父类解析；语义层父类已声明/非自身检查；新增 8 个端到端测试；interpreter_tests 128 全绿（M4 t38）
 - 2026-07-26 `feat(interpreter)`: 函数返回值类型运行期校验（t37）：visitCall 与 call_class_method 捕获 ReturnSignal 时返回值经 coerce_to_declared（显式 return 路径；none/void 返回类型自然放行）；新增 3 个端到端测试；interpreter_tests 120 全绿，运行期类型校验链（声明/赋值/形参/字段/返回值）闭环（M4 t37）
 
 - 2026-07-26 `feat(interpreter),fix(parser)`: 类字段类型运行期校验（t36，闭环 t35 遗留项）：新增 find_field 辅助，visitNew 字段初始化与 visitPropertyAssign 字段赋值接入 coerce_to_declared；修复 parser consume_type_token 缺 object/array 致形参类型不能写这两个关键字；新增 4 个端到端测试；interpreter_tests 117 全绿（M4 t36）

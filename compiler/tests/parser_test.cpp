@@ -162,6 +162,19 @@ public:
         result_ = "this";
     }
 
+    void visitBaseCall(const BaseCallExpr& expr) override {
+        std::string out = "base(";
+        bool first = true;
+        for (const auto& arg : expr.arguments()) {
+            if (!first) out += ", ";
+            arg->accept(*this);
+            out += result_;
+            first = false;
+        }
+        out += ")";
+        result_ = out;
+    }
+
     std::string result() const { return result_; }
 
 private:

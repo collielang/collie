@@ -41,6 +41,8 @@ std::string token_type_to_string(TokenType type) {
         case TokenType::KW_PROTECTED: return "KW_PROTECTED";
         case TokenType::KW_NEW: return "KW_NEW";
         case TokenType::KW_THIS: return "KW_THIS";
+        case TokenType::KW_EXTENDS: return "KW_EXTENDS";
+        case TokenType::KW_BASE: return "KW_BASE";
         case TokenType::KW_IF: return "KW_IF";
         case TokenType::KW_ELSE: return "KW_ELSE";
         case TokenType::KW_WHILE: return "KW_WHILE";

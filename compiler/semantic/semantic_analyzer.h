@@ -73,6 +73,7 @@ private:
     void visitPropertyAssign(const PropertyAssignExpr& expr) override;
     void visitNew(const NewExpr& expr) override;
     void visitThis(const ThisExpr& expr) override;
+    void visitBaseCall(const BaseCallExpr& expr) override;
 
     // StmtVisitor 接口实现
     void visitVarDecl(const VarDeclStmt& stmt) override;

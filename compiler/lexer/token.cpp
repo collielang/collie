@@ -52,6 +52,8 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"protected", TokenType::KW_PROTECTED},
     {"new", TokenType::KW_NEW},
     {"this", TokenType::KW_THIS},
+    {"extends", TokenType::KW_EXTENDS},
+    {"base", TokenType::KW_BASE},
 
     // 特殊数值字面量（见 04-numeric.md）：按数字字面量 token 处理，
     // parser/semantic 无需感知，解释器在 visitLiteral 中特判取值

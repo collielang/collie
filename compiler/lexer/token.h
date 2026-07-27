@@ -74,6 +74,8 @@ enum class TokenType {
     KW_PROTECTED,   // protected
     KW_NEW,         // new（对象实例化）
     KW_THIS,        // this（类方法内引用当前实例）
+    KW_EXTENDS,     // extends（类继承）
+    KW_BASE,        // base（构造器委托父类构造器）
 
     // 运算符 - 算术
     OP_PLUS,        // +

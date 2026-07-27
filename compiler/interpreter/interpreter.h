@@ -72,6 +72,7 @@ private:
     void visitPropertyAssign(const PropertyAssignExpr& expr) override;
     void visitNew(const NewExpr& expr) override;
     void visitThis(const ThisExpr& expr) override;
+    void visitBaseCall(const BaseCallExpr& expr) override;
 
     // StmtVisitor 接口
     void visitExpression(const ExpressionStmt& stmt) override;
@@ -121,16 +122,23 @@ private:
     /// toNumber 内建函数与 .toNumber() 方法共用
     static Value to_number_value(const Value& v, size_t line, size_t column);
 
-    /// @brief 在类成员中查找指定名字的方法（含构造器），未找到返回 nullptr
-    static const FunctionStmt* find_method(const ClassStmt* klass,
-                                           const std::string& name);
+    /// @brief 沿继承链查找指定名字的方法（含构造器，子类优先实现覆写），
+    /// 未找到返回 nullptr；defining_class 非空时回写定义该方法的类
+    const FunctionStmt* find_method(const ClassStmt* klass,
+                                    const std::string& name,
+                                    const ClassStmt** defining_class = nullptr) const;
 
-    /// @brief 在类成员中查找指定名字的字段声明，未找到返回 nullptr
-    static const VarDeclStmt* find_field(const ClassStmt* klass,
-                                         const std::string& name);
+    /// @brief 沿继承链查找指定名字的字段声明（子类优先），未找到返回 nullptr
+    const VarDeclStmt* find_field(const ClassStmt* klass,
+                                  const std::string& name) const;
 
-    /// @brief 执行类方法/构造器：新作用域内绑定 this 与形参，捕获 return
+    /// @brief 取父类声明（无父类返回 nullptr，父类未登记抛 RuntimeError）
+    const ClassStmt* superclass_of(const ClassStmt* klass) const;
+
+    /// @brief 执行类方法/构造器：新作用域内绑定 this 与形参，捕获 return；
+    /// defining_class 为定义该方法的类，供体内 base 按其父类解析
     Value call_class_method(const Value& instance, const FunctionStmt* method,
+                            const ClassStmt* defining_class,
                             const std::vector<Value>& args,
                             size_t line, size_t column);
 
@@ -143,6 +151,9 @@ private:
     Environment env_;
     Value result_;  ///< 最近一次表达式求值的结果
     std::unordered_map<std::string, const ClassStmt*> classes_;  ///< 已登记的类
+    /// 当前正在执行的方法/构造器的定义类（base 按它的父类解析，
+    /// 不能用实例动态类型，否则多级继承时 base 会死循环）
+    const ClassStmt* current_class_ = nullptr;
 };
 
 } // namespace collie

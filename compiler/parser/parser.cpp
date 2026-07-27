@@ -1310,10 +1310,17 @@ std::unique_ptr<Stmt> Parser::parse_function_declaration() {
  * @brief 解析类声明（`class` 已消费）
  *
  * 文法（Java/C# 风格最小子集，见 uncategorized.md 附录，经作者确认）：
- *   classDecl -> "class" IDENTIFIER "{" classMember* "}"
+ *   classDecl -> "class" IDENTIFIER ("extends" IDENTIFIER)? "{" classMember* "}"
  */
 std::unique_ptr<Stmt> Parser::parse_class_declaration() {
     Token name = consume(TokenType::IDENTIFIER, "Expect class name.");
+
+    // 可选单继承：`extends 父类名`（无父类时用默认构造的 INVALID token 表示）
+    Token superclass;
+    if (match(TokenType::KW_EXTENDS)) {
+        superclass = consume(TokenType::IDENTIFIER, "Expect superclass name after 'extends'.");
+    }
+
     consume(TokenType::DELIMITER_LBRACE, "Expect '{' before class body.");
 
     std::vector<std::unique_ptr<Stmt>> members;
@@ -1325,7 +1332,7 @@ std::unique_ptr<Stmt> Parser::parse_class_declaration() {
     }
 
     consume(TokenType::DELIMITER_RBRACE, "Expect '}' after class body.");
-    return std::make_unique<ClassStmt>(name, std::move(members));
+    return std::make_unique<ClassStmt>(name, superclass, std::move(members));
 }
 
 /**
@@ -1335,7 +1342,8 @@ std::unique_ptr<Stmt> Parser::parse_class_declaration() {
  *   classMember -> ("public" | "private")? (field | method | constructor)
  *   field       -> typeToken IDENTIFIER ("=" expression)? ";"
  *   method      -> "function" IDENTIFIER "(" parameters? ")" typeToken block
- *   constructor -> 类名 IDENTIFIER "(" parameters? ")" block（与类名同名，无返回类型）
+ *   constructor -> 类名 IDENTIFIER "(" parameters? ")" (":" "base" "(" arguments? ")")? block
+ *                  （与类名同名，无返回类型；base 委托脱糖为构造器体首条语句）
  */
 std::unique_ptr<Stmt> Parser::parse_class_member(const Token& class_name) {
     // 可选访问修饰符（缺省为 public，与 Stmt 基类默认值一致）
@@ -1369,9 +1377,54 @@ std::unique_ptr<Stmt> Parser::parse_class_member(const Token& class_name) {
             } while (match(TokenType::DELIMITER_COMMA));
         }
         consume(TokenType::DELIMITER_RPAREN, "Expect ')' after parameters.");
+
+        // 可选构造器委托：`: base(arguments)`（见 uncategorized.md 附录），
+        // 脱糖为构造器体首条 ExpressionStmt(BaseCallExpr)
+        std::unique_ptr<Stmt> base_call_stmt;
+        if (match(TokenType::OP_COLON)) {
+            Token base_keyword = consume(TokenType::KW_BASE,
+                                         "Expect 'base' after ':' in constructor.");
+            consume(TokenType::DELIMITER_LPAREN, "Expect '(' after 'base'.");
+            std::vector<std::unique_ptr<Expr>> base_args;
+            if (!check(TokenType::DELIMITER_RPAREN)) {
+                do {
+                    if (base_args.size() >= 255) {
+                        throw error(peek(), "Cannot have more than 255 arguments.");
+                    }
+                    auto arg = parse_expression();
+                    if (!arg) {
+                        throw error(peek(), "Expect expression in base arguments.");
+                    }
+                    base_args.push_back(std::move(arg));
+                } while (match(TokenType::DELIMITER_COMMA));
+            }
+            consume(TokenType::DELIMITER_RPAREN, "Expect ')' after base arguments.");
+            base_call_stmt = std::make_unique<ExpressionStmt>(
+                std::make_unique<BaseCallExpr>(base_keyword, std::move(base_args)));
+        }
+
         consume(TokenType::DELIMITER_LBRACE, "Expect '{' before constructor body.");
-        auto body = std::unique_ptr<BlockStmt>(
-            dynamic_cast<BlockStmt*>(parse_block_statement().release()));
+        // BlockStmt 构造后不可变，需先把 base 委托语句放入首位再收集体内语句，
+        // 故不复用 parse_block_statement，手动展开同模式的驱动循环
+        std::vector<std::unique_ptr<Stmt>> body_statements;
+        if (base_call_stmt) {
+            body_statements.push_back(std::move(base_call_stmt));
+        }
+        while (!check(TokenType::DELIMITER_RBRACE) && !is_at_end()) {
+            size_t before = current_;
+            auto stmt = parse_declaration();
+            if (stmt) {
+                body_statements.push_back(std::move(stmt));
+            } else {
+                synchronize();
+            }
+            // 进度守卫：若本轮未消费任何 token，强制前进一个 token
+            if (current_ == before && !check(TokenType::DELIMITER_RBRACE) && !is_at_end()) {
+                advance();
+            }
+        }
+        consume(TokenType::DELIMITER_RBRACE, "Expect '}' after constructor body.");
+        auto body = std::make_unique<BlockStmt>(std::move(body_statements));
         // 构造器不写返回类型，合成 none 类型 token 复用 FunctionStmt 节点
         Token return_type(TokenType::KW_NONE, "none", ctor_name.line(), ctor_name.column());
         member = std::make_unique<FunctionStmt>(return_type, ctor_name,

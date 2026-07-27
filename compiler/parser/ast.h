@@ -32,6 +32,7 @@ class PropertyExpr;
 class PropertyAssignExpr;
 class NewExpr;
 class ThisExpr;
+class BaseCallExpr;
 class TupleExpr;
 class TupleMemberExpr;
 class ExpressionStmt;
@@ -472,6 +473,26 @@ private:
 };
 
 /**
+ * @brief base 构造器委托调用表达式
+ * 语法：构造器声明的 `: base(arguments)` 后缀（见 uncategorized.md 附录），
+ * parser 将其脱糖为构造器体首条语句
+ */
+class BaseCallExpr : public Expr {
+public:
+    BaseCallExpr(Token keyword, std::vector<std::unique_ptr<Expr>> arguments)
+        : keyword_(keyword), arguments_(std::move(arguments)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Token& keyword() const { return keyword_; }
+    const std::vector<std::unique_ptr<Expr>>& arguments() const { return arguments_; }
+
+private:
+    Token keyword_;  // base 关键字 token，用于错误报告
+    std::vector<std::unique_ptr<Expr>> arguments_;
+};
+
+/**
  * @brief If 语句
  * 用于表示条件分支语句，包括条件、then分支和可选的else分支
  */
@@ -786,6 +807,9 @@ public:
 
     /// @brief 访问 this 表达式
     virtual void visitThis(const ThisExpr& expr) = 0;
+
+    /// @brief 访问 base 构造器委托调用表达式
+    virtual void visitBaseCall(const BaseCallExpr& expr) = 0;
 };
 
 /**
@@ -864,16 +888,23 @@ public:
     /**
      * 构造类声明语句节点
      * @param name 类名
+     * @param superclass 父类名 token（无继承时为默认构造的 INVALID token）
      * @param members 类成员列表
      */
-    ClassStmt(Token name, std::vector<std::unique_ptr<Stmt>> members)
-        : name_(name), members_(std::move(members)) {}
+    ClassStmt(Token name, Token superclass,
+              std::vector<std::unique_ptr<Stmt>> members)
+        : name_(name), superclass_(superclass), members_(std::move(members)) {}
     void accept(StmtVisitor& visitor) const override;
     const Token& name() const { return name_; }
+    const Token& superclass() const { return superclass_; }
+    bool has_superclass() const {
+        return superclass_.type() != TokenType::INVALID;
+    }
     const std::vector<std::unique_ptr<Stmt>>& members() const { return members_; }
 
 private:
     Token name_;                                    // 类名
+    Token superclass_;                              // 父类名（可选）
     std::vector<std::unique_ptr<Stmt>> members_;   // 类成员列表
 };
 

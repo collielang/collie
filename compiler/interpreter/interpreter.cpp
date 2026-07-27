@@ -442,15 +442,18 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
     size_t line = expr.name().line();
     size_t column = expr.name().column();
 
-    // 类实例：分发用户定义方法（toString 保留为通用内建兜底）
+    // 类实例：沿继承链分发用户定义方法（toString 保留为通用内建兜底）
     if (object.is_instance()) {
-        const FunctionStmt* method = find_method(object.as_instance().klass, name);
+        const ClassStmt* defining_class = nullptr;
+        const FunctionStmt* method =
+            find_method(object.as_instance().klass, name, &defining_class);
         if (method) {
             std::vector<Value> args;
             for (const auto& argument : expr.arguments()) {
                 args.push_back(evaluate(argument.get()));
             }
-            result_ = call_class_method(object, method, args, line, column);
+            result_ = call_class_method(object, method, defining_class,
+                                        args, line, column);
             return;
         }
         if (name == "toString") {
@@ -921,20 +924,26 @@ void Interpreter::visitNew(const NewExpr& expr) {
     }
     const ClassStmt* klass = it->second;
 
-    // 创建实例并初始化字段：有初始化表达式的求值后按字段声明类型
-    // 校验/隐式转换，否则为 none
+    // 创建实例并初始化字段：沿继承链 base-first 执行（子类同名字段覆盖），
+    // 有初始化表达式的求值后按字段声明类型校验/隐式转换，否则为 none
+    std::vector<const ClassStmt*> chain;
+    for (const ClassStmt* c = klass; c != nullptr; c = superclass_of(c)) {
+        chain.push_back(c);
+    }
     auto data = std::make_shared<InstanceData>();
     data->klass = klass;
-    for (const auto& member : klass->members()) {
-        if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
-            Value init = Value::none();
-            if (field->initializer()) {
-                init = coerce_to_declared(field->type().type(),
-                                          evaluate(field->initializer()),
-                                          field->name().line(),
-                                          field->name().column());
+    for (auto rit = chain.rbegin(); rit != chain.rend(); ++rit) {
+        for (const auto& member : (*rit)->members()) {
+            if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
+                Value init = Value::none();
+                if (field->initializer()) {
+                    init = coerce_to_declared(field->type().type(),
+                                              evaluate(field->initializer()),
+                                              field->name().line(),
+                                              field->name().column());
+                }
+                data->fields[std::string(field->name().lexeme())] = init;
             }
-            data->fields[std::string(field->name().lexeme())] = init;
         }
     }
     Value instance = Value::instance(std::move(data));
@@ -945,10 +954,11 @@ void Interpreter::visitNew(const NewExpr& expr) {
         args.push_back(evaluate(argument.get()));
     }
 
-    // 构造器为与类名同名的成员函数；无构造器时要求 0 实参
+    // 构造器为与类名同名的成员函数（不继承，仅在本类命中）；
+    // 无构造器时要求 0 实参，且不隐式调用父类构造器
     const FunctionStmt* ctor = find_method(klass, name);
     if (ctor) {
-        call_class_method(instance, ctor, args, line, column);
+        call_class_method(instance, ctor, klass, args, line, column);
     } else if (!args.empty()) {
         throw RuntimeError("Class '" + name + "' has no constructor but got " +
                                std::to_string(args.size()) + " argument(s)",
@@ -965,6 +975,50 @@ void Interpreter::visitThis(const ThisExpr& expr) {
                            expr.keyword().line(), expr.keyword().column());
     }
     result_ = *value;
+}
+
+void Interpreter::visitBaseCall(const BaseCallExpr& expr) {
+    size_t line = expr.keyword().line();
+    size_t column = expr.keyword().column();
+
+    // base 按“定义当前构造器的类”的父类解析（见 current_class_ 注释）
+    if (!current_class_ || !current_class_->has_superclass()) {
+        throw RuntimeError(
+            "'base' requires the enclosing class to have a superclass",
+            line, column);
+    }
+    const ClassStmt* super = superclass_of(current_class_);
+
+    Value* self = env_.get("this");
+    if (!self) {
+        throw RuntimeError("'base' can only be used inside a constructor",
+                           line, column);
+    }
+    // 拷贝一份：call_class_method 内 ScopeGuard 压栈可能重分配环境存储，
+    // 直接引用 env_ 内部指针会悬空
+    Value self_value = *self;
+
+    std::vector<Value> args;
+    for (const auto& argument : expr.arguments()) {
+        args.push_back(evaluate(argument.get()));
+    }
+
+    // 父类构造器与父类名同名（构造器不继承，仅在父类自身命中）
+    const std::string super_name(super->name().lexeme());
+    const FunctionStmt* ctor = find_method(super, super_name);
+    if (!ctor) {
+        if (!args.empty()) {
+            throw RuntimeError("Class '" + super_name +
+                                   "' has no constructor but got " +
+                                   std::to_string(args.size()) + " argument(s)",
+                               line, column);
+        }
+        // 父类无构造器且 0 实参：空操作
+        result_ = Value::none();
+        return;
+    }
+    call_class_method(self_value, ctor, super, args, line, column);
+    result_ = Value::none();
 }
 
 void Interpreter::visitPropertyAssign(const PropertyAssignExpr& expr) {
@@ -995,27 +1049,50 @@ void Interpreter::visitPropertyAssign(const PropertyAssignExpr& expr) {
 }
 
 const FunctionStmt* Interpreter::find_method(const ClassStmt* klass,
-                                             const std::string& name) {
-    for (const auto& member : klass->members()) {
-        if (auto* fn = dynamic_cast<const FunctionStmt*>(member.get())) {
-            if (fn->name().lexeme() == name) return fn;
+                                             const std::string& name,
+                                             const ClassStmt** defining_class) const {
+    // 沿继承链自子向父查找，子类同名方法实现覆写
+    for (const ClassStmt* c = klass; c != nullptr; c = superclass_of(c)) {
+        for (const auto& member : c->members()) {
+            if (auto* fn = dynamic_cast<const FunctionStmt*>(member.get())) {
+                if (fn->name().lexeme() == name) {
+                    if (defining_class) *defining_class = c;
+                    return fn;
+                }
+            }
         }
     }
     return nullptr;
 }
 
 const VarDeclStmt* Interpreter::find_field(const ClassStmt* klass,
-                                           const std::string& name) {
-    for (const auto& member : klass->members()) {
-        if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
-            if (field->name().lexeme() == name) return field;
+                                           const std::string& name) const {
+    for (const ClassStmt* c = klass; c != nullptr; c = superclass_of(c)) {
+        for (const auto& member : c->members()) {
+            if (auto* field = dynamic_cast<const VarDeclStmt*>(member.get())) {
+                if (field->name().lexeme() == name) return field;
+            }
         }
     }
     return nullptr;
 }
 
+const ClassStmt* Interpreter::superclass_of(const ClassStmt* klass) const {
+    if (!klass->has_superclass()) return nullptr;
+    const std::string super_name(klass->superclass().lexeme());
+    auto it = classes_.find(super_name);
+    if (it == classes_.end()) {
+        // 语义层要求父类先声明，正常不可达；防御未登记的动态路径
+        throw RuntimeError("Undefined superclass '" + super_name + "'",
+                           klass->superclass().line(),
+                           klass->superclass().column());
+    }
+    return it->second;
+}
+
 Value Interpreter::call_class_method(const Value& instance,
                                      const FunctionStmt* method,
+                                     const ClassStmt* defining_class,
                                      const std::vector<Value>& args,
                                      size_t line, size_t column) {
     // 元数检查（语义层对 object 动态放行，运行期是唯一门禁）
@@ -1027,7 +1104,15 @@ Value Interpreter::call_class_method(const Value& instance,
             line, column);
     }
 
-    // 方法作用域：绑定 this 与形参（按声明类型校验/隐式转换），捕获 ReturnSignal
+    // 方法作用域：绑定 this 与形参（按声明类型校验/隐式转换），捕获 ReturnSignal；
+    // current_class_ 切换为定义类，供体内 base 按其父类解析（RAII 确保异常路径也还原）
+    struct ClassContextGuard {
+        const ClassStmt*& slot;
+        const ClassStmt* prev;
+        ClassContextGuard(const ClassStmt*& s, const ClassStmt* v)
+            : slot(s), prev(s) { s = v; }
+        ~ClassContextGuard() { slot = prev; }
+    } class_guard(current_class_, defining_class);
     ScopeGuard guard(env_);
     env_.define("this", instance);
     for (size_t i = 0; i < method->parameters().size(); ++i) {

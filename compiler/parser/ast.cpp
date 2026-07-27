@@ -75,6 +75,10 @@ void ThisExpr::accept(ExprVisitor& visitor) const {
     visitor.visitThis(*this);
 }
 
+void BaseCallExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitBaseCall(*this);
+}
+
 void CallExpr::accept(ExprVisitor& visitor) const {
     visitor.visitCall(*this);
 }
