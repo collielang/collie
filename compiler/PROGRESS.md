@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t50 完成：codegen 扩展 S3——变量/赋值/比较/短路逻辑/if/while + 差分测试自动化进 ctest；下一步 t51 待定）
+最后更新：2026-07-26（t51 完成：codegen S4 循环控制流补全——for/do-while/break/continue + 二元三元表达式，附带修复 parser for 初始化类型列表缺口）
 
 ---
 
@@ -342,6 +342,12 @@
     - 实现：CGVar{alloca 槽,类型} + scopes_ 作用域栈（entry 块头 alloca 利于 mem2reg）；比较纯整数 icmp/含小数 fcmp（!= 用 UNE 保 NaN）；&&/|| 短路 condbr+phi；if/while 标准基本块 + 终结符防御；bool 字面量 true/false 是 KW_TRUE/KW_FALSE
     - 踩坑：EXCLUDE_FROM_ALL 子目录 add_test 不进 CTestTestfile → 差分测试注册挪 tests/；`codegen` 是 CMake 保留目标名（CMP0171）→ 改名 collie_codegen；语义层拒整数/小数混型字面量比较（用例改用 decimal 变量）
     - 验证：ctest -C Release 差分 s1_hello+s3_control_flow 各 100% 逐字节一致；Debug 门禁全量 ctest 6/6 不受影响（codegen_diff CONFIGURATIONS Release 不进 Debug）
+- [x] codegen S4 循环控制流补全（t51）
+    - 范围拍板：`for`（初始化/条件/增量作用域限循环内）、`do-while`、`break`/`continue`（loop 上下文栈记录 continue/break 目标块）、二元三元表达式 `a ? x : y`（bool 条件，PHI 汇合，分支类型不同时 int→double 提升）
+    - 范围外登记：三分支 tribool 三元 `a ? x : y : z`（属 tribool 后续）；switch/函数/class 仍拒编
+    - 实现：LoopContext{continue_target, break_target} 栈 loops_；for 初始化限自身作用域 + cond/body/inc/end 四块（continue 跳 inc，与解释器 continue 后仍执行增量对齐）；do-while 先 br body 保至少执行一次；break/continue CreateBr 后落 `*.dead` 死代码块（IR 每块仅一终结符）；gen_ternary then/else/merge + PHI，混型提升指令落在各自分支块内
+    - 踩坑：parser parse_for_statement 初始化类型匹配列表历史缺口（仅 number/string/bool/character/IDENTIFIER，`for (integer i = ...)` 直接语法错误）——对齐 parse_declaration 完整类型列表修复，解释器/编译器共同受益，并补 parser 防退化测试 ForStatementIntegerInitializer
+    - 验证：新增差分用例 s4_loops.collie（for 累加/continue/break/do-while/while 内 break-continue/三元/嵌套三元），ctest -C Release 差分 3/3 逐字节一致；Debug 门禁 ctest 6/6 全过
 
 ---
 
@@ -396,6 +402,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen 扩展 S4 循环控制流 + 修复 parser for 初始化类型缺口（t51，M6）：LoopContext 栈支撑 break/continue（break→end、continue→while/do-while 的 cond、for 的 inc，与解释器对齐；CreateBr 后落 `*.dead` 块保每块单终结符）；for 初始化限自身作用域 + cond/body/inc/end 四块；do-while 先 br body 保至少执行一次；gen_ternary（bool 条件 CondBr + PHI 汇合，int/double 混型在各分支块内提升 double，三分支 tribool 拒编）；修复 parser parse_for_statement 初始化类型列表历史缺口（缺 integer/decimal/tribool 等，对齐 parse_declaration，解释器/编译器共同受益）+ 防退化测试；新增差分用例 s4_loops.collie，ctest -C Release 差分 3/3 逐字节一致，Debug 门禁 6/6（M6 t51）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S3 + 差分测试自动化进 ctest（t50，M6）：`code_generator.{h,cpp}` 新增 S3 降级——变量声明（integer/decimal/bool/string，entry 块头 alloca 利于 mem2reg，须带初始化否则拒编，`number` 变量拒编登记缺口 CG5）、赋值（仅 integer→decimal sitofp 提升）、比较 `== != < <= > >=`（纯整数 icmp/含小数 fcmp，`!=` 用 UNE 保 NaN，bool 仅 ==/!=）、逻辑 `&& || !`（短路 condbr+phi，与解释器 Kleene 对齐）、if/else、while、块作用域遮蔽（scopes_ 栈）、bool 字面量 KW_TRUE/KW_FALSE；差分测试自动化：`codegen/tests/run_diff_test.cmake` 四步比对脚本（colliec 编译产物 vs collie 解释器逐字节）+ `tests/CMakeLists.txt` 注册 codegen_diff_{s1_hello,s3_control_flow}（if COLLIE_ENABLE_LLVM + CONFIGURATIONS Release）；踩坑：EXCLUDE_FROM_ALL 子目录 add_test 不进 CTestTestfile（注册挪 tests/）、`codegen` 保留目标名 CMP0171（改名 collie_codegen）；ctest -C Release 差分 2/2 逐字节一致，Debug 全量 ctest 6/6 不受影响（M6 t50）
 - 2026-07-26 `feat(compiler)`: CodeGenerator 第一版 + colliec 本地编译驱动（t49，M6）：Release 全工程切 /MT 静态 CRT（t49a，Debug 保持 /MDd，门禁 ctest 6/6 不受影响）；`codegen/code_generator.{h,cpp}` 实现 S1/S2 降级（print→printf 编译期格式串、`/` 恒小数 fdiv、`%` floor 取模 srem+select 校正、一元负号；范围外节点统一抛 CodeGenError 绝不静默错编；verifyModule 门禁）；`colliec_main.cpp` 驱动：前端三层门禁→写 .ll→调 LLVM 包 clang 编链本地 .exe（`--emit-llvm`/`-o` 选项，COLLIE_LLVM_BIN 编译期烘焙）；t49_hello.collie 端到端跑通，编译产物与 Debug 解释器输出 fc 逐字节一致（首个解释器/编译产物差分验证）（M6 t49）
 - 2026-07-26 `docs(compiler)`: AST → LLVM IR 降级设计文档 `compiler/codegen/README.md`（t48c）：阶段范围 S1/S2/S3；类型映射（integer→i64 妥协登记 CG1、decimal→double）；降级映射表（print→puts/printf、`/` 恒小数 fdiv、`%` floor 取模 select 校正）；CRT 链接方案拍板（Release 全工程切 /MT，Debug 门禁不动，t49 实施）；验证策略：verifyModule 门禁 + 解释器/编译产物差分测试；CG1～CG4 缺口登记（M6 t48）

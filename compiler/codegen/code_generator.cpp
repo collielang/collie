@@ -1,6 +1,6 @@
 /**
  * @file code_generator.cpp
- * @brief AST → LLVM IR 代码生成器实现（M6 t49/t50，S1–S3 子集）
+ * @brief AST → LLVM IR 代码生成器实现（M6 t49/t50/t51，S1–S4 子集）
  *
  * 降级规则见 compiler/codegen/README.md 第四节；语义依据 compiler/SPEC.md。
  */
@@ -39,6 +39,7 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 顶层作用域（块进出时 push/pop，支持遮蔽）
     scopes_.clear();
     scopes_.emplace_back();
+    loops_.clear();
 
     for (const auto& stmt : statements) {
         stmt->accept(*this);
@@ -393,7 +394,7 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
 }
 
 void CodeGenerator::visitTuple(const TupleExpr&) { unsupported("tuple", 0, 0); }
-void CodeGenerator::visitTernary(const TernaryExpr&) { unsupported("ternary", 0, 0); }
+void CodeGenerator::visitTernary(const TernaryExpr& expr) { gen_ternary(expr); }
 void CodeGenerator::visitMultiMatch(const MultiMatchExpr&) { unsupported("'==?'", 0, 0); }
 void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr&) { unsupported("array literal", 0, 0); }
 void CodeGenerator::visitIndex(const IndexExpr&) { unsupported("indexing", 0, 0); }
@@ -475,21 +476,111 @@ void CodeGenerator::visitWhile(const WhileStmt& stmt) {
     builder_.CreateCondBr(cond.value, body_bb, end_bb);
 
     builder_.SetInsertPoint(body_bb);
+    loops_.push_back({cond_bb, end_bb}); // break/continue 目标（S4 t51）
     stmt.body()->accept(*this);
+    loops_.pop_back();
     if (!builder_.GetInsertBlock()->getTerminator()) {
         builder_.CreateBr(cond_bb);
     }
     builder_.SetInsertPoint(end_bb);
 }
 
-void CodeGenerator::visitFor(const ForStmt&) { unsupported("'for'", 0, 0); }
-void CodeGenerator::visitDoWhile(const DoWhileStmt&) { unsupported("'do-while'", 0, 0); }
+void CodeGenerator::visitFor(const ForStmt& stmt) {
+    // for 的初始化变量作用域限循环内（与解释器 ScopeGuard 对齐）
+    scopes_.emplace_back();
+    if (stmt.initializer()) {
+        stmt.initializer()->accept(*this);
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* cond_bb = llvm::BasicBlock::Create(context_, "for.cond", fn);
+    auto* body_bb = llvm::BasicBlock::Create(context_, "for.body", fn);
+    auto* inc_bb = stmt.increment()
+                       ? llvm::BasicBlock::Create(context_, "for.inc", fn)
+                       : nullptr;
+    auto* end_bb = llvm::BasicBlock::Create(context_, "for.end", fn);
+    builder_.CreateBr(cond_bb);
+
+    builder_.SetInsertPoint(cond_bb);
+    if (stmt.condition()) {
+        CGValue cond = emit(stmt.condition());
+        if (cond.type != CGType::Bool) {
+            unsupported("non-bool 'for' condition",
+                        stmt.for_token().line(), stmt.for_token().column());
+        }
+        builder_.CreateCondBr(cond.value, body_bb, end_bb);
+    } else {
+        builder_.CreateBr(body_bb); // 无条件 = 恒真（与解释器一致）
+    }
+
+    builder_.SetInsertPoint(body_bb);
+    // continue 跳增量块（无增量则条件块），与解释器“continue 后仍执行 increment”对齐
+    loops_.push_back({inc_bb ? inc_bb : cond_bb, end_bb});
+    stmt.body()->accept(*this);
+    loops_.pop_back();
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+        builder_.CreateBr(inc_bb ? inc_bb : cond_bb);
+    }
+    if (inc_bb) {
+        builder_.SetInsertPoint(inc_bb);
+        emit(stmt.increment()); // 值弃用
+        builder_.CreateBr(cond_bb);
+    }
+    builder_.SetInsertPoint(end_bb);
+    scopes_.pop_back();
+}
+
+void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
+    // 先执行一次循环体再判条件；continue 跳条件块（与解释器对齐）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* body_bb = llvm::BasicBlock::Create(context_, "do.body", fn);
+    auto* cond_bb = llvm::BasicBlock::Create(context_, "do.cond", fn);
+    auto* end_bb = llvm::BasicBlock::Create(context_, "do.end", fn);
+    builder_.CreateBr(body_bb);
+
+    builder_.SetInsertPoint(body_bb);
+    loops_.push_back({cond_bb, end_bb});
+    stmt.body()->accept(*this);
+    loops_.pop_back();
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+        builder_.CreateBr(cond_bb);
+    }
+
+    builder_.SetInsertPoint(cond_bb);
+    CGValue cond = emit(stmt.condition());
+    if (cond.type != CGType::Bool) {
+        unsupported("non-bool 'do-while' condition",
+                    stmt.do_token().line(), stmt.do_token().column());
+    }
+    builder_.CreateCondBr(cond.value, body_bb, end_bb);
+    builder_.SetInsertPoint(end_bb);
+}
+
 void CodeGenerator::visitSwitch(const SwitchStmt&) { unsupported("'switch'", 0, 0); }
 void CodeGenerator::visitFunction(const FunctionStmt&) { unsupported("function declaration", 0, 0); }
 void CodeGenerator::visitReturn(const ReturnStmt&) { unsupported("'return'", 0, 0); }
 void CodeGenerator::visitClass(const ClassStmt&) { unsupported("'class'", 0, 0); }
-void CodeGenerator::visitBreak(const BreakStmt&) { unsupported("'break'", 0, 0); }
-void CodeGenerator::visitContinue(const ContinueStmt&) { unsupported("'continue'", 0, 0); }
+
+void CodeGenerator::visitBreak(const BreakStmt& stmt) {
+    // 循环外的 break 由语义层拦截，此处防御
+    if (loops_.empty()) {
+        unsupported("'break' outside loop",
+                    stmt.keyword().line(), stmt.keyword().column());
+    }
+    builder_.CreateBr(loops_.back().break_target);
+    // break 后同块的死代码仍需插入点（IR 块只允许一个终结符）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "break.dead", fn));
+}
+
+void CodeGenerator::visitContinue(const ContinueStmt& stmt) {
+    if (loops_.empty()) {
+        unsupported("'continue' outside loop",
+                    stmt.keyword().line(), stmt.keyword().column());
+    }
+    builder_.CreateBr(loops_.back().continue_target);
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "continue.dead", fn));
+}
 
 // ---------------- 辅助 ----------------
 
@@ -547,6 +638,58 @@ CodeGenerator::CGVar* CodeGenerator::lookup_var(const std::string& name) {
         }
     }
     return nullptr;
+}
+
+void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
+    // 三分支 tribool 形式 a ? x : y : z 属 tribool 后续阶段，拒编
+    if (expr.unset_expr() != nullptr) {
+        unsupported("three-branch tribool ternary (needs tribool support)",
+                    expr.question_token().line(), expr.question_token().column());
+    }
+    CGValue cond = emit(expr.condition());
+    if (cond.type != CGType::Bool) {
+        unsupported("non-bool ternary condition",
+                    expr.question_token().line(), expr.question_token().column());
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* then_bb = llvm::BasicBlock::Create(context_, "tern.then", fn);
+    auto* else_bb = llvm::BasicBlock::Create(context_, "tern.else", fn);
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "tern.end", fn);
+    builder_.CreateCondBr(cond.value, then_bb, else_bb);
+
+    builder_.SetInsertPoint(then_bb);
+    CGValue tv = emit(expr.then_expr());
+    llvm::BasicBlock* then_end = builder_.GetInsertBlock();
+
+    builder_.SetInsertPoint(else_bb);
+    CGValue ev = emit(expr.else_expr());
+    llvm::BasicBlock* else_end = builder_.GetInsertBlock();
+
+    // 两分支类型统一：同型直用；int/double 混型统一提升为 double（与算术混型一致）
+    CGType result_type;
+    if (tv.type == ev.type) {
+        result_type = tv.type;
+    } else if ((tv.type == CGType::Int || tv.type == CGType::Double) &&
+               (ev.type == CGType::Int || ev.type == CGType::Double)) {
+        result_type = CGType::Double;
+    } else {
+        unsupported("ternary branches have incompatible types",
+                    expr.question_token().line(), expr.question_token().column());
+    }
+
+    // 各分支块尾把值对齐 result_type 后再跳 merge（提升指令须落在该分支块内）
+    builder_.SetInsertPoint(then_end);
+    llvm::Value* then_val = (result_type == CGType::Double) ? to_double(tv) : tv.value;
+    builder_.CreateBr(merge_bb);
+    builder_.SetInsertPoint(else_end);
+    llvm::Value* else_val = (result_type == CGType::Double) ? to_double(ev) : ev.value;
+    builder_.CreateBr(merge_bb);
+
+    builder_.SetInsertPoint(merge_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(llvm_type_of(result_type), 2, "terntmp");
+    phi->addIncoming(then_val, then_end);
+    phi->addIncoming(else_val, else_end);
+    last_value_ = {phi, result_type};
 }
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {

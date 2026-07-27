@@ -14,6 +14,7 @@
 | S1 | `print("字符串字面量")` 顶层语句 | helloworld.collie 编译为 .exe，输出与解释器一致 **✅ t49** |
 | S2 | 整数字面量、`+ - * / %`、`print(整数表达式)` | 算术表达式编译执行，输出与解释器一致 **✅ t49** |
 | S3 | 变量声明/读写、bool、比较、`if`/`while` | 循环程序编译执行，输出与解释器一致 **✅ t50** |
+| S4 | `for`/`do-while`、`break`/`continue`、二分支三元 `a ? x : y` | 循环控制流程序编译执行，输出与解释器一致 **✅ t51** |
 | 后续 | 函数、string 运行时、decimal 输出格式、class、BigInt | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、字符串插值（parser 已脱糖为拼接，
@@ -73,6 +74,15 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `!a` | `xor i1 %a, true`（CreateNot），仅 bool |
 | `if`/`else` | then/else/merge 基本块 + 终结符防御（已有 terminator 不补 br） |
 | `while` | cond/body/end 基本块，回边 br cond |
+
+**S4 降级补充（t51 实现）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `for` | 初始化限自身作用域（scopes_ push/pop）；cond/body/inc/end 基本块，body → inc → cond 回边；无条件恒真、无增量则回边直指 cond |
+| `do-while` | body/cond/end 基本块，先无条件 br body（至少执行一次），cond 判真回 body |
+| `break`/`continue` | loop 上下文栈 `loops_` 记录目标块：break → end；continue → while/do-while 的 cond、for 的 inc（与解释器 continue 后仍执行增量一致）；CreateBr 后落入 `*.dead` 死代码块（IR 每块仅一个终结符） |
+| 三元 `a ? x : y` | bool 条件 CondBr + then/else/merge 块，merge 处 PHI 汇合；分支 int/double 混型时在各自分支块内提升 double；三分支 tribool 形式报不支持 |
 
 **print 后续演进**：S2 之后 print 需要匹配解释器的 `to_string` 全部格式
 （decimal 6 位有效数字、整值小数按整数打印、`+Infinity`/`NaN`、bool/none/数组格式），

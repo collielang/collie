@@ -1,0 +1,57 @@
+// t51 S4 差分用例：for/do-while/break/continue/三元表达式
+integer total = 0;
+for (integer i = 0; i < 5; i = i + 1) {
+    total = total + i;
+}
+print("for:", total);
+
+integer countEven = 0;
+for (integer i = 0; i < 10; i = i + 1) {
+    if (i % 2 == 1) {
+        continue;
+    }
+    countEven = countEven + 1;
+}
+print("continue:", countEven);
+
+integer firstBig = -1;
+for (integer i = 0; i < 100; i = i + 1) {
+    if (i > 7) {
+        firstBig = i;
+        break;
+    }
+}
+print("break:", firstBig);
+
+integer n = 0;
+integer acc = 0;
+do {
+    acc = acc + n;
+    n = n + 1;
+} while (n < 4);
+print("dowhile:", acc, n);
+
+// while 里的 break/continue（与 for 共用 loop 栈）
+integer w = 0;
+integer hits = 0;
+while (true) {
+    w = w + 1;
+    if (w % 3 != 0) {
+        continue;
+    }
+    hits = hits + 1;
+    if (w >= 12) {
+        break;
+    }
+}
+print("whilebc:", w, hits);
+
+integer a = 3;
+integer b = 9;
+integer mx = a > b ? a : b;
+integer mn = a < b ? a : b;
+print("ternary:", mx, mn);
+
+bool flag = true;
+integer pick = flag ? (a > 1 ? 100 : 200) : 300;
+print("nested:", pick);

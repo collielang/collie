@@ -1335,14 +1335,25 @@ std::unique_ptr<Stmt> Parser::parse_for_statement() {
 
     consume(TokenType::DELIMITER_LPAREN, "Expect '(' after 'for'.");
 
-    // 解析初始化语句
+    // 解析初始化语句（类型关键字列表与 parse_declaration 对齐，t51 补齐 integer/decimal 等）
     std::unique_ptr<Stmt> initializer;
     if (match(TokenType::DELIMITER_SEMICOLON)) {
         initializer = nullptr;
-    } else if (match(TokenType::KW_NUMBER) ||
-               match(TokenType::KW_STRING) ||
-               match(TokenType::KW_BOOL) ||
-               match(TokenType::KW_CHARACTER) ||
+    } else if (match({TokenType::KW_NUMBER,
+                      TokenType::KW_STRING,
+                      TokenType::KW_BOOL,
+                      TokenType::KW_CHARACTER,
+                      TokenType::KW_CHAR,
+                      TokenType::KW_BYTE,
+                      TokenType::KW_WORD,
+                      TokenType::KW_DWORD,
+                      TokenType::KW_OBJECT,
+                      TokenType::KW_INTEGER,
+                      TokenType::KW_DECIMAL,
+                      TokenType::KW_TRIBOOL,
+                      TokenType::KW_BIT,
+                      TokenType::KW_ARRAY,
+                      TokenType::KW_TUPLE}) ||
                match(TokenType::IDENTIFIER)) {
         initializer = parse_type_declaration();
     } else {

@@ -565,6 +565,21 @@ TEST(ParserTest, ForStatement) {
     EXPECT_EQ(visitor.result(), "for (number i = 0; (i<10); i = (i+1)) {\n  x = (x+i);\n}");
 }
 
+// for 初始化支持全量类型关键字（t51 修复：旧列表缺 integer/decimal 等）
+TEST(ParserTest, ForStatementIntegerInitializer) {
+    std::string source = "for (integer i = 0; i < 5; i = i + 1) { x = x + i; }";
+    Lexer lexer(source);
+    std::vector<Token> tokens = lexer.tokenize();
+    Parser parser(tokens);
+
+    auto stmt = parser.parse();
+    ASSERT_NE(stmt, nullptr);
+
+    TestStmtVisitor visitor;
+    stmt->accept(visitor);
+    EXPECT_EQ(visitor.result(), "for (integer i = 0; (i<5); i = (i+1)) {\n  x = (x+i);\n}");
+}
+
 // 空 for 语句测试
 TEST(ParserTest, EmptyForStatement) {
     // std::string source = "for (;;) { x = x + 1; }";

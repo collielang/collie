@@ -1,11 +1,12 @@
 /**
  * @file code_generator.h
- * @brief AST → LLVM IR 代码生成器（M6 t49/t50，S1–S3 子集）
+ * @brief AST → LLVM IR 代码生成器（M6 t49/t50/t51，S1–S4 子集）
  *
  * 设计文档：compiler/codegen/README.md（类型映射/降级映射/阶段范围）。
  * 支持面：print、字符串/整数/小数/布尔字面量、算术 + - * / %、一元负号；
  * S3（t50）：变量声明/赋值（integer/decimal/bool/string）、比较、
- * 短路 && || 与 !、if/else、while、块作用域遮蔽。
+ * 短路 && || 与 !、if/else、while、块作用域遮蔽；
+ * S4（t51）：for/do-while/break/continue、二元三元表达式 a ? x : y。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -113,6 +114,13 @@ private:
         CGType type = CGType::Int;
     };
 
+    /// @brief 循环上下文（S4 t51）：break/continue 跳转目标块
+    /// continue_target：while/do-while 为条件块，for 为增量块（无增量则条件块）
+    struct LoopContext {
+        llvm::BasicBlock* continue_target = nullptr;
+        llvm::BasicBlock* break_target = nullptr;
+    };
+
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
     CGValue emit(const Expr* expr);
 
@@ -137,6 +145,9 @@ private:
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
 
+    /// @brief 二元三元表达式 a ? x : y：bool 条件 + PHI 汇合（分支类型不同时 int→double 提升）
+    void gen_ternary(const TernaryExpr& expr);
+
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
 
@@ -150,6 +161,8 @@ private:
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;
+    /// 循环上下文栈：break/continue 查最内层跳转目标（S4 t51）
+    std::vector<LoopContext> loops_;
 };
 
 } // namespace collie
