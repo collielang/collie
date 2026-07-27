@@ -19,6 +19,7 @@ std::string token_type_to_string(TokenType type) {
         case TokenType::KW_NONE: return "KW_NONE";
         case TokenType::KW_OBJECT: return "KW_OBJECT";
         case TokenType::KW_ARRAY: return "KW_ARRAY";
+        case TokenType::KW_TUPLE: return "KW_TUPLE";
         case TokenType::END_OF_FILE: return "END_OF_FILE";
         case TokenType::INVALID: return "INVALID";
         case TokenType::TOKEN_ERROR: return "TOKEN_ERROR";

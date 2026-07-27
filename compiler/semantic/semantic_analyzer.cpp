@@ -1289,46 +1289,14 @@ void SemanticAnalyzer::advance_token() {
 
 void SemanticAnalyzer::visitTuple(const TupleExpr& expr) {
     try {
-        std::vector<TokenType> element_types;
-
-        // 分析每个元素的类型
+        // 分析每个元素表达式（元素类型不追踪，访问结果为 object 动态放行）
+        // TODO(semantic): 待类型系统闭环后追踪元素类型与命名字段。
         for (const auto& element : expr.elements()) {
             element->accept(*this);
-            element_types.push_back(current_type_);
         }
 
         // 设置当前类型为元组类型
         current_type_ = TokenType::KW_TUPLE;
-        tuple_element_types_ = element_types;  // 存储元组元素类型
-
-    } catch (const SemanticError& error) {
-        record_error(error);
-        if (!in_panic_mode_) {
-            enter_panic_mode();
-            synchronize();
-        }
-    }
-}
-
-void SemanticAnalyzer::visitTupleMember(const TupleMemberExpr& expr) {
-    try {
-        // 分析元组表达式
-        expr.tuple()->accept(*this);
-
-        // 确保是元组类型
-        if (current_type_ != TokenType::KW_TUPLE) {
-            throw SemanticError("Cannot access member of non-tuple type",
-                expr.dot().line(), expr.dot().column());
-        }
-
-        // 检查索引是否有效
-        if (expr.index() >= tuple_element_types_.size()) {
-            throw SemanticError("Tuple index out of range",
-                expr.dot().line(), expr.dot().column());
-        }
-
-        // 设置当前类型为元组成员的类型
-        current_type_ = tuple_element_types_[expr.index()];
 
     } catch (const SemanticError& error) {
         record_error(error);
@@ -1504,11 +1472,12 @@ void SemanticAnalyzer::visitArrayLiteral(const ArrayLiteralExpr& expr) {
 
 void SemanticAnalyzer::visitIndex(const IndexExpr& expr) {
     try {
-        // 被索引对象必须是数组或字符串（object 动态放行，运行期再检查）
+        // 被索引对象必须是数组、字符串或元组（object 动态放行，运行期再检查）
         expr.object()->accept(*this);
         TokenType object_type = current_type_;
         if (object_type != TokenType::KW_ARRAY &&
             object_type != TokenType::KW_STRING &&
+            object_type != TokenType::KW_TUPLE &&
             object_type != TokenType::KW_OBJECT) {
             throw SemanticError(
                 std::string("Cannot index value of type '") +
@@ -1545,11 +1514,15 @@ void SemanticAnalyzer::visitIndex(const IndexExpr& expr) {
 void SemanticAnalyzer::visitIndexAssign(const IndexAssignExpr& expr) {
     try {
         // 被索引赋值的对象必须是数组（object 动态放行，运行期再检查）；
-        // 字符串按值语义且不可变，不支持索引赋值
+        // 字符串按值语义且不可变，不支持索引赋值；元组不可变（t45）
         expr.object()->accept(*this);
         TokenType object_type = current_type_;
         if (object_type == TokenType::KW_STRING) {
             throw SemanticError("Strings are immutable, cannot assign to index",
+                expr.bracket().line(), expr.bracket().column());
+        }
+        if (object_type == TokenType::KW_TUPLE) {
+            throw SemanticError("Tuples are immutable, cannot assign to index",
                 expr.bracket().line(), expr.bracket().column());
         }
         if (object_type != TokenType::KW_ARRAY &&
@@ -1660,6 +1633,19 @@ void SemanticAnalyzer::visitMethodCall(const MethodCallExpr& expr) {
                 min_args = 1;
                 max_args = 2;
             }
+        } else if (name == "get") {
+            // tuple 专属方法（t45）：按名字动态获取字段，get("key") -> object
+            // （object 动态放行，运行期再检查）
+            if (object_type != TokenType::KW_TUPLE &&
+                object_type != TokenType::KW_OBJECT) {
+                throw SemanticError(
+                    "Method 'get()' is only supported on tuples, got '" +
+                    std::string(token_type_to_string(object_type)) + "'",
+                    expr.name().line(), expr.name().column());
+            }
+            result_type = TokenType::KW_OBJECT;
+            min_args = 1;
+            max_args = 1;
         } else if (object_type == TokenType::KW_OBJECT) {
             // 用户类实例的方法调用：object 动态放行（方法名/元数运行期检查）
             for (const auto& argument : expr.arguments()) {
@@ -1706,10 +1692,11 @@ void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
         const std::string name(expr.name().lexeme());
 
         // 内建属性表（basic 版，见设计文档 03-character.md）：
-        // - length：string/array -> integer（长度恒为整数，t42）
+        // - length：string/array/tuple -> integer（长度恒为整数，t42）
         if (name == "length") {
             if (object_type != TokenType::KW_STRING &&
                 object_type != TokenType::KW_ARRAY &&
+                object_type != TokenType::KW_TUPLE &&
                 object_type != TokenType::KW_OBJECT) {
                 throw SemanticError(
                     "Property 'length' is only supported on strings and arrays, got '" +
@@ -1717,6 +1704,9 @@ void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
                     expr.name().line(), expr.name().column());
             }
             current_type_ = TokenType::KW_INTEGER;
+        } else if (object_type == TokenType::KW_TUPLE) {
+            // 命名元组字段读取（t45）：字段名/存在性运行期检查
+            current_type_ = TokenType::KW_OBJECT;
         } else if (object_type == TokenType::KW_OBJECT) {
             // 用户类实例的字段读取：object 动态放行，字段存在性运行期检查
             current_type_ = TokenType::KW_OBJECT;
@@ -1736,17 +1726,12 @@ void SemanticAnalyzer::visitProperty(const PropertyExpr& expr) {
 
 void SemanticAnalyzer::visitTupleType(const TupleType& type) {
     try {
-        std::vector<TokenType> element_types;
-
-        // 分析每个元素类型
+        // 分析每个元素类型（元素类型不追踪，见 visitTuple）
         for (const auto& element_type : type.element_types()) {
             element_type->accept(*this);
-            element_types.push_back(current_type_);
         }
 
-        // 存储元组元素类型
         current_type_ = TokenType::KW_TUPLE;
-        tuple_element_types_ = element_types;
 
     } catch (const SemanticError& error) {
         record_error(error);
@@ -2009,7 +1994,6 @@ void SemanticAnalyzer::reset_state() {
     current_function_ = nullptr;
     has_return_ = false;
     loop_depth_ = 0;
-    tuple_element_types_.clear();
     array_element_type_ = TokenType::INVALID;
     declared_classes_.clear();
     in_class_ = false;
@@ -2045,6 +2029,7 @@ bool SemanticAnalyzer::is_valid_type(TokenType type) const {
         case TokenType::KW_TRIBOOL:
         case TokenType::KW_BIT:
         case TokenType::KW_ARRAY:
+        case TokenType::KW_TUPLE:
             return true;
         default:
             return false;

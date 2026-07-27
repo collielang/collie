@@ -381,6 +381,13 @@ Value Interpreter::coerce_to_declared(TokenType declared, const Value& value,
                                    line, column);
             }
             return value;
+        case TokenType::KW_TUPLE:
+            if (!value.is_tuple()) {
+                throw RuntimeError(std::string("Type mismatch: cannot assign ") +
+                                       value.kind_name() + " to 'Tuple' variable",
+                                   line, column);
+            }
+            return value;
         case TokenType::KW_STRING:
             if (value.is_string()) {
                 return value;
@@ -454,13 +461,13 @@ Value Interpreter::to_number_value(const Value& v, size_t line, size_t column) {
 }
 
 void Interpreter::visitTuple(const TupleExpr& expr) {
-    throw RuntimeError("Tuples are not supported yet", expr.paren().line(),
-                       expr.paren().column());
-}
-
-void Interpreter::visitTupleMember(const TupleMemberExpr& expr) {
-    throw RuntimeError("Tuple member access is not supported yet", expr.dot().line(),
-                       expr.dot().column());
+    // 元组字面量（t45）：求值各元素，名字表与元素平行（无名元素为空串）
+    std::vector<Value> elements;
+    elements.reserve(expr.elements().size());
+    for (const auto& element : expr.elements()) {
+        elements.push_back(evaluate(element.get()));
+    }
+    result_ = Value::tuple(std::move(elements), expr.names());
 }
 
 void Interpreter::visitTernary(const TernaryExpr& expr) {
@@ -528,8 +535,15 @@ void Interpreter::visitIndex(const IndexExpr& expr) {
         result_ = Value::str(utf8_char_at(s, i));
         return;
     }
+    if (object.is_tuple()) {
+        // 元组按位置索引（t45）：0 起始，支持负索引
+        const auto& tup = object.as_tuple();
+        size_t i = normalize_index(index, tup.elements.size(), expr.bracket());
+        result_ = tup.elements[i];
+        return;
+    }
     if (!object.is_array()) {
-        throw RuntimeError(std::string("Only arrays and strings can be indexed, got ") +
+        throw RuntimeError(std::string("Only arrays, strings and tuples can be indexed, got ") +
                                object.kind_name(),
                            expr.bracket().line(), expr.bracket().column());
     }
@@ -542,6 +556,11 @@ void Interpreter::visitIndexAssign(const IndexAssignExpr& expr) {
     if (object.is_string()) {
         // 语义层已拦截静态可知的情况；这里防御 object 动态路径（如数组元素为字符串）
         throw RuntimeError("Strings are immutable, cannot assign to index",
+                           expr.bracket().line(), expr.bracket().column());
+    }
+    if (object.is_tuple()) {
+        // 元组不可变（t45）；语义层已拦，这里防御 object 动态路径
+        throw RuntimeError("Tuples are immutable, cannot assign to index",
                            expr.bracket().line(), expr.bracket().column());
     }
     if (!object.is_array()) {
@@ -585,9 +604,38 @@ void Interpreter::visitMethodCall(const MethodCallExpr& expr) {
                            line, column);
     }
 
-    // 除 subString 外内建方法均为 0 参（语义层已校验，这里防御 object 动态路径）
-    if (name != "subString" && !expr.arguments().empty()) {
+    // 除 subString/get 外内建方法均为 0 参（语义层已校验，这里防御 object 动态路径）
+    if (name != "subString" && name != "get" && !expr.arguments().empty()) {
         throw RuntimeError(name + "() expects no arguments", line, column);
+    }
+
+    // tuple 专属方法（t45）：get("key") 按名字动态获取命名字段
+    if (name == "get") {
+        if (!object.is_tuple()) {
+            throw RuntimeError("Method 'get()' is only supported on tuples, got " +
+                                   std::string(object.kind_name()),
+                               line, column);
+        }
+        if (expr.arguments().size() != 1) {
+            throw RuntimeError("get() expects 1 argument(s), got " +
+                                   std::to_string(expr.arguments().size()),
+                               line, column);
+        }
+        Value key = evaluate(expr.arguments()[0].get());
+        if (!key.is_string()) {
+            throw RuntimeError(std::string("get() key must be a string, got ") +
+                                   key.kind_name(),
+                               line, column);
+        }
+        const auto& tup = object.as_tuple();
+        for (size_t i = 0; i < tup.names.size(); ++i) {
+            if (!tup.names[i].empty() && tup.names[i] == key.as_string()) {
+                result_ = tup.elements[i];
+                return;
+            }
+        }
+        throw RuntimeError("Undefined tuple field '" + key.as_string() + "'",
+                           line, column);
     }
 
     // 通用方法：与内建函数 toString/toNumber 行为一致
@@ -743,6 +791,23 @@ void Interpreter::visitProperty(const PropertyExpr& expr) {
         }
         result_ = it->second;
         return;
+    }
+
+    // 元组（t45）：length 属性与命名字段读取
+    if (object.is_tuple()) {
+        const auto& tup = object.as_tuple();
+        if (name == "length") {
+            result_ = Value::integer(
+                BigInt(static_cast<long long>(tup.elements.size())));
+            return;
+        }
+        for (size_t i = 0; i < tup.names.size(); ++i) {
+            if (tup.names[i] == name) {
+                result_ = tup.elements[i];
+                return;
+            }
+        }
+        throw RuntimeError("Undefined tuple field '" + name + "'", line, column);
     }
 
     // 内建属性（见设计文档 03-character.md）：string 按 UTF-8 码点计数；
@@ -991,6 +1056,17 @@ bool Interpreter::values_equal(const Value& left, const Value& right) {
             if (l.size() != r.size()) return false;
             for (size_t i = 0; i < l.size(); ++i) {
                 if (!values_equal(l[i], r[i])) return false;
+            }
+            return true;
+        }
+        case Value::Kind::Tuple: {
+            // 元组按元素与名字表逐个深度比较（名字不同则不相等）
+            const auto& lt = left.as_tuple();
+            const auto& rt = right.as_tuple();
+            if (lt.elements.size() != rt.elements.size()) return false;
+            if (lt.names != rt.names) return false;
+            for (size_t i = 0; i < lt.elements.size(); ++i) {
+                if (!values_equal(lt.elements[i], rt.elements[i])) return false;
             }
             return true;
         }

@@ -48,7 +48,7 @@ enum class TokenType {
     KW_WORD,        // word
     KW_DWORD,       // dword
     KW_VAR,         // var
-    KW_TUPLE,       // tuple
+    KW_TUPLE,       // Tuple（文档拼写为大写，见 03-tuple.md）
     KW_ARRAY,       // array
 
     // 关键字 - 控制流

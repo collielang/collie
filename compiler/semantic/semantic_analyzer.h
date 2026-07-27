@@ -64,7 +64,6 @@ private:
     void visitCall(const CallExpr& expr) override;
     void visitAssign(const AssignExpr& expr) override;
     void visitTuple(const TupleExpr& expr) override;
-    void visitTupleMember(const TupleMemberExpr& expr) override;
     void visitTernary(const TernaryExpr& expr) override;
     void visitMultiMatch(const MultiMatchExpr& expr) override;
     void visitArrayLiteral(const ArrayLiteralExpr& expr) override;
@@ -258,9 +257,6 @@ private:
     void reset_state();
     bool in_loop() const { return loop_depth_ > 0; }
 
-    // 元组相关成员
-    std::vector<TokenType> tuple_element_types_;  // 当前元组的元素类型
-
 private:
     // 元组相关辅助方法
     bool is_tuple_type(TokenType type) const {
@@ -269,23 +265,6 @@ private:
 
     bool is_array_type(TokenType type) const {
         return type == TokenType::KW_ARRAY;
-    }
-
-    /**
-     * @brief 检查两个元组类型是否兼容
-     * @param expected 期望的元组类型
-     * @param actual 实际的元组类型
-     * @return 如果类型兼容返回 true
-     */
-    bool is_tuple_compatible(const std::vector<TokenType>& expected,
-                           const std::vector<TokenType>& actual) const {
-        if (expected.size() != actual.size()) return false;
-        for (size_t i = 0; i < expected.size(); ++i) {
-            if (!is_compatible_type(expected[i], actual[i])) {
-                return false;
-            }
-        }
-        return true;
     }
 
     // -----------------------------------------------------------------------------

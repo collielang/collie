@@ -371,14 +371,14 @@ int age = 18;
 string result = age >= 18 ? "Adult" : "Minor";
 print(result);  // 输出 "Adult"
 
-// 使用元组返回多个值
+// 使用元组返回多个值（命名元组：字段可按名访问）
 public Tuple getPersonInfo() {
-    return ("Alice", 18);
+    return (name: "Alice", age: 18);
 }
 
 Tuple info = getPersonInfo();
-string name = info.name;
-int personAge = info.age;
+string name = info.name;       // 命名字段用 .name 访问
+int personAge = info.age;      // 等价写法：info[1] 或 info.get("age")
 print(name + " is " + personAge + " years old.");  // 输出 "Alice is 18 years old."
 ```
 
@@ -442,14 +442,14 @@ dog.bark();   // 输出 "Buddy barks!"
 ### 元组与交换变量
 
 ```collie
-// 使用元组返回多个值
+// 使用元组返回多个值（无名元组：按索引 [i] 访问，0 起始）
 public Tuple getCoordinates() {
     return (10, 20);
 }
 
 Tuple coords = getCoordinates();
-int x = coords.Item1;
-int y = coords.Item2;
+int x = coords[0];
+int y = coords[1];
 print("X: " + x + ", Y: " + y);  // 输出 "X: 10, Y: 20"
 
 // 交换变量值

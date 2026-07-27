@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t44 完成：`==?` 通用多路匹配运算符，末尾裸表达式为默认分支）
+最后更新：2026-07-26（已完成 t45：tuple 最小闭环——字面量/命名字段/`t[0]`/`t.name`/`t.get("key")`，经作者确认访问语法）
 
 ---
 
@@ -15,14 +15,14 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | 词法分析 Lexer | ✅ 较成熟 | UTF-8/UTF-16、注释、多类字面量（含前导点小数 `.5`、`f` 后缀 `2f`、科学计数法、特殊数值 `Infinity`/`NaN`、插值字符串 `@"...{expr}..."`），token 种类丰富 |
-| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`)、**class 声明（字段/方法/构造器）与 `new`/`this`/属性赋值、继承 `extends` 与构造器委托 `: base(args)`（脱糖为构造器体首条语句）、显式父类方法调用 `base.method(args)`（primary 层一次性解析，后缀链可接续）** |
+| 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/do-while/switch/block/return/break/continue、复合赋值(`+=`/`-=`/`*=`/`/=`/`%=`)、三元运算符(`?:`)、数组字面量与索引(`[1,2,3]`/`a[i]`)、方法调用(`n.toString()`，可与索引混合链式)、属性访问(`s.length`)、插值字符串脱糖(`@"a{x}b"` → `"a" + toString(x) + "b"`)、**class 声明（字段/方法/构造器）与 `new`/`this`/属性赋值、继承 `extends` 与构造器委托 `: base(args)`（脱糖为构造器体首条语句）、显式父类方法调用 `base.method(args)`（primary 层一次性解析，后缀链可接续）**、**元组字面量（`(1, 2)` 无名 / `(name: "Alice", age: 18)` 命名，`IDENTIFIER :` 前瞻）与 `Tuple` 类型** |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、panic-mode 错误恢复 |
-| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）**、**class 继承（单继承，字段/方法沿继承链查找与覆写，字段初始化 base-first，base 构造器委托按定义类的父类解析，`base.method()` 显式父类方法调用绕过子类覆写）**、**运行期声明类型校验（变量/形参/类字段/返回值，string ← number/bool 隐式转换落地）** |
+| **解释器 Interpreter** | ✅ 基本可用 | **树遍历解释器**：字面量/算术（取模为 **floor 语义**，Python 风格）/比较/逻辑、变量声明与读写（含 const 保护）、if/while/for/do-while/switch、break/continue、内建 `print`/`len`/`toString`/`toNumber`、**用户自定义函数（声明/调用/return/递归）**、**数组（字面量/索引读写/负索引/引用语义）**、**字符串索引（UTF-8 码点、负索引）**、**内建方法（toString/toNumber 通用，abs/integerPart/decimalPart/is* 系列 number 专属，trim/trimLeft/trimRight/subString string 专属）**、**length 属性（string 码点数/array 元素数）**、**Infinity/NaN 特殊数值（字面量/IEEE 754 运算含除零/toString 格式/toNumber 严格匹配）**、**class 基础支持（字段/构造器/方法/`new`/`this`/属性读写，实例引用语义）**、**class 继承（单继承，字段/方法沿继承链查找与覆写，字段初始化 base-first，base 构造器委托按定义类的父类解析，`base.method()` 显式父类方法调用绕过子类覆写）**、**运行期声明类型校验（变量/形参/类字段/返回值，string ← number/bool 隐式转换落地）**、**元组（不可变，`t[0]` 含负索引/`t.name`/`t.get("key")`/length/相等深比较）** |
 | 中间代码 IR | ⛔ 已下线 | 旧自研 IR 实现质量不佳，正式移除，未来基于 LLVM 重做 |
 | 优化器 Optimizer | ⬜ 未实现 | — |
 | 目标代码 Codegen | ⬜ 未实现 | 计划 LLVM 后端 |
 
-已知的语法「半截特性」（token 有、语法/语义未闭环）：`tribool`、`==?`、tuple 成员访问等（`class` 已于 t34 闭环基础子集）。
+已知的语法「半截特性」均已闭环基础子集：`class`（t34）、`tribool`（t43）、`==?`（t44）、tuple（t45）。
 
 ---
 
@@ -303,6 +303,12 @@
     - [x] 语义：候选值与目标可 `==` 比较（object 动态放行）；tribool 无默认时需字面量穷尽三态，其他类型必须有默认分支；结果类型取首分支（各分支须兼容）
     - [x] 解释器：按序比较候选值（values_equal），命中第一个匹配分支，否则默认分支；惰性求值（未命中分支不执行）
     - [x] 新增 8 个端到端测试（穷尽三态/归组/默认分支/通用匹配/首命中+惰性/三项语义拒绝）；全量 ctest 6/6；uncategorized.md 示例 5 已同步修正
+- [x] **tuple 最小闭环（t45，已完成，经作者确认访问语法）**：按索引访问用 `t[0]`（复用索引语法）、命名字段用 `t.name`（复用属性语法）、动态获取用 `t.get("key")`（复用方法语法）；旧半截代码的 `.0` 数字下标语法废弃（消解与前导点小数 `.5` 的词法冲突）
+    - [x] 词法层注册 `Tuple` 关键字（KW_TUPLE 枚举早已存在但 keywords 表未注册，同 KW_ARRAY 旧坑）+ token_utils 映射
+    - [x] parser：命名元组字面量 `(name: "Alice", age: 18)`（`IDENTIFIER :` 前瞻，首元素带名时无逗号也是元组）；`Tuple` 声明/形参/返回类型；删除死代码 parse_postfix/parse_tuple_type/parse_type 与 TupleMemberExpr；TupleExpr 改为 elements + names 平行向量（无名元素为空串）
+    - [x] 语义层：KW_TUPLE 类型放行（索引/命名属性/get 方法（固定 1 参）/length）；索引赋值拒绝（"Tuples are immutable"）；删除单槽 tuple_element_types_ 旧机制
+    - [x] 解释器：Value 新增 Tuple（不可变，shared_ptr 存储元素 + 平行名字表）；索引读（含负索引）/命名字段读/get("key")/length/toString `(1, 2)` 与 `(name: Alice)` 格式；values_equal 元素+名字表都一致才相等；coerce_to_declared 支持 Tuple；索引赋值运行期防御
+    - [x] 新增 15 个端到端测试（字面量/索引/命名字段/单命名元素/get 动态键/length/toString/混合元素/相等比较/函数返回/分组不受影响/四项拒绝）；全量 ctest 6/6
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
@@ -357,7 +363,7 @@
     - **`if()`/条件表达式必须是 bool**，tribool 不能直接作条件；需显式写 `t.isTrue()/.isFalse()/.isUnset()`（tribool 内建方法，返回 bool）或 `t == true/false/unset`
     - `==?` 是**通用多路匹配**运算符（不限 tribool，类 switch 表达式）；tribool 匹配需穷尽三态或给默认分支，其他类型必须有默认分支；命中第一个匹配分支（见 uncategorized.md 运算符节）
     - `==?` 归组/默认分支消歧义规则（t44 补充确认）：**末尾裸表达式 = 默认分支，且只能在末尾；其余裸值一律与后面最近的「值: 结果」归组**；原文档示例 5（默认在前 `a ==? 2, unset: 1`）不再支持，uncategorized.md 已同步修正
-- [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
+- [x] tuple 成员访问语法 —— 已确认（t45）：**按索引 `t[0]`、命名字段 `t.name`、动态获取 `t.get("key")`**；不采用 Rust 风格 `.0`（避免与前导点小数 `.5` 的词法冲突）、不采用 C# 风格 `Item1`；uncategorized.md 的 `coords.Item1` 示例同步修正
 
 ---
 
@@ -365,6 +371,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: tuple 最小闭环（t45，经作者确认访问语法 `t[0]`/`t.name`/`t.get("key")`）：词法注册 `Tuple` 关键字；parser 命名元组字面量（`IDENTIFIER :` 前瞻，首元素带名无逗号也是元组）+ `Tuple` 声明/返回类型，删除 `.0` 死代码（parse_postfix/parse_tuple_type/parse_type/TupleMemberExpr）；语义层 KW_TUPLE 接入索引/属性/get/length 并拒绝索引赋值；解释器 Value 新增不可变 Tuple（元素+平行名字表）含负索引/相等深比较/coerce；新增 15 个端到端测试；全量 ctest 6/6；同步修正 uncategorized.md 两处矛盾示例并补充中文 03-tuple.md 成员访问节（M4 t45）
 - 2026-07-26 `feat(compiler)`: `==?` 通用多路匹配运算符（t44，经作者确认语义与消歧义规则）：AST 新增 MultiMatchExpr；parser 在 parse_ternary 层解析（末尾裸表达式 = 默认分支、其余裸值与后面最近「值: 结果」归组）；语义层候选值可比性/tribool 穷尽三态/非 tribool 必须默认分支/结果类型兼容检查；解释器按序匹配首命中 + 惰性求值；同步修正 uncategorized.md 示例 5（默认在前写法废弃）；新增 8 个端到端测试；全量 ctest 6/6（M4 t44）
 - 2026-07-26 `feat(compiler)`: tribool 三态布尔类型闭环（t43，经作者确认语义）：`unset` 字面量 + Value 层 Tri 三态（编码使 Kleene AND/OR 退化为 min/max）；`! && ||` Kleene 三值逻辑（保留短路，混合运算结果加宽为 tribool）；条件语句必须 bool（语义拦截 + 运行期 condition_truthy 防御）；bool → tribool 单向加宽；`==`/`!=` 三态比较；内建方法 isTrue/isFalse/isUnset；三分支三元 `a ? x : y : z`（需 tribool 条件，两分支时 unset 走 false 分支）；新增 11 个端到端测试；全量 ctest 6/6（M4 t43）
 - 2026-07-26 `feat(compiler)`: 数字类型 number/integer/decimal 三类型区分（t42，经作者确认 Python 式设计）：解释器新增 BigInt（base 2^32，任意精度自动扩容）与 Value 双表示；lexer f 后缀计入 lexeme；语义层字面量推导/转换规则（integer→decimal 加宽、decimal→integer 拒绝、number 超类型）与 `/` 恒产 decimal；解释器双整数 `+ - * %` 精确路径、比较/相等精确、coerce/toNumber/len/数字方法整数路径；新增 11 个端到端测试；interpreter_tests 153 全绿（M4 t42）

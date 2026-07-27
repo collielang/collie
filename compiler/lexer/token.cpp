@@ -25,6 +25,7 @@ static const std::unordered_map<std::string_view, TokenType> keywords = {
     {"word", TokenType::KW_WORD},
     {"dword", TokenType::KW_DWORD},
     {"array", TokenType::KW_ARRAY},
+    {"Tuple", TokenType::KW_TUPLE},  // 文档拼写为大写 Tuple（见 03-tuple.md）
 
     // 控制流关键字
     {"if", TokenType::KW_IF},

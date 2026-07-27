@@ -135,10 +135,6 @@ void TupleExpr::accept(ExprVisitor& visitor) const {
     visitor.visitTuple(*this);
 }
 
-void TupleMemberExpr::accept(ExprVisitor& visitor) const {
-    visitor.visitTupleMember(*this);
-}
-
 // 构造函数实现
 CallExpr::CallExpr(std::unique_ptr<Expr> callee,
                    Token paren,

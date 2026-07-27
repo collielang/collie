@@ -75,9 +75,6 @@ public:
     const std::vector<ParseError>& get_errors() const { return errors_; }
 
 private:
-    // 类型解析方法
-    std::unique_ptr<Type> parse_type();
-
     // 语句解析方法
     /**
      * @brief 解析声明语句
@@ -469,12 +466,6 @@ private:
      * @throws ParseError 如果超过最大嵌套深度
      */
     void check_max_nesting_depth();
-
-    /// @brief 解析元组类型
-    std::unique_ptr<Type> parse_tuple_type();
-
-    /// @brief 解析后缀表达式（包括元组成员访问）
-    std::unique_ptr<Expr> parse_postfix();
 
     /**
      * @brief 检查当前 token 是否匹配预期类型

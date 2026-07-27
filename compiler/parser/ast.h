@@ -36,7 +36,6 @@ class ThisExpr;
 class BaseCallExpr;
 class BaseMethodCallExpr;
 class TupleExpr;
-class TupleMemberExpr;
 class ExpressionStmt;
 class VarDeclStmt;
 class BlockStmt;
@@ -850,9 +849,6 @@ public:
     /// @brief 访问元组表达式
     virtual void visitTuple(const TupleExpr& expr) = 0;
 
-    /// @brief 访问元组成员访问表达式
-    virtual void visitTupleMember(const TupleMemberExpr& expr) = 0;
-
     /// @brief 访问三元条件表达式
     virtual void visitTernary(const TernaryExpr& expr) = 0;
 
@@ -1061,40 +1057,31 @@ private:
     std::vector<std::unique_ptr<Type>> element_types_;
 };
 
-// 元组表达式节点
+// 元组表达式节点（t45，见 03-tuple.md）
+// 语法：`(1, 2)` 无名元组；`(name: "Alice", age: 18)` 命名元组；
+// names 与 elements 等长平行，无名元素对应空串。
+// 访问语法（经作者确认）：按索引 t[0]、命名字段 t.name、动态 t.get("key")，
+// 均复用现有 Index/Property/MethodCall 节点，不再有专用成员节点。
 class TupleExpr : public Expr {
 public:
-    TupleExpr(std::vector<std::unique_ptr<Expr>> elements, const Token& paren)
-        : elements_(std::move(elements)), paren_(paren) {}
+    TupleExpr(std::vector<std::unique_ptr<Expr>> elements,
+              std::vector<std::string> names, const Token& paren)
+        : elements_(std::move(elements)), names_(std::move(names)),
+          paren_(paren) {}
 
     const std::vector<std::unique_ptr<Expr>>& elements() const {
         return elements_;
     }
+    /// 元素名字（与 elements 等长；无名元素为空串）
+    const std::vector<std::string>& names() const { return names_; }
     const Token& paren() const { return paren_; }
 
     void accept(ExprVisitor& visitor) const override;
 
 private:
     std::vector<std::unique_ptr<Expr>> elements_;
+    std::vector<std::string> names_;
     Token paren_;  // 左括号位置，用于错误报告
-};
-
-// 元组成员访问表达式
-class TupleMemberExpr : public Expr {
-public:
-    TupleMemberExpr(std::unique_ptr<Expr> tuple, const Token& dot, size_t index)
-        : tuple_(std::move(tuple)), dot_(dot), index_(index) {}
-
-    const Expr* tuple() const { return tuple_.get(); }
-    const Token& dot() const { return dot_; }
-    size_t index() const { return index_; }
-
-    void accept(ExprVisitor& visitor) const override;
-
-private:
-    std::unique_ptr<Expr> tuple_;
-    Token dot_;    // 点操作符位置，用于错误报告
-    size_t index_; // 成员索引
 };
 
 } // namespace collie

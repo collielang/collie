@@ -2271,3 +2271,159 @@ TEST(InterpreterEndToEnd, MultiMatchDefaultInFrontRejected) {
     EXPECT_TRUE(analyzer.has_errors());
 }
 
+// ---------------------------------------------------------------------------
+// tuple 最小闭环（t45，经作者确认）：字面量/命名字段/t[0]/t.name/t.get
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, TupleLiteralAndIndex) {
+    // 无名元组字面量 + 0 起始索引 + 负索引
+    EXPECT_EQ(run_source(R"(
+        Tuple t = (1, 2, 3);
+        print(t[0], t[2], t[-1]);
+    )"), "1 3 3\n");
+}
+
+TEST(InterpreterEndToEnd, TupleNamedFieldAccess) {
+    // 命名元组：t.name 属性访问；命名元素同样支持位置索引
+    EXPECT_EQ(run_source(R"(
+        Tuple p = (name: "Alice", age: 18);
+        print(p.name, p.age, p[1]);
+    )"), "Alice 18 18\n");
+}
+
+TEST(InterpreterEndToEnd, TupleSingleNamedElement) {
+    // 单命名元素无逗号也是元组（区别于分组 (expr)）
+    EXPECT_EQ(run_source(R"(
+        Tuple s = (name: "x");
+        print(s.name, s.length);
+    )"), "x 1\n");
+}
+
+TEST(InterpreterEndToEnd, TupleGetDynamic) {
+    // get("key") 按名字动态获取；键可为运行期拼接的字符串
+    EXPECT_EQ(run_source(R"(
+        Tuple p = (name: "Alice", age: 18);
+        string key = "na" + "me";
+        print(p.get(key), p.get("age"));
+    )"), "Alice 18\n");
+}
+
+TEST(InterpreterEndToEnd, TupleLengthAndEmpty) {
+    // length 属性；空元组 () 长度为 0
+    EXPECT_EQ(run_source(R"(
+        Tuple t = (1, 2, 3);
+        Tuple e = ();
+        print(t.length, e.length);
+    )"), "3 0\n");
+}
+
+TEST(InterpreterEndToEnd, TupleToString) {
+    // to_string：无名 (1, 2)；命名字段带名字
+    EXPECT_EQ(run_source(R"(
+        print((1, 2, 3));
+        print((name: "Alice", age: 18));
+    )"), "(1, 2, 3)\n(name: Alice, age: 18)\n");
+}
+
+TEST(InterpreterEndToEnd, TupleMixedNamedUnnamed) {
+    // 混合命名/无名元素：无名位置只能索引，命名位置两种都行
+    EXPECT_EQ(run_source(R"(
+        Tuple t = (1, label: "x");
+        print(t[0], t.label, t[1]);
+    )"), "1 x x\n");
+}
+
+TEST(InterpreterEndToEnd, TupleEquality) {
+    // 元素与名字表都一致才相等（名字不同则不相等）
+    EXPECT_EQ(run_source(R"(
+        print((1, 2) == (1, 2));
+        print((1, 2) == (1, 3));
+        print((a: 1) == (b: 1));
+    )"), "true\nfalse\nfalse\n");
+}
+
+TEST(InterpreterEndToEnd, TupleFromFunctionReturn) {
+    // 函数返回元组（文档 uncategorized.md 多返回值示例）
+    EXPECT_EQ(run_source(R"(
+        function getPersonInfo() Tuple {
+            return (name: "Alice", age: 18);
+        }
+        Tuple info = getPersonInfo();
+        print(info.name, info.age);
+    )"), "Alice 18\n");
+}
+
+TEST(InterpreterEndToEnd, GroupingUnaffectedByTuple) {
+    // (expr) 仍是分组表达式，不被命名前瞻误判
+    EXPECT_EQ(run_source(R"(
+        print((1 + 2) * 3);
+    )"), "9\n");
+}
+
+TEST(InterpreterEndToEnd, TupleIndexAssignSemanticRejected) {
+    // 元组不可变：索引赋值在语义层报错
+    collie::Lexer lexer(R"(Tuple t = (1, 2); t[0] = 9;)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, TupleUnknownFieldThrows) {
+    // 访问不存在的命名字段：运行期报错
+    collie::Lexer lexer(R"(Tuple p = (name: "Alice"); print(p.age);)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, TupleIndexOutOfRangeThrows) {
+    // 索引越界：运行期报错
+    collie::Lexer lexer(R"(Tuple t = (1, 2); print(t[2]);)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+
+TEST(InterpreterEndToEnd, TupleGetOnNonTupleSemanticRejected) {
+    // get() 仅支持元组：对 number 调用在语义层报错
+    collie::Lexer lexer(R"(number n = 1; n.get("x");)");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, TupleDeclTypeMismatchRuntimeRejected) {
+    // 声明为 Tuple 的变量接受非元组值（动态路径）：运行期拦截
+    collie::Lexer lexer(R"(
+        array a = [1];
+        Tuple t = a[0];
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
+

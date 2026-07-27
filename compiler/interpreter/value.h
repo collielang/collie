@@ -27,8 +27,9 @@ struct InstanceData;  // 定义在 Value 之后（字段表持有 Value）
 /**
  * @brief 解释器运行期的值
  *
- * v1 支持八种值：none（空）、bool、tribool、number、string、function、array、instance。
- * 数组与类实例为引用语义（shared_ptr 共享底层存储），赋值/传参共享同一对象。
+ * v1 支持九种值：none（空）、bool、tribool、number、string、function、array、tuple、instance。
+ * 数组、元组与类实例为引用语义（shared_ptr 共享底层存储），赋值/传参共享同一对象；
+ * 元组不可变（t45，经作者确认）。
  * number 内部双表示（t42，经作者确认的 Python 式设计）：整数值用 BigInt
  * 任意精度承载（自动扩容，无溢出），小数值用 double（IEEE 754）；
  * 静态类型 number 是 integer/decimal 的超类型，两种表示都算 is_number()。
@@ -36,12 +37,18 @@ struct InstanceData;  // 定义在 Value 之后（字段表持有 Value）
  */
 class Value {
 public:
-    enum class Kind { None, Bool, Tribool, Number, String, Function, Array, Instance };
+    enum class Kind { None, Bool, Tribool, Number, String, Function, Array, Tuple, Instance };
 
     /// tribool 的三态；数值编码满足 Kleene 逻辑 AND=min、OR=max
     enum class Tri : uint8_t { False = 0, Unset = 1, True = 2 };
 
     using ArrayStorage = std::vector<Value>;
+
+    /// 元组存储：元素 + 平行名字表（与 elements 等长，无名元素为空串）
+    struct TupleStorage {
+        std::vector<Value> elements;
+        std::vector<std::string> names;
+    };
 
     Value() : kind_(Kind::None) {}
 
@@ -75,6 +82,14 @@ public:
         v.arr_ = std::make_shared<ArrayStorage>(std::move(elements));
         return v;
     }
+    static Value tuple(std::vector<Value> elements, std::vector<std::string> names) {
+        Value v;
+        v.kind_ = Kind::Tuple;
+        v.tup_ = std::make_shared<TupleStorage>();
+        v.tup_->elements = std::move(elements);
+        v.tup_->names = std::move(names);
+        return v;
+    }
     static Value instance(std::shared_ptr<InstanceData> data) {
         Value v; v.kind_ = Kind::Instance; v.inst_ = std::move(data); return v;
     }
@@ -91,6 +106,7 @@ public:
     bool is_string() const { return kind_ == Kind::String; }
     bool is_function() const { return kind_ == Kind::Function; }
     bool is_array() const { return kind_ == Kind::Array; }
+    bool is_tuple() const { return kind_ == Kind::Tuple; }
     bool is_instance() const { return kind_ == Kind::Instance; }
 
     bool as_bool() const { return bool_; }
@@ -104,6 +120,7 @@ public:
     const FunctionStmt* as_function() const { return fn_; }
     ArrayStorage& as_array() { return *arr_; }
     const ArrayStorage& as_array() const { return *arr_; }
+    const TupleStorage& as_tuple() const { return *tup_; }
     InstanceData& as_instance() { return *inst_; }
     const InstanceData& as_instance() const { return *inst_; }
 
@@ -111,7 +128,7 @@ public:
      * @brief 真值判断
      * none -> false；bool -> 原值；tribool -> 仅 true 为真（unset 为假，见文档
      * 两分支三元 unset 走 false 分支）；number -> 非零为真；string -> 非空为真；
-     * array -> 非空为真。
+     * array -> 非空为真；tuple -> 非空为真。
      */
     bool is_truthy() const {
         switch (kind_) {
@@ -122,6 +139,7 @@ public:
             case Kind::String:   return !str_.empty();
             case Kind::Function: return true;  // 函数值始终为真
             case Kind::Array:    return arr_ && !arr_->empty();
+            case Kind::Tuple:    return tup_ && !tup_->elements.empty();
             case Kind::Instance: return true;  // 类实例始终为真
         }
         return false;
@@ -165,6 +183,19 @@ public:
                 out += "]";
                 return out;
             }
+            case Kind::Tuple: {
+                // 元素递归转字符串，命名字段带名字，形如 (1, 2) / (name: Alice)
+                std::string out = "(";
+                for (size_t i = 0; i < tup_->elements.size(); ++i) {
+                    if (i != 0) out += ", ";
+                    if (!tup_->names[i].empty()) {
+                        out += tup_->names[i] + ": ";
+                    }
+                    out += tup_->elements[i].to_string();
+                }
+                out += ")";
+                return out;
+            }
             case Kind::Instance: return "<object>";
         }
         return "";
@@ -179,6 +210,7 @@ public:
             case Kind::String:   return "string";
             case Kind::Function: return "function";
             case Kind::Array:    return "array";
+            case Kind::Tuple:    return "tuple";
             case Kind::Instance: return "object";
         }
         return "unknown";
@@ -194,6 +226,7 @@ private:
     std::string str_;
     const FunctionStmt* fn_ = nullptr;
     std::shared_ptr<ArrayStorage> arr_;  ///< 数组存储（引用语义，赋值共享）
+    std::shared_ptr<TupleStorage> tup_;  ///< 元组存储（引用语义；元组不可变）
     std::shared_ptr<InstanceData> inst_; ///< 类实例存储（引用语义，赋值共享）
 };
 

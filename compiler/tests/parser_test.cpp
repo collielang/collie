@@ -62,19 +62,20 @@ public:
     }
 
     void visitTuple(const TupleExpr& expr) override {
-        result_ = "(";
+        // element->accept 会覆盖 result_，需先取出再追加（同 visitCall）
+        std::string out = "(";
         bool first = true;
-        for (const auto& element : expr.elements()) {
-            if (!first) result_ += ", ";
-            element->accept(*this);
+        for (size_t i = 0; i < expr.elements().size(); ++i) {
+            if (!first) out += ", ";
+            if (!expr.names()[i].empty()) {
+                out += expr.names()[i] + ": ";
+            }
+            expr.elements()[i]->accept(*this);
+            out += result_;
             first = false;
         }
-        result_ += ")";
-    }
-
-    void visitTupleMember(const TupleMemberExpr& expr) override {
-        expr.tuple()->accept(*this);
-        result_ += "." + std::to_string(expr.index());
+        out += ")";
+        result_ = out;
     }
 
     void visitTernary(const TernaryExpr& expr) override {
