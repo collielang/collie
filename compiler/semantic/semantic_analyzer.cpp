@@ -1399,6 +1399,90 @@ void SemanticAnalyzer::visitTernary(const TernaryExpr& expr) {
     }
 }
 
+void SemanticAnalyzer::visitMultiMatch(const MultiMatchExpr& expr) {
+    try {
+        expr.target()->accept(*this);
+        TokenType target_type = current_type_;
+
+        // 候选值须与目标可 == 比较（object 动态放行，运行期再比较）；
+        // 同时统计 tribool 字面量覆盖情况，用于无默认分支时的穷尽性检查
+        bool has_true = false, has_false = false, has_unset = false;
+        bool all_literal_tribool = true;
+        for (const auto& branch : expr.branches()) {
+            for (const auto& value : branch.values) {
+                value->accept(*this);
+                TokenType value_type = current_type_;
+                if (!is_comparable_type(target_type, value_type) &&
+                    target_type != TokenType::KW_OBJECT &&
+                    value_type != TokenType::KW_OBJECT) {
+                    throw SemanticError(
+                        "Incomparable candidate value type in '==?'",
+                        expr.op().line(), expr.op().column());
+                }
+                if (auto* literal = dynamic_cast<const LiteralExpr*>(value.get())) {
+                    switch (literal->token().type()) {
+                        case TokenType::KW_TRUE:  has_true = true; break;
+                        case TokenType::KW_FALSE: has_false = true; break;
+                        case TokenType::KW_UNSET: has_unset = true; break;
+                        default: all_literal_tribool = false; break;
+                    }
+                } else {
+                    all_literal_tribool = false;
+                }
+            }
+        }
+
+        // 穷尽性（经作者确认）：无默认分支时，仅 tribool 且字面量覆盖三态才允许；
+        // 其他类型必须有默认分支（末尾裸表达式）
+        if (expr.default_expr() == nullptr) {
+            if (target_type != TokenType::KW_TRIBOOL) {
+                throw SemanticError(
+                    "'==?' requires a trailing default branch for non-tribool targets",
+                    expr.op().line(), expr.op().column());
+            }
+            if (!all_literal_tribool || !has_true || !has_false || !has_unset) {
+                throw SemanticError(
+                    "'==?' on tribool must cover true/false/unset or provide a default branch",
+                    expr.op().line(), expr.op().column());
+            }
+        }
+
+        // 结果类型：各分支（含默认）须与首分支兼容，取首分支结果类型
+        // （与 visitTernary 策略一致）
+        TokenType result_type = TokenType::KW_NONE;
+        bool first = true;
+        auto check_result = [&](const Expr* result) {
+            result->accept(*this);
+            TokenType t = current_type_;
+            if (first) {
+                result_type = t;
+                first = false;
+                return;
+            }
+            if (t != result_type && !is_compatible_type(result_type, t) &&
+                !is_compatible_type(t, result_type)) {
+                throw SemanticError(
+                    "'==?' branch results must have compatible types",
+                    expr.op().line(), expr.op().column());
+            }
+        };
+        for (const auto& branch : expr.branches()) {
+            check_result(branch.result.get());
+        }
+        if (expr.default_expr() != nullptr) {
+            check_result(expr.default_expr());
+        }
+        current_type_ = result_type;
+
+    } catch (const SemanticError& error) {
+        record_error(error);
+        if (!in_panic_mode_) {
+            enter_panic_mode();
+            synchronize();
+        }
+    }
+}
+
 void SemanticAnalyzer::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     try {
         // 逐个分析元素表达式。

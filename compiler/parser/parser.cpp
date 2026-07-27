@@ -303,6 +303,56 @@ std::unique_ptr<Expr> Parser::parse_ternary() {
         throw error(peek(), "Expect expression.");
     }
 
+    // `==?` 多路匹配（t44）：target ==? v1, v2: r1, v3: r2, default_r
+    // 末尾裸表达式 = 默认分支；其余裸值与后面最近的「值: 结果」归组
+    if (match(TokenType::OP_EQ_QUESTION)) {
+        Token op = previous();
+        std::vector<MultiMatchExpr::Branch> branches;
+        std::unique_ptr<Expr> default_expr;
+        std::vector<std::unique_ptr<Expr>> pending;  // 待归组的裸值
+        while (true) {
+            auto item = parse_ternary();
+            if (!item) {
+                throw error(peek(), "Expect expression in '==?' expression.");
+            }
+            if (match(TokenType::OP_COLON)) {
+                // item 与之前的裸值归为一组候选值
+                pending.push_back(std::move(item));
+                auto result = parse_ternary();
+                if (!result) {
+                    throw error(peek(), "Expect result expression after ':' in '==?'.");
+                }
+                MultiMatchExpr::Branch branch;
+                branch.values = std::move(pending);
+                pending.clear();
+                branch.result = std::move(result);
+                branches.push_back(std::move(branch));
+                if (match(TokenType::DELIMITER_COMMA)) {
+                    continue;
+                }
+                break;
+            }
+            if (match(TokenType::DELIMITER_COMMA)) {
+                pending.push_back(std::move(item));
+                continue;
+            }
+            // 末尾裸表达式 = 默认分支；若前面还有未归组的裸值则为语法错误
+            if (!pending.empty()) {
+                throw error(op,
+                    "Bare values in '==?' must join a 'value: result' branch; "
+                    "only the trailing expression may be the default branch.");
+            }
+            default_expr = std::move(item);
+            break;
+        }
+        if (branches.empty()) {
+            throw error(op, "Expect at least one 'value: result' branch in '==?'.");
+        }
+        return std::make_unique<MultiMatchExpr>(std::move(expr), op,
+                                                std::move(branches),
+                                                std::move(default_expr));
+    }
+
     if (match(TokenType::OP_QUESTION)) {
         Token question = previous();
         auto then_expr = parse_ternary();  // 右结合

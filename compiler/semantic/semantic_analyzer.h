@@ -66,6 +66,7 @@ private:
     void visitTuple(const TupleExpr& expr) override;
     void visitTupleMember(const TupleMemberExpr& expr) override;
     void visitTernary(const TernaryExpr& expr) override;
+    void visitMultiMatch(const MultiMatchExpr& expr) override;
     void visitArrayLiteral(const ArrayLiteralExpr& expr) override;
     void visitIndex(const IndexExpr& expr) override;
     void visitIndexAssign(const IndexAssignExpr& expr) override;

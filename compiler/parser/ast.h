@@ -23,6 +23,7 @@ class BinaryExpr;
 class UnaryExpr;
 class AssignExpr;
 class TernaryExpr;
+class MultiMatchExpr;
 class CallExpr;
 class ArrayLiteralExpr;
 class IndexExpr;
@@ -304,6 +305,42 @@ private:
     std::unique_ptr<Expr> then_expr_;
     std::unique_ptr<Expr> else_expr_;
     std::unique_ptr<Expr> unset_expr_;
+};
+
+/**
+ * @brief `==?` 通用多路匹配表达式（t44，见 uncategorized.md 运算符节）
+ * 语法：target ==? v1, v2: r1, v3: r2, default_r
+ * 消歧义规则（经作者确认）：末尾裸表达式 = 默认分支，且只能在末尾；
+ * 其余裸值一律与后面最近的「值: 结果」归组。命中第一个匹配分支。
+ */
+class MultiMatchExpr : public Expr {
+public:
+    /// 单个匹配分支：候选值组（至少 1 个）→ 结果表达式
+    struct Branch {
+        std::vector<std::unique_ptr<Expr>> values;
+        std::unique_ptr<Expr> result;
+    };
+
+    MultiMatchExpr(std::unique_ptr<Expr> target, Token op,
+                   std::vector<Branch> branches,
+                   std::unique_ptr<Expr> default_expr)
+        : target_(std::move(target)), op_(op),
+          branches_(std::move(branches)),
+          default_expr_(std::move(default_expr)) {}
+
+    void accept(ExprVisitor& visitor) const override;
+
+    const Expr* target() const { return target_.get(); }
+    const Token& op() const { return op_; }
+    const std::vector<Branch>& branches() const { return branches_; }
+    /// 默认分支（末尾裸表达式）；缺省时为 nullptr
+    const Expr* default_expr() const { return default_expr_.get(); }
+
+private:
+    std::unique_ptr<Expr> target_;
+    Token op_;  // '==?' token，用于错误报告
+    std::vector<Branch> branches_;
+    std::unique_ptr<Expr> default_expr_;
 };
 
 /**
@@ -818,6 +855,9 @@ public:
 
     /// @brief 访问三元条件表达式
     virtual void visitTernary(const TernaryExpr& expr) = 0;
+
+    /// @brief 访问 `==?` 多路匹配表达式
+    virtual void visitMultiMatch(const MultiMatchExpr& expr) = 0;
 
     /// @brief 访问数组字面量表达式
     virtual void visitArrayLiteral(const ArrayLiteralExpr& expr) = 0;

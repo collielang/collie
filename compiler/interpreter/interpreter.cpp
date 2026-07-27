@@ -488,6 +488,27 @@ void Interpreter::visitTernary(const TernaryExpr& expr) {
     }
 }
 
+void Interpreter::visitMultiMatch(const MultiMatchExpr& expr) {
+    // `==?` 多路匹配（t44）：按序比较候选值，命中第一个匹配分支；
+    // 惰性求值：未命中分支的结果不执行，命中后剩余候选值也不再求值
+    Value target = evaluate(expr.target());
+    for (const auto& branch : expr.branches()) {
+        for (const auto& value : branch.values) {
+            if (values_equal(target, evaluate(value.get()))) {
+                result_ = evaluate(branch.result.get());
+                return;
+            }
+        }
+    }
+    if (expr.default_expr() != nullptr) {
+        result_ = evaluate(expr.default_expr());
+        return;
+    }
+    // 语义层已保证 tribool 穷尽三态或有默认分支；此处防御 object 动态路径
+    throw RuntimeError("No branch of '==?' matched the value",
+                       expr.op().line(), expr.op().column());
+}
+
 void Interpreter::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     Value::ArrayStorage elements;
     elements.reserve(expr.elements().size());

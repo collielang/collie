@@ -43,6 +43,10 @@ void TernaryExpr::accept(ExprVisitor& visitor) const {
     visitor.visitTernary(*this);
 }
 
+void MultiMatchExpr::accept(ExprVisitor& visitor) const {
+    visitor.visitMultiMatch(*this);
+}
+
 void ArrayLiteralExpr::accept(ExprVisitor& visitor) const {
     visitor.visitArrayLiteral(*this);
 }

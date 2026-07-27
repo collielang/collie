@@ -184,12 +184,16 @@ a ==? unset: 1, 2
 // when a equals unset,         result: 1
 // when a equals false or true, result: 2
 
-a ==? 2, unset: 1
-// when a equals unset,                result: 1
-// otherwise (a equals false or true), result: 2
+// 归组与默认分支的规则（避免歧义）：
+// - 末尾的裸表达式（后面没有 `:`）= 默认分支，且只能出现在末尾；
+// - 其余裸值一律与后面最近的「值: 结果」归组（如上例 `unset, true: 2`）。
+
+// a ==? 2, unset: 1
+// ❌ 不允许的写法：默认分支必须放在末尾（此处裸值 2 会被视为与 unset 归组的候选值，
+//    而 2 不是 tribool 值，属类型错误）；应写作 a ==? unset: 1, 2
 
 // a ==? unset, true: 2
-// ❌ 不允许的写法：缺少 false 分支
+// ❌ 不允许的写法：缺少 false 分支（tribool 必须穷尽三态或给默认分支）
 
 /* 如果表达式较长，推荐的格式如下
 // 注意，value1, value3 如果都与 hereIsAVeryLongParamName 相等，则会返回第一个匹配上的条件对应结果 (expression 1)

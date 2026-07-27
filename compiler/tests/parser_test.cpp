@@ -87,6 +87,33 @@ public:
         result_ += ")";
     }
 
+    void visitMultiMatch(const MultiMatchExpr& expr) override {
+        expr.target()->accept(*this);
+        std::string out = "(" + result_ + " ==? ";
+        bool first_branch = true;
+        for (const auto& branch : expr.branches()) {
+            if (!first_branch) out += ", ";
+            bool first_value = true;
+            for (const auto& value : branch.values) {
+                if (!first_value) out += ", ";
+                value->accept(*this);
+                out += result_;
+                first_value = false;
+            }
+            out += ": ";
+            branch.result->accept(*this);
+            out += result_;
+            first_branch = false;
+        }
+        if (expr.default_expr() != nullptr) {
+            out += ", ";
+            expr.default_expr()->accept(*this);
+            out += result_;
+        }
+        out += ")";
+        result_ = out;
+    }
+
     void visitArrayLiteral(const ArrayLiteralExpr& expr) override {
         std::string out = "[";
         bool first = true;

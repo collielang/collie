@@ -2165,3 +2165,109 @@ false
 )");
 }
 
+TEST(InterpreterEndToEnd, MultiMatchTriboolExhaustive) {
+    // ==? 多路匹配（t44）：tribool 穷尽三态，无需默认分支
+    EXPECT_EQ(run_source(R"(
+        tribool a = unset;
+        print(a ==? unset: 1, true: 2, false: 3);
+        a = true;
+        print(a ==? unset: 1, true: 2, false: 3);
+        a = false;
+        print(a ==? unset: 1, true: 2, false: 3);
+    )"), R"(1
+2
+3
+)");
+}
+
+TEST(InterpreterEndToEnd, MultiMatchValueGrouping) {
+    // 裸值与后面最近的「值: 结果」归组：unset, true 同组
+    EXPECT_EQ(run_source(R"(
+        tribool a = unset;
+        print(a ==? unset, true: 2, false: 3);
+        a = false;
+        print(a ==? unset, true: 2, false: 3);
+    )"), R"(2
+3
+)");
+}
+
+TEST(InterpreterEndToEnd, MultiMatchTrailingDefault) {
+    // 末尾裸表达式 = 默认分支
+    EXPECT_EQ(run_source(R"(
+        tribool a = false;
+        print(a ==? unset, true: 1, 2);
+        a = unset;
+        print(a ==? unset: 1, 2);
+    )"), R"(2
+1
+)");
+}
+
+TEST(InterpreterEndToEnd, MultiMatchGenericNumberString) {
+    // 通用多路匹配（不限 tribool）：number 目标 + string 结果
+    EXPECT_EQ(run_source(R"(
+        number n = 5;
+        print(n ==? 1, 2: "small", 5: "five", "other");
+        n = 9;
+        print(n ==? 1, 2: "small", 5: "five", "other");
+        string s = "b";
+        print(s ==? "a": 1, "b": 2, 0);
+    )"), R"(five
+other
+2
+)");
+}
+
+TEST(InterpreterEndToEnd, MultiMatchFirstMatchWinsAndLazy) {
+    // 命中第一个匹配分支；未命中分支的候选值/结果不求值
+    // （[1][5] 若被求值会抛越界错误）
+    EXPECT_EQ(run_source(R"(
+        print(1 ==? 1: "a", [1][5]: "b", "c");
+    )"), R"(a
+)");
+}
+
+TEST(InterpreterEndToEnd, MultiMatchTriboolNotExhaustiveRejected) {
+    // tribool 无默认分支时必须字面量穷尽三态：缺 false 分支拒绝
+    collie::Lexer lexer(R"(
+        tribool t = true;
+        print(t ==? unset, true: 2);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, MultiMatchNonTriboolNeedsDefaultRejected) {
+    // 非 tribool 目标必须有默认分支（末尾裸表达式）
+    collie::Lexer lexer(R"(
+        number n = 1;
+        print(n ==? 1: 2, 3: 4);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, MultiMatchDefaultInFrontRejected) {
+    // 默认分支必须在末尾：前置裸值 2 会与 unset 归组，
+    // 而 number 字面量与 tribool 目标不可比较 → 语义拒绝（原文档示例 5 已废弃）
+    collie::Lexer lexer(R"(
+        tribool t = true;
+        print(t ==? 2, unset: 1);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+

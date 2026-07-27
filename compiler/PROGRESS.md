@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t43 完成：tribool 三态布尔类型闭环，Kleene 三值逻辑 + 条件必须 bool + 三分支三元）
+最后更新：2026-07-26（t44 完成：`==?` 通用多路匹配运算符，末尾裸表达式为默认分支）
 
 ---
 
@@ -298,6 +298,11 @@
     - [x] Kleene 三值逻辑（`! && ||`，保留短路：AND 遇 false、OR 遇 true；任一操作数 tribool → 结果 tribool）；`if/while/for/do-while` 条件必须 bool（语义层拦截 + 运行期 `condition_truthy` 防御动态路径）
     - [x] tribool 内建方法 `isTrue()/isFalse()/isUnset()` 返回 bool；`==`/`!=` 支持与 true/false/unset 比较（三态一致才相等）
     - [x] 三分支三元 `a ? 1 : 2 : 3`（要求 tribool 条件；两分支时 unset 走 false 分支，见文档）；新增 11 个端到端测试，全量 ctest 6/6
+- [x] **`==?` 通用多路匹配运算符（t44，已完成，经作者确认语义与消歧义规则）**：
+    - [x] AST 新增 MultiMatchExpr（目标 + 分支列表（候选值组 → 结果）+ 可选默认分支）；parser 在 parse_ternary 层解析 `a ==? v1, v2: r1, v3: r2, default_r`（末尾裸表达式 = 默认分支，非末尾未归组裸值报语法错误）
+    - [x] 语义：候选值与目标可 `==` 比较（object 动态放行）；tribool 无默认时需字面量穷尽三态，其他类型必须有默认分支；结果类型取首分支（各分支须兼容）
+    - [x] 解释器：按序比较候选值（values_equal），命中第一个匹配分支，否则默认分支；惰性求值（未命中分支不执行）
+    - [x] 新增 8 个端到端测试（穷尽三态/归组/默认分支/通用匹配/首命中+惰性/三项语义拒绝）；全量 ctest 6/6；uncategorized.md 示例 5 已同步修正
 
 ### M5 · 语言规范 & 语法闭环（持续）
 - [ ] 沉淀一份「实际实现」为准的语言规范草稿
@@ -351,6 +356,7 @@
     - 逻辑运算 `! && ||` 采用 **Kleene 三值逻辑**（`!unset=unset`、`unset&&false=false`、`unset&&true=unset`、`unset||true=true`、`unset||false=unset`）
     - **`if()`/条件表达式必须是 bool**，tribool 不能直接作条件；需显式写 `t.isTrue()/.isFalse()/.isUnset()`（tribool 内建方法，返回 bool）或 `t == true/false/unset`
     - `==?` 是**通用多路匹配**运算符（不限 tribool，类 switch 表达式）；tribool 匹配需穷尽三态或给默认分支，其他类型必须有默认分支；命中第一个匹配分支（见 uncategorized.md 运算符节）
+    - `==?` 归组/默认分支消歧义规则（t44 补充确认）：**末尾裸表达式 = 默认分支，且只能在末尾；其余裸值一律与后面最近的「值: 结果」归组**；原文档示例 5（默认在前 `a ==? 2, unset: 1`）不再支持，uncategorized.md 已同步修正
 - [ ] tuple 成员访问语法（如 `.0` / `.1`）在词法层如何界定？
 
 ---
@@ -359,6 +365,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: `==?` 通用多路匹配运算符（t44，经作者确认语义与消歧义规则）：AST 新增 MultiMatchExpr；parser 在 parse_ternary 层解析（末尾裸表达式 = 默认分支、其余裸值与后面最近「值: 结果」归组）；语义层候选值可比性/tribool 穷尽三态/非 tribool 必须默认分支/结果类型兼容检查；解释器按序匹配首命中 + 惰性求值；同步修正 uncategorized.md 示例 5（默认在前写法废弃）；新增 8 个端到端测试；全量 ctest 6/6（M4 t44）
 - 2026-07-26 `feat(compiler)`: tribool 三态布尔类型闭环（t43，经作者确认语义）：`unset` 字面量 + Value 层 Tri 三态（编码使 Kleene AND/OR 退化为 min/max）；`! && ||` Kleene 三值逻辑（保留短路，混合运算结果加宽为 tribool）；条件语句必须 bool（语义拦截 + 运行期 condition_truthy 防御）；bool → tribool 单向加宽；`==`/`!=` 三态比较；内建方法 isTrue/isFalse/isUnset；三分支三元 `a ? x : y : z`（需 tribool 条件，两分支时 unset 走 false 分支）；新增 11 个端到端测试；全量 ctest 6/6（M4 t43）
 - 2026-07-26 `feat(compiler)`: 数字类型 number/integer/decimal 三类型区分（t42，经作者确认 Python 式设计）：解释器新增 BigInt（base 2^32，任意精度自动扩容）与 Value 双表示；lexer f 后缀计入 lexeme；语义层字面量推导/转换规则（integer→decimal 加宽、decimal→integer 拒绝、number 超类型）与 `/` 恒产 decimal；解释器双整数 `+ - * %` 精确路径、比较/相等精确、coerce/toNumber/len/数字方法整数路径；新增 11 个端到端测试；interpreter_tests 153 全绿（M4 t42）
 - 2026-07-26 `feat(compiler)`: @override 注解（t40）：lexer 新增 ANNOTATION token（@名字，与 @" 插值共存）；parser 类成员注解解析（@override 仅限方法，@deprecated 接受不生效，未知注解报错）；语义层类表升级为 map 并新增 find_method_in_hierarchy，@override 校验父类链确有同名方法；新增 7 个端到端测试；interpreter_tests 142 全绿（M4 t40）
