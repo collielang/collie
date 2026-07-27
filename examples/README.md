@@ -31,7 +31,7 @@ powershell -ExecutionPolicy Bypass -File examples\run_all.ps1
 | [a02-variables-types](basics/a02-variables-types/) | 🟡 | 基础类型；future：char/tribool 等扩展类型 |
 | [a03-numeric](basics/a03-numeric/) | ✅ | 算术、floor 取模、IEEE 754、number 方法 |
 | [a04-strings](basics/a04-strings/) | ✅ | 插值、UTF-8 码点索引、trim/subString |
-| [a05-logic-tribool](basics/a05-logic-tribool/) | 🟡 | bool 逻辑；future：tribool 三值逻辑 |
+| [a05-logic-tribool](basics/a05-logic-tribool/) | 🟡 | bool 逻辑；future：tribool 三值逻辑（Kleene 语义已定夺，见 a05 README） |
 | [a06-control-flow](basics/a06-control-flow/) | ✅ | if/switch（值跟块、多值逗号）、三目 |
 | [a07-for-variants](basics/a07-for-variants/) | 🟡 | 经典 for/while/do-while；future：for-in 等变体 |
 | [a08-labels](basics/a08-labels/) | ⛔ | label 跳转（break/continue label） |

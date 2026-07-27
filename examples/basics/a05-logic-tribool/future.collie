@@ -1,8 +1,12 @@
 // a05 · 逻辑类型 —— 规范目标版（当前不可运行部分）
 // 状态：⛔ 等待特性 —— tribool / unset / ==? 多目运算符 / 扩展三目 a ? 1 : 2 : 3
 // 规范依据：reference/data-type/primitive-data-type/05-logical.md
-// 说明：tribool 与 ==? 在 PROGRESS.md 中登记为「半截特性」（token 有、语法语义未闭环），
-//      且确切语义仍在「待与作者确认」清单中。
+// 语义已由作者澄清（2026-07）：
+//   1. 逻辑运算符（! && ||）采用 Kleene 三值逻辑（K3）；
+//   2. if/while 条件必须是 bool，if (tribool) 是编译错误，
+//      须用 t.isTrue()/isFalse()/isUnset() 自带属性或 t == true/false/unset；
+//   3. ==? 通用于任意可 == 比较类型；tribool 须穷尽三态或给默认分支，
+//      其他类型必须有默认分支。
 // 待特性落地后，本文件内容应合并回 main.collie
 
 // --- 三态布尔：true / false / unset ---
@@ -16,6 +20,26 @@ bool tb = false;
 print(ta == tb);     // false
 print(ta == !tb);    // false
 
+// --- Kleene 三值逻辑（! && ||）---
+// 结果能由已知一侧唯一决定时取已知值，否则为 unset
+tribool u = unset;
+print(u && false);   // false（false 一锤定音）
+print(u && true);    // unset
+print(u || true);    // true（true 一锤定音）
+print(u || false);   // unset
+print(u && u);       // unset
+
+// --- 条件必须是 bool：tribool 靠自带属性或显式比较进 if ---
+// if (u) { }        // ❌ 编译错误：条件必须是 bool
+if (u.isUnset()) {
+    print("u 是 unset");
+}
+if (u == unset) {
+    print("显式比较同样可行");
+}
+print(u.isTrue());   // false
+print(u.isFalse());  // false
+
 // --- ==? 多目运算符（原始写法）---
 bool cond = true;
 number r1 = cond ==? true: 1, false: 2;
@@ -28,6 +52,15 @@ print(r2);           // 1
 // 多值合并分支 + 兜底
 number r3 = s ==? unset, true: 1, 2;
 print(r3);           // 1
+
+// ==? 通用于任意可 == 比较类型（类 switch 表达式）；非逻辑类型必须有默认分支
+number code = 404;
+string msg = code ==? 200: "OK", 404: "Not Found", "Unknown";
+print(msg);          // Not Found
+
+string cmd = "stop";
+number act = cmd ==? "start": 1, "stop": 2, 0;
+print(act);          // 2
 
 // --- 扩展三目（三分支简化形式）---
 number r4 = s ? 1 : 2 : 3;

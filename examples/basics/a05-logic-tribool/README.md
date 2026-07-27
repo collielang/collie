@@ -14,8 +14,8 @@
 | bool 类型与 `!` 取反 | data-type/.../05-logical.md | ✅ |
 | 三目 `?:`（右结合、惰性求值） | 05-logical.md | ✅（t21） |
 | `&&`/`||` 短路求值 | grammer/basic-grammer.md | ✅（M4） |
-| **tribool / unset** | 05-logical.md | ⛔ 半截特性（token 有，语法未闭环；语义待作者确认） |
-| **`==?` 多目运算符** | 05-logical.md | ⛔ 同上 |
+| **tribool / unset** | 05-logical.md | ⛔ 半截特性（token 有，语法未闭环；**语义已澄清，见下**） |
+| **`==?` 多目运算符** | 05-logical.md | ⛔ 同上（通用性与穷尽性规则已澄清） |
 | **扩展三目 `a ? 1 : 2 : 3`** | 05-logical.md | ⛔ |
 
 ## 运行
@@ -42,9 +42,15 @@ true
 
 注意最后三行：`false && f()` 与 `true || f()` 均未触发副作用输出，只有 `true && f()` 触发——短路语义的可观测证据。
 
+## 语义澄清（作者定夺，2026-07，已写入 05-logical.md）
+
+1. **逻辑运算符（`!` `&&` `||`）采用 Kleene 三值逻辑（K3）**：`unset` 表示未知，结果能由已知一侧唯一决定时取已知值（`unset && false` → `false`，`unset || true` → `true`），否则为 `unset`。
+2. **`if`/`while` 条件必须是 `bool`**：`if (tribool)` 是编译错误；须用自带属性 `t.isTrue()` / `t.isFalse()` / `t.isUnset()`，或显式比较 `t == true/false/unset`。
+3. **`==?` 通用于任意可 `==` 比较类型**（类 switch 表达式）：tribool 须穷尽三态或给默认分支；`number`/`string` 等值域不可穷举的类型**必须**有默认分支。
+
 ## future.collie 当前实际行为
 
 ```
-Parse error at line 9, column 13: Expect expression.（tribool t = unset;）
-...共 11 个语法错误
+Parse error at line 13, column 13: Expect expression.（tribool t = unset;）
+...共 20 个语法错误
 ```
