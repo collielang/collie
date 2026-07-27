@@ -222,7 +222,7 @@ void Interpreter::visitCall(const CallExpr& expr) {
                     param.type.type());
     }
 
-    // 执行函数体，捕获 ReturnSignal
+    // 执行函数体，捕获 ReturnSignal（返回值按声明返回类型校验/隐式转换）
     try {
         for (const auto& stmt : fn->body()->statements()) {
             execute(stmt.get());
@@ -230,7 +230,9 @@ void Interpreter::visitCall(const CallExpr& expr) {
         // 无显式 return —— 返回 none
         result_ = Value::none();
     } catch (const ReturnSignal& ret) {
-        result_ = ret.value;
+        result_ = coerce_to_declared(fn->return_type().type(), ret.value,
+                                     fn->return_type().line(),
+                                     fn->return_type().column());
     }
 }
 
@@ -1042,7 +1044,10 @@ Value Interpreter::call_class_method(const Value& instance,
         }
         return Value::none();  // 无显式 return
     } catch (const ReturnSignal& ret) {
-        return ret.value;
+        // 返回值按声明返回类型校验/隐式转换
+        return coerce_to_declared(method->return_type().type(), ret.value,
+                                  method->return_type().line(),
+                                  method->return_type().column());
     }
 }
 

@@ -1359,3 +1359,53 @@ TEST(InterpreterEndToEnd, FieldAssignTypeMismatchRuntimeRejected) {
     collie::Interpreter interpreter(out);
     EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
 }
+
+// ---------------------------------------------------------------------------
+// 函数返回值类型运行期校验（t37）
+// ---------------------------------------------------------------------------
+
+TEST(InterpreterEndToEnd, ReturnImplicitStringConversion) {
+    // 返回值按声明返回类型隐式转换：number → string
+    EXPECT_EQ(run_source(R"(
+        function label() string {
+            return 42;
+        }
+        print(label().length);
+        print(label() + "!");
+    )"), R"(2
+42!
+)");
+}
+
+TEST(InterpreterEndToEnd, MethodReturnImplicitStringConversion) {
+    // 类方法返回值同样按声明返回类型隐式转换
+    EXPECT_EQ(run_source(R"(
+        class Tag {
+            public function id() string {
+                return 7;
+            }
+        }
+        Tag t = new Tag();
+        print(t.id().length);
+    )"), R"(1
+)");
+}
+
+TEST(InterpreterEndToEnd, ReturnTypeMismatchRuntimeRejected) {
+    // 动态路径返回值与声明返回类型不匹配：运行期拦截
+    collie::Lexer lexer(R"(
+        function first(a array) number {
+            return a[0];
+        }
+        first(["x"]);
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    ASSERT_FALSE(analyzer.has_errors());
+    std::ostringstream out;
+    collie::Interpreter interpreter(out);
+    EXPECT_THROW(interpreter.interpret(stmts), collie::RuntimeError);
+}
