@@ -29,6 +29,9 @@ enum class TokenType {
     // 标识符
     IDENTIFIER,     // 标识符
 
+    // 注解
+    ANNOTATION,     // @注解名（如 @override，lexeme 为注解名不含 '@'）
+
     // 关键字 - 类型
     KW_OBJECT,      // object
     KW_NONE,        // none

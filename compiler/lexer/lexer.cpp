@@ -164,6 +164,18 @@ Token Lexer::next_token() {
     if (c == '@' && peek_next() == '"') {
         return scan_interpolated_string();
     }
+    // 注解 @名字（如 @override，见 uncategorized.md）：lexeme 为注解名不含 '@'
+    if (c == '@' && (std::isalpha(static_cast<unsigned char>(peek_next())) ||
+                     peek_next() == '_')) {
+        size_t start_col = column_;
+        advance(); // 消费 '@'
+        std::string name;
+        while (!is_at_end() &&
+               (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '_')) {
+            name += advance();
+        }
+        return Token(TokenType::ANNOTATION, name, line_, start_col);
+    }
     if (c == '\'') {
         return scan_character();
     }

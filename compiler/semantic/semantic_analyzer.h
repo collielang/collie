@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include "semantic_common.h"
@@ -119,6 +120,15 @@ private:
      * @param error 错误信息
      */
     void record_error(const SemanticError& error);
+
+    /**
+     * @brief 沿继承链（含起点类）查找同名方法，用于 @override 覆写校验
+     * @param klass 起点类（传父类则不含子类自身）
+     * @param name 方法名
+     * @return 命中的方法声明，未找到返回 nullptr
+     */
+    const FunctionStmt* find_method_in_hierarchy(const ClassStmt* klass,
+                                                 const std::string& name) const;
 
     /**
      * @brief 进入错误恢复模式
@@ -290,7 +300,7 @@ private:
     std::vector<Token> tokens_;                ///< token 序列
     size_t current_token_index_ = 0;           ///< 当前 token 索引
     TokenType array_element_type_ = TokenType::INVALID; ///< 当前数组的元素类型
-    std::unordered_set<std::string> declared_classes_;  ///< 已声明的类名集合
+    std::unordered_map<std::string, const ClassStmt*> declared_classes_;  ///< 已声明的类（名字 -> 声明节点，供继承链/覆写校验查询）
     bool in_class_ = false;                    ///< 是否正在分析类体（放行 this）
 
     // -----------------------------------------------------------------------------

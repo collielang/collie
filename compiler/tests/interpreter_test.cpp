@@ -1733,3 +1733,132 @@ TEST(InterpreterEndToEnd, BaseMethodCallOutsideClassSemanticRejected) {
     analyzer.analyze(stmts);
     EXPECT_TRUE(analyzer.has_errors());
 }
+
+TEST(InterpreterEndToEnd, OverrideAnnotationAccepted) {
+    // @override 标注的覆写方法：父类链确有同名方法，正常运行
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            public function speak() string {
+                return "...";
+            }
+        }
+
+        class Dog extends Animal {
+            @override
+            public function speak() string {
+                return "Woof!";
+            }
+        }
+
+        Dog d = new Dog();
+        print(d.speak());
+    )"), R"(Woof!
+)");
+}
+
+TEST(InterpreterEndToEnd, OverrideAnnotationGrandparentMethod) {
+    // @override 命中祖父类方法（父类未覆写，沿链查找）
+    EXPECT_EQ(run_source(R"(
+        class A {
+            public function speak() string {
+                return "from A";
+            }
+        }
+
+        class B extends A { }
+
+        class C extends B {
+            @override
+            public function speak() string {
+                return "from C";
+            }
+        }
+
+        C c = new C();
+        print(c.speak());
+    )"), R"(from C
+)");
+}
+
+TEST(InterpreterEndToEnd, DeprecatedAnnotationAcceptedNoop) {
+    // @deprecated 接受但暂不生效：方法照常可调
+    EXPECT_EQ(run_source(R"(
+        class Animal {
+            @deprecated
+            public function speak() string {
+                return "old";
+            }
+        }
+
+        Animal a = new Animal();
+        print(a.speak());
+    )"), R"(old
+)");
+}
+
+TEST(InterpreterEndToEnd, OverrideWithoutSuperMethodSemanticRejected) {
+    // @override 但父类链上无同名方法：语义阶段报错
+    collie::Lexer lexer(R"(
+        class Animal { }
+        class Dog extends Animal {
+            @override
+            public function speak() string {
+                return "Woof!";
+            }
+        }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, OverrideWithoutSuperclassSemanticRejected) {
+    // 无父类的类里写 @override：语义阶段报错
+    collie::Lexer lexer(R"(
+        class Animal {
+            @override
+            public function speak() string {
+                return "...";
+            }
+        }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    collie::SemanticAnalyzer analyzer;
+    analyzer.analyze(stmts);
+    EXPECT_TRUE(analyzer.has_errors());
+}
+
+TEST(InterpreterEndToEnd, OverrideOnFieldSyntaxRejected) {
+    // @override 用在字段上：语法阶段报错
+    collie::Lexer lexer(R"(
+        class Animal {
+            @override
+            public number age = 0;
+        }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    EXPECT_FALSE(parser.get_errors().empty());
+}
+
+TEST(InterpreterEndToEnd, UnknownAnnotationSyntaxRejected) {
+    // 未知注解：语法阶段报错
+    collie::Lexer lexer(R"(
+        class Animal {
+            @nosuch
+            public function speak() string {
+                return "...";
+            }
+        }
+    )");
+    std::vector<collie::Token> tokens = lexer.tokenize();
+    collie::Parser parser(tokens);
+    auto stmts = parser.parse_program();
+    EXPECT_FALSE(parser.get_errors().empty());
+}

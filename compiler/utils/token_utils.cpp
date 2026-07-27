@@ -29,6 +29,7 @@ std::string token_type_to_string(TokenType type) {
         case TokenType::LITERAL_BOOL: return "LITERAL_BOOL";
         case TokenType::LITERAL_INTERPOLATED_STRING: return "LITERAL_INTERPOLATED_STRING";
         case TokenType::IDENTIFIER: return "IDENTIFIER";
+        case TokenType::ANNOTATION: return "ANNOTATION";
         case TokenType::KW_INTEGER: return "KW_INTEGER";
         case TokenType::KW_DECIMAL: return "KW_DECIMAL";
         case TokenType::KW_TRIBOOL: return "KW_TRIBOOL";

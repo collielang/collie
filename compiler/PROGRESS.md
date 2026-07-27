@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t39 完成：base.method() 显式父类方法调用）
+最后更新：2026-07-26（t40 @override 注解完成）
 
 ---
 
@@ -282,6 +282,11 @@
     - [x] 语义层：类外使用报错；返回类型 object 动态放行（与类实例方法调用一致）
     - [x] 解释器：从 `current_class_` 的父类链 find_method（绕过子类覆写），以 defining_class 上下文执行（多级 base 逐级上调不死循环）；this 仍为当前实例；沿用“先拷贝 this 再传”防悬空模式
     - [x] 端到端测试 7 例：覆写内调父类实现、带实参（this 为当前实例）、多级 base 链、父类未覆写时命中祖父类、父类链无方法运行期报错、无父类写 base 运行期报错、类外写 base 语义报错；`interpreter_tests` 现 135 全绿，全量 ctest 6/6
+- [x] **@override 注解（t40，已完成）**：文档列举 `@override`/`@deprecated`（uncategorized.md 注解节）
+    - [x] lexer 新增 ANNOTATION token（`@名字`，lexeme 不含 `@`，与插值字符串 `@"` 分支共存）
+    - [x] parser：`classMember -> annotation* 修饰符? 成员`；`@override` 仅可标注方法（字段/构造器报语法错）；`@deprecated` 接受暂不生效（TODO 调用处告警）；未知注解报语法错；`FunctionStmt` 增 `is_override` 标志
+    - [x] 语义层：`declared_classes_` 升级为 `unordered_map<string, const ClassStmt*>`，新增 `find_method_in_hierarchy`；`@override` 方法校验父类链确有同名方法，否则 record_error（不中断成员分析）
+    - [x] 端到端测试 7 例：覆写标注正常运行、命中祖父类方法、@deprecated 无副作用、父类链无同名方法/无父类语义报错、标注字段语法报错、未知注解语法报错；`interpreter_tests` 现 142 全绿，全量 ctest 6/6
 - [ ] 数字类型区分 integer/decimal（当前统一 `double`，见代码 TODO；t26 已对齐可观测语义，双表示待方法调用语法落地后再评估）
 
 ### M5 · 语言规范 & 语法闭环（持续）
@@ -341,6 +346,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: @override 注解（t40）：lexer 新增 ANNOTATION token（@名字，与 @" 插值共存）；parser 类成员注解解析（@override 仅限方法，@deprecated 接受不生效，未知注解报错）；语义层类表升级为 map 并新增 find_method_in_hierarchy，@override 校验父类链确有同名方法；新增 7 个端到端测试；interpreter_tests 142 全绿（M4 t40）
 - 2026-07-26 `feat(compiler)`: base.method() 显式父类方法调用（t39）：AST 新增 BaseMethodCallExpr，parser 在 primary 层解析（base 非一等值，必须紧跟方法调用）；解释器从 current_class_ 的父类链查找绕过覆写，以 defining_class 上下文执行；语义层类外报错；新增 7 个端到端测试；interpreter_tests 135 全绿（M4 t39）
 - 2026-07-26 `feat(compiler)`: class 继承（t38）：`extends` 单继承 + 构造器委托 `: base(args)`（脱糖为体首语句）；字段/方法沿继承链查找与覆写，字段初始化 base-first，current_class_ 上下文使 base 按定义类父类解析；语义层父类已声明/非自身检查；新增 8 个端到端测试；interpreter_tests 128 全绿（M4 t38）
 - 2026-07-26 `feat(interpreter)`: 函数返回值类型运行期校验（t37）：visitCall 与 call_class_method 捕获 ReturnSignal 时返回值经 coerce_to_declared（显式 return 路径；none/void 返回类型自然放行）；新增 3 个端到端测试；interpreter_tests 120 全绿，运行期类型校验链（声明/赋值/形参/字段/返回值）闭环（M4 t37）

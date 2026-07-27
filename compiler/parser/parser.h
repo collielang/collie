@@ -95,10 +95,11 @@ private:
 
     /**
      * @brief 解析函数声明
+     * @param is_override 方法是否标注 @override（仅类成员解析时传入）
      * @return 函数声明的AST节点
      * @throws ParseError 如果函数声明语法不正确
      */
-    std::unique_ptr<Stmt> parse_function_declaration();
+    std::unique_ptr<Stmt> parse_function_declaration(bool is_override = false);
 
     /**
      * @brief 解析类声明（`class` 已消费）

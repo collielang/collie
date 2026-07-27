@@ -1298,7 +1298,7 @@ std::unique_ptr<Stmt> Parser::parse_expression_statement() {
  *
  * @throws ParseError 如果函数声明语法不正确
  */
-std::unique_ptr<Stmt> Parser::parse_function_declaration() {
+std::unique_ptr<Stmt> Parser::parse_function_declaration(bool is_override) {
     // 记录开始位置用于错误报告
     Token func_token = previous();
 
@@ -1329,7 +1329,7 @@ std::unique_ptr<Stmt> Parser::parse_function_declaration() {
     consume(TokenType::DELIMITER_LBRACE, "Expect '{' before function body.");
     auto body = std::unique_ptr<BlockStmt>(dynamic_cast<BlockStmt*>(parse_block_statement().release()));
 
-    return std::make_unique<FunctionStmt>(return_type, name, std::move(parameters), std::move(body));
+    return std::make_unique<FunctionStmt>(return_type, name, std::move(parameters), std::move(body), is_override);
 }
 
 /**
@@ -1365,13 +1365,28 @@ std::unique_ptr<Stmt> Parser::parse_class_declaration() {
  * @brief 解析单个类成员
  *
  * 文法：
- *   classMember -> ("public" | "private")? (field | method | constructor)
+ *   classMember -> annotation* ("public" | "private")? (field | method | constructor)
+ *   annotation  -> "@override" | "@deprecated"（仅类方法；@deprecated 暂仅接受不生效）
  *   field       -> typeToken IDENTIFIER ("=" expression)? ";"
  *   method      -> "function" IDENTIFIER "(" parameters? ")" typeToken block
  *   constructor -> 类名 IDENTIFIER "(" parameters? ")" (":" "base" "(" arguments? ")")? block
  *                  （与类名同名，无返回类型；base 委托脱糖为构造器体首条语句）
  */
 std::unique_ptr<Stmt> Parser::parse_class_member(const Token& class_name) {
+    // 注解（可多个，在访问修饰符之前，见 uncategorized.md）：
+    // @override 标记覆写（语义层校验父类链确有同名方法）；
+    // @deprecated 接受但暂不生效（TODO：调用处告警）；其余报错
+    bool is_override = false;
+    while (check(TokenType::ANNOTATION)) {
+        Token annotation = advance();
+        if (annotation.lexeme() == "override") {
+            is_override = true;
+        } else if (annotation.lexeme() != "deprecated") {
+            throw error(annotation, "Unknown annotation '@" +
+                                        std::string(annotation.lexeme()) + "'.");
+        }
+    }
+
     // 可选访问修饰符（缺省为 public，与 Stmt 基类默认值一致）
     bool is_public = true;
     if (match(TokenType::KW_PUBLIC)) {
@@ -1384,7 +1399,10 @@ std::unique_ptr<Stmt> Parser::parse_class_member(const Token& class_name) {
 
     if (match(TokenType::KW_FUNCTION)) {
         // 方法：复用函数声明文法
-        member = parse_function_declaration();
+        member = parse_function_declaration(is_override);
+    } else if (is_override) {
+        // @override 只能标注方法（字段/构造器不可覆写）
+        throw error(peek(), "'@override' can only be applied to methods.");
     } else if (check(TokenType::IDENTIFIER) &&
                peek().lexeme() == class_name.lexeme() &&
                peek_next().type() == TokenType::DELIMITER_LPAREN) {

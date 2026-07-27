@@ -1617,7 +1617,7 @@ void SemanticAnalyzer::visitClass(const ClassStmt& stmt) {
             }
         }
 
-        declared_classes_.insert(name);
+        declared_classes_[name] = &stmt;
     } catch (const SemanticError& error) {
         record_error(error);
         if (!in_panic_mode_) {
@@ -1625,6 +1625,31 @@ void SemanticAnalyzer::visitClass(const ClassStmt& stmt) {
             synchronize();
         }
         return;
+    }
+
+    // @override 校验：标注的方法在父类链上必须存在同名方法
+    // （仅记录错误不中断，类体其余成员照常分析）
+    const ClassStmt* superclass = nullptr;
+    if (stmt.has_superclass()) {
+        auto it = declared_classes_.find(std::string(stmt.superclass().lexeme()));
+        if (it != declared_classes_.end()) {
+            superclass = it->second;
+        }
+    }
+    for (const auto& member : stmt.members()) {
+        auto* method = dynamic_cast<const FunctionStmt*>(member.get());
+        if (!method || !method->is_override()) {
+            continue;
+        }
+        const std::string method_name(method->name().lexeme());
+        if (!superclass ||
+            find_method_in_hierarchy(superclass, method_name) == nullptr) {
+            record_error(SemanticError(
+                "Method '" + method_name +
+                    "' is marked '@override' but does not override any method "
+                    "from a superclass",
+                method->name().line(), method->name().column()));
+        }
     }
 
     // 类体内分析期间放行 this（各成员 visit 内部自行捕获错误）
@@ -1756,6 +1781,26 @@ void SemanticAnalyzer::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
 // -----------------------------------------------------------------------------
 // 私有辅助方法
 // -----------------------------------------------------------------------------
+
+const FunctionStmt* SemanticAnalyzer::find_method_in_hierarchy(
+    const ClassStmt* klass, const std::string& name) const {
+    // 沿继承链自子向父查找（父类必已声明，链有限无环）
+    for (const ClassStmt* c = klass; c != nullptr; ) {
+        for (const auto& member : c->members()) {
+            if (auto* fn = dynamic_cast<const FunctionStmt*>(member.get())) {
+                if (fn->name().lexeme() == name) {
+                    return fn;
+                }
+            }
+        }
+        if (!c->has_superclass()) {
+            break;
+        }
+        auto it = declared_classes_.find(std::string(c->superclass().lexeme()));
+        c = (it != declared_classes_.end()) ? it->second : nullptr;
+    }
+    return nullptr;
+}
 
 void SemanticAnalyzer::reset_state() {
     errors_.clear();

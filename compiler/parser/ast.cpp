@@ -145,10 +145,12 @@ CallExpr::CallExpr(std::unique_ptr<Expr> callee,
 
 FunctionStmt::FunctionStmt(Token type, Token name,
                           std::vector<Parameter> parameters,
-                          std::unique_ptr<BlockStmt> body)
+                          std::unique_ptr<BlockStmt> body,
+                          bool is_override)
     : return_type_(type),
       name_(name),
       parameters_(std::move(parameters)),
-      body_(std::move(body)) {}
+      body_(std::move(body)),
+      is_override_(is_override) {}
 
 } // namespace collie

@@ -703,10 +703,12 @@ public:
      * @param name 函数名
      * @param parameters 参数列表
      * @param body 函数体
+     * @param is_override 是否标注 @override（仅类方法，语义层校验覆写）
      */
     FunctionStmt(Token type, Token name,
                 std::vector<Parameter> parameters,
-                std::unique_ptr<BlockStmt> body);
+                std::unique_ptr<BlockStmt> body,
+                bool is_override = false);
 
     void accept(StmtVisitor& visitor) const override;
 
@@ -714,12 +716,14 @@ public:
     const Token& name() const { return name_; }
     const std::vector<Parameter>& parameters() const { return parameters_; }
     const BlockStmt* body() const { return body_.get(); }
+    bool is_override() const { return is_override_; }
 
 private:
     Token return_type_;
     Token name_;
     std::vector<Parameter> parameters_;
     std::unique_ptr<BlockStmt> body_;
+    bool is_override_;  // @override 标注（覆写校验由语义层执行）
 };
 
 /**
