@@ -1,0 +1,28 @@
+// t53 S6 差分用例：print 输出格式对齐（collie_rt 垫片接管格式化）
+// 覆盖解释器 to_string 的 decimal 四步：整值大数按整数打、非整值 6 位有效、
+// ±Infinity/NaN 拼写、以及混合类型一行输出
+
+// 整值大数：解释器打 3000000（%g 会打 3e+06，垫片修复点）
+decimal big = 3000000.0;
+print("big:", big);
+
+// 非整值：6 位有效数字
+decimal frac = 1.0 / 3.0;
+print("frac:", frac);
+
+// 整值结果按整数打：2.5 * 2 = 5
+decimal half = 2.5;
+print("half:", half, half * 2.0);
+
+// 超过 1e15 的整值：走 %g 科学计数（与解释器 ostringstream 一致）
+decimal huge = 1000000000000000.0 * 10.0;
+print("huge:", huge);
+
+// IEEE 754 特殊值拼写：+Infinity / -Infinity / NaN
+decimal infv = 1.0 / 0.0;
+print("inf:", infv, -infv);
+decimal nanv = 0.0 / 0.0;
+print("nan:", nanv);
+
+// 混合类型一行：空格分隔
+print("mixed:", "str", 42, 2.5, true, false);

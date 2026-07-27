@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t52 完成：codegen S5 函数支持——顶层 function 声明/调用/return/递归，两遍原型+函数体生成）
+最后更新：2026-07-26（t53 完成：collie_rt 运行时垫片第一版——print 输出格式对齐解释器，销账缺口 CG2 标量部分）
 
 ---
 
@@ -354,6 +354,11 @@
     - 实现：CGType 新增 Void（none 返回函数调用结果）；CGFunction{fn,param_types,ret_type} 表 functions_；generate() 第一遍 declare_function 建全部原型（符号名 `collie.<name>` + InternalLinkage）；visitFunction 现场保存/恢复（插入点/scopes_/loops_）后用全新作用域生成函数体，形参 entry alloca+store 落栈；visitCall 查表 + 实参 int→double coerce；visitReturn 求值+coerce 后落 ret.dead 块；gen_print/gen_ternary 加 Void 防御
     - 踩坑：①parser consume_type_token 类型关键字列表历史缺口（缺 KW_INTEGER/KW_DECIMAL/KW_TRIBOOL/KW_DWORD/KW_BIT）→ `(a integer, ...)` 参数/返回类型语法错误，补齐并加防退化测试 FunctionDeclarationBuiltinTypeParams（继 t51 parse_for_statement 后第二个同类缺口）；②尾块可达性用 `pred_empty` 启发式失效——if/else 双分支均 return 时各 dead 块被 visitIf 补 br 到 merge，merge 有前驱但从 entry 不可达 → 改 reachable_from_entry 从 entry DFS 遍历 successors 真实判定
     - 验证：新增差分用例 s5_functions.collie（add 多参/fib 递归/mix 混型/greet none 副作用/absval 双分支 return），ctest -C Release 差分 4/4 逐字节一致；Debug 门禁 ctest 6/6 全过
+- [x] collie_rt 运行时垫片第一版（t53）
+    - 范围拍板：纯 C 静态库 `codegen/runtime/collie_rt.c`（collie_rt_print_str/i64/f64/bool/sep/newline 逐参打印接口）；f64 移植解释器 Value::to_string 四步格式化（NaN → ±Infinity → 整值<1e15 按整数 → 其余 %g 与 ostringstream 默认一致）；gen_print 改逐参调用 collie_rt（不再直连 printf/puts）；colliec clang 命令行追加 collie_rt.lib
+    - 关键发现：CG2 真实差异不止 Infinity/NaN 拼写——整值大数 3000000.0 解释器打 3000000 而 %g 打 3e+06；纯 C 实现避免 clang 链 .ll 时不自动带 C++ 标准库的坑
+    - 踩坑：①COLLIE_RT_LIB 宏烘焙绝对路径方案失败——构建树路径含中文时宏值经 MSVC 命令行编码错乱（clang 收到乱码路径找不到 lib），改为 colliec 运行期 GetModuleFileName 从自身目录定位 collie_rt.lib（两目标同目录产出）；②windows.h 的 min/max 宏污染 LLVM 头文件→必须 NOMINMAX + WIN32_LEAN_AND_MEAN
+    - 验证：新差分用例 s6_print_format（整值大数/非整值/科学计数/1.0÷0.0/0.0÷0.0/混合行），ctest -C Release 差分 5/5 逐字节一致；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -408,6 +413,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: collie_rt 运行时垫片第一版，print 输出格式对齐解释器（t53，M6）：纯 C 静态库 `codegen/runtime/collie_rt.c`（print_str/i64/f64/bool + 参间 sep + 末尾 newline 逐参接口；纯 C 免 clang 链 .ll 时的 C++ 标准库依赖）；f64 移植解释器 to_string 四步格式（NaN→±Infinity→整值<1e15 按整数打，修复 %g 把 3000000 打成 3e+06→其余 %g）；gen_print 改逐参调用垫片不再直连 printf/puts；colliec 运行期从自身目录定位 collie_rt.lib（CMake 宏烘焙绝对路径在非 ASCII 构建树下编码错乱，改 GetModuleFileName 方案；windows.h 需 NOMINMAX 免污染 LLVM 头）；新差分用例 s6_print_format，ctest -C Release 差分 5/5 逐字节一致，Debug 门禁 6/6（M6 t53）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S5 函数 + 修复 parser 参数类型 token 缺口（t52，M6）：顶层 `function name(param type, ...) retType` 声明/调用/`return`/递归；两遍处理（generate() 第一遍 declare_function 建全部原型→递归/前向调用天然可用，符号名 `collie.<name>`+InternalLinkage；第二遍 visitFunction 现场保存/恢复后生成函数体）；CGType 新增 Void（none 返回降 void）；形参 entry alloca+store，实参/返回值仅 integer→decimal 提升；visitReturn 落 ret.dead 块；尾块收尾（void 补 RetVoid/不可达补 unreachable/可达无 return 拒编，可达性用 entry 起 DFS 判定）；同名重载/嵌套函数拒编；修复 parser consume_type_token 类型关键字列表缺口（缺 KW_INTEGER/KW_DECIMAL/KW_TRIBOOL/KW_DWORD/KW_BIT，影响函数参数/返回类型与类字段）+ 防退化测试；新增差分用例 s5_functions.collie，ctest -C Release 差分 4/4 逐字节一致，Debug 门禁 6/6（M6 t52）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S4 循环控制流 + 修复 parser for 初始化类型缺口（t51，M6）：LoopContext 栈支撑 break/continue（break→end、continue→while/do-while 的 cond、for 的 inc，与解释器对齐；CreateBr 后落 `*.dead` 块保每块单终结符）；for 初始化限自身作用域 + cond/body/inc/end 四块；do-while 先 br body 保至少执行一次；gen_ternary（bool 条件 CondBr + PHI 汇合，int/double 混型在各分支块内提升 double，三分支 tribool 拒编）；修复 parser parse_for_statement 初始化类型列表历史缺口（缺 integer/decimal/tribool 等，对齐 parse_declaration，解释器/编译器共同受益）+ 防退化测试；新增差分用例 s4_loops.collie，ctest -C Release 差分 3/3 逐字节一致，Debug 门禁 6/6（M6 t51）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S3 + 差分测试自动化进 ctest（t50，M6）：`code_generator.{h,cpp}` 新增 S3 降级——变量声明（integer/decimal/bool/string，entry 块头 alloca 利于 mem2reg，须带初始化否则拒编，`number` 变量拒编登记缺口 CG5）、赋值（仅 integer→decimal sitofp 提升）、比较 `== != < <= > >=`（纯整数 icmp/含小数 fcmp，`!=` 用 UNE 保 NaN，bool 仅 ==/!=）、逻辑 `&& || !`（短路 condbr+phi，与解释器 Kleene 对齐）、if/else、while、块作用域遮蔽（scopes_ 栈）、bool 字面量 KW_TRUE/KW_FALSE；差分测试自动化：`codegen/tests/run_diff_test.cmake` 四步比对脚本（colliec 编译产物 vs collie 解释器逐字节）+ `tests/CMakeLists.txt` 注册 codegen_diff_{s1_hello,s3_control_flow}（if COLLIE_ENABLE_LLVM + CONFIGURATIONS Release）；踩坑：EXCLUDE_FROM_ALL 子目录 add_test 不进 CTestTestfile（注册挪 tests/）、`codegen` 保留目标名 CMP0171（改名 collie_codegen）；ctest -C Release 差分 2/2 逐字节一致，Debug 全量 ctest 6/6 不受影响（M6 t50）

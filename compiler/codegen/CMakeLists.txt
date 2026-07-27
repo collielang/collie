@@ -43,9 +43,22 @@ target_link_libraries(collie_codegen
         ${COLLIE_LLVM_LIBS}
 )
 
+# ---- t53：collie_rt 运行时垫片（纯 C 静态库，供 clang 链接编译产物）----
+# print 降级逐参调用本库接口，使编译产物输出与解释器 to_string 逐字节一致。
+# 纯 C：clang 编链 .ll 默认只带 C 运行时，避免 C++ 标准库依赖。
+# Release /MT 与主工程对齐（顶层全局 CRT 规则 + 下方目录级 /MD→/MT 双保险）。
+add_library(collie_rt STATIC runtime/collie_rt.c)
+if(MSVC)
+    set_property(TARGET collie_rt PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # 本地编译驱动：前端门禁 + 代码生成出 .ll，再调 LLVM 包自带 clang 链成二进制；
-# COLLIE_LLVM_BIN 烘焙 clang 所在目录（来自 LLVMConfig 的 LLVM_TOOLS_BINARY_DIR）
+# COLLIE_LLVM_BIN 烘焙 clang 所在目录（来自 LLVMConfig 的 LLVM_TOOLS_BINARY_DIR）。
+# collie_rt.lib 不烘焙路径：构建树路径含非 ASCII 时宏值经命令行会编码错乱，
+# colliec 运行期从自身所在目录定位（两目标同目录产出，见 colliec_main.cpp）。
 add_executable(colliec colliec_main.cpp)
+add_dependencies(colliec collie_rt)
 target_link_libraries(colliec PRIVATE collie_codegen semantic)
 target_compile_definitions(colliec PRIVATE
     COLLIE_LLVM_BIN="${LLVM_TOOLS_BINARY_DIR}")

@@ -16,6 +16,13 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+// windows.h 的 min/max 宏会污染 LLVM 头文件（code_generator.h 间接引入），必须屏蔽
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include "code_generator.h"
 #include "../lexer/lexer.h"
 #include "../parser/parser.h"
@@ -50,6 +57,22 @@ std::string strip_extension(const std::string& path) {
         return path;
     }
     return path.substr(0, dot);
+}
+
+/// @brief 运行期定位 collie_rt 垫片静态库（t53）：与 colliec.exe 同目录部署。
+/// 不用 CMake 烘焙绝对路径——构建树路径含非 ASCII 字符时宏值经编译器命令行
+/// 会发生编码错乱（clang 收到乱码路径找不到文件），运行期定位则天然无此问题。
+std::string locate_rt_lib(const char* argv0) {
+    std::string exe_path;
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    DWORD len = GetModuleFileNameA(nullptr, buf, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) exe_path.assign(buf, len);
+#endif
+    if (exe_path.empty()) exe_path = argv0;
+    size_t slash = exe_path.find_last_of("/\\");
+    std::string dir = (slash == std::string::npos) ? "." : exe_path.substr(0, slash);
+    return dir + "/collie_rt.lib";
 }
 
 } // namespace
@@ -158,10 +181,12 @@ int main(int argc, char* argv[]) {
     const std::string clang_bin = std::string(COLLIE_LLVM_BIN) + "/clang.exe";
 
     // Windows 下 std::system 需把含空格路径的整条命令再套一层引号；
-    // -Wno-override-module：模块 triple 与 clang 宿主 triple 仅差 MSVC 版本后缀，告警无意义
+    // -Wno-override-module：模块 triple 与 clang 宿主 triple 仅差 MSVC 版本后缀，告警无意义；
+    // collie_rt.lib：print 垫片接口实现（t53，输出格式对齐解释器），与 colliec 同目录
+    const std::string rt_lib = locate_rt_lib(argv[0]);
     std::ostringstream cmd;
     cmd << "\"\"" << clang_bin << "\" -Wno-override-module \"" << ll_path
-        << "\" -o \"" << exe_path << "\"\"";
+        << "\" \"" << rt_lib << "\" -o \"" << exe_path << "\"\"";
     const int rc = std::system(cmd.str().c_str());
     if (rc != 0) {
         std::cerr << "Error: linking failed (clang exit code " << rc << "). "

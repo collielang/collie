@@ -48,11 +48,22 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 显式标记宿主 target triple，免得 clang 编 .ll 时报 override-module 警告
     module_->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
 
-    // printf 声明：i32 (ptr, ...) 变参；print 统一降级为一次 printf 调用
-    auto* printf_type = llvm::FunctionType::get(
-        builder_.getInt32Ty(), {llvm::PointerType::getUnqual(context_)},
-        /*isVarArg=*/true);
-    printf_fn_ = module_->getOrInsertFunction("printf", printf_type);
+    // collie_rt 垫片接口声明（S6 t53）：print 逐参调用，输出对齐解释器
+    // to_string（整值小数按整数打/±Infinity/NaN 拼写）；链接时带上 collie_rt.lib
+    llvm::Type* void_ty = builder_.getVoidTy();
+    llvm::Type* ptr_ty = llvm::PointerType::getUnqual(context_);
+    rt_print_str_ = module_->getOrInsertFunction(
+        "collie_rt_print_str", llvm::FunctionType::get(void_ty, {ptr_ty}, false));
+    rt_print_i64_ = module_->getOrInsertFunction(
+        "collie_rt_print_i64", llvm::FunctionType::get(void_ty, {builder_.getInt64Ty()}, false));
+    rt_print_f64_ = module_->getOrInsertFunction(
+        "collie_rt_print_f64", llvm::FunctionType::get(void_ty, {builder_.getDoubleTy()}, false));
+    rt_print_bool_ = module_->getOrInsertFunction(
+        "collie_rt_print_bool", llvm::FunctionType::get(void_ty, {builder_.getInt32Ty()}, false));
+    rt_print_sep_ = module_->getOrInsertFunction(
+        "collie_rt_print_sep", llvm::FunctionType::get(void_ty, {}, false));
+    rt_print_newline_ = module_->getOrInsertFunction(
+        "collie_rt_print_newline", llvm::FunctionType::get(void_ty, {}, false));
 
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
@@ -349,35 +360,25 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
 
 void CodeGenerator::gen_print(const CallExpr& expr) {
     // print(a, b, ...)：与解释器 call_builtin_print 对齐——空格分隔 + 末尾换行；
-    // 编译期按参数 CGType 拼一条 printf 格式串，一次调用完成
-    std::string format;
-    std::vector<llvm::Value*> args;
-    args.push_back(nullptr); // 占位：格式串放最前
-
+    // 逐参按 CGType 调对应 collie_rt 接口（垫片接管格式化，输出对齐解释器）
     const auto& arguments = expr.arguments();
     for (size_t i = 0; i < arguments.size(); ++i) {
-        if (i > 0) format += ' ';
+        if (i > 0) builder_.CreateCall(rt_print_sep_, {}); // 参数间单个空格
         CGValue v = emit(arguments[i].get());
         switch (v.type) {
             case CGType::Str:
-                format += "%s";
-                args.push_back(v.value);
+                builder_.CreateCall(rt_print_str_, {v.value});
                 break;
             case CGType::Int:
-                format += "%lld";
-                args.push_back(v.value);
+                builder_.CreateCall(rt_print_i64_, {v.value});
                 break;
             case CGType::Double:
-                // %g 与解释器 ostringstream 默认格式同为 6 位有效数字；
-                // ±Infinity/NaN 的拼写差异属缺口 CG2（collie_rt 垫片统一接管后消除）
-                format += "%g";
-                args.push_back(v.value);
+                builder_.CreateCall(rt_print_f64_, {v.value});
                 break;
             case CGType::Bool: {
-                format += "%s";
-                llvm::Value* true_str = builder_.CreateGlobalString("true");
-                llvm::Value* false_str = builder_.CreateGlobalString("false");
-                args.push_back(builder_.CreateSelect(v.value, true_str, false_str));
+                // i1 零扩展为 i32（C 接口参数为 int）
+                llvm::Value* as_i32 = builder_.CreateZExt(v.value, builder_.getInt32Ty());
+                builder_.CreateCall(rt_print_bool_, {as_i32});
                 break;
             }
             case CGType::Void:
@@ -386,9 +387,7 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                             expr.paren().line(), expr.paren().column());
         }
     }
-    format += '\n';
-    args[0] = builder_.CreateGlobalString(format);
-    builder_.CreateCall(printf_fn_, args);
+    builder_.CreateCall(rt_print_newline_, {}); // 一行结束换行
 }
 
 void CodeGenerator::gen_logical(const BinaryExpr& expr) {

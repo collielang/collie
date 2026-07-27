@@ -16,7 +16,8 @@
 | S3 | 变量声明/读写、bool、比较、`if`/`while` | 循环程序编译执行，输出与解释器一致 **✅ t50** |
 | S4 | `for`/`do-while`、`break`/`continue`、二分支三元 `a ? x : y` | 循环控制流程序编译执行，输出与解释器一致 **✅ t51** |
 | S5 | 顶层函数声明/调用/`return`/递归 | 函数程序编译执行，输出与解释器一致 **✅ t52** |
-| 后续 | string 运行时、decimal 输出格式、class、BigInt | 逐任务扩展 |
+| S6 | collie_rt 垫片：print 输出格式对齐解释器 to_string | decimal 四步格式/±Infinity/NaN/混合行输出与解释器一致 **✅ t53** |
+| 后续 | string 运行时、class、BigInt | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、字符串插值（parser 已脱糖为拼接，
 依赖 string 运行时）、`==?`、异常语义。CodeGenVisitor 遇到不支持的节点**显式报错**
@@ -95,10 +96,16 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `return` | 求值 + coerce 后 CreateRet；void 函数仅裸 return；后续指令落 `ret.dead` 块 |
 | 尾块收尾 | void 补 RetVoid（对齐解释器返 none）；非 void 不可达尾块补 unreachable；可达无 return 拒编；可达性用 entry 起 DFS 判定（dead 块被外层控制流补 br 后单看前驱会误判） |
 
-**print 后续演进**：S2 之后 print 需要匹配解释器的 `to_string` 全部格式
-（decimal 6 位有效数字、整值小数按整数打印、`+Infinity`/`NaN`、bool/none/数组格式），
-届时引入 **C++ 运行时垫片库 `collie_rt`**（静态库，直接复用/移植解释器 `to_string`
-逻辑），print 统一降级为 `call void @collie_print(...)`，不再直连 printf。
+**S6 降级补充（t53 实现）：collie_rt 运行时垫片**：
+
+| 要点 | 说明 |
+|------|------|
+| 垫片库 | `runtime/collie_rt.c` 纯 C 静态库（clang 编链 .ll 默认只带 C 运行时，纯 C 免 C++ 标准库依赖）；Release /MT 与 clang 默认静态 CRT 对齐 |
+| print 降级 | 从“编译期拼 printf 格式串”改为**逐参调用垫片**：`collie_rt_print_str/i64/f64/bool` + 参间 `print_sep`（空格）+ 末尾 `print_newline` |
+| f64 四步格式 | 移植解释器 `Value::to_string`：①NaN→`NaN`；②±Inf→`+Infinity`/`-Infinity`；③整值且 |v|<1e15 按整数打（修复 `%g` 把 3000000 打成 3e+06）；④其余 `%g`（6 位有效，与 ostringstream defaultfloat 一致） |
+| 链接定位 | colliec **运行期**从自身目录定位 `collie_rt.lib`（两目标同目录产出）；不用 CMake 烘焙绝对路径——构建树路径含非 ASCII 时宏值经编译器命令行会编码错乱 |
+
+print 现已不直连 printf/puts；后续 string 拼接/数组/none 格式随 collie_rt 扩展。
 
 ## 五、构建与链接方案（关键决策）
 
@@ -131,7 +138,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | 编号 | 缺口 | 计划 |
 |------|------|------|
 | CG1 | integer 降为 i64，非任意精度；溢出回绕不报错 | BigInt 运行时库（collie_rt），或先加 `llvm.sadd.with.overflow` 陷阱 |
-| CG2 | print 仅覆盖 string 字面量/整数，格式未对齐解释器 to_string 全集 | collie_rt 垫片统一接管 |
+| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组/none/tuple 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 

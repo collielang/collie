@@ -133,7 +133,7 @@ private:
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
     CGValue emit(const Expr* expr);
 
-    /// @brief print 内建：拼 printf 格式串（空格分隔 + 换行），一次 printf 调用
+    /// @brief print 内建：逐参调用 collie_rt 垫片接口（空格分隔 + 换行），输出对齐解释器
     void gen_print(const CallExpr& expr);
 
     /// @brief 逻辑 && / ||：短路求值（与解释器对齐），仅 bool 域（tribool 属后续）
@@ -169,7 +169,13 @@ private:
     llvm::LLVMContext context_;
     std::unique_ptr<llvm::Module> module_;
     llvm::IRBuilder<> builder_;
-    llvm::FunctionCallee printf_fn_;
+    /// collie_rt 垫片打印接口（S6 t53）：print 逐参调用，输出对齐解释器
+    llvm::FunctionCallee rt_print_str_;   // void(ptr)
+    llvm::FunctionCallee rt_print_i64_;   // void(i64)
+    llvm::FunctionCallee rt_print_f64_;   // void(double)
+    llvm::FunctionCallee rt_print_bool_;  // void(i32)
+    llvm::FunctionCallee rt_print_sep_;   // void()
+    llvm::FunctionCallee rt_print_newline_; // void()
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;
