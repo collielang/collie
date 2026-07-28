@@ -1,0 +1,50 @@
+// t64 S17 差分用例：==? 多路匹配（级联比较块链 + PHI，首命中 + 惰性求值）
+
+// number 目标（rt_num_cmp op 0）：候选归组 + 默认分支
+number n = 5;
+print("num:", n ==? 1, 2: "small", 5: "five", "other");
+n = 9;
+print("num-def:", n ==? 1, 2: "small", 5: "five", "other");
+n = 2;
+print("num-group:", n ==? 1, 2: "small", 5: "five", "other");
+
+// string 目标（strcmp==0）：string 候选 → 整数结果
+string s = "b";
+print("str:", s ==? "a": 1, "b": 2, 0);
+s = "zz";
+print("str-def:", s ==? "a": 1, "b": 2, 0);
+
+// integer 目标纯 icmp；混合表示按 double 视图相等（5 == 5.0）
+integer i = 5;
+print("int:", i ==? 3: "three", 5: "five", "other");
+print("int-dblview:", i ==? 5.0: "double-view", "no");
+
+// decimal 目标 fcmp；整数候选提升 double 比较（==? 非末位实参须加括号，否则后续逗号被吞入分支）
+decimal d = 2.5;
+print("dec:", (d ==? 2.5: "hit", "miss"), (2 ==? 2.0: "two", "no"));
+
+// bool 目标 icmp
+bool flag = true;
+print("bool:", (flag ==? true: "yes", "no"), (false ==? true: 1, 2));
+
+// 首命中优先：重复候选取第一个匹配分支
+print("first:", 1 ==? 1: "a", 1: "b", "c");
+
+// 结果混型统一：int/double 混合统一 double、任一 number 统一 number
+integer pick = 2;
+print("unify-dbl:", pick ==? 1: 10, 2: 2.5, 0);
+print("unify-num:", pick ==? 1: 10, 2: n, 0.5);
+
+// 目标为表达式（只求值一次）+ 候选为表达式
+integer seed = 4;
+print("expr:", seed + 1 ==? i: "eq-i", seed: "eq-seed", "neither");
+
+// 嵌套：==? 作三元分支 / 三元作 ==? 结果
+print("nested:", flag ? (i ==? 5: "in-tern", "x") : "cold",
+      i ==? 5: (flag ? "tern-result" : "f"), "y");
+
+// 函数内使用（返回值路径）
+function classify(x number) string {
+    return x ==? 0: "zero", 1, 2, 3: "few", "many";
+}
+print("fn:", classify(0), classify(2), classify(7));

@@ -27,9 +27,10 @@
 | S14 | class 二期：继承/覆写/base/模板方法/实例作函数参数返回值 | 继承程序编译执行，输出与解释器一致 **✅ t61** |
 | S15 | number tagged 双表示（CG5 收窄）：算术/比较/转串下沉 collie_rt | number 程序编译执行，整数/小数两态输出与解释器一致 **✅ t62** |
 | S16 | toNumber 内建（函数/方法形式）：string 解析下沉 collie_rt | 解析/失败 NaN/透传加宽程序编译执行，输出与解释器一致 **✅ t63** |
+| S17 | `==?` 多路匹配：级联比较块链 + PHI（首命中 + 惰性求值） | 多路匹配程序编译执行，输出与解释器一致 **✅ t64** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：tribool/Kleene、tuple、`==?`、异常语义。
+不在第一期范围：tribool/Kleene、tuple、异常语义（`==?` 已于 S17 t64 解锁，tribool 目标/候选仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -206,6 +207,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `toNumber(x)`（integer/decimal/number） | 纯 IR：复用 to_num 加宽（保持原表示打 tag）/ number 透传 |
 | 内建与方法形式 | visitCall（分发插在 len 之后、用户函数查表之前）与 visitMethodCall 共用 to_number_num 降级；结果恒为 Num |
 | 范围外拒编 | none/array/tuple/实例参数（解释器此处为运行期报错 "toNumber() cannot convert ..."） |
+
+**S17 降级补充（t64 实现）：`==?` 多路匹配**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `target ==? v1, v2: r1, v3: r2, default` | 级联比较块链：目标只求值一次，按分支序/候选序生成「比较→命中跳分支结果块/未中顺延下一候选」，链末端即默认块；块链天然对齐解释器首命中 + 惰性求值（未命中分支的候选/结果不求值）；各分支结果块尾对齐统一类型后跳 merge 块，N+1 入口 PHI 收拢 |
+| 候选相等比较 | 复用 == 四路降级出 i1（gen_match_eq）：Str×Str `collie_rt_strcmp`==0、任一 Num 走 `collie_rt_num_cmp` op 0（双整数精确/混合 double 视图）、Bool×Bool icmp、Int/Double icmp/fcmp 含混型提升（5 == 5.0，对齐解释器 values_equal）；零新增 collie_rt 接口 |
+| 结果混型统一 | 沿用 gen_ternary 规则扩展到 N+1 支：同型直用（含 Arr elem/Obj cls 一致性校验）；数值混型任一 Num 统一 Num 否则 Double |
+| 范围外拒编 | 无默认分支形式（语义层仅允许 tribool 穷尽三态时省默认，tribool 不在 codegen 范围）；tribool/unset 目标或候选；object 动态比较；数组/元组深比较候选 |
 
 ## 五、构建与链接方案（关键决策）
 

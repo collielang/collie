@@ -203,6 +203,16 @@ private:
     /// @brief 二元三元表达式 a ? x : y：bool 条件 + PHI 汇合（分支类型不同时 int→double 提升）
     void gen_ternary(const TernaryExpr& expr);
 
+    /// @brief `==?` 多路匹配（t64）：级联比较块链（首命中 + 惰性求值）+
+    /// merge 块 PHI；codegen 一律要求默认分支（无默认仅 tribool 穷尽合法，范围外）
+    void gen_multi_match(const MultiMatchExpr& expr);
+
+    /// @brief `==?` 候选相等比较（t64）：复用 == 的四路降级出 i1
+    /// （Str×Str strcmp==0、任一 Num 走 rt_num_cmp op 0、Bool×Bool icmp、
+    /// Int/Double icmp/fcmp 含混型提升）；其余类型组合拒编
+    llvm::Value* gen_match_eq(const CGValue& target, const CGValue& cand,
+                              const Token& op);
+
     /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void
     void declare_function(const FunctionStmt& stmt);
 

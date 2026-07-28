@@ -742,7 +742,7 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
 
 void CodeGenerator::visitTuple(const TupleExpr&) { unsupported("tuple", 0, 0); }
 void CodeGenerator::visitTernary(const TernaryExpr& expr) { gen_ternary(expr); }
-void CodeGenerator::visitMultiMatch(const MultiMatchExpr&) { unsupported("'==?'", 0, 0); }
+void CodeGenerator::visitMultiMatch(const MultiMatchExpr& expr) { gen_multi_match(expr); }
 void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     // 数组字面量（t59）：语义层不追踪元素类型（一刀切 KW_ARRAY），codegen 自行
     // 做同质推断——Int/Double 混合整体提升 Double（提升后输出与解释器一致：整值
@@ -1920,6 +1920,134 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     phi->addIncoming(then_val, then_end);
     phi->addIncoming(else_val, else_end);
     last_value_ = {phi, result_type, tv.elem, tv.cls}; // elem/cls 仅 Arr/Obj 有意义（两分支已校验一致）
+}
+
+llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& cand,
+                                         const Token& op) {
+    // 复用 visitBinary == 的四路降级（语义层已保证候选与目标可 == 比较）
+    if (target.type == CGType::Str && cand.type == CGType::Str) {
+        llvm::Value* c =
+            builder_.CreateCall(rt_strcmp_, {target.value, cand.value}, "strcmptmp");
+        return builder_.CreateICmpEQ(c, builder_.getInt32(0), "matcheq");
+    }
+    if (target.type == CGType::Bool && cand.type == CGType::Bool) {
+        return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
+    }
+    auto is_numeric = [](CGType t) {
+        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
+    };
+    if (is_numeric(target.type) && is_numeric(cand.type)) {
+        if (target.type == CGType::Num || cand.type == CGType::Num) {
+            // number 相等（t62）：collie_rt_num_cmp op 0（双整数精确、混合 double 视图）
+            llvm::Value* a = to_num(target);
+            llvm::Value* b = to_num(cand);
+            llvm::Value* c = builder_.CreateCall(
+                rt_num_cmp_,
+                {builder_.getInt64(0), num_tag(a), num_bits(a), num_tag(b), num_bits(b)},
+                "numcmp");
+            return builder_.CreateICmpNE(c, builder_.getInt32(0), "matcheq");
+        }
+        if (target.type == CGType::Double || cand.type == CGType::Double) {
+            // 混合表示按 double 视图相等（5 == 5.0，对齐解释器 values_equal）
+            return builder_.CreateFCmpOEQ(to_double(target), to_double(cand), "matcheq");
+        }
+        return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
+    }
+    // tribool/object/数组/元组等候选比较范围外，拒编不错编
+    unsupported("'==?' comparison of these value types", op.line(), op.column());
+}
+
+void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
+    const Token& op = expr.op();
+    // codegen 一律要求默认分支：语义层仅允许 tribool 字面量穷尽三态时省默认，
+    // 而 tribool 不在 codegen 范围（unset 字面量本身即拒编）
+    if (expr.default_expr() == nullptr) {
+        unsupported("'==?' without a trailing default branch (tribool exhaustive form)",
+                    op.line(), op.column());
+    }
+    // 目标只求值一次；级联块链按分支序/候选序比较，命中跳分支结果块、
+    // 未中顺延下一候选，天然对齐解释器首命中 + 惰性求值（visitMultiMatch）
+    CGValue target = emit(expr.target());
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+
+    struct Arm {
+        CGValue value;
+        llvm::BasicBlock* end = nullptr; // 结果求值结束块（求值可能新建块）
+        llvm::Value* aligned = nullptr;  // 对齐 result_type 后的值
+    };
+    std::vector<Arm> arms;
+
+    for (const auto& branch : expr.branches()) {
+        auto* body_bb = llvm::BasicBlock::Create(context_, "match.body", fn);
+        for (const auto& value : branch.values) {
+            CGValue cand = emit(value.get());
+            llvm::Value* eq = gen_match_eq(target, cand, op);
+            auto* next_bb = llvm::BasicBlock::Create(context_, "match.next", fn);
+            builder_.CreateCondBr(eq, body_bb, next_bb);
+            builder_.SetInsertPoint(next_bb);
+        }
+        llvm::BasicBlock* chain_bb = builder_.GetInsertBlock(); // 比较链续点
+        builder_.SetInsertPoint(body_bb);
+        Arm arm;
+        arm.value = emit(branch.result.get());
+        arm.end = builder_.GetInsertBlock();
+        arms.push_back(std::move(arm));
+        builder_.SetInsertPoint(chain_bb);
+    }
+    // 全部未命中落到默认分支（比较链末端即默认块）
+    Arm def;
+    def.value = emit(expr.default_expr());
+    def.end = builder_.GetInsertBlock();
+    arms.push_back(std::move(def));
+
+    // 结果类型统一：沿用 gen_ternary 规则扩展到 N+1 支（同型直用含 Arr elem/
+    // Obj cls 一致性校验；数值混型任一 Num 统一 Num 否则 Double）
+    auto is_numeric = [](CGType t) {
+        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
+    };
+    CGType result_type = arms.front().value.type;
+    if (result_type == CGType::Void) {
+        unsupported("'==?' branch result has no value", op.line(), op.column());
+    }
+    for (size_t i = 1; i < arms.size(); ++i) {
+        const CGValue& v = arms[i].value;
+        if (v.type == result_type) {
+            if (v.type == CGType::Arr && v.elem != arms.front().value.elem) {
+                unsupported("'==?' branches yield arrays of different element types",
+                            op.line(), op.column());
+            }
+            if (v.type == CGType::Obj && v.cls != arms.front().value.cls) {
+                unsupported("'==?' branches yield instances of different classes",
+                            op.line(), op.column());
+            }
+            continue;
+        }
+        if (is_numeric(result_type) && is_numeric(v.type)) {
+            result_type = (result_type == CGType::Num || v.type == CGType::Num)
+                              ? CGType::Num
+                              : CGType::Double;
+            continue;
+        }
+        unsupported("'==?' branches have incompatible types", op.line(), op.column());
+    }
+
+    // 各分支结束块尾对齐 result_type 后跳 merge（转换指令须落在该分支块内）
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "match.end", fn);
+    for (auto& arm : arms) {
+        builder_.SetInsertPoint(arm.end);
+        arm.aligned = result_type == CGType::Double ? to_double(arm.value)
+                    : result_type == CGType::Num    ? to_num(arm.value)
+                                                    : arm.value.value;
+        builder_.CreateBr(merge_bb);
+    }
+    builder_.SetInsertPoint(merge_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(
+        llvm_type_of(result_type), static_cast<unsigned>(arms.size()), "matchtmp");
+    for (const auto& arm : arms) {
+        phi->addIncoming(arm.aligned, arm.end);
+    }
+    // elem/cls 仅 Arr/Obj 有意义（各支已校验一致，取首支）
+    last_value_ = {phi, result_type, arms.front().value.elem, arms.front().value.cls};
 }
 
 llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
