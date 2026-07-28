@@ -107,6 +107,7 @@ private:
         Double,  // double（decimal）
         Num,     // {i64 tag, i64 bits}（number tagged 双表示：tag 0=整数/1=小数，t62）
         Bool,    // i1
+        Tri,     // i8（tribool 三态编码 False=0 < Unset=1 < True=2，Kleene min/max，t65）
         Str,     // ptr → 常量字符串
         Arr,     // ptr → collie_rt 数组对象（t59，元素类型另记于 elem 字段）
         Obj,     // ptr → 类实例字段块（t60，类名另记于 cls 字段）
@@ -200,16 +201,20 @@ private:
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
 
-    /// @brief 二元三元表达式 a ? x : y：bool 条件 + PHI 汇合（分支类型不同时 int→double 提升）
+    /// @brief 三元表达式：两分支 bool/tribool 条件（unset 走 false 分支）+
+    /// 三分支 tribool 形式 a ? x : y : z 三路分派（t65）；分支值 PHI 汇合
+    /// （类型不同时 int→double/num 提升、bool→tribool 加宽）
     void gen_ternary(const TernaryExpr& expr);
 
     /// @brief `==?` 多路匹配（t64）：级联比较块链（首命中 + 惰性求值）+
-    /// merge 块 PHI；codegen 一律要求默认分支（无默认仅 tribool 穷尽合法，范围外）
+    /// merge 块 PHI；无默认分支仅 tribool 目标穷尽三态合法（链尾静态
+    /// 不可达 unreachable，t65），其余无默认拒编
     void gen_multi_match(const MultiMatchExpr& expr);
 
-    /// @brief `==?` 候选相等比较（t64）：复用 == 的四路降级出 i1
-    /// （Str×Str strcmp==0、任一 Num 走 rt_num_cmp op 0、Bool×Bool icmp、
-    /// Int/Double icmp/fcmp 含混型提升）；其余类型组合拒编
+    /// @brief `==?` 候选相等比较（t64）：复用 == 的降级出 i1
+    /// （Str×Str strcmp==0、任一 Tri 双方加宽三态 icmp（t65）、任一 Num 走
+    /// rt_num_cmp op 0、Bool×Bool icmp、Int/Double icmp/fcmp 含混型提升）；
+    /// 其余类型组合拒编
     llvm::Value* gen_match_eq(const CGValue& target, const CGValue& cand,
                               const Token& op);
 
@@ -242,6 +247,10 @@ private:
 
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
+
+    /// @brief Bool/Tri → i8 三态编码（t65）：bool 加宽 select 2/0，Tri 透传；
+    /// 其余类型拒编（编码 False=0 < Unset=1 < True=2）
+    llvm::Value* to_tri(const CGValue& v);
 
     /// @brief number 值组装（t62）：tag + bits → {i64, i64} first-class struct
     llvm::Value* make_num(llvm::Value* tag, llvm::Value* bits);

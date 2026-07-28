@@ -28,9 +28,10 @@
 | S15 | number tagged 双表示（CG5 收窄）：算术/比较/转串下沉 collie_rt | number 程序编译执行，整数/小数两态输出与解释器一致 **✅ t62** |
 | S16 | toNumber 内建（函数/方法形式）：string 解析下沉 collie_rt | 解析/失败 NaN/透传加宽程序编译执行，输出与解释器一致 **✅ t63** |
 | S17 | `==?` 多路匹配：级联比较块链 + PHI（首命中 + 惰性求值） | 多路匹配程序编译执行，输出与解释器一致 **✅ t64** |
+| S18 | tribool 三态布尔：i8 三态编码 + Kleene min/max + 三分支三元 | 三态逻辑/短路副作用/穷尽匹配程序编译执行，输出与解释器一致 **✅ t65** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：tribool/Kleene、tuple、异常语义（`==?` 已于 S17 t64 解锁，tribool 目标/候选仍拒编）。
+不在第一期范围：tuple、异常语义（tribool/Kleene 已于 S18 t65 解锁，tribool 进数组/元组仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -149,7 +150,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `s.trim()` / `trimLeft()` / `trimRight()` | `call ptr @collie_rt_str_trim(ptr, i32 mode)`（mode 0=两端/1=左/2=右）：只剥空格与 Tab（对齐解释器 is_blank），返 malloc 新串（CG6 不 free） |
 | `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数限 Int（Double/NaN 特例拒编，解释器 NaN 特判属 Double 域） |
 | `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
-| `toNumber()` / number/tribool/tuple 方法 | toNumber() 已于 S16（t63）解锁；number 专属方法（abs/integerPart 等）与 tribool/tuple 方法拒编（待对应类型 codegen 支持） |
+| `toNumber()` / number/tuple 方法 | toNumber() 已于 S16（t63）解锁；tribool 方法（isTrue/isFalse/isUnset）已于 S18（t65）解锁；number 专属方法（abs/integerPart 等）与 tuple 方法拒编（待对应类型 codegen 支持） |
 
 **S12 降级补充（t59 实现）：array 最小闭环**：
 
@@ -215,7 +216,23 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `target ==? v1, v2: r1, v3: r2, default` | 级联比较块链：目标只求值一次，按分支序/候选序生成「比较→命中跳分支结果块/未中顺延下一候选」，链末端即默认块；块链天然对齐解释器首命中 + 惰性求值（未命中分支的候选/结果不求值）；各分支结果块尾对齐统一类型后跳 merge 块，N+1 入口 PHI 收拢 |
 | 候选相等比较 | 复用 == 四路降级出 i1（gen_match_eq）：Str×Str `collie_rt_strcmp`==0、任一 Num 走 `collie_rt_num_cmp` op 0（双整数精确/混合 double 视图）、Bool×Bool icmp、Int/Double icmp/fcmp 含混型提升（5 == 5.0，对齐解释器 values_equal）；零新增 collie_rt 接口 |
 | 结果混型统一 | 沿用 gen_ternary 规则扩展到 N+1 支：同型直用（含 Arr elem/Obj cls 一致性校验）；数值混型任一 Num 统一 Num 否则 Double |
-| 范围外拒编 | 无默认分支形式（语义层仅允许 tribool 穷尽三态时省默认，tribool 不在 codegen 范围）；tribool/unset 目标或候选；object 动态比较；数组/元组深比较候选 |
+| 范围外拒编 | 无默认分支形式（tribool 穷尽三态省默认已于 S18 t65 解锁，其余目标类型仍要求默认分支）；object 动态比较；数组/元组深比较候选 |
+
+**S18 降级补充（t65 实现）：tribool 三态布尔**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| tribool 值表示 | `CGType::Tri` → `i8`，三态编码 False=0 < Unset=1 < True=2（沿用解释器编码，Kleene AND/OR 退化 min/max）；`unset` 字面量 → `i8 1` |
+| bool→tribool 加宽 | `to_tri`：Tri 透传 / Bool `select i1, 2, 0`；赋值（coerce_for_slot）/传参（coerce_call_arg）/返回值（visitReturn）/函数签名（declared_cgtype KW_TRIBOOL）四处一致 |
+| `&&` / `\|\|`（任一侧 tribool） | gen_logical 统一 i8 域：短路条件「AND 左==0 / OR 左==2」CondBr，右支 `llvm.umin`/`llvm.umax` intrinsic 合并，merge PHI i8；纯 bool 输入 `icmp eq 2` 收窄回 i1（短路边静态 widen 与解释器输出等价，差分实证）；惰性求值语义保持（false/true 短路不求右侧，unset 不短路） |
+| `!t` | `sub i8 2, t`（true↔false，unset 不变） |
+| `==` / `!=` 三态判等 | 双方限 Tri/Bool，统一 to_tri 后 `icmp eq/ne i8` 出 Bool（gen_match_eq 同路径） |
+| 两分支三元 Tri 条件 | `icmp eq 2` 判真（unset 走 false 分支，对齐解释器）；分支混 Tri/Bool 统一 Tri |
+| 三分支三元 `c ? a : b : u` | 条件限 Tri：entry `icmp eq 2` → then/rest，rest 块 `icmp eq 0` → else/unset，merge 三入口 PHI |
+| `isTrue()` / `isFalse()` / `isUnset()` | 接收者限 Tri，`icmp eq i8 2/0/1` 出 Bool |
+| print / `toString` | 双 select 三常量串（is_true ? "true" : (is_false ? "false" : "unset")），零新增 collie_rt 接口 |
+| `==?` tribool 目标穷尽省默认 | 默认检查移至 target 求值后（仅 Tri 目标可省），无默认链尾 `unreachable`（i8 值域严格 {0,1,2} + 语义层保证穷尽） |
+| 范围外拒编 | tribool 进数组元素/元组；object 动态路径三态；`if/while/for/do-while` 条件 tribool（语义层已拦） |
 
 ## 五、构建与链接方案（关键决策）
 

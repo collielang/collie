@@ -1,0 +1,64 @@
+// t65 S18 差分用例：tribool 三态布尔（i8 三态编码 False=0 < Unset=1 < True=2）
+
+// unset 字面量 + bool→tribool 加宽（声明初值）+ print / toString
+tribool u = unset;
+tribool t = true;
+tribool f = false;
+print("lit:", u, t, f);
+print("tostr:", toString(u), t.toString(), f.toString());
+
+// 赋值路径加宽 + 重新赋 unset
+tribool w = true;
+w = unset;
+print("assign:", w);
+w = false;
+print("assign2:", w);
+
+// isTrue/isFalse/isUnset（返 bool）
+print("is:", u.isUnset(), u.isTrue(), t.isTrue(), f.isFalse());
+
+// Kleene 非：true↔false，unset 不变
+print("not:", !u, !t, !f);
+
+// Kleene 真值表（AND=min / OR=max）
+print("and:", (u && t), (u && f), (u && u), (t && u), (f && u));
+print("or:", (u || t), (u || f), (u || u), (t || u), (f || u));
+
+// 短路副作用验证：AND 左 false / OR 左 true 短路；unset 不短路
+function say(tag string, v bool) bool {
+    print("eval", tag);
+    return v;
+}
+tribool sc1 = f && say("and-skip", true);   // false 短路：不打 eval
+print("sc1:", sc1);
+tribool sc2 = t || say("or-skip", false);   // true 短路：不打 eval
+print("sc2:", sc2);
+tribool sc3 = u && say("and-rhs", true);    // unset 不短路：先打 eval and-rhs
+print("sc3:", sc3);
+tribool sc4 = u || say("or-rhs", false);    // unset 不短路：先打 eval or-rhs
+print("sc4:", sc4);
+
+// 三态判等（tribool×tribool / tribool×unset 字面量 / tribool×bool 加宽）
+print("eq:", (u == unset), (u == t), (t == true), (f != unset));
+
+// 两分支三元：tribool 条件 unset 走 false 分支
+print("tern2:", t ? "T" : "F", u ? "T" : "F", f ? "T" : "F");
+
+// 三分支三元：true/false/unset 三路分派
+print("tern3:", t ? "T" : "F" : "U", f ? "T" : "F" : "U", u ? "T" : "F" : "U");
+
+// ==? 默认分支形式 + 穷尽三态省默认形式（非末位实参须加括号）
+print("match-def:", (u ==? true: "T", "other"));
+print("match-ex:", (u ==? unset: 1, true: 2, false: 3),
+      (t ==? unset: 1, true: 2, false: 3),
+      (f ==? unset: 1, true: 2, false: 3));
+
+// 函数参数与返回值（tribool 形参收 bool 实参加宽 / 返回 bool 加宽）
+function flip(x tribool) tribool {
+    return !x;
+}
+print("fn:", flip(u), flip(true), flip(false));
+function mk() tribool {
+    return true;
+}
+print("mkret:", mk());

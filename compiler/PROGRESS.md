@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t64 完成：codegen `==?` 多路匹配——级联比较块链 + PHI 零新增 rt 接口，差分 16/16）
+最后更新：2026-07-26（t65 完成：codegen tribool——i8 三态编码 + Kleene min/max 降级 + 三分支三元 + ==? 穷尽省默认，差分 17/17）
 
 ---
 
@@ -404,6 +404,10 @@
     - 实现：级联比较块链降级（gen_multi_match）——目标求值一次后，按分支序/候选序生成「比较→命中跳分支结果块/未中顺延下一候选」块链，链末端即默认块，天然对齐解释器首命中 + 惰性求值语义；相等比较复用 == 四路降级出 i1（gen_match_eq：Str×Str 走 collie_rt_strcmp==0、任一 Num 走 collie_rt_num_cmp op 0、Bool×Bool icmp、Int/Double icmp/fcmp 含混型提升 5==5.0），零新增 collie_rt 接口；结果分支类型统一沿用 gen_ternary 规则扩展到 N+1 支（同型直用含 Arr elem/Obj cls 一致性校验、数值混型任一 Num 统一 Num 否则 Double），merge 块 N+1 入口 PHI 收拢
     - 范围外（拒编）：无默认分支形式（语义层保证仅 tribool 穷尽三态可无默认，tribool 不在 codegen 范围，故 codegen 一律要求默认分支）；tribool/unset 目标或候选；object 动态比较；数组/元组深比较候选
     - 验证：新差分用例 s17_multimatch（number/string/integer/decimal/bool 目标、候选归组、默认分支、混合表示 double 视图 5==5.0、首命中优先、结果混型统一 Double/Num、目标/候选为表达式、嵌套于三元双向、函数 return 路径），先解释器跑通再进差分门禁；ctest -C Release 差分 16/16 逐字节一致；Debug 门禁 6/6 不受影响
+- [x] codegen tribool 三态布尔（t65）
+    - 实现：CGType 新增 Tri → LLVM `i8`，沿用解释器三态编码 False=0 < Unset=1 < True=2；`to_tri` 统一加宽（Tri 透传 / Bool select 0|2，覆盖赋值 coerce_for_slot/传参 coerce_call_arg/返回值 visitReturn/declared_cgtype 与签名类型 KW_TRIBOOL）；unset 字面量 → i8 1；gen_logical 重构统一 i8 域——短路条件「AND 左==0 / OR 左==2」CondBr，右支 `umin`/`umax` intrinsic 合并，merge PHI i8，纯 bool 输入 `icmp eq 2` 收窄回 i1（短路边静态 widen 与解释器输出等价，差分实证）；visitUnary `!` → `2 - t`；`==`/`!=` 与 gen_match_eq 三态判等（双方限 Tri/Bool，icmp i8）；gen_ternary 重写为 Arm 向量式——两分支 Tri 条件 `==2` 判真（unset 走 false 分支）、三分支三路 CondBr（entry `==2` → then/rest，rest `==0` → else/unset），分支混 Tri/Bool 统一 Tri；isTrue/isFalse/isUnset 方法 icmp 出 i1；print/toString 双 select 三常量串；`==?` tribool 目标穷尽省默认形式——默认检查移至 target 求值后，无默认链尾 `unreachable`（i8 值域严格 {0,1,2} + 语义层保证穷尽）；零新增 collie_rt 接口
+    - 范围外（拒编维持）：tribool 进数组元素/元组；object 动态路径三态；`if/while/for/do-while` 条件 tribool（语义层已拦，codegen 无需处理）
+    - 验证：新差分用例 s18_tribool（unset 字面量/加宽/Kleene 真值表含短路副作用验证/三态判等/isTrue 系/两分支 unset 走 false/三分支三元/==? 穷尽省默认与默认分支形式/toString 与 print/函数参数返回值），先解释器跑通再进差分门禁；ctest -C Release 差分 17/17 逐字节一致（s18_tribool 首跑即过）；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -458,6 +462,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen tribool 三态布尔（t65，M6）：CGType 新增 Tri → LLVM i8（False=0 < Unset=1 < True=2，沿用解释器编码）；to_tri 统一 bool→tribool 加宽（赋值/传参/返回值/签名三处一致）；gen_logical 重构统一 i8 域（短路条件 AND 左==0 / OR 左==2，右支 umin/umax intrinsic，纯 bool 收窄回 i1）；`!t` → 2-t；三态判等 icmp i8；gen_ternary 重写 Arm 向量式（两分支 Tri 条件 ==2 判真 unset 走 false、三分支三路 CondBr）；isTrue/isFalse/isUnset icmp 出 i1；print/toString 双 select 三常量串零新增 collie_rt 接口；==? tribool 穷尽省默认链尾 unreachable；数组/元组/object 动态路径拒编维持；新差分用例 s18_tribool，ctest -C Release 差分 17/17 逐字节一致，Debug 门禁 6/6（M6 t65）
 - 2026-07-26 `feat(compiler)`: codegen `==?` 多路匹配（t64，M6）：级联比较块链降级 gen_multi_match（目标求值一次，命中跳分支结果块/未中顺延下一候选，链末端即默认块，天然对齐解释器首命中 + 惰性求值）；相等比较复用 == 四路降级出 i1（gen_match_eq：Str×Str strcmp==0、任一 Num 走 num_cmp op 0、Bool×Bool icmp、Int/Double 含混型提升）零新增 collie_rt 接口；结果混型统一沿用 gen_ternary 规则扩展到 N+1 支 + merge 块 PHI；无默认分支/tribool/object/数组元组候选拒编；新差分用例 s17_multimatch，ctest -C Release 差分 16/16 逐字节一致，Debug 门禁 6/6（M6 t64）
 - 2026-07-26 `feat(compiler)`: codegen toNumber 内建（t63，M6，收口 t62 范围外遗留）：collie_rt 新增 collie_rt_str_to_num（复刻解释器 to_number_value 的 string 分支：剥空白/严格 Infinity 三形式/纯整数串精确整数表示/strtod 等价解析，失败返 NaN 不报错，超 i64 整数串 ERANGE 走 CG1 陷阱）；codegen 新增 to_number_num 降级（bool → 0/1 整数表示、integer/decimal/number 纯 IR 内联转 Num、string 下沉运行时），visitCall 内建分发与 visitMethodCall 方法形式共用，none/array/tuple/实例参数拒编维持；新差分用例 s16_tonumber，ctest -C Release 差分 15/15 逐字节一致，Debug 门禁 6/6（M6 t63）
 - 2026-07-26 `feat(compiler)`: codegen number 双表示（t62，M6，CG5 收窄）：collie_rt 新增 number 运行时四接口（collie_rt_num_arith/num_cmp/num_to_str/print_num，标量参数 + out 指针规避 16 字节 struct ABI）；codegen CGType 新增 Num——{i64 tag, i64 bits} first-class struct 单 SSA 值流转（tag 0=整数 i64 直存/1=小数 double bitcast），算术/比较/转串/打印下沉运行时单点对齐解释器（双整数精确运算 + floor 取模 + i64 溢出陷阱、/ 恒 double、混合走 double、除零 IEEE 754、打印格式对齐 Value::to_string），Int/Double→Num 三处加宽保持原表示，三元分支混 Num 统一 Num，number 类字段/数组元素/窄化维持拒编；新差分用例 s15_number，ctest -C Release 差分 14/14 逐字节一致，Debug 门禁 6/6（M6 t62）

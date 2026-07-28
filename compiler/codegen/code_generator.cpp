@@ -267,6 +267,10 @@ void CodeGenerator::visitLiteral(const LiteralExpr& expr) {
         case TokenType::LITERAL_BOOL:
             last_value_ = {builder_.getInt1(lexeme == "true"), CGType::Bool};
             return;
+        case TokenType::KW_UNSET:
+            // unset 字面量（t65）：i8 三态编码取 1（False=0 < Unset=1 < True=2）
+            last_value_ = {builder_.getInt8(1), CGType::Tri};
+            return;
         default:
             unsupported("literal '" + lexeme + "'", tok.line(), tok.column());
     }
@@ -420,6 +424,24 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                 last_value_ = {v, CGType::Bool};
                 return;
             }
+            // tribool 三态判等（t65）：任一侧 tribool 时双方限 tribool/bool
+            // （bool 加宽为三态后 icmp，对齐解释器 values_equal），仅 ==/!=；
+            // 关系比较落下方 require_numeric 拒编（解释器运行期也报错）
+            if ((lhs.type == CGType::Tri || rhs.type == CGType::Tri) &&
+                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                if ((lhs.type != CGType::Tri && lhs.type != CGType::Bool) ||
+                    (rhs.type != CGType::Tri && rhs.type != CGType::Bool)) {
+                    unsupported("comparison of tribool with this value type",
+                                op.line(), op.column());
+                }
+                llvm::Value* l = to_tri(lhs);
+                llvm::Value* r = to_tri(rhs);
+                llvm::Value* v = t == TokenType::OP_EQUAL
+                                     ? builder_.CreateICmpEQ(l, r, "cmptmp")
+                                     : builder_.CreateICmpNE(l, r, "cmptmp");
+                last_value_ = {v, CGType::Bool};
+                return;
+            }
             if (lhs.type == CGType::Bool && rhs.type == CGType::Bool &&
                 (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
                 llvm::Value* v = t == TokenType::OP_EQUAL
@@ -481,8 +503,14 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
 void CodeGenerator::visitUnary(const UnaryExpr& expr) {
     const Token& op = expr.op();
     if (op.type() == TokenType::OP_NOT) {
-        // 逻辑非（S3 t50）：仅 bool 域（tribool 属后续阶段）
+        // 逻辑非：bool 直接取反；tribool Kleene 非 2-t（true↔false，unset
+        // 不变，对齐解释器 Kleene 非，t65）
         CGValue v = emit(expr.operand());
+        if (v.type == CGType::Tri) {
+            last_value_ = {builder_.CreateSub(builder_.getInt8(2), v.value, "nottmp"),
+                           CGType::Tri};
+            return;
+        }
         if (v.type != CGType::Bool) {
             unsupported("'!' on non-bool operand", op.line(), op.column());
         }
@@ -627,6 +655,10 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 builder_.CreateCall(rt_print_bool_, {as_i32});
                 break;
             }
+            case CGType::Tri:
+                // tribool 打印（t65）：双 select 三常量串（零新增垫片接口）
+                builder_.CreateCall(rt_print_str_, {to_str(v, expr.paren())});
+                break;
             case CGType::Arr:
                 // 数组打印（t59）：垫片转 [1, 2, 3] 格式串后原样输出
                 builder_.CreateCall(
@@ -649,40 +681,51 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
 
 void CodeGenerator::gen_logical(const BinaryExpr& expr) {
     // 短路降级（与解释器对齐）：&& 左侧为 false / || 左侧为 true 时右侧不求值；
-    // 仅 bool 域（tribool Kleene 逻辑属后续阶段）；phi 汇合两条边的值
+    // bool/tribool 混域统一 i8 三态编码（False=0 < Unset=1 < True=2，t65）：
+    // Kleene AND=umin / OR=umax 一步覆盖真值表，unset 不短路（与解释器一致，
+    // 仅确定值短路）；任一侧 tribool 结果为 tribool，纯 bool 侧收窄回 i1
     const Token& op = expr.op();
     const bool is_and = op.type() == TokenType::OP_AND;
 
     CGValue lhs = emit(expr.left());
-    if (lhs.type != CGType::Bool) {
+    if (lhs.type != CGType::Bool && lhs.type != CGType::Tri) {
         unsupported("non-bool operand of '" + std::string(op.lexeme()) + "'",
                     op.line(), op.column());
     }
+    llvm::Value* l_tri = to_tri(lhs);
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
     auto* rhs_bb = llvm::BasicBlock::Create(context_, is_and ? "and.rhs" : "or.rhs", fn);
     auto* merge_bb = llvm::BasicBlock::Create(context_, is_and ? "and.end" : "or.end", fn);
     llvm::BasicBlock* lhs_end = builder_.GetInsertBlock();
-    if (is_and) {
-        builder_.CreateCondBr(lhs.value, rhs_bb, merge_bb); // false 短路
-    } else {
-        builder_.CreateCondBr(lhs.value, merge_bb, rhs_bb); // true 短路
-    }
+    // 短路条件：AND 左为 false（0）/ OR 左为 true（2）时右侧不求值
+    llvm::Value* sc = builder_.CreateICmpEQ(
+        l_tri, builder_.getInt8(is_and ? 0 : 2), is_and ? "and.sc" : "or.sc");
+    builder_.CreateCondBr(sc, merge_bb, rhs_bb);
 
     builder_.SetInsertPoint(rhs_bb);
     CGValue rhs = emit(expr.right());
-    if (rhs.type != CGType::Bool) {
+    if (rhs.type != CGType::Bool && rhs.type != CGType::Tri) {
         unsupported("non-bool operand of '" + std::string(op.lexeme()) + "'",
                     op.line(), op.column());
     }
+    // Kleene 合并：AND=min / OR=max（对齐解释器的 min-max 合并）
+    llvm::Value* combined = builder_.CreateBinaryIntrinsic(
+        is_and ? llvm::Intrinsic::umin : llvm::Intrinsic::umax, l_tri, to_tri(rhs));
     llvm::BasicBlock* rhs_end = builder_.GetInsertBlock(); // 右侧可能自带嵌套分支
     builder_.CreateBr(merge_bb);
 
     builder_.SetInsertPoint(merge_bb);
-    llvm::PHINode* phi = builder_.CreatePHI(builder_.getInt1Ty(), 2,
+    llvm::PHINode* phi = builder_.CreatePHI(builder_.getInt8Ty(), 2,
                                             is_and ? "andtmp" : "ortmp");
-    phi->addIncoming(lhs.value, lhs_end); // 短路边：左值即结果
-    phi->addIncoming(rhs.value, rhs_end);
-    last_value_ = {phi, CGType::Bool};
+    phi->addIncoming(l_tri, lhs_end); // 短路边：左值即结果
+    phi->addIncoming(combined, rhs_end);
+    if (lhs.type == CGType::Tri || rhs.type == CGType::Tri) {
+        last_value_ = {phi, CGType::Tri};
+    } else {
+        // 纯 bool 域：值域 {0,2}，收窄回 i1（与既往 i1 短路降级输出等价）
+        last_value_ = {builder_.CreateICmpEQ(phi, builder_.getInt8(2), "booltmp"),
+                       CGType::Bool};
+    }
 }
 
 // ---------------- 语句 ----------------
@@ -892,6 +935,16 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         // toNumber() 方法形式（t63）：与内建 toNumber(x) 同一降级（语义层
         // 已限接收者为 string/bool/数值）
         last_value_ = {to_number_num(object, line, column), CGType::Num};
+        return;
+    }
+
+    if (object.type == CGType::Tri && expr.arguments().empty() &&
+        (name == "isTrue" || name == "isFalse" || name == "isUnset")) {
+        // tribool 三态判定方法（t65）：与对应三态常量 icmp 出 bool（对齐解释器）
+        const uint8_t code = name == "isTrue" ? 2 : name == "isFalse" ? 0 : 1;
+        last_value_ = {builder_.CreateICmpEQ(object.value, builder_.getInt8(code),
+                                             "tritest"),
+                       CGType::Bool};
         return;
     }
 
@@ -1409,6 +1462,9 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                        (v.type == CGType::Int || v.type == CGType::Double)) {
                 // integer/decimal → number 加宽（t62）：保持原表示打 tag
                 v = {to_num(v), CGType::Num};
+            } else if (current_ret_type_ == CGType::Tri && v.type == CGType::Bool) {
+                // bool → tribool 单向加宽（t65，与语义层一致）
+                v = {to_tri(v), CGType::Tri};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -1487,6 +1543,7 @@ CodeGenerator::CGType CodeGenerator::declared_cgtype(const Token& type_token) {
         case TokenType::KW_STRING:  return CGType::Str;
         case TokenType::KW_ARRAY:   return CGType::Arr; // 元素类型由初始值推断（t59）
         case TokenType::KW_NUMBER:  return CGType::Num; // tagged 双表示（t62，CG5 收窄）
+        case TokenType::KW_TRIBOOL: return CGType::Tri; // i8 三态编码（t65）
         default:
             unsupported("variable type '" + std::string(type_token.lexeme()) + "'",
                         type_token.line(), type_token.column());
@@ -1533,6 +1590,10 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
         (a.type == CGType::Int || a.type == CGType::Double)) {
         return to_num(a);
     }
+    // bool → tribool 单向加宽（t65，与语义层一致）
+    if (want == CGType::Tri && a.type == CGType::Bool) {
+        return to_tri(a);
+    }
     unsupported("argument type mismatch", line, column);
 }
 
@@ -1563,6 +1624,7 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
             // SSA 单值流转；仅 collie_rt 边界拆散标量（同模块内降级一致安全）
             return llvm::StructType::get(builder_.getInt64Ty(), builder_.getInt64Ty());
         case CGType::Bool:   return builder_.getInt1Ty();
+        case CGType::Tri:    return builder_.getInt8Ty(); // 三态编码（t65）
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
         case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
         case CGType::Obj:    return llvm::PointerType::getUnqual(context_);
@@ -1591,6 +1653,10 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
     if (slot_type == CGType::Num &&
         (v.type == CGType::Int || v.type == CGType::Double)) {
         return to_num(v);
+    }
+    // bool → tribool 单向加宽（t65，与语义层/解释器 coerce_to_declared 一致）
+    if (slot_type == CGType::Tri && v.type == CGType::Bool) {
+        return to_tri(v);
     }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
@@ -1851,75 +1917,121 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
 }
 
 void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
-    // 三分支 tribool 形式 a ? x : y : z 属 tribool 后续阶段，拒编
-    if (expr.unset_expr() != nullptr) {
-        unsupported("three-branch tribool ternary (needs tribool support)",
-                    expr.question_token().line(), expr.question_token().column());
-    }
+    // 两分支：bool 条件直接分派，tribool 条件 unset 归 false 分支（对齐解释器
+    // is_truthy 的三态归约，t65）；三分支 a ? x : y : z（t65）：条件限 tribool
+    // （语义层已校验，此处防御），true/false/unset 三路分派（对齐解释器）
     CGValue cond = emit(expr.condition());
-    if (cond.type != CGType::Bool) {
-        unsupported("non-bool ternary condition",
-                    expr.question_token().line(), expr.question_token().column());
-    }
+    const bool three_way = expr.unset_expr() != nullptr;
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+
+    struct Arm {
+        CGValue value;
+        llvm::BasicBlock* end = nullptr; // 结果求值结束块（求值可能新建块）
+        llvm::Value* aligned = nullptr;  // 对齐 result_type 后的值
+    };
+    std::vector<Arm> arms;
+    auto eval_arm = [&](llvm::BasicBlock* bb, const Expr* e) {
+        builder_.SetInsertPoint(bb);
+        Arm arm;
+        arm.value = emit(e);
+        arm.end = builder_.GetInsertBlock();
+        arms.push_back(std::move(arm));
+    };
+
     auto* then_bb = llvm::BasicBlock::Create(context_, "tern.then", fn);
     auto* else_bb = llvm::BasicBlock::Create(context_, "tern.else", fn);
-    auto* merge_bb = llvm::BasicBlock::Create(context_, "tern.end", fn);
-    builder_.CreateCondBr(cond.value, then_bb, else_bb);
-
-    builder_.SetInsertPoint(then_bb);
-    CGValue tv = emit(expr.then_expr());
-    llvm::BasicBlock* then_end = builder_.GetInsertBlock();
-
-    builder_.SetInsertPoint(else_bb);
-    CGValue ev = emit(expr.else_expr());
-    llvm::BasicBlock* else_end = builder_.GetInsertBlock();
-
-    // 两分支类型统一：同型直用；int/double 混型统一提升为 double（与算术混型一致）
-    CGType result_type;
-    if (tv.type == ev.type && tv.type != CGType::Void) {
-        if (tv.type == CGType::Arr && tv.elem != ev.elem) {
-            // 同为数组但元素类型不同：合并后无法单一解码，拒编不错编（t59）
-            unsupported("ternary branches yield arrays of different element types",
+    if (three_way) {
+        if (cond.type != CGType::Tri) {
+            unsupported("non-tribool three-branch ternary condition",
                         expr.question_token().line(), expr.question_token().column());
         }
-        if (tv.type == CGType::Obj && tv.cls != ev.cls) {
-            // 同为实例但类不同：静态无公共类型可表，拒编不错编（t60）
-            unsupported("ternary branches yield instances of different classes",
-                        expr.question_token().line(), expr.question_token().column());
-        }
-        result_type = tv.type;
-    } else if ((tv.type == CGType::Int || tv.type == CGType::Double ||
-                tv.type == CGType::Num) &&
-               (ev.type == CGType::Int || ev.type == CGType::Double ||
-                ev.type == CGType::Num)) {
-        // 数值混型：任一分支为 number 统一 Num（保持原表示，t62），
-        // 否则 int/double 混型统一提升 double（与算术混型一致）
-        result_type = (tv.type == CGType::Num || ev.type == CGType::Num)
-                          ? CGType::Num
-                          : CGType::Double;
+        auto* rest_bb = llvm::BasicBlock::Create(context_, "tern.rest", fn);
+        auto* unset_bb = llvm::BasicBlock::Create(context_, "tern.unset", fn);
+        builder_.CreateCondBr(
+            builder_.CreateICmpEQ(cond.value, builder_.getInt8(2), "istrue"),
+            then_bb, rest_bb);
+        builder_.SetInsertPoint(rest_bb);
+        builder_.CreateCondBr(
+            builder_.CreateICmpEQ(cond.value, builder_.getInt8(0), "isfalse"),
+            else_bb, unset_bb);
+        eval_arm(then_bb, expr.then_expr());
+        eval_arm(else_bb, expr.else_expr());
+        eval_arm(unset_bb, expr.unset_expr());
     } else {
+        llvm::Value* cond_i1 = nullptr;
+        if (cond.type == CGType::Bool) {
+            cond_i1 = cond.value;
+        } else if (cond.type == CGType::Tri) {
+            // tribool 条件的两分支形式：仅 true 走 then（unset 归 false 分支）
+            cond_i1 = builder_.CreateICmpEQ(cond.value, builder_.getInt8(2), "istrue");
+        } else {
+            unsupported("non-bool ternary condition",
+                        expr.question_token().line(), expr.question_token().column());
+        }
+        builder_.CreateCondBr(cond_i1, then_bb, else_bb);
+        eval_arm(then_bb, expr.then_expr());
+        eval_arm(else_bb, expr.else_expr());
+    }
+
+    // 分支类型统一：同型直用（Arr elem / Obj cls 一致性校验）；数值混型任一
+    // Num 统一 Num 否则提升 Double（与算术混型一致）；tribool/bool 混型
+    // 统一 tribool（单向加宽，t65）
+    auto is_numeric = [](CGType t) {
+        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
+    };
+    CGType result_type = arms.front().value.type;
+    if (result_type == CGType::Void) {
+        unsupported("ternary branch has no value",
+                    expr.question_token().line(), expr.question_token().column());
+    }
+    for (size_t i = 1; i < arms.size(); ++i) {
+        const CGValue& v = arms[i].value;
+        if (v.type == result_type) {
+            if (v.type == CGType::Arr && v.elem != arms.front().value.elem) {
+                // 同为数组但元素类型不同：合并后无法单一解码，拒编不错编（t59）
+                unsupported("ternary branches yield arrays of different element types",
+                            expr.question_token().line(), expr.question_token().column());
+            }
+            if (v.type == CGType::Obj && v.cls != arms.front().value.cls) {
+                // 同为实例但类不同：静态无公共类型可表，拒编不错编（t60）
+                unsupported("ternary branches yield instances of different classes",
+                            expr.question_token().line(), expr.question_token().column());
+            }
+            continue;
+        }
+        if (is_numeric(result_type) && is_numeric(v.type)) {
+            result_type = (result_type == CGType::Num || v.type == CGType::Num)
+                              ? CGType::Num
+                              : CGType::Double;
+            continue;
+        }
+        if ((result_type == CGType::Tri && v.type == CGType::Bool) ||
+            (result_type == CGType::Bool && v.type == CGType::Tri)) {
+            result_type = CGType::Tri;
+            continue;
+        }
         unsupported("ternary branches have incompatible types",
                     expr.question_token().line(), expr.question_token().column());
     }
 
     // 各分支块尾把值对齐 result_type 后再跳 merge（提升指令须落在该分支块内）
-    builder_.SetInsertPoint(then_end);
-    llvm::Value* then_val = result_type == CGType::Double ? to_double(tv)
-                          : result_type == CGType::Num    ? to_num(tv)
-                                                          : tv.value;
-    builder_.CreateBr(merge_bb);
-    builder_.SetInsertPoint(else_end);
-    llvm::Value* else_val = result_type == CGType::Double ? to_double(ev)
-                          : result_type == CGType::Num    ? to_num(ev)
-                                                          : ev.value;
-    builder_.CreateBr(merge_bb);
-
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "tern.end", fn);
+    for (auto& arm : arms) {
+        builder_.SetInsertPoint(arm.end);
+        arm.aligned = result_type == CGType::Double ? to_double(arm.value)
+                    : result_type == CGType::Num    ? to_num(arm.value)
+                    : result_type == CGType::Tri    ? to_tri(arm.value)
+                                                    : arm.value.value;
+        builder_.CreateBr(merge_bb);
+    }
     builder_.SetInsertPoint(merge_bb);
-    llvm::PHINode* phi = builder_.CreatePHI(llvm_type_of(result_type), 2, "terntmp");
-    phi->addIncoming(then_val, then_end);
-    phi->addIncoming(else_val, else_end);
-    last_value_ = {phi, result_type, tv.elem, tv.cls}; // elem/cls 仅 Arr/Obj 有意义（两分支已校验一致）
+    llvm::PHINode* phi = builder_.CreatePHI(
+        llvm_type_of(result_type), static_cast<unsigned>(arms.size()), "terntmp");
+    for (const auto& arm : arms) {
+        phi->addIncoming(arm.aligned, arm.end);
+    }
+    // elem/cls 仅 Arr/Obj 有意义（各支已校验一致，取首支）
+    last_value_ = {phi, result_type, arms.front().value.elem, arms.front().value.cls};
 }
 
 llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& cand,
@@ -1929,6 +2041,15 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
         llvm::Value* c =
             builder_.CreateCall(rt_strcmp_, {target.value, cand.value}, "strcmptmp");
         return builder_.CreateICmpEQ(c, builder_.getInt32(0), "matcheq");
+    }
+    if (target.type == CGType::Tri || cand.type == CGType::Tri) {
+        // tribool 三态判等（t65）：双方限 tribool/bool（bool 加宽三态后 icmp）
+        if ((target.type != CGType::Tri && target.type != CGType::Bool) ||
+            (cand.type != CGType::Tri && cand.type != CGType::Bool)) {
+            unsupported("'==?' comparison of tribool with this value type",
+                        op.line(), op.column());
+        }
+        return builder_.CreateICmpEQ(to_tri(target), to_tri(cand), "matcheq");
     }
     if (target.type == CGType::Bool && cand.type == CGType::Bool) {
         return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
@@ -1953,21 +2074,21 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
         }
         return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
     }
-    // tribool/object/数组/元组等候选比较范围外，拒编不错编
+    // object/数组/元组等候选比较范围外，拒编不错编
     unsupported("'==?' comparison of these value types", op.line(), op.column());
 }
 
 void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     const Token& op = expr.op();
-    // codegen 一律要求默认分支：语义层仅允许 tribool 字面量穷尽三态时省默认，
-    // 而 tribool 不在 codegen 范围（unset 字面量本身即拒编）
-    if (expr.default_expr() == nullptr) {
-        unsupported("'==?' without a trailing default branch (tribool exhaustive form)",
-                    op.line(), op.column());
-    }
     // 目标只求值一次；级联块链按分支序/候选序比较，命中跳分支结果块、
     // 未中顺延下一候选，天然对齐解释器首命中 + 惰性求值（visitMultiMatch）
     CGValue target = emit(expr.target());
+    // 无默认分支仅 tribool 目标合法（t65）：语义层已保证候选字面量
+    // 穷尽三态，此处防御目标类型；其余无默认拒编
+    if (expr.default_expr() == nullptr && target.type != CGType::Tri) {
+        unsupported("'==?' without a trailing default branch on non-tribool target",
+                    op.line(), op.column());
+    }
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
 
     struct Arm {
@@ -1994,11 +2115,16 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         arms.push_back(std::move(arm));
         builder_.SetInsertPoint(chain_bb);
     }
-    // 全部未命中落到默认分支（比较链末端即默认块）
-    Arm def;
-    def.value = emit(expr.default_expr());
-    def.end = builder_.GetInsertBlock();
-    arms.push_back(std::move(def));
+    // 全部未命中落到默认分支（比较链末端即默认块）；tribool 穷尽形式
+    // 无默认（t65）：i8 值域严格 {0,1,2} 且候选已穷尽三态，链尾静态不可达
+    if (expr.default_expr() != nullptr) {
+        Arm def;
+        def.value = emit(expr.default_expr());
+        def.end = builder_.GetInsertBlock();
+        arms.push_back(std::move(def));
+    } else {
+        builder_.CreateUnreachable();
+    }
 
     // 结果类型统一：沿用 gen_ternary 规则扩展到 N+1 支（同型直用含 Arr elem/
     // Obj cls 一致性校验；数值混型任一 Num 统一 Num 否则 Double）
@@ -2028,6 +2154,12 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
                               : CGType::Double;
             continue;
         }
+        if ((result_type == CGType::Tri && v.type == CGType::Bool) ||
+            (result_type == CGType::Bool && v.type == CGType::Tri)) {
+            // tribool/bool 混型统一 tribool（单向加宽，t65）
+            result_type = CGType::Tri;
+            continue;
+        }
         unsupported("'==?' branches have incompatible types", op.line(), op.column());
     }
 
@@ -2037,6 +2169,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         builder_.SetInsertPoint(arm.end);
         arm.aligned = result_type == CGType::Double ? to_double(arm.value)
                     : result_type == CGType::Num    ? to_num(arm.value)
+                    : result_type == CGType::Tri    ? to_tri(arm.value)
                                                     : arm.value.value;
         builder_.CreateBr(merge_bb);
     }
@@ -2075,6 +2208,18 @@ llvm::Value* CodeGenerator::to_double(const CGValue& v) {
         case CGType::Int:    return builder_.CreateSIToFP(v.value, builder_.getDoubleTy());
         case CGType::Bool:   return builder_.CreateUIToFP(v.value, builder_.getDoubleTy());
         default:             unsupported("numeric conversion of non-numeric value", 0, 0);
+    }
+}
+
+llvm::Value* CodeGenerator::to_tri(const CGValue& v) {
+    // bool → tribool 单向加宽（t65）：false→0 / true→2（select 免分支）；
+    // Tri 透传；其余类型拒编（编码 False=0 < Unset=1 < True=2）
+    switch (v.type) {
+        case CGType::Tri:  return v.value;
+        case CGType::Bool:
+            return builder_.CreateSelect(v.value, builder_.getInt8(2),
+                                         builder_.getInt8(0), "tritmp");
+        default:           unsupported("conversion to 'tribool'", 0, 0);
     }
 }
 
@@ -2161,6 +2306,19 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
             // i1 → i32（C 接口边界），垫片返静态串
             llvm::Value* ext = builder_.CreateZExt(v.value, builder_.getInt32Ty());
             return builder_.CreateCall(rt_bool_to_str_, {ext}, "boolstr");
+        }
+        case CGType::Tri: {
+            // tribool 转串（t65）：双 select 三常量串（零新增垫片接口，
+            // 对齐 Value::to_string 的 "true"/"false"/"unset"）
+            llvm::Value* is_true =
+                builder_.CreateICmpEQ(v.value, builder_.getInt8(2), "istrue");
+            llvm::Value* is_false =
+                builder_.CreateICmpEQ(v.value, builder_.getInt8(0), "isfalse");
+            llvm::Value* fu = builder_.CreateSelect(
+                is_false, builder_.CreateGlobalString("false"),
+                builder_.CreateGlobalString("unset"), "tristr");
+            return builder_.CreateSelect(
+                is_true, builder_.CreateGlobalString("true"), fu, "tristr");
         }
         case CGType::Arr:
             // [1, 2, 3] 格式（对齐 Value::to_string 的 Array 分支，t59）
