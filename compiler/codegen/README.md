@@ -30,6 +30,7 @@
 | S17 | `==?` 多路匹配：级联比较块链 + PHI（首命中 + 惰性求值） | 多路匹配程序编译执行，输出与解释器一致 **✅ t64** |
 | S18 | tribool 三态布尔：i8 三态编码 + Kleene min/max + 三分支三元 | 三态逻辑/短路副作用/穷尽匹配程序编译执行，输出与解释器一致 **✅ t65** |
 | S19 | switch 语句：级联比较块链（首命中 + 无 fallthrough，default 位置无关） | switch 程序编译执行，输出与解释器一致 **✅ t66** |
+| S20 | number 专属方法：abs/integerPart/decimalPart + 7 个 is* 谓词（三路降级） | 三类数值接收者方法程序编译执行，输出与解释器一致 **✅ t67** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：tuple、异常语义（tribool/Kleene 已于 S18 t65 解锁，tribool 进数组/元组仍拒编）。
@@ -151,7 +152,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `s.trim()` / `trimLeft()` / `trimRight()` | `call ptr @collie_rt_str_trim(ptr, i32 mode)`（mode 0=两端/1=左/2=右）：只剥空格与 Tab（对齐解释器 is_blank），返 malloc 新串（CG6 不 free） |
 | `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数限 Int（Double/NaN 特例拒编，解释器 NaN 特判属 Double 域） |
 | `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
-| `toNumber()` / number/tuple 方法 | toNumber() 已于 S16（t63）解锁；tribool 方法（isTrue/isFalse/isUnset）已于 S18（t65）解锁；number 专属方法（abs/integerPart 等）与 tuple 方法拒编（待对应类型 codegen 支持） |
+| `toNumber()` / number/tuple 方法 | toNumber() 已于 S16（t63）解锁；tribool 方法（isTrue/isFalse/isUnset）已于 S18（t65）解锁；number 专属方法（abs/integerPart 等）已于 S20（t67）解锁；tuple 方法拒编（待对应类型 codegen 支持） |
 
 **S12 降级补充（t59 实现）：array 最小闭环**：
 
@@ -245,6 +246,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 候选相等比较 | 复用 gen_match_eq（Str×Str strcmp==0、任一 Num 走 num_cmp op 0、Bool/Tri icmp、Int/Double 含混型提升），零新增 collie_rt 接口 |
 | body 内 break/continue | 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动） |
 | 范围外拒编 | object 动态比较目标/候选；数组/元组深比较候选（同 `==?` 拒编面，gen_match_eq 内自然拒编） |
+
+**S20 降级补充（t67 实现）：number 专属方法**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| Int 接收者（i64） | 纯 IR：`abs` = checked `ssub(0,n)` + `select(n<0)`（INT64_MIN 取负走溢出陷阱对齐 CG1——解释器 BigInt 可精确表示、i64 不可，拒错编从陷阱）；`integerPart` 恒等、`decimalPart` 恒 0；`isInteger`/`isFinite` 恒真、`isDecimal`/`isNaN`/`isInfinity` 恒假（常量折叠）；`isPositive`/`isNegative` → `icmp sgt/slt 0` |
+| Double 接收者（double） | intrinsic + fcmp：`abs` → `llvm.fabs`；`integerPart` → `llvm.trunc`（向零取整）；`decimalPart` → `fsub(a, trunc(a))`（保留符号）；`isNaN` → `fcmp uno a,a`（自反）；`isFinite`/`isInfinity` → `fcmp olt/oeq(fabs(a), +inf)`（NaN 天然 false）；`isInteger`/`isDecimal` → `and(finite, fcmp oeq/one(a, floor(a)))`；`isPositive`/`isNegative` → `fcmp ogt/olt 0`（NaN 均 false，对齐解释器） |
+| Num 接收者（{i64,i64}） | `icmp eq(tag,0)` 分支 nummeth.int / nummeth.dbl 两路各走上述降级，nummeth.merge PHI 合并；数值结果重新 `make_num` 打 tag（整数态保持整数态，对齐解释器 BigInt/double 双路分发） |
+| 接口面 | 零新增 collie_rt 接口（仅复用 `collie_rt_trap_int_overflow`）；10 个方法均 0 参（语义层已校验，codegen 防御拒编） |
 
 ## 五、构建与链接方案（关键决策）
 

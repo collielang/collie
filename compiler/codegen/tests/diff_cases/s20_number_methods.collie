@@ -1,0 +1,70 @@
+// t67 S20 差分用例：number 专属方法（abs/integerPart/decimalPart + 7 个 is* 谓词）
+
+// integer 接收者：纯 IR 路径
+integer i = -5;
+print("i.abs:", i.abs());
+print("i.intPart:", i.integerPart());
+print("i.decPart:", i.decimalPart());
+print("i.isInteger:", i.isInteger());
+print("i.isDecimal:", i.isDecimal());
+print("i.isNaN:", i.isNaN());
+print("i.isInfinity:", i.isInfinity());
+print("i.isFinite:", i.isFinite());
+print("i.isPositive:", i.isPositive());
+print("i.isNegative:", i.isNegative());
+integer z = 0;
+print("z.isPositive:", z.isPositive());
+print("z.isNegative:", z.isNegative());
+print("z.abs:", z.abs());
+
+// decimal 接收者：intrinsic 路径（向零取整/保留符号）
+decimal d = -123.456;
+print("d.abs:", d.abs());
+print("d.intPart:", d.integerPart());
+print("d.decPart:", d.decimalPart());
+print("d.isInteger:", d.isInteger());
+print("d.isDecimal:", d.isDecimal());
+print("d.isPositive:", d.isPositive());
+print("d.isNegative:", d.isNegative());
+decimal e = 8.0;
+print("e.isInteger:", e.isInteger());
+print("e.isDecimal:", e.isDecimal());
+print("e.intPart:", e.integerPart());
+print("e.decPart:", e.decimalPart());
+
+// Infinity/NaN 边界（文档规定 isInteger/isDecimal 均 false；字面量归 number）
+number pinf = Infinity;
+number ninf = -Infinity;
+number nan = NaN;
+print("inf:", pinf.isInfinity(), pinf.isFinite(), pinf.isInteger(), pinf.isDecimal(), pinf.isNaN());
+print("ninf:", ninf.isInfinity(), ninf.isPositive(), ninf.isNegative());
+print("nan:", nan.isNaN(), nan.isInfinity(), nan.isFinite(), nan.isPositive(), nan.isNegative());
+print("inf.abs:", pinf.abs());
+print("ninf.abs:", ninf.abs());
+
+// number 接收者：tag 分支两路（整数态保持整数态）
+number n = -7;
+print("n.abs:", n.abs());
+print("n.intPart:", n.integerPart());
+print("n.decPart:", n.decimalPart());
+print("n.isInteger:", n.isInteger());
+print("n.isFinite:", n.isFinite());
+n = -2.5;
+print("n2.abs:", n.abs());
+print("n2.intPart:", n.integerPart());
+print("n2.decPart:", n.decimalPart());
+print("n2.isDecimal:", n.isDecimal());
+print("n2.isNegative:", n.isNegative());
+
+// 链式调用与结果参与运算
+print("chain:", d.abs().integerPart());
+print("mix:", i.abs() + 1);
+print("cmp:", n.abs() > 2);
+bool flag = n.isNegative();
+print("flag:", flag);
+
+// 函数参数/返回值路径
+function magnitude(v number) number {
+    return v.abs();
+}
+print("fn:", magnitude(-9), magnitude(1.5), magnitude(0));

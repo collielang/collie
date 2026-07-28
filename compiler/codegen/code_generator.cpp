@@ -985,6 +985,22 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             return;
         }
     }
+    if (object.type == CGType::Int || object.type == CGType::Double ||
+        object.type == CGType::Num) {
+        // number 专属方法（t67）：十方法均 0 参（语义层已校验，此处防御）
+        const bool is_num_method =
+            name == "abs" || name == "integerPart" || name == "decimalPart" ||
+            name == "isInteger" || name == "isDecimal" || name == "isNaN" ||
+            name == "isInfinity" || name == "isFinite" ||
+            name == "isPositive" || name == "isNegative";
+        if (is_num_method) {
+            if (!expr.arguments().empty()) {
+                unsupported(name + "() with arguments", line, column);
+            }
+            gen_number_method(object, name, line, column);
+            return;
+        }
+    }
     unsupported("method call '" + name + "'", line, column);
 }
 void CodeGenerator::visitProperty(const PropertyExpr& expr) {
@@ -2324,6 +2340,138 @@ llvm::Value* CodeGenerator::to_number_num(const CGValue& v, size_t line, size_t 
         default:
             unsupported("toNumber() of this value type", line, column);
     }
+}
+
+void CodeGenerator::gen_number_method(const CGValue& object, const std::string& name,
+                                      size_t line, size_t column) {
+    // number 专属方法降级（t67，对齐解释器 call_number_method 双路分发）：
+    // 整数路径纯 IR（恒有限、恒非 NaN/Infinity；abs 对 INT64_MIN 走溢出
+    // 陷阱报错退出——解释器 BigInt 可精确表示，i64 不可，拒错编从陷阱）；
+    // 小数路径 fabs/trunc/floor intrinsic + fcmp（isNaN 用 uno 自反比较，
+    // isFinite/isInfinity 用 |a| 与 +inf 有序比较，NaN 天然 false）
+    (void)line;
+    (void)column;
+    const bool numeric_result =
+        name == "abs" || name == "integerPart" || name == "decimalPart";
+
+    // 整数路径：i64 → 数值结果 i64（abs 后插入点可能落在 ovf.cont 新块）
+    auto int_result = [&](llvm::Value* n) -> llvm::Value* {
+        if (name == "abs") {
+            // 同一元负号降级：checked 0-n，n 非负时 select 取原值
+            llvm::Value* neg = checked_int_arith(llvm::Intrinsic::ssub_with_overflow,
+                                                 builder_.getInt64(0), n, "negtmp");
+            llvm::Value* is_neg =
+                builder_.CreateICmpSLT(n, builder_.getInt64(0), "isneg");
+            return builder_.CreateSelect(is_neg, neg, n, "abstmp");
+        }
+        if (name == "integerPart") {
+            return n;
+        }
+        return builder_.getInt64(0); // decimalPart：整数无小数部分
+    };
+    auto int_pred = [&](llvm::Value* n) -> llvm::Value* {
+        if (name == "isPositive") {
+            return builder_.CreateICmpSGT(n, builder_.getInt64(0), "ispos");
+        }
+        if (name == "isNegative") {
+            return builder_.CreateICmpSLT(n, builder_.getInt64(0), "isneg");
+        }
+        // isInteger/isFinite 恒真；isDecimal/isNaN/isInfinity 恒假
+        return builder_.getInt1(name == "isInteger" || name == "isFinite");
+    };
+
+    // 小数路径：double → 数值结果 double / 谓词 i1
+    auto dbl_result = [&](llvm::Value* a) -> llvm::Value* {
+        if (name == "abs") {
+            return builder_.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, a, nullptr,
+                                                 "abstmp");
+        }
+        llvm::Value* tr = builder_.CreateUnaryIntrinsic(llvm::Intrinsic::trunc, a,
+                                                        nullptr, "trunctmp");
+        if (name == "integerPart") {
+            return tr; // 向零取整：-123.456 → -123
+        }
+        return builder_.CreateFSub(a, tr, "fractmp"); // decimalPart 保留符号
+    };
+    auto dbl_pred = [&](llvm::Value* a) -> llvm::Value* {
+        llvm::Value* zero = llvm::ConstantFP::get(builder_.getDoubleTy(), 0.0);
+        if (name == "isNaN") {
+            return builder_.CreateFCmpUNO(a, a, "isnan");
+        }
+        if (name == "isPositive") {
+            return builder_.CreateFCmpOGT(a, zero, "ispos"); // NaN 与 0 均 false
+        }
+        if (name == "isNegative") {
+            return builder_.CreateFCmpOLT(a, zero, "isneg");
+        }
+        llvm::Value* inf = llvm::ConstantFP::getInfinity(builder_.getDoubleTy());
+        llvm::Value* mag = builder_.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, a,
+                                                         nullptr, "magtmp");
+        if (name == "isInfinity") {
+            return builder_.CreateFCmpOEQ(mag, inf, "isinf");
+        }
+        llvm::Value* finite = builder_.CreateFCmpOLT(mag, inf, "isfin");
+        if (name == "isFinite") {
+            return finite;
+        }
+        // isInteger/isDecimal：文档规定 Infinity/NaN 均 false，先并有限性
+        llvm::Value* fl = builder_.CreateUnaryIntrinsic(llvm::Intrinsic::floor, a,
+                                                        nullptr, "floortmp");
+        llvm::Value* eq = name == "isInteger"
+                              ? builder_.CreateFCmpOEQ(a, fl, "inteq")
+                              : builder_.CreateFCmpONE(a, fl, "intne");
+        return builder_.CreateAnd(finite, eq, "andtmp");
+    };
+
+    if (object.type == CGType::Int) {
+        last_value_ = numeric_result ? CGValue{int_result(object.value), CGType::Int}
+                                     : CGValue{int_pred(object.value), CGType::Bool};
+        return;
+    }
+    if (object.type == CGType::Double) {
+        last_value_ = numeric_result
+                          ? CGValue{dbl_result(object.value), CGType::Double}
+                          : CGValue{dbl_pred(object.value), CGType::Bool};
+        return;
+    }
+    // Num 接收者：tag 分支两路 + PHI 合并（整数态保持整数态打 tag 0，
+    // 对齐解释器 is_integer_value 先行的 BigInt/double 双路分发）
+    llvm::Value* tag = num_tag(object.value);
+    llvm::Value* bits = num_bits(object.value);
+    llvm::Value* is_int = builder_.CreateICmpEQ(tag, builder_.getInt64(0), "numisint");
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* int_bb = llvm::BasicBlock::Create(context_, "nummeth.int", fn);
+    auto* dbl_bb = llvm::BasicBlock::Create(context_, "nummeth.dbl", fn);
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "nummeth.merge", fn);
+    builder_.CreateCondBr(is_int, int_bb, dbl_bb);
+
+    builder_.SetInsertPoint(int_bb);
+    llvm::Value* iv = numeric_result ? make_num(builder_.getInt64(0), int_result(bits))
+                                     : int_pred(bits);
+    llvm::BasicBlock* int_end = builder_.GetInsertBlock();
+    builder_.CreateBr(merge_bb);
+
+    builder_.SetInsertPoint(dbl_bb);
+    llvm::Value* a = builder_.CreateBitCast(bits, builder_.getDoubleTy(), "numf64");
+    llvm::Value* dv;
+    if (numeric_result) {
+        llvm::Value* r = dbl_result(a);
+        dv = make_num(builder_.getInt64(1),
+                      builder_.CreateBitCast(r, builder_.getInt64Ty(), "bits"));
+    } else {
+        dv = dbl_pred(a);
+    }
+    llvm::BasicBlock* dbl_end = builder_.GetInsertBlock();
+    builder_.CreateBr(merge_bb);
+
+    builder_.SetInsertPoint(merge_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(
+        numeric_result ? llvm_type_of(CGType::Num)
+                       : static_cast<llvm::Type*>(builder_.getInt1Ty()),
+        2, "nummeth");
+    phi->addIncoming(iv, int_end);
+    phi->addIncoming(dv, dbl_end);
+    last_value_ = {phi, numeric_result ? CGType::Num : CGType::Bool};
 }
 
 llvm::Value* CodeGenerator::call_num_arith(int op, llvm::Value* a, llvm::Value* b) {

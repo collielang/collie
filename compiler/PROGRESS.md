@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t66 完成：codegen switch 语句——级联比较块链降级复用 gen_match_eq，差分 18/18）
+最后更新：2026-07-28（t67 完成：codegen number 专属方法——abs/integerPart/decimalPart + 7 个 is* 谓词三路降级，方法调用最后一块标量拒编面收口，差分 19/19）
 
 ---
 
@@ -412,6 +412,9 @@
     - 实现：visitSwitch 级联比较块链降级（与 gen_multi_match 同构的语句版，无结果 PHI）——条件求值一次，按 case 序/候选序生成「比较→命中跳 case body/未中顺延」，命中执行 body 后跳 switch.end（无 fallthrough，对齐解释器）；default 位置无关最后兜底（非 default 分支优先比较，链尾跳 default body，无 default 则跳 end）；候选相等比较复用 gen_match_eq（Int/Double/Bool/Str/Num/Tri 含混型提升，零新增 collie_rt 接口）；case body 为 BlockStmt 自带作用域；body 内 break/continue 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动），body 含 return/break 等终结器时不补 br
     - 范围外（拒编维持）：object 动态比较目标/候选；数组/元组深比较候选（同 ==? 拒编面，gen_match_eq 内自然拒编）
     - 验证：新差分用例 s19_switch（number/string/integer/bool/tribool 目标、多值 case、default 位置无关与缺省、命中后不穿透、case body 作用域、候选为表达式惰性求值、循环内 switch 含 break 绑定外层循环、函数内 switch 含 return），先解释器跑通再进差分门禁；ctest -C Release 差分 18/18 逐字节一致（s19_switch 首跑即过）；Debug 门禁 6/6 不受影响
+- [x] codegen number 专属方法（t67）
+    - 实现：gen_number_method 三路降级 10 个方法（abs/integerPart/decimalPart → 接收者同型数值，isInteger/isDecimal/isNaN/isInfinity/isFinite/isPositive/isNegative → bool）——Int 纯 IR（abs = checked ssub(0,n) + select，INT64_MIN 取负走溢出陷阱对齐 CG1——解释器 BigInt 可精确表示、codegen i64 不可，拒错编从陷阱；integerPart 恒等/decimalPart 恒 0/isInteger、isFinite 恒真等常量折叠）；Double 走 llvm.fabs/llvm.trunc/llvm.floor intrinsic + fcmp（isNaN 用 uno 自反比较，isFinite/isInfinity 用 |a| 与 +inf 有序比较 NaN 天然 false，isInteger/isDecimal = finite AND floor 判等，integerPart 向零取整、decimalPart 保留符号对齐解释器）；Num 接收者 tag 分支两路 + PHI 合并（整数态保持整数态）；零新增 collie_rt 接口（复用 collie_rt_trap_int_overflow）
+    - 验证：新差分用例 s20_number_methods（integer/decimal/number 三类接收者 × 十方法、负数/零/±Infinity/NaN 边界、链式 d.abs().integerPart()、方法结果参与算术比较、函数传参），先解释器跑通再进差分门禁；ctest -C Release 差分 19/19 逐字节一致（s20 首跑即过）；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -466,6 +469,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen number 专属方法（t67，M6）：gen_number_method 三路降级 10 个方法（abs/integerPart/decimalPart → 同型数值，7 个 is* 谓词 → bool）——Int 纯 IR（abs 走 checked ssub 陷阱，INT64_MIN 拒错编从陷阱；谓词常量折叠）、Double 走 fabs/trunc/floor intrinsic + fcmp（isNaN uno 自反、isFinite/isInfinity |a| 与 inf 有序比较、isInteger/isDecimal finite AND floor 判等）、Num tag 分支两路 PHI（整数态保持整数态）；零新增 collie_rt 接口；方法调用最后一块标量拒编面收口；新差分用例 s20_number_methods，ctest -C Release 差分 19/19 逐字节一致，Debug 门禁 6/6（M6 t67）
 - 2026-07-26 `feat(compiler)`: codegen switch 语句（t66，M6）：visitSwitch 级联比较块链降级（gen_multi_match 同构语句版，无结果 PHI）——条件求值一次、候选惰性求值首命中即执行 body 后跳 end（无 fallthrough），default 位置无关最后兜底，候选比较复用 gen_match_eq（Int/Double/Bool/Str/Num/Tri 含混型提升）零新增 collie_rt 接口；body 内 break/continue 绑定外层循环，含终结器不补 br；object/数组/元组候选拒编维持；新差分用例 s19_switch，ctest -C Release 差分 18/18 逐字节一致，Debug 门禁 6/6（M6 t66）
 - 2026-07-26 `feat(compiler)`: codegen tribool 三态布尔（t65，M6）：CGType 新增 Tri → LLVM i8（False=0 < Unset=1 < True=2，沿用解释器编码）；to_tri 统一 bool→tribool 加宽（赋值/传参/返回值/签名三处一致）；gen_logical 重构统一 i8 域（短路条件 AND 左==0 / OR 左==2，右支 umin/umax intrinsic，纯 bool 收窄回 i1）；`!t` → 2-t；三态判等 icmp i8；gen_ternary 重写 Arm 向量式（两分支 Tri 条件 ==2 判真 unset 走 false、三分支三路 CondBr）；isTrue/isFalse/isUnset icmp 出 i1；print/toString 双 select 三常量串零新增 collie_rt 接口；==? tribool 穷尽省默认链尾 unreachable；数组/元组/object 动态路径拒编维持；新差分用例 s18_tribool，ctest -C Release 差分 17/17 逐字节一致，Debug 门禁 6/6（M6 t65）
 - 2026-07-26 `feat(compiler)`: codegen `==?` 多路匹配（t64，M6）：级联比较块链降级 gen_multi_match（目标求值一次，命中跳分支结果块/未中顺延下一候选，链末端即默认块，天然对齐解释器首命中 + 惰性求值）；相等比较复用 == 四路降级出 i1（gen_match_eq：Str×Str strcmp==0、任一 Num 走 num_cmp op 0、Bool×Bool icmp、Int/Double 含混型提升）零新增 collie_rt 接口；结果混型统一沿用 gen_ternary 规则扩展到 N+1 支 + merge 块 PHI；无默认分支/tribool/object/数组元组候选拒编；新差分用例 s17_multimatch，ctest -C Release 差分 16/16 逐字节一致，Debug 门禁 6/6（M6 t64）

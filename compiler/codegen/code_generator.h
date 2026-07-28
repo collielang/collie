@@ -268,6 +268,13 @@ private:
     /// to_num；其余参数拒编（解释器此处为运行期报错）
     llvm::Value* to_number_num(const CGValue& v, size_t line, size_t column);
 
+    /// @brief number 专属方法降级（t67，对齐解释器 call_number_method）：
+    /// abs/integerPart/decimalPart → 接收者同型数值，is* 谓词 → Bool；
+    /// Int 纯 IR（abs 走 checked_int_arith 陷阱）、Double 走 fabs/trunc/floor
+    /// intrinsic + fcmp、Num tag 分支两路 PHI（整数态保持整数态）
+    void gen_number_method(const CGValue& object, const std::string& name,
+                           size_t line, size_t column);
+
     /// @brief number 算术运行时调用（t62）：op 编码见 collie_rt_num_arith
     /// （0=+ 1=- 2=* 3=/ 4=% 5=一元负号）；结果经 entry alloca 出参写回
     llvm::Value* call_num_arith(int op, llvm::Value* a, llvm::Value* b);
