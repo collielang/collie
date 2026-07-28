@@ -29,6 +29,7 @@
 | S16 | toNumber 内建（函数/方法形式）：string 解析下沉 collie_rt | 解析/失败 NaN/透传加宽程序编译执行，输出与解释器一致 **✅ t63** |
 | S17 | `==?` 多路匹配：级联比较块链 + PHI（首命中 + 惰性求值） | 多路匹配程序编译执行，输出与解释器一致 **✅ t64** |
 | S18 | tribool 三态布尔：i8 三态编码 + Kleene min/max + 三分支三元 | 三态逻辑/短路副作用/穷尽匹配程序编译执行，输出与解释器一致 **✅ t65** |
+| S19 | switch 语句：级联比较块链（首命中 + 无 fallthrough，default 位置无关） | switch 程序编译执行，输出与解释器一致 **✅ t66** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：tuple、异常语义（tribool/Kleene 已于 S18 t65 解锁，tribool 进数组/元组仍拒编）。
@@ -233,6 +234,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | print / `toString` | 双 select 三常量串（is_true ? "true" : (is_false ? "false" : "unset")），零新增 collie_rt 接口 |
 | `==?` tribool 目标穷尽省默认 | 默认检查移至 target 求值后（仅 Tri 目标可省），无默认链尾 `unreachable`（i8 值域严格 {0,1,2} + 语义层保证穷尽） |
 | 范围外拒编 | tribool 进数组元素/元组；object 动态路径三态；`if/while/for/do-while` 条件 tribool（语义层已拦） |
+
+**S19 降级补充（t66 实现）：switch 语句**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `switch (expr) { v1, v2 { … } default { … } }` | 级联比较块链（gen_multi_match 的语句版，无结果 PHI）：条件只求值一次，按 case 序/候选序生成「比较→命中跳 switch.body/未中顺延 switch.next」，候选惰性求值、首命中即停（对齐解释器 values_equal 匹配即 return） |
+| 命中后控制流 | body（BlockStmt 自带作用域）执行完跳 switch.end，**无 fallthrough**；body 尾已含终结器（return/break/continue）时不补 br |
+| default 分支 | 位置无关最后兜底：非 default 分支优先比较，链尾跳 switch.default（无 default 或其 body 为空则直接跳 switch.end） |
+| 候选相等比较 | 复用 gen_match_eq（Str×Str strcmp==0、任一 Num 走 num_cmp op 0、Bool/Tri icmp、Int/Double 含混型提升），零新增 collie_rt 接口 |
+| body 内 break/continue | 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动） |
+| 范围外拒编 | object 动态比较目标/候选；数组/元组深比较候选（同 `==?` 拒编面，gen_match_eq 内自然拒编） |
 
 ## 五、构建与链接方案（关键决策）
 

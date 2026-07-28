@@ -1362,7 +1362,57 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
     builder_.SetInsertPoint(end_bb);
 }
 
-void CodeGenerator::visitSwitch(const SwitchStmt&) { unsupported("'switch'", 0, 0); }
+void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
+    const Token& tok = stmt.switch_token();
+    // 条件只求值一次；级联比较块链（gen_multi_match 的语句版，无结果 PHI），
+    // 候选按 case 序/值序惰性求值、首命中即执行 body 后结束（无 fallthrough），
+    // default 位置无关最后兜底，均对齐解释器 visitSwitch
+    CGValue cond = emit(stmt.condition());
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* end_bb = llvm::BasicBlock::Create(context_, "switch.end", fn);
+
+    const SwitchCase* default_case = nullptr;
+    struct Pending {
+        llvm::BasicBlock* body_bb;
+        const Stmt* body;
+    };
+    std::vector<Pending> bodies;
+    for (const auto& sc : stmt.cases()) {
+        if (sc.is_default) {
+            default_case = &sc; // 非 default 分支优先，链尾兜底
+            continue;
+        }
+        auto* body_bb = llvm::BasicBlock::Create(context_, "switch.body", fn);
+        for (const auto& value : sc.values) {
+            CGValue cand = emit(value.get());
+            llvm::Value* eq = gen_match_eq(cond, cand, tok);
+            auto* next_bb = llvm::BasicBlock::Create(context_, "switch.next", fn);
+            builder_.CreateCondBr(eq, body_bb, next_bb);
+            builder_.SetInsertPoint(next_bb);
+        }
+        bodies.push_back({body_bb, sc.body.get()});
+    }
+    // 全部未命中：跳 default body（无 default 或其 body 为空则直接结束）
+    llvm::BasicBlock* default_bb = end_bb;
+    if (default_case != nullptr && default_case->body != nullptr) {
+        default_bb = llvm::BasicBlock::Create(context_, "switch.default", fn);
+        bodies.push_back({default_bb, default_case->body.get()});
+    }
+    builder_.CreateBr(default_bb);
+
+    // 各 body（BlockStmt 自带作用域）执行后跳 end；body 内 break/continue
+    // 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动）
+    for (const auto& p : bodies) {
+        builder_.SetInsertPoint(p.body_bb);
+        if (p.body != nullptr) {
+            p.body->accept(*this);
+        }
+        if (!builder_.GetInsertBlock()->getTerminator()) {
+            builder_.CreateBr(end_bb);
+        }
+    }
+    builder_.SetInsertPoint(end_bb);
+}
 
 void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     // 函数体生成（第二遍，S5 t52）：原型已在第一遍建好

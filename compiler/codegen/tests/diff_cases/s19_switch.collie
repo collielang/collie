@@ -1,0 +1,104 @@
+// t66 S19 差分用例：switch 语句（级联比较块链，无 fallthrough，default 位置无关）
+
+// number 目标：候选归组 + default
+number n = 5;
+switch (n) {
+    1, 2 { print("num: small"); }
+    5 { print("num: five"); }
+    default { print("num: other"); }
+}
+n = 9;
+switch (n) {
+    1, 2 { print("num: small"); }
+    5 { print("num: five"); }
+    default { print("num: other"); }
+}
+
+// string 目标 + default 位置在中间（位置无关最后兜底）
+string s = "b";
+switch (s) {
+    "a" { print("str: a"); }
+    default { print("str: def"); }
+    "b" { print("str: b"); }
+}
+s = "zz";
+switch (s) {
+    "a" { print("str: a"); }
+    default { print("str: def"); }
+    "b" { print("str: b"); }
+}
+
+// integer 目标：混合表示 double 视图相等（5 == 5.0）
+integer i = 5;
+switch (i) {
+    5.0 { print("int: double-view"); }
+    default { print("int: no"); }
+}
+
+// bool 目标
+bool flag = true;
+switch (flag) {
+    true { print("bool: yes"); }
+    false { print("bool: no"); }
+}
+
+// tribool 目标：三态候选（含 unset）
+tribool tri = unset;
+switch (tri) {
+    true { print("tri: T"); }
+    false { print("tri: F"); }
+    unset { print("tri: U"); }
+}
+
+// 无 default 且无命中：整个 switch 静默跳过
+integer miss = 7;
+switch (miss) {
+    1 { print("miss: one"); }
+    2 { print("miss: two"); }
+}
+print("after-miss");
+
+// 首命中优先 + 无 fallthrough（重复候选仅第一分支执行）
+switch (1) {
+    1 { print("first: a"); }
+    1 { print("first: b"); }
+    default { print("first: c"); }
+}
+
+// case body 作用域：body 内声明新变量不外泄
+integer x = 10;
+switch (x) {
+    10 {
+        integer y = 1;
+        print("scope:", x + y);
+    }
+    default { print("scope: def"); }
+}
+print("outer-x:", x);
+
+// 候选为表达式（按序惰性求值，命中即停）
+integer seed = 4;
+switch (seed + 1) {
+    seed { print("expr: eq-seed"); }
+    seed + 1 { print("expr: eq-seed1"); }
+    default { print("expr: neither"); }
+}
+
+// 循环内 switch：break 绑定外层循环（switch 不捕获）
+for (integer k = 0; k < 5; k = k + 1) {
+    switch (k) {
+        2 { print("loop: break-at", k); break; }
+        default { print("loop: k", k); }
+    }
+}
+
+// 函数内 switch 含 return
+function classify(v number) string {
+    switch (v) {
+        0 { return "zero"; }
+        1, 2, 3 { return "few"; }
+        default { return "many"; }
+    }
+    return "unreachable";
+}
+print("fn:", classify(0), classify(2), classify(7));
