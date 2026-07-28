@@ -75,6 +75,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_bool_to_str_ = module_->getOrInsertFunction(
         "collie_rt_bool_to_str", llvm::FunctionType::get(ptr_ty, {builder_.getInt32Ty()}, false));
 
+    // collie_rt 字符串比较声明（S7 t55）：strcmp 语义，六种比较共用
+    rt_strcmp_ = module_->getOrInsertFunction(
+        "collie_rt_strcmp",
+        llvm::FunctionType::get(builder_.getInt32Ty(), {ptr_ty, ptr_ty}, false));
+
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
     in_function_ = false;
@@ -272,6 +277,21 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             // 比较运算（S3 t50）：bool 仅支持 ==/!=；数值混型提升为 double 后 fcmp，
             // 纯整数走 icmp；!= 用 UNE（NaN != NaN 为 true，IEEE 语义与解释器一致）
             const TokenType t = op.type();
+            // string × string（S7 t55）：call collie_rt_strcmp 后与 0 做对应 icmp；
+            // 逐字节字典序与解释器 std::string 比较一致（eval_comparison/values_equal）；
+            // 混型（Str × 非 Str）落入下方 require_numeric 拒编，解释器运行期也报错
+            if (lhs.type == CGType::Str && rhs.type == CGType::Str) {
+                llvm::Value* c = builder_.CreateCall(rt_strcmp_, {lhs.value, rhs.value}, "strcmptmp");
+                llvm::Value* zero = builder_.getInt32(0);
+                llvm::Value* v = t == TokenType::OP_EQUAL      ? builder_.CreateICmpEQ(c, zero, "cmptmp")
+                               : t == TokenType::OP_NOT_EQUAL  ? builder_.CreateICmpNE(c, zero, "cmptmp")
+                               : t == TokenType::OP_LESS       ? builder_.CreateICmpSLT(c, zero, "cmptmp")
+                               : t == TokenType::OP_LESS_EQ    ? builder_.CreateICmpSLE(c, zero, "cmptmp")
+                               : t == TokenType::OP_GREATER    ? builder_.CreateICmpSGT(c, zero, "cmptmp")
+                                                               : builder_.CreateICmpSGE(c, zero, "cmptmp");
+                last_value_ = {v, CGType::Bool};
+                return;
+            }
             if (lhs.type == CGType::Bool && rhs.type == CGType::Bool &&
                 (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
                 llvm::Value* v = t == TokenType::OP_EQUAL

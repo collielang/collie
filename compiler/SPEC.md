@@ -204,6 +204,11 @@ t47 起 char 字面量可入表达式（推导为 char 类型，可参与比较�
   Tuple 元素**与名字表**都一致才相等（`(a: 1) == (b: 1)` 为 false）。
 - function/instance 等未列类型比较结果为 false。
 
+关系比较 `<` `<=` `>` `>=`（`eval_comparison`）：双整数走 BigInt 精确比较；
+双数值按 double 比较；**string × string 按逐字节字典序**（std::string 关系运算，
+无 UTF-8 归一化；UTF-8 的字节序与码点序一致）；其余组合运行期报
+“Comparison operands must be both numbers or both strings”。
+
 ### 4.5 逻辑运算（Kleene 三值逻辑，t43）
 
 三态编码 `False=0 < Unset=1 < True=2`，`&&` 取 min、`||` 取 max：

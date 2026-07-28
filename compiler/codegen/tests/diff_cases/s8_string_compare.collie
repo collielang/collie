@@ -1,0 +1,39 @@
+// t55 S8 差分用例：string 六种比较运算（collie_rt_strcmp 降级）
+
+// == / != 正反例
+print("eq:", "abc" == "abc", "abc" == "abd", "abc" != "abc", "abc" != "abd");
+
+// 字典序 < <= > >=
+print("lt:", "abc" < "abd", "abd" < "abc", "abc" < "abc");
+print("le:", "abc" <= "abc", "abd" <= "abc");
+print("gt:", "abd" > "abc", "abc" > "abd");
+print("ge:", "abc" >= "abc", "abc" >= "abd");
+
+// 空串与前缀序："" < "a"，"ab" < "abc"
+print("empty:", "" == "", "" < "a", "a" > "");
+print("prefix:", "ab" < "abc", "abc" > "ab", "ab" == "abc");
+
+// 拼接结果参与比较（malloc 串与常量串混比）
+string hello = "hello";
+print("concat-cmp:", hello + "!" == "hello!", "ab" + "c" < "abd");
+
+// if 条件中使用
+string pass = "secret";
+if (pass == "secret") {
+    print("branch: matched");
+} else {
+    print("branch: not matched");
+}
+
+// 变量与变量比较 + 循环里字典序推进
+string a = "aaa";
+string b = "aab";
+if (a < b) {
+    print("var-cmp: a < b");
+}
+
+// 函数参数/返回值参与比较
+function pick(x string, y string) string {
+    return x <= y ? x : y;
+}
+print("min:", pick("pear", "apple"), pick("apple", "pear"));

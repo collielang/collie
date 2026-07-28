@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t54 完成：codegen string 运行时第一步——拼接 + toString 内建 + 字符串插值路径全线打通，差分 6/6）
+最后更新：2026-07-26（t55 完成：codegen string 六种比较运算 strcmp 降级，差分 7/7；SPEC 补 string 字典序条目）
 
 ---
 
@@ -363,6 +363,11 @@
     - 实现：collie_rt 新增 collie_rt_concat（malloc 拼接）/i64_to_str/f64_to_str（与 print_f64 共享四步格式化 helper）/bool_to_str（静态串）；codegen visitBinary OP_PLUS 任一侧 Str 走拼接路径（非 Str 侧经 to_str 隐式转串，与解释器任一侧 string 即拼接对齐）；visitCall 新增内建 toString（单参转串，分发先于用户函数查表，与解释器一致）→ 插值脱糖产物（字面量 + toString(expr) 左结合 + 链）自然打通
     - 范围外：len/toNumber 内建、tribool 拼接（语义层本就拒绝）；BigInt 大整数拼接精度属 CG1 延伸（i64 回绕容忍）；新登记缺口 CG6：拼接串 malloc 后不 free，短生命周期编译产物暂容忍泄漏
     - 验证：新差分用例 s7_string_concat（串+串/串+整数/串+小数四步格式/±Infinity/NaN 拼接/串+bool/显式 toString/插值 @"{expr}"/string 变量拼接赋值/函数返回拼接），ctest -C Release 差分 6/6 逐字节一致；Debug 门禁 6/6 不受影响
+- [x] codegen string 比较运算（t55）
+    - 实现：collie_rt 新增 collie_rt_strcmp（ptr×ptr→i32，strcmp 语义）单接口覆盖六种比较；codegen visitBinary 比较 case 在 bool 特判/require_numeric 前加 Str×Str 分支（call 后与 0 做对应 icmp EQ/NE/SLT/SLE/SGT/SGE）；逐字节字典序与解释器 std::string 比较一致，无需 UTF-8 特殊处理
+    - 范围外：Str×非 Str 混型比较（解释器运行期本就 RuntimeError，codegen 维持 require_numeric 拒编）；char 到 codegen 已是 Str 形态自然合流（G2 行为一致）
+    - 附带：SPEC.md §4.4 补 string 关系比较（逐字节字典序）条目（解释器早已实现但规范未登记）
+    - 验证：新差分用例 s8_string_compare（==/!=/</<=/>/>= 正反例、空串、前缀序、拼接结果参与比较、if 条件/三元/函数参数中使用），ctest -C Release 差分 7/7 逐字节一致；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -417,6 +422,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen string 六种比较运算 strcmp 降级（t55，M6）：collie_rt 新增 collie_rt_strcmp（strcmp 语义，逐字节字典序与解释器 std::string 比较一致）单接口；codegen visitBinary 比较 case 新增 Str×Str 分支（call 后与 0 做对应 icmp EQ/NE/SLT/SLE/SGT/SGE），混型维持拒编；SPEC.md §4.4 补 string 关系比较（逐字节字典序）规范条目；新差分用例 s8_string_compare，ctest -C Release 差分 7/7 逐字节一致，Debug 门禁 6/6（M6 t55）
 - 2026-07-26 `feat(compiler)`: codegen string 运行时第一步——拼接 + toString 内建 + 插值路径（t54，M6）：collie_rt 新增 collie_rt_concat（malloc 拼接）/i64_to_str/f64_to_str（与 print_f64 共享四步格式化 helper collie_rt_format_f64）/bool_to_str（静态串）4 接口；codegen visitBinary OP_PLUS 任一侧 Str 走 rt_concat（非 Str 侧经新 to_str 转串，对齐解释器任一侧 string 即拼接语义）；visitCall 新增内建 toString（单参转串，分发先于用户函数查表）→ 字符串插值 @"{expr}"（parser 脱糖为 toString 拼接链）自然打通；新登记缺口 CG6（拼接串 malloc 不 free，短生命周期编译产物暂容忍）；新差分用例 s7_string_concat，ctest -C Release 差分 6/6 逐字节一致，Debug 门禁 6/6（M6 t54）
 - 2026-07-26 `feat(compiler)`: collie_rt 运行时垫片第一版，print 输出格式对齐解释器（t53，M6）：纯 C 静态库 `codegen/runtime/collie_rt.c`（print_str/i64/f64/bool + 参间 sep + 末尾 newline 逐参接口；纯 C 免 clang 链 .ll 时的 C++ 标准库依赖）；f64 移植解释器 to_string 四步格式（NaN→±Infinity→整值<1e15 按整数打，修复 %g 把 3000000 打成 3e+06→其余 %g）；gen_print 改逐参调用垫片不再直连 printf/puts；colliec 运行期从自身目录定位 collie_rt.lib（CMake 宏烘焙绝对路径在非 ASCII 构建树下编码错乱，改 GetModuleFileName 方案；windows.h 需 NOMINMAX 免污染 LLVM 头）；新差分用例 s6_print_format，ctest -C Release 差分 5/5 逐字节一致，Debug 门禁 6/6（M6 t53）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S5 函数 + 修复 parser 参数类型 token 缺口（t52，M6）：顶层 `function name(param type, ...) retType` 声明/调用/`return`/递归；两遍处理（generate() 第一遍 declare_function 建全部原型→递归/前向调用天然可用，符号名 `collie.<name>`+InternalLinkage；第二遍 visitFunction 现场保存/恢复后生成函数体）；CGType 新增 Void（none 返回降 void）；形参 entry alloca+store，实参/返回值仅 integer→decimal 提升；visitReturn 落 ret.dead 块；尾块收尾（void 补 RetVoid/不可达补 unreachable/可达无 return 拒编，可达性用 entry 起 DFS 判定）；同名重载/嵌套函数拒编；修复 parser consume_type_token 类型关键字列表缺口（缺 KW_INTEGER/KW_DECIMAL/KW_TRIBOOL/KW_DWORD/KW_BIT，影响函数参数/返回类型与类字段）+ 防退化测试；新增差分用例 s5_functions.collie，ctest -C Release 差分 4/4 逐字节一致，Debug 门禁 6/6（M6 t52）

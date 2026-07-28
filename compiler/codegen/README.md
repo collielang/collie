@@ -18,6 +18,7 @@
 | S5 | 顶层函数声明/调用/`return`/递归 | 函数程序编译执行，输出与解释器一致 **✅ t52** |
 | S6 | collie_rt 垫片：print 输出格式对齐解释器 to_string | decimal 四步格式/±Infinity/NaN/混合行输出与解释器一致 **✅ t53** |
 | S7 | string 运行时第一步：拼接 `+`、`toString` 内建、插值路径 | 拼接/插值程序编译执行，输出与解释器一致 **✅ t54** |
+| S8 | string 六种比较运算（strcmp 降级） | 字典序/相等比较程序编译执行，输出与解释器一致 **✅ t55** |
 | 后续 | string 方法/索引、class、BigInt | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、`==?`、异常语义。
@@ -114,6 +115,13 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a + b`（任一侧 string） | 非 string 侧先 `to_str` 转串，再 `call ptr @collie_rt_concat(ptr, ptr)`（malloc 出新串，不 free，缺口 CG6）；与解释器“任一侧 string 即拼接、另一侧隐式转串”对齐 |
 | `toString(x)` 内建 | 按类型分发：Str 原样；Int → `collie_rt_i64_to_str`；Double → `collie_rt_f64_to_str`（与 print_f64 共享四步格式化，两路径输出一致）；Bool → zext i1→i32 后 `collie_rt_bool_to_str`（返静态串）；分发先于用户函数查表，与解释器一致 |
 | 字符串插值 `@"a{x}b"` | 无 codegen 专门逻辑：parser 已脱糖为 `"a" + toString(x) + "b"` 左结合拼接链，拼接 + toString 两条路径即自然打通 |
+
+**S8 降级补充（t55 实现）：string 六种比较**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `a == b` / `!=` / `<` / `<=` / `>` / `>=`（双侧 string） | `call i32 @collie_rt_strcmp(ptr, ptr)` 后与 0 做对应 icmp（EQ/NE/SLT/SLE/SGT/SGE）；逐字节字典序与解释器 std::string 比较一致，无 UTF-8 特殊处理 |
+| Str × 非 Str 混型比较 | 维持 require_numeric 拒编（解释器运行期同样报错，无合法程序受影响） |
 
 ## 五、构建与链接方案（关键决策）
 

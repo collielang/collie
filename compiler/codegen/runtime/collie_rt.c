@@ -24,6 +24,9 @@
  *   const char* collie_rt_bool_to_str(int v);                    // 静态串，勿 free
  *   注：malloc 产物不 free（缺口 CG6：短生命周期编译产物暂容忍泄漏）
  *
+ * 字符串比较（t55，六种比较运算降级用）：
+ *   int collie_rt_strcmp(const char* a, const char* b);  // strcmp 语义（<0/0/>0）
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -117,4 +120,12 @@ const char* collie_rt_f64_to_str(double v) {
 
 const char* collie_rt_bool_to_str(int v) {
     return v ? "true" : "false"; /* 静态串，调用方勿 free */
+}
+
+/* ---- 字符串比较（t55）---- */
+
+/* 逐字节字典序（unsigned char 域），与解释器 std::string 比较语义一致；
+ * codegen 拿返回值与 0 做 icmp 实现六种比较，只用符号不依赖幅度 */
+int collie_rt_strcmp(const char* a, const char* b) {
+    return strcmp(a, b);
 }
