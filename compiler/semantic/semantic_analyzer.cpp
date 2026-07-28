@@ -590,10 +590,17 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
             }
         }
 
-        // 创建函数符号
+        // 创建函数符号；返回类型为已声明类名时按 object 动态处理
+        // （与 visitVarDecl 的类名→object 映射同规则，t61 实例作返回值）
+        Token return_type = stmt.return_type();
+        if (return_type.type() == TokenType::IDENTIFIER &&
+            declared_classes_.count(std::string(return_type.lexeme())) != 0) {
+            return_type = Token(TokenType::KW_OBJECT, return_type.lexeme(),
+                                return_type.line(), return_type.column());
+        }
         Symbol function{
             SymbolKind::FUNCTION,
-            stmt.return_type(),
+            return_type,
             stmt.name(),
             symbols_.current_scope_level(),
             true,  // 函数定义时就认为是已初始化的
@@ -613,10 +620,17 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
                 }
             }
 
-            // 创建参数符号
+            // 创建参数符号；类型为已声明类名时按 object 动态处理
+            // （t61 实例作参数，方法/字段访问走 object 动态放行）
+            Token param_type = param.type;
+            if (param_type.type() == TokenType::IDENTIFIER &&
+                declared_classes_.count(std::string(param_type.lexeme())) != 0) {
+                param_type = Token(TokenType::KW_OBJECT, param_type.lexeme(),
+                                   param_type.line(), param_type.column());
+            }
             Symbol param_symbol{
                 SymbolKind::PARAMETER,
-                param.type,
+                param_type,
                 param.name,
                 symbols_.current_scope_level() + 1,  // 将在函数作用域内
                 true  // 参数总是已初始化的
@@ -647,17 +661,23 @@ void SemanticAnalyzer::visitFunction(const FunctionStmt& stmt) {
         // 分析函数体
         stmt.body()->accept(*this);
 
-        // 检查是否所有路径都有返回值
-        if (stmt.return_type().type() != TokenType::KW_NONE && !has_return_) {
-            throw SemanticError("Function '" + name + "' must return a value in all code paths",
-                stmt.name().line(), stmt.name().column());
-        }
+        // 返回值路径检查结果先记下，待作用域闭合后再抛出，
+        // 避免异常路径跳过 end_scope 造成作用域泄漏（参数溢出到外层，
+        // 后续顶层声明误报重复定义）
+        bool missing_return =
+            stmt.return_type().type() != TokenType::KW_NONE && !has_return_;
 
         // 退出函数作用域
         symbols_.end_scope();
 
         // 恢复之前的函数上下文
         current_function_ = previous_function;
+
+        // 检查是否所有路径都有返回值
+        if (missing_return) {
+            throw SemanticError("Function '" + name + "' must return a value in all code paths",
+                stmt.name().line(), stmt.name().column());
+        }
 
     } catch (const SemanticError& error) {
         record_error(error);

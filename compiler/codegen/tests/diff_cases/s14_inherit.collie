@@ -1,0 +1,115 @@
+// t61 S14 差分用例：class 二期（继承/覆写/base/模板方法/实例作参数返回值）
+
+// 基类：字段 + 构造器 + 可覆写方法 + 模板方法
+class Animal {
+    public string name = "?";
+    public integer legs = 4;
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function sound() string {
+        return "...";
+    }
+
+    public function describe() string {
+        // 模板方法：this.sound() 按实例实际类分派（子类覆写在此生效）
+        return this.name + " says " + this.sound();
+    }
+
+    public function info() string {
+        return "animal " + this.name;
+    }
+}
+
+// 单级继承：base(...) 构造器委托 + @override 覆写 + base.method() 绕过覆写
+class Dog extends Animal {
+    public string breed = "collie";
+
+    public Dog(n string, b string) : base(n) {
+        this.breed = b;
+    }
+
+    @override
+    public function sound() string {
+        return "woof";
+    }
+
+    @override
+    public function info() string {
+        // base.info() 静态绑定到 Animal.info（C# 语义，绕过本类覆写）
+        return base.info() + " / dog " + this.breed;
+    }
+}
+
+// 三级继承：再覆写 sound；构造器沿链委托
+class Puppy extends Dog {
+    public integer age = 0;
+
+    public Puppy(n string, a integer) : base(n, "collie") {
+        this.age = a;
+    }
+
+    @override
+    public function sound() string {
+        return "yip";
+    }
+}
+
+// 实例作函数返回值 / 参数（签名处类名，严格同类）
+function makeDog(n string) Dog {
+    return new Dog(n, "border");
+}
+
+function dogInfo(d Dog) string {
+    return d.info();
+}
+
+// 基类自身行为不受子类影响
+Animal a = new Animal("generic");
+print("a:", a.name, a.legs, a.sound(), a.describe());
+
+// 继承字段（父链合并）+ 自身字段 + 覆写方法
+Dog d = new Dog("rex", "husky");
+print("d fields:", d.name, d.legs, d.breed);
+print("d sound:", d.sound());
+// 继承的 describe() 内 this.sound() 命中 Dog 覆写（模板方法模式）
+print("d describe:", d.describe());
+// info() 内 base.info() 调 Animal.info
+print("d info:", d.info());
+
+// 三级链：字段三层合并 + sound 再覆写 + 继承的 info 仍走 Dog 版本
+Puppy p = new Puppy("bud", 1);
+print("p fields:", p.name, p.breed, p.age);
+print("p sound:", p.sound(), p.describe());
+print("p info:", p.info());
+
+// 实例作返回值/参数
+Dog m = makeDog("ace");
+print("made:", dogInfo(m), dogInfo(d));
+
+// 继承字段写入互不串扰
+d.legs = 3;
+print("legs:", d.legs, a.legs, p.legs);
+
+// 父类无构造器：子类构造器 base() 为空操作，继承字段初始值生效
+class Holder {
+    public integer v = 10;
+
+    public function twice() integer {
+        return this.v * 2;
+    }
+}
+
+class SubHolder extends Holder {
+    public integer w = 5;
+
+    public SubHolder(k integer) : base() {
+        this.w = k;
+        this.v = this.v + k;
+    }
+}
+
+SubHolder s = new SubHolder(7);
+print("holder:", s.v, s.w, s.twice());

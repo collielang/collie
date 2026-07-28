@@ -24,9 +24,10 @@
 | S11 | 整数溢出陷阱（CG1 收窄）：i64 加/减/乘/负号溢出显式报错 | 边界内大数程序输出与解释器一致，溢出程序陷阱退出 **✅ t58** |
 | S12 | array 最小闭环：同质字面量/索引读写/length/print/引用语义 | 数组程序编译执行，输出与解释器一致，越界陷阱退出 **✅ t59** |
 | S13 | class 最小闭环：单类/字段/构造器/方法/this/引用语义 | 类程序编译执行，输出与解释器一致 **✅ t60** |
-| 后续 | class 继承、BigInt 运行时化 | 逐任务扩展 |
+| S14 | class 二期：继承/覆写/base/模板方法/实例作函数参数返回值 | 继承程序编译执行，输出与解释器一致 **✅ t61** |
+| 后续 | BigInt 运行时化、number 双表示 | 逐任务扩展 |
 
-不在第一期范围：tribool/Kleene、tuple、class 继承、`==?`、异常语义。
+不在第一期范围：tribool/Kleene、tuple、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -55,7 +56,7 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `bool` | `i1` | |
 | `string` | `ptr`（指向常量串或 collie_rt malloc 串） | 字面量 = `private unnamed_addr constant [N x i8]`；拼接结果 = `collie_rt_concat` malloc 串（不 free，缺口 CG6） |
 | `array` | `ptr`（指向 collie_rt 数组对象） | **妥协点**：解释器数组元素动态异质；codegen 限同质数组（元素类型由字面量推断，另记于 CGValue/CGVar 的 elem 字段），异质/嵌套拒编；指针拷贝即引用语义（对齐解释器 shared_ptr） |
-| 类实例（`Point p = new Point()`） | `ptr`（指向 malloc 零初始化块，按 `collie.class.<类名>` StructType GEP 访问） | 每类一个 StructType（字段按声明顺序布局）；类名另记于 CGValue/CGVar 的 cls 字段；指针拷贝即引用语义；实例不可进数组/元组、不可作普通函数参数/返回值（拒编） |
+| 类实例（`Point p = new Point()`） | `ptr`（指向 malloc 零初始化块，按 `collie.class.<类名>` StructType GEP 访问） | 每类一个 StructType（字段按声明顺序布局，继承时父链字段 base-first 合并）；类名另记于 CGValue/CGVar 的 cls 字段；指针拷贝即引用语义；实例可作函数参数/返回值（签名处类名，严格同类）；不可进数组/元组（拒编） |
 | `none` / `void` | `void` | |
 | 其余（tribool/tuple/char...） | 不支持，显式报错 | |
 
@@ -168,7 +169,19 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `obj.m(args)` / `this.m(args)` | 类方法表优先命中 → `call @collie.C.m(ptr this, args...)`；未命中且 `toString()` 无参 → 固定串 `"<object>"` 兜底（分派顺序对齐解释器）；否则拒编 |
 | `print(obj)` / `toString(obj)` | 固定输出 `"<object>"`（对齐 Value::to_string Instance 分支） |
 | 赋值/三元中的实例 | 指针拷贝即引用语义；两侧类名不一致拒编 |
-| 范围外拒编 | extends/base/@override、无初值字段（解释器落 none 无静态表示）、number/tribool/tuple/array 字段、实例相等比较、实例进数组/元组、实例作普通函数参数/返回值、`object` 声明类型、方法重载 |
+| 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、number/tribool/tuple/array 字段、实例相等比较、实例进数组/元组、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁） |
+
+**S14 降级补充（t61 实现）：class 二期——继承/base/实例作函数参数返回值**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `class D extends B` 布局 | 字段 = 父链 base-first 合并 + 自身追加（GEP 索引前缀不变）；父类须声明在前，同名字段遮蔽拒编 |
+| 方法单态化 | 对每个类 C 沿链每个 (定义类 D, 方法 m) 生成独立函数 `collie.C.D.m`（分派上下文 = C、base 解析上下文 = D，与解释器 `call_class_method(instance, method, defining_class)` 同构）；类内分派表 dispatch 存覆写解析后的映射，体内 `this.m()` 按 C 的分派表解析——模板方法模式（父类方法调子类覆写）与解释器动态分派等价（向上转型拒编保证静态 cls 即动态类） |
+| `: base(args)` 构造器委托 | 按定义类的父类解析（current_defining_class_），调父类构造器在当前分派类下的单态化实例；父类无构造器时 0 实参为空操作（对齐解释器 visitBaseCall） |
+| `base.m(args)` | 从定义类的父类起静态查首个定义者（绕过子类覆写，C# 语义），调该定义者在当前分派类下的单态化实例 |
+| 实例作函数参数/返回值 | 签名处 IDENTIFIER 类名 → ptr + cls；实参/return 处 cls 严格相等否则拒编（语义层同步支持类名签名→object 动态放行，t61） |
+| `@override` | 纯语义层校验（t40），codegen 忽略注解位 |
+| 范围外拒编（继承相关） | 向上转型（声明/赋值/三元/实参/返回均严格同类）、子类同名字段遮蔽、父类声明晚于子类、构造器/方法重载 |
 
 ## 五、构建与链接方案（关键决策）
 

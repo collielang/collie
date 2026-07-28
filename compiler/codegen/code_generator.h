@@ -8,7 +8,9 @@
  * 短路 && || 与 !、if/else、while、块作用域遮蔽；
  * S4（t51）：for/do-while/break/continue、二元三元表达式 a ? x : y；
  * S5（t52）：顶层函数声明/调用/return/递归（两遍：先建原型再生成函数体）；
- * S13（t60）：单类无继承——字段/构造器/方法/this（LLVM struct + 隐藏首参降级）。
+ * S13（t60）：单类无继承——字段/构造器/方法/this（LLVM struct + 隐藏首参降级）；
+ * S14（t61）：继承——字段 base-first 合并、方法按分派类单态化生成（collie.C.D.m）、
+ * base(...)/base.method() 静态解析、实例作函数参数/返回值。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -135,7 +137,16 @@ private:
     struct CGFunction {
         llvm::Function* fn = nullptr;
         std::vector<CGType> param_types;
+        std::vector<std::string> param_cls; // 与 param_types 平行；仅 Obj 位有意义（t61）
         CGType ret_type = CGType::Void; // Void 即 none 返回
+        std::string ret_cls;            // 仅 ret_type == Obj 有意义（t61）
+    };
+
+    /// @brief 单态化方法实例（t61）：分派类 C 视角下 (定义类 D, 方法 m) 的
+    /// 函数 collie.C.D.m；defining 供 base 解析，stmt 供体生成
+    struct CGMethod : CGFunction {
+        std::string defining;              // 定义类 D（base 解析起点）
+        const FunctionStmt* stmt = nullptr; // 方法 AST（体生成用）
     };
 
     /// @brief 类字段信息（t60）：声明顺序即 struct 布局顺序
@@ -145,13 +156,16 @@ private:
         const VarDeclStmt* decl = nullptr; // 初始值表达式/错误位置取自声明节点
     };
 
-    /// @brief 类信息（t60）：注册遍登记 struct 布局与方法原型，visitClass 生成方法体
+    /// @brief 类信息（t60/t61）：注册遍登记合并布局与单态化方法原型，
+    /// visitClass 生成全部实例的方法体
     struct CGClass {
         const ClassStmt* stmt = nullptr;
+        std::string super;                  // 父类名，空即无继承（t61）
         llvm::StructType* type = nullptr;
-        std::vector<CGField> fields;                          // 声明顺序 = 字段下标
+        std::vector<CGField> fields;                          // 父链 base-first 合并后顺序 = 字段下标
         std::unordered_map<std::string, unsigned> field_index; // 字段名 → struct 下标
-        std::unordered_map<std::string, CGFunction> methods;   // 含构造器（键 = 类名）
+        std::unordered_map<std::string, std::string> dispatch; // 方法名 → 实例键 "D.m"（覆写解析后，含构造器）
+        std::unordered_map<std::string, CGMethod> instances;   // "D.m" → 本类分派上下文的单态化实例
     };
 
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
@@ -165,6 +179,11 @@ private:
 
     /// @brief 声明类型 token → CGType（S3 支持 integer/decimal/bool/string，其余报缺口）
     CGType declared_cgtype(const Token& type_token);
+
+    /// @brief 声明类型 token → CGType + 类名（t61）：IDENTIFIER 查类表降 Obj+cls，
+    /// 未注册类名/其余类型拒编；函数/方法签名处用（变量声明另有前置分支）
+    void declared_signature_type(const Token& type_token, CGType& type_out,
+                                 std::string& cls_out);
 
     /// @brief CGType → 对应的 LLVM 存储类型
     llvm::Type* llvm_type_of(CGType type);
@@ -184,13 +203,29 @@ private:
     /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void
     void declare_function(const FunctionStmt& stmt);
 
-    /// @brief 类注册（第一遍，t60）：struct 布局 + 方法原型（this 作隐藏首参 ptr）；
-    /// 继承/无初值字段/范围外字段类型拒编
-    void register_class(const ClassStmt& stmt);
+    /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
+    /// 自身追加建 struct；同名字段遮蔽/无初值字段/范围外字段类型拒编；
+    /// 父类须先声明（合并依赖父类已注册）
+    void register_class_layout(const ClassStmt& stmt);
 
-    /// @brief 类方法/构造器函数体生成（第二遍，t60）：与 visitFunction 同机制，
-    /// 另维护 current_this_/current_class_name_ 供体内 this 解析
-    void gen_method_body(const CGClass& cls, const FunctionStmt& stmt);
+    /// @brief 类方法单态化原型（第一遍阶段二，t61）：继承父类全部实例的
+    /// 本类副本 collie.C.D.m + 自身方法 collie.C.C.m（覆写即 dispatch 改指）
+    void register_class_methods(const ClassStmt& stmt);
+
+    /// @brief 类方法/构造器函数体生成（第二遍，t60/t61）：与 visitFunction 同机制，
+    /// 另维护 current_this_/current_class_name_/current_defining_class_ 供 this/base 解析
+    void gen_method_body(const CGClass& cls, const CGMethod& method);
+
+    /// @brief 实参按形参类型对齐（t61 提取）：仅 integer→decimal 提升；
+    /// Obj 要求类名严格相等（向上转型拒编，静态 cls 即动态类的前提）
+    llvm::Value* coerce_call_arg(const CGValue& a, CGType want,
+                                 const std::string& want_cls, size_t line,
+                                 size_t column);
+
+    /// @brief 沿继承链自 start 类向上查首个自身定义了 mname 的类（t61，
+    /// base 解析用，对齐解释器 find_method 的自子向父查找）；未找到返空串
+    std::string find_defining_class(const std::string& start,
+                                    const std::string& mname);
 
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
@@ -261,10 +296,15 @@ private:
     /// 当前方法的 this 实参与所属类名（t60）：仅方法体生成期非空
     llvm::Value* current_this_ = nullptr;
     std::string current_class_name_;
+    /// 当前方法的定义类（t61）：base 按定义类的父类解析（继承方法的副本
+    /// 内 defining ≠ 分派类，与解释器 call_class_method 的 defining_class 同义）
+    std::string current_defining_class_;
     /// 当前是否在生成函数体（顶层 return / 嵌套函数拒编用）
     bool in_function_ = false;
     /// 当前函数的返回类型（visitReturn 校验/提升用；Void 即 none）
     CGType current_ret_type_ = CGType::Void;
+    /// 返回类型为 Obj 时的类名（t61）：visitReturn 严格同类校验用
+    std::string current_ret_cls_;
 };
 
 } // namespace collie
