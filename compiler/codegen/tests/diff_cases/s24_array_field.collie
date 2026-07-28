@@ -1,0 +1,101 @@
+// t71 S24 差分用例：数组作类字段（初始值/读写/索引/引用语义/跨签名边界）
+// 字段无元素类型伴随：读出即动态域（elem = Num 哨兵，运行时 kind 驱动）
+
+class Box {
+    public array items = [10, 20, 30];
+    public array weights = [1.5, 2.5];
+    public integer count = 3;
+
+    public function sum() number {
+        number s = 0;
+        for (integer i = 0; i < this.items.length; i = i + 1) {
+            s = s + this.items[i];
+        }
+        return s;
+    }
+
+    public function bump(i integer, v number) none {
+        this.items[i] = this.items[i] + v;
+    }
+
+    public function swap(a array) none {
+        this.items = a;
+    }
+}
+
+Box b = new Box();
+// 字段读：print/索引/负索引/length/len
+print("init:", b.items, b.items[0], b.items[-1], b.items.length, len(b.weights));
+
+// 方法内字段数组读（求和）+ 写（原地加）
+print("sum:", b.sum());
+b.bump(1, 5);
+print("bumped:", b.items, b.sum());
+
+// 外部字段索引写：int 直存 / int 写 double 数组提升
+b.items[0] = 99;
+b.weights[0] = 4;
+print("wrote:", b.items[0], b.weights);
+
+// 引用语义：字段读出的数组与字段共享底层存储
+array view = b.items;
+view[2] = 777;
+print("ref:", b.items[2], view[2]);
+
+// 外部数组进字段：经方法形参（动态域）与直接字段赋值（静态 elem）
+b.swap([7, 8, 9]);
+print("swapped:", b.items, b.sum());
+b.items = [2.5, 3.5];
+print("assigned:", b.items, b.sum());
+
+// 字段数组作实参再跨签名边界
+function total(a array) number {
+    number s = 0;
+    for (integer i = 0; i < len(a); i = i + 1) {
+        s = s + a[i];
+    }
+    return s;
+}
+print("total:", total(b.items), total(b.weights));
+
+// 构造器接数组参数存入字段（动态域数组进字段）
+class Holder {
+    public array data = [0];
+
+    public Holder(a array) {
+        this.data = a;
+    }
+
+    public function firstOf() number {
+        return this.data[0];
+    }
+}
+
+Holder h = new Holder([42, 43]);
+print("holder:", h.data, h.firstOf());
+Holder hd = new Holder([1.25, 2.5]);
+print("holder dec:", hd.data, hd.firstOf());
+
+// 引用语义跨构造器边界：外部写入字段可见
+array src = [5, 6];
+Holder h2 = new Holder(src);
+src[0] = 50;
+print("shared:", h2.data);
+
+// 继承：父类数组字段在子类布局/方法中可用
+class Tagged extends Holder {
+    public string tag = "t";
+
+    public Tagged(a array) : base(a) {
+    }
+
+    public function describe() string {
+        return @"{this.tag}:{this.data.length}";
+    }
+}
+
+Tagged t = new Tagged([9, 8, 7]);
+print("inherit:", t.data, t.describe(), t.firstOf());
+
+// 字段数组元素参与算术/比较/插值
+print("mixed:", b.items[0] + 1, h.data[0] > 40, @"n={t.data.length}");

@@ -34,6 +34,7 @@
 | S21 | tuple 静态展开：字面量/常量索引/命名字段/get/length/print（无运行时对象） | tuple 程序编译执行，输出与解释器一致 **✅ t68** |
 | S22 | char/byte/word + 位运算：char 走 Str、byte/word i64+赋值点范围陷阱、& \| ^ ~ << >>（移位 0-63 检查） | 位运算/位类型程序编译执行，输出与解释器一致 **✅ t69** |
 | S23 | 数组进函数签名：参数/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵（运行时 kind 驱动） | 排序/累加/跨边界引用语义程序编译执行，输出与解释器一致 **✅ t70** |
+| S24 | 数组作类字段：字段声明/初始值/读写放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用） | 字段数组初始值/索引读写/引用语义/跨签名边界程序编译执行，输出与解释器一致 **✅ t71** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
@@ -292,7 +293,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a[i] = v` 写（elem==Num） | v 限数值系转 Num 表示，下沉新接口 `collie_rt_arr_set_num(arr,i,tag,bits)`：tag==kind 直存 / int 写 double 数组提升（对齐静态路径 Int→Double）/ decimal 写 int 数组陷阱退出（解释器动态异质可容、同质表示不可，拒错编从陷阱，新缺口 CG7） |
 | 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持（Num vs 静态自然拒编） |
 | length/len/print/toString | 运行时 kind 驱动（rt_arr_len/rt_arr_to_str），零改动天然支持动态域 |
-| 接口面 | collie_rt 新增 2 个：`collie_rt_arr_kind`（读 kind）/ `collie_rt_arr_set_num`（kind 感知写，含 CG7 陷阱）；范围外：数组类字段（coerce_for_slot 标量向，留后续）、嵌套/异质数组 |
+| 接口面 | collie_rt 新增 2 个：`collie_rt_arr_kind`（读 kind）/ `collie_rt_arr_set_num`（kind 感知写，含 CG7 陷阱）；范围外：嵌套/异质数组（数组类字段已于 t71 解锁，见 S24） |
+
+**S24 降级补充（t71 实现）：数组作类字段**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `public array f = […];` | register_class_layout 放行（删 t59 时代拒编）；字段槽即 opaque ptr（llvm_type_of(Arr)），struct 建型/8 字节 × 字段数 malloc 上界零改动 |
+| 字段读 `obj.f` | CGField 无元素类型伴随，读出即动态域：visitProperty 置 CGValue.elem = Num 哨兵（同 t70 形参机制），下游索引读写/print/传参/返回全走 t70 动态路径，零新 rt 接口 |
+| 字段写 `obj.f = v` / 字段初始值 | 守卫下沉 coerce_for_slot 相等分支（一处覆盖 visitPropertyAssign + visitNew 两入口）：右值 elem 限 {Int, Double, Num}，bool/str 数组拒编（kind 2/3 无 number 对应），维持动态域 kind ∈ {0,1} 不变量；变量/tuple 槽的 Arr 另有前置分支，下沉零回归 |
+| 引用语义 | 字段槽存指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr） |
+| 范围外 | Num 字段（16 字节 tagged 装不进 8 字节槽，t62 拍板不变）、Obj 字段（CGField 无 cls 伴随，另立任务）、嵌套/异质数组 |
 
 ## 五、构建与链接方案（关键决策）
 

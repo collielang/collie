@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t70 完成：codegen 数组进函数签名——参数/返回值放行，elem 动态化为 Num 哨兵（运行时 kind 驱动），新缺口 CG7，差分 22/22）
+最后更新：2026-07-28（t71 完成：codegen 数组作类字段——register_class_layout 放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用零新 rt 接口），写入守卫下沉 coerce_for_slot，差分 23/23）
 
 ---
 
@@ -425,6 +425,10 @@
 - [x] codegen 数组进函数签名（t70）
     - 实现：array 形参/返回值放行（顶层函数 + 类方法），签名处元素类型不可知——elem 动态化为 Num 哨兵（关键洞察：collie_rt 数组 kind 编码 0=int/1=double 与 t62 Num tag 完全重合，被调方索引读 = rt_arr_get bits + 新接口 rt_arr_kind 直接拼 Num 零转换）；不变量：进动态域的数组 elem 限 {Int, Double, Num}（bool/str 数组作实参/返回值静态拒编不错编），保证动态域运行期 kind ∈ {0,1}；触点：declare_function/register_class_methods 4 处 Arr 拒编放行、形参落槽/调用返回点 elem=Num 共 5 处、visitIndex/visitIndexAssign 动态路径（写下沉新接口 collie_rt_arr_set_num：tag==kind 直存 / int→double 提升 / decimal 写 int 数组陷阱，新缺口 CG7）、visitAssign 规则扩展（Num 槽 ← 数值系来源；静态槽 ← Num 来源拒编）；length/len/print/toString 运行时 kind 驱动零改动；范围外：数组类字段（coerce_for_slot 标量向牵扯三处重构，留后续）、嵌套/异质数组
     - 验证：新差分用例 s23_array_signature（int/double 数组同函数运行时 kind 分流、返回值接收打印/负索引/长度、动态数组再作实参、跨边界引用语义 fill、冒泡排序读写比较交换全链路、类方法数组参数/返回值、动态元素参与算术比较插值），先解释器跑通再进差分门禁；CG7 陷阱（decimal 写 int 数组经动态域，解释器可容异质产物陷阱退出）+ bool 数组作实参拒编 + 动态数组赋静态槽拒编三实证通过；ctest -C Release 差分 22/22 逐字节一致（s23 首跑即过）；Debug 门禁 6/6 不受影响
+- [x] codegen 数组作类字段（t71）
+    - 实现：放行 array 类字段（register_class_layout 删拒编；字段槽本就 opaque ptr，struct 建型/malloc 上界零改动）；CGField 无 elem 伴随信息，字段读出即动态域（visitProperty/visitPropertyAssign 置 elem=Num 哨兵，t70 机制全套复用，零新 rt 接口）；字段写入守卫下沉 coerce_for_slot 相等分支（右值 elem 限 {Int,Double,Num}，bool/str 数组拒编，一处覆盖 visitPropertyAssign + visitNew 字段初始化两入口；变量/tuple 槽的 Arr 另有前置分支，下沉零回归）维持动态域 kind ∈ {0,1} 不变量；调研修正：Obj 作字段实也未支持（CGField 无 cls 伴随，declared_cgtype 不识 IDENTIFIER），数组字段无先例可拄但 Num 哨兵方案零伴随信息恰好绕开缺口
+    - 验证：新差分用例 s24_array_field（字段初始值 int/double 数组、方法内 this 读写求和原地加、外部索引写直存/提升、字段读出共享底层存储、方法形参/直接赋值换字段数组、字段数组再跨签名边界、构造器接数组存字段、跨构造器引用语义、继承父类数组字段、元素参与算术比较插值），先解释器跑通再进差分门禁；bool 数组赋字段 + string 数组作字段初始值两拒编实证通过（解释器均可容，产物拒编不错编）；ctest -C Release 差分 23/23 逐字节一致（s24 首跑即过）；Debug 门禁 6/6 不受影响
+    - 范围外：Num 字段（16 字节 tagged 装不进 8 字节槽，t62 拍板不变）、Obj 字段（另立任务）、嵌套/异质数组
 
 ---
 
@@ -478,6 +482,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-28 `feat(compiler)`: codegen 数组作类字段（t71，M6）：register_class_layout 放行 array 字段（字段槽即 opaque ptr，struct 建型/malloc 上界零改动）；CGField 无元素类型伴随，字段读出即动态域——visitProperty/visitPropertyAssign 置 elem=Num 哨兵，下游索引读写/print/传参/返回全走 t70 动态路径零新 rt 接口；写入守卫下沉 coerce_for_slot 相等分支（右值 elem 限 {Int,Double,Num}，bool/str 数组拒编，一处覆盖字段赋值/字段初始化两入口，变量/tuple 槽另有前置分支零回归）维持动态域 kind ∈ {0,1}；Num/Obj 字段、嵌套/异质数组维持拒编；新差分用例 s24_array_field + 两拒编实证，ctest -C Release 差分 23/23 逐字节一致，Debug 门禁 6/6（M6 t71）
 
 - 2026-07-28 `feat(compiler)`: codegen 数组进函数签名（t70，M6）：array 形参/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵——collie_rt 数组 kind 0/1 与 Num tag 编码重合，动态域索引读 rt_arr_get bits + 新接口 rt_arr_kind 直接拼 Num 零转换，写下沉新接口 rt_arr_set_num（tag==kind 直存/int→double 提升/decimal 写 int 数组陷阱，新缺口 CG7）；不变量：进动态域数组 elem 限 {Int,Double,Num}（bool/str 数组作实参/返回值拒编）保 kind ∈ {0,1}；数组赋值规则扩展（Num 槽 ← 数值系；静态槽 ← Num 拒编）；数组类字段/嵌套/异质维持拒编；新差分用例 s23_array_signature + CG7 陷阱与两拒编实证，ctest -C Release 差分 22/22 逐字节一致，Debug 门禁 6/6（M6 t70）
 

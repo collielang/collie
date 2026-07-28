@@ -1229,8 +1229,11 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         const CGField& field = cls.fields[it->second];
         llvm::Value* slot =
             builder_.CreateStructGEP(cls.type, object.value, it->second, name);
+        // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
+        // 即动态域，同 t70 形参机制）
         last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
-                       field.type};
+                       field.type,
+                       field.type == CGType::Arr ? CGType::Num : CGType::Int};
         return;
     }
     if (object.type == CGType::Tup) {
@@ -1274,7 +1277,9 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     llvm::Value* stored = coerce_for_slot(v, field.type, expr.name());
     builder_.CreateStore(
         stored, builder_.CreateStructGEP(cls.type, object.value, it->second, name));
-    last_value_ = {stored, field.type}; // 赋值表达式的值 = 所赋的值（与解释器一致）
+    // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71）
+    last_value_ = {stored, field.type,
+                   field.type == CGType::Arr ? CGType::Num : CGType::Int};
 }
 void CodeGenerator::visitNew(const NewExpr& expr) {
     // 类实例化（t60）：collie_rt_obj_new 分配字段块（8 字节 × 字段数上界：
@@ -1994,6 +1999,15 @@ llvm::AllocaInst* CodeGenerator::create_entry_alloca(llvm::Type* type,
 llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
                                             const Token& where) {
     if (v.type == slot_type) {
+        if (slot_type == CGType::Arr && v.elem != CGType::Int &&
+            v.elem != CGType::Double && v.elem != CGType::Num) {
+            // 动态域不变量（t71，同 t70 实参/返回值守卫）：字段槽 elem
+            // 恒 Num 哨兵，bool/str 数组 kind 2/3 无 number 对应，拒编
+            //（Arr 目标仅字段路径可达：变量/tuple 槽的 Arr 另有前置分支）
+            unsupported("storing bool/string array in '" +
+                            std::string(where.lexeme()) + "'",
+                        where.line(), where.column());
+        }
         return v.value;
     }
     // 仅 integer → decimal 隐式提升（与语义层/解释器 coerce_to_declared 一致）
@@ -2104,11 +2118,9 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
                         field->name().line(), field->name().column());
         }
         CGType ftype = declared_cgtype(field->type());
-        if (ftype == CGType::Arr) {
-            // 数组字段无处标注元素类型（同 t59 参数/返回值拒编理由）
-            unsupported("array field",
-                        field->name().line(), field->name().column());
-        }
+        // array 字段放行（t71）：字段槽即 opaque ptr；无处标注元素类型，
+        // 读出即动态域（visitProperty 置 Num 哨兵，t70 机制复用），
+        // 写入守卫在 coerce_for_slot（elem 限数值系，保 kind ∈ {0,1}）
         if (ftype == CGType::Num) {
             // number 字段维持范围外（t62 拍板：类字段不解锁，字段块 8 字节
             // 槽装不下 16 字节 tagged 表示，拒编不错编）
