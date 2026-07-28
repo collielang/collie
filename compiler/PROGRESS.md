@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t71 完成：codegen 数组作类字段——register_class_layout 放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用零新 rt 接口），写入守卫下沉 coerce_for_slot，差分 23/23）
+最后更新：2026-07-28（t72 完成：codegen 类实例作类字段——CGField 加 cls 伴随，register_class_layout 识 IDENTIFIER 类名，coerce_for_slot 加 slot_cls 参数严格同类校验，属性链/引用语义/深链写/继承全通，差分 24/24）
 
 ---
 
@@ -429,6 +429,10 @@
     - 实现：放行 array 类字段（register_class_layout 删拒编；字段槽本就 opaque ptr，struct 建型/malloc 上界零改动）；CGField 无 elem 伴随信息，字段读出即动态域（visitProperty/visitPropertyAssign 置 elem=Num 哨兵，t70 机制全套复用，零新 rt 接口）；字段写入守卫下沉 coerce_for_slot 相等分支（右值 elem 限 {Int,Double,Num}，bool/str 数组拒编，一处覆盖 visitPropertyAssign + visitNew 字段初始化两入口；变量/tuple 槽的 Arr 另有前置分支，下沉零回归）维持动态域 kind ∈ {0,1} 不变量；调研修正：Obj 作字段实也未支持（CGField 无 cls 伴随，declared_cgtype 不识 IDENTIFIER），数组字段无先例可拄但 Num 哨兵方案零伴随信息恰好绕开缺口
     - 验证：新差分用例 s24_array_field（字段初始值 int/double 数组、方法内 this 读写求和原地加、外部索引写直存/提升、字段读出共享底层存储、方法形参/直接赋值换字段数组、字段数组再跨签名边界、构造器接数组存字段、跨构造器引用语义、继承父类数组字段、元素参与算术比较插值），先解释器跑通再进差分门禁；bool 数组赋字段 + string 数组作字段初始值两拒编实证通过（解释器均可容，产物拒编不错编）；ctest -C Release 差分 23/23 逐字节一致（s24 首跑即过）；Debug 门禁 6/6 不受影响
     - 范围外：Num 字段（16 字节 tagged 装不进 8 字节槽，t62 拍板不变）、Obj 字段（另立任务）、嵌套/异质数组
+- [x] codegen 类实例作类字段（t72）
+    - 实现：CGField 加 cls 伴随 + register_class_layout 加 IDENTIFIER 前置分支（照抄 visitVarDecl 形态：类须已注册——声明在前；前向引用实为语义层更早拦截 "Invalid type"，classes_ 查询是防御性双保险）；coerce_for_slot 加 slot_cls 参数（默认空串）相等分支 Obj 严格同类校验（t61 拍板：静态 cls 即动态类是单态化分派前提；其余调用点 Obj 均有前置分支零回归）；visitProperty/visitPropertyAssign 字段读写带 cls，下游属性链/方法调用/传参/返回全走 t61 既有 Obj 路径；调研：Obj cls 守卫在变量赋值/声明/返回/传参/三元/==?/tuple 槽全部已有唯独字段路径缺；parser 字段接受 IDENTIFIER 类型（构造器判定靠 peek_next==LPAREN 不误伤），解释器 coerce_to_declared default 动态放行
+    - 验证：新差分用例 s25_object_field（字段初始值 new/属性链读写/字段实例上调方法/引用语义共享/整体替换（方法形参+直接赋值）/跨签名边界（函数接实例返回其字段）/构造器接实例存字段/深层属性链写 g.car.engine.power/继承父类实例字段/插值比较），先解释器跑通（11 行）再进差分门禁；向上转型字段赋值 + 字段初始值向上转型两拒编实证通过（"storing instance of class 'Sub' where 'Base' is declared"，解释器均可容输出 1）；ctest -C Release 差分 24/24 逐字节一致（s25 首跑即过）；Debug 门禁 6/6 不受影响
+    - 范围外：向上转型字段（同 t61）、相互/自引用类字段（声明序不可达，语义层已拦）、Num/Tup 字段（既有拒编不变）
 
 ---
 
@@ -483,6 +487,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen 类实例作类字段（t72，M6）：CGField 加 cls 伴随，register_class_layout 加 IDENTIFIER 前置分支（类名须已注册声明在前，前向引用语义层更早拦截，classes_ 查询防御性双保险）；coerce_for_slot 加 slot_cls 参数，相等分支 Obj 严格同类校验（向上转型拒编不错编，一处覆盖字段赋值/字段初始化两入口，其余调用点 Obj 均有前置分支零回归）；visitProperty/visitPropertyAssign 字段读写带 cls，属性链/单态化方法调用/深链写/继承/跨签名全走 t61 既有 Obj 路径；新差分用例 s25_object_field + 两拒编实证，ctest -C Release 差分 24/24 逐字节一致，Debug 门禁 6/6（M6 t72）
 - 2026-07-28 `feat(compiler)`: codegen 数组作类字段（t71，M6）：register_class_layout 放行 array 字段（字段槽即 opaque ptr，struct 建型/malloc 上界零改动）；CGField 无元素类型伴随，字段读出即动态域——visitProperty/visitPropertyAssign 置 elem=Num 哨兵，下游索引读写/print/传参/返回全走 t70 动态路径零新 rt 接口；写入守卫下沉 coerce_for_slot 相等分支（右值 elem 限 {Int,Double,Num}，bool/str 数组拒编，一处覆盖字段赋值/字段初始化两入口，变量/tuple 槽另有前置分支零回归）维持动态域 kind ∈ {0,1}；Num/Obj 字段、嵌套/异质数组维持拒编；新差分用例 s24_array_field + 两拒编实证，ctest -C Release 差分 23/23 逐字节一致，Debug 门禁 6/6（M6 t71）
 
 - 2026-07-28 `feat(compiler)`: codegen 数组进函数签名（t70，M6）：array 形参/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵——collie_rt 数组 kind 0/1 与 Num tag 编码重合，动态域索引读 rt_arr_get bits + 新接口 rt_arr_kind 直接拼 Num 零转换，写下沉新接口 rt_arr_set_num（tag==kind 直存/int→double 提升/decimal 写 int 数组陷阱，新缺口 CG7）；不变量：进动态域数组 elem 限 {Int,Double,Num}（bool/str 数组作实参/返回值拒编）保 kind ∈ {0,1}；数组赋值规则扩展（Num 槽 ← 数值系；静态槽 ← Num 拒编）；数组类字段/嵌套/异质维持拒编；新差分用例 s23_array_signature + CG7 陷阱与两拒编实证，ctest -C Release 差分 22/22 逐字节一致，Debug 门禁 6/6（M6 t70）

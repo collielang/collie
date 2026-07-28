@@ -1,0 +1,102 @@
+// t72 S25 差分用例：类实例作类字段（初始值/属性链/引用语义/整体替换/继承）
+// 字段槽即实例 ptr，指针拷贝即引用语义；CGField.cls 伴随驱动单态化分派
+
+class Engine {
+    public integer power = 100;
+
+    public function boost(v integer) none {
+        this.power = this.power + v;
+    }
+
+    public function describe() string {
+        return @"E({this.power})";
+    }
+}
+
+class Car {
+    public Engine engine = new Engine();
+    public string name = "car";
+
+    public function drive() string {
+        return @"{this.name}:{this.engine.power}";
+    }
+
+    public function swap(e Engine) none {
+        this.engine = e;
+    }
+
+    public function enginePower() integer {
+        return this.engine.power;
+    }
+}
+
+Car c = new Car();
+// 属性链读 + 字段实例上调方法
+print("init:", c.engine.power, c.engine.describe(), c.drive());
+
+// 属性链写：中段是字段读出的实例（cls 伴随驱动布局查询）
+c.engine.power = 150;
+print("set:", c.engine.power);
+
+// 字段实例上调可变方法，方法内 this 与字段共享
+c.engine.boost(25);
+print("boost:", c.engine.power, c.enginePower());
+
+// 引用语义：字段读出的实例与字段共享底层存储
+Engine e = c.engine;
+e.power = 7;
+print("ref:", c.engine.power, e.power);
+
+// 字段整体替换：经方法形参与直接字段赋值
+Engine e2 = new Engine();
+e2.power = 300;
+c.swap(e2);
+print("swap:", c.engine.power);
+c.engine = new Engine();
+print("assign:", c.engine.power);
+
+// 字段实例跨签名边界：函数接实例返回其字段
+function pick(x Car) Engine {
+    return x.engine;
+}
+Engine p = pick(c);
+p.boost(9);
+print("picked:", c.engine.power, p.power);
+
+// 构造器接实例存字段
+class Garage {
+    public Car car = new Car();
+
+    public Garage(x Car) {
+        this.car = x;
+    }
+
+    public function report() string {
+        return this.car.drive();
+    }
+}
+
+Garage g = new Garage(c);
+print("garage:", g.report(), g.car.engine.power);
+
+// 深层属性链写：跨两级字段仍写到共享实例
+g.car.engine.power = 42;
+print("deep:", c.engine.power);
+
+// 继承：父类实例字段在子类布局/方法中可用
+class Workshop extends Garage {
+    public string label = "w";
+
+    public Workshop(x Car) : base(x) {
+    }
+
+    public function tag() string {
+        return @"{this.label}:{this.car.engine.power}";
+    }
+}
+
+Workshop w = new Workshop(c);
+print("inherit:", w.tag(), w.report());
+
+// 字段实例的字段参与算术/比较/插值
+print("mixed:", c.engine.power + 1, c.engine.power > 40, @"p={c.engine.power}");

@@ -1230,10 +1230,11 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         llvm::Value* slot =
             builder_.CreateStructGEP(cls.type, object.value, it->second, name);
         // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
-        // 即动态域，同 t70 形参机制）
+        // 即动态域，同 t70 形参机制）；Obj 字段带类名（t72）
         last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
                        field.type,
-                       field.type == CGType::Arr ? CGType::Num : CGType::Int};
+                       field.type == CGType::Arr ? CGType::Num : CGType::Int,
+                       field.cls};
         return;
     }
     if (object.type == CGType::Tup) {
@@ -1274,12 +1275,14 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     }
     CGValue v = emit(expr.value());
     const CGField& field = cls.fields[it->second];
-    llvm::Value* stored = coerce_for_slot(v, field.type, expr.name());
+    llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
     builder_.CreateStore(
         stored, builder_.CreateStructGEP(cls.type, object.value, it->second, name));
-    // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71）
+    // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
+    // Obj 字段带类名（t72）
     last_value_ = {stored, field.type,
-                   field.type == CGType::Arr ? CGType::Num : CGType::Int};
+                   field.type == CGType::Arr ? CGType::Num : CGType::Int,
+                   field.cls};
 }
 void CodeGenerator::visitNew(const NewExpr& expr) {
     // 类实例化（t60）：collie_rt_obj_new 分配字段块（8 字节 × 字段数上界：
@@ -1300,7 +1303,8 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         const CGField& field = cls.fields[i];
         CGValue v = emit(field.decl->initializer());
         // 字段初始值按声明类型对齐（解释器 coerce_to_declared 等价静态检查）
-        llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name());
+        llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name(),
+                                              field.cls);
         builder_.CreateStore(stored,
                              builder_.CreateStructGEP(cls.type, obj, i, field.name));
     }
@@ -1997,7 +2001,8 @@ llvm::AllocaInst* CodeGenerator::create_entry_alloca(llvm::Type* type,
 }
 
 llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
-                                            const Token& where) {
+                                            const Token& where,
+                                            const std::string& slot_cls) {
     if (v.type == slot_type) {
         if (slot_type == CGType::Arr && v.elem != CGType::Int &&
             v.elem != CGType::Double && v.elem != CGType::Num) {
@@ -2006,6 +2011,14 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
             //（Arr 目标仅字段路径可达：变量/tuple 槽的 Arr 另有前置分支）
             unsupported("storing bool/string array in '" +
                             std::string(where.lexeme()) + "'",
+                        where.line(), where.column());
+        }
+        if (slot_type == CGType::Obj && v.cls != slot_cls) {
+            // 字段严格同类（t72，同 t61 变量/传参/返回拍板：静态 cls 即
+            // 动态类是单态化分派正确性的前提，向上转型拒编不错编）
+            //（Obj 目标同样仅字段路径可达）
+            unsupported("storing instance of class '" + v.cls +
+                            "' where '" + slot_cls + "' is declared",
                         where.line(), where.column());
         }
         return v.value;
@@ -2117,7 +2130,21 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
             unsupported("class field without initializer",
                         field->name().line(), field->name().column());
         }
-        CGType ftype = declared_cgtype(field->type());
+        CGType ftype;
+        std::string fcls;
+        if (field->type().type() == TokenType::IDENTIFIER) {
+            // 类实例字段（t72）：IDENTIFIER 视为类名，须已注册（声明在前，
+            // 同父类/签名要求）；自引用字段本类尚未入表自然落此拒编——
+            // 解释器侧自引用 + 字段必有初始值 = 无限递归 new，拒编不错编
+            fcls = std::string(field->type().lexeme());
+            if (classes_.count(fcls) == 0) {
+                unsupported("field type '" + fcls + "'",
+                            field->name().line(), field->name().column());
+            }
+            ftype = CGType::Obj;
+        } else {
+            ftype = declared_cgtype(field->type());
+        }
         // array 字段放行（t71）：字段槽即 opaque ptr；无处标注元素类型，
         // 读出即动态域（visitProperty 置 Num 哨兵，t70 机制复用），
         // 写入守卫在 coerce_for_slot（elem 限数值系，保 kind ∈ {0,1}）
@@ -2128,7 +2155,7 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
                         field->name().line(), field->name().column());
         }
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
-        cls.fields.push_back({fname, ftype, field});
+        cls.fields.push_back({fname, ftype, field, fcls});
         field_types.push_back(llvm_type_of(ftype));
     }
     cls.type = llvm::StructType::create(context_, field_types,

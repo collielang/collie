@@ -35,6 +35,7 @@
 | S22 | char/byte/word + 位运算：char 走 Str、byte/word i64+赋值点范围陷阱、& \| ^ ~ << >>（移位 0-63 检查） | 位运算/位类型程序编译执行，输出与解释器一致 **✅ t69** |
 | S23 | 数组进函数签名：参数/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵（运行时 kind 驱动） | 排序/累加/跨边界引用语义程序编译执行，输出与解释器一致 **✅ t70** |
 | S24 | 数组作类字段：字段声明/初始值/读写放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用） | 字段数组初始值/索引读写/引用语义/跨签名边界程序编译执行，输出与解释器一致 **✅ t71** |
+| S25 | 类实例作类字段：CGField 加 cls 伴随，字段声明识 IDENTIFIER 类名，读写严格同类（属性链/引用语义/整体替换/继承） | 字段实例属性链读写/深链写/跨签名/继承程序编译执行，输出与解释器一致 **✅ t72** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
@@ -303,7 +304,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 字段读 `obj.f` | CGField 无元素类型伴随，读出即动态域：visitProperty 置 CGValue.elem = Num 哨兵（同 t70 形参机制），下游索引读写/print/传参/返回全走 t70 动态路径，零新 rt 接口 |
 | 字段写 `obj.f = v` / 字段初始值 | 守卫下沉 coerce_for_slot 相等分支（一处覆盖 visitPropertyAssign + visitNew 两入口）：右值 elem 限 {Int, Double, Num}，bool/str 数组拒编（kind 2/3 无 number 对应），维持动态域 kind ∈ {0,1} 不变量；变量/tuple 槽的 Arr 另有前置分支，下沉零回归 |
 | 引用语义 | 字段槽存指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr） |
-| 范围外 | Num 字段（16 字节 tagged 装不进 8 字节槽，t62 拍板不变）、Obj 字段（CGField 无 cls 伴随，另立任务）、嵌套/异质数组 |
+| 范围外 | Num 字段（16 字节 tagged 装不进 8 字节槽，t62 拍板不变）、嵌套/异质数组（Obj 字段已于 t72 解锁，见 S25） |
+
+**S25 降级补充（t72 实现）：类实例作类字段**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `public Engine e = new Engine();` | register_class_layout 加 IDENTIFIER 前置分支：类名须已注册（声明在前，同父类/签名要求；前向引用实为语义层更早拦截 "Invalid type"，classes_ 查询是防御性双保险），CGField 加 cls 伴随；字段槽即 opaque ptr（llvm_type_of(Obj)），struct 建型/malloc 上界零改动 |
+| 字段读 `obj.e` | visitProperty 读出带 CGField.cls，下游属性链/方法调用（单态化分派）/传参/返回全走 t61 既有 Obj 路径 |
+| 字段写 `obj.e = v` / 字段初始值 | coerce_for_slot 加 slot_cls 参数（默认空串），相等分支 Obj 严格同类校验（t61 拍板：静态 cls 即动态类是单态化分派前提，向上转型拒编不错编）；变量/tuple 槽的 Obj 另有前置分支，加参零回归 |
+| 引用语义 | 字段槽存实例指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr）；深层属性链写（`g.car.engine.power = v`）沿 cls 伴随逐级定位布局 |
+| 范围外 | 向上转型字段（同 t61）、相互/自引用类字段（声明序不可达，语义层已拦）、Num/Tup 字段（既有拒编不变） |
 
 ## 五、构建与链接方案（关键决策）
 

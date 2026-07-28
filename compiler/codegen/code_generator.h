@@ -178,6 +178,7 @@ private:
         std::string name;
         CGType type = CGType::Int;
         const VarDeclStmt* decl = nullptr; // 初始值表达式/错误位置取自声明节点
+        std::string cls;                   // 仅 type == Obj 时有意义：类名（t72）
     };
 
     /// @brief 类信息（t60/t61）：注册遍登记合并布局与单态化方法原型，
@@ -215,8 +216,10 @@ private:
     /// @brief 在函数 entry 块创建 alloca（IR 规范位置，利于后续 mem2reg）
     llvm::AllocaInst* create_entry_alloca(llvm::Type* type, const std::string& name);
 
-    /// @brief 待存值对齐槽类型：仅 integer→decimal 隐式提升（与语义层一致），其余不匹配报错
-    llvm::Value* coerce_for_slot(const CGValue& v, CGType slot_type, const Token& where);
+    /// @brief 待存值对齐槽类型：仅 integer→decimal 隐式提升（与语义层一致），其余不匹配报错；
+    /// slot_cls 仅槽为 Obj 时有意义（字段路径严格同类校验，t72——其余调用点 Obj 另有前置分支）
+    llvm::Value* coerce_for_slot(const CGValue& v, CGType slot_type, const Token& where,
+                                 const std::string& slot_cls = "");
 
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
