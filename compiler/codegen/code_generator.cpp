@@ -96,6 +96,10 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_str_substring",
         llvm::FunctionType::get(
             ptr_ty, {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty()}, false));
+    // collie_rt 整数溢出陷阱声明（CG1 t58）：i64 算术溢出时报错退出
+    rt_trap_int_overflow_ = module_->getOrInsertFunction(
+        "collie_rt_trap_int_overflow",
+        llvm::FunctionType::get(builder_.getVoidTy(), false));
 
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
@@ -241,13 +245,26 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             if (lhs.type != CGType::Int || rhs.type != CGType::Int) {
                 unsupported("'%' on non-integer operands", op.line(), op.column());
             }
-            llvm::Value* rem = builder_.CreateSRem(lhs.value, rhs.value, "remtmp");
+            // INT64_MIN % -1 会触发 x86 idiv 硬件陷阱（srem UB，CG1 t58）；
+            // 数学结果为 0（解释器 BigInt floor_mod 同），select 换安全除数 1：
+            // srem(INT64_MIN, 1) = 0，后续 need_fix 不触发，结果自然为 0
+            llvm::Value* int_min = llvm::ConstantInt::get(
+                builder_.getInt64Ty(), llvm::APInt::getSignedMinValue(64));
+            llvm::Value* neg_one =
+                llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1);
+            llvm::Value* is_edge = builder_.CreateAnd(
+                builder_.CreateICmpEQ(lhs.value, int_min),
+                builder_.CreateICmpEQ(rhs.value, neg_one));
+            llvm::Value* safe_rhs =
+                builder_.CreateSelect(is_edge, builder_.getInt64(1), rhs.value, "safediv");
+            llvm::Value* rem = builder_.CreateSRem(lhs.value, safe_rhs, "remtmp");
             llvm::Value* zero = builder_.getInt64(0);
             llvm::Value* nonzero = builder_.CreateICmpNE(rem, zero);
             llvm::Value* rem_neg = builder_.CreateICmpSLT(rem, zero);
             llvm::Value* rhs_neg = builder_.CreateICmpSLT(rhs.value, zero);
             llvm::Value* sign_diff = builder_.CreateICmpNE(rem_neg, rhs_neg);
             llvm::Value* need_fix = builder_.CreateAnd(nonzero, sign_diff);
+            // remfix 不会溢出：|rem| < |rhs| 且二者异号，rem+rhs 落在 (-|rhs|, |rhs|)
             llvm::Value* fixed = builder_.CreateAdd(rem, rhs.value, "remfix");
             last_value_ = {builder_.CreateSelect(need_fix, fixed, rem, "floormod"),
                            CGType::Int};
@@ -275,12 +292,16 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                                                                   : builder_.CreateFMul(l, r);
                 last_value_ = {v, CGType::Double};
             } else {
-                // i64 域（妥协点 CG1：溢出回绕暂容忍，不 nsw 陷阱）
-                llvm::Value* v = op.type() == TokenType::OP_PLUS
-                                     ? builder_.CreateAdd(lhs.value, rhs.value)
-                               : op.type() == TokenType::OP_MINUS
-                                     ? builder_.CreateSub(lhs.value, rhs.value)
-                                     : builder_.CreateMul(lhs.value, rhs.value);
+                // i64 域（CG1 t58）：带溢出检查，溢出报错退出不静默回绕
+                llvm::Value* v =
+                    op.type() == TokenType::OP_PLUS
+                        ? checked_int_arith(llvm::Intrinsic::sadd_with_overflow,
+                                            lhs.value, rhs.value, "addtmp")
+                    : op.type() == TokenType::OP_MINUS
+                        ? checked_int_arith(llvm::Intrinsic::ssub_with_overflow,
+                                            lhs.value, rhs.value, "subtmp")
+                        : checked_int_arith(llvm::Intrinsic::smul_with_overflow,
+                                            lhs.value, rhs.value, "multmp");
                 last_value_ = {v, CGType::Int};
             }
             return;
@@ -363,7 +384,9 @@ void CodeGenerator::visitUnary(const UnaryExpr& expr) {
     }
     CGValue v = emit(expr.operand());
     if (v.type == CGType::Int) {
-        last_value_ = {builder_.CreateSub(builder_.getInt64(0), v.value, "negtmp"),
+        // 一元负号也走溢出检查（CG1 t58）：-INT64_MIN 超 i64 范围，陷阱报错
+        last_value_ = {checked_int_arith(llvm::Intrinsic::ssub_with_overflow,
+                                         builder_.getInt64(0), v.value, "negtmp"),
                        CGType::Int};
     } else if (v.type == CGType::Double) {
         last_value_ = {builder_.CreateFNeg(v.value, "negtmp"), CGType::Double};
@@ -1033,6 +1056,25 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     phi->addIncoming(then_val, then_end);
     phi->addIncoming(else_val, else_end);
     last_value_ = {phi, result_type};
+}
+
+llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
+                                              llvm::Value* rhs, const llvm::Twine& name) {
+    // s{add,sub,mul}.with.overflow 返 {i64 结果, i1 溢出位}；溢出分支调陷阱
+    // 报错退出（不回返，unreachable 收尾），把 CG1 的静默回绕变为显式报错；
+    // 每检查点独立 trap/cont 块，后续 LLVM 优化自行合并
+    llvm::Value* pair = builder_.CreateBinaryIntrinsic(id, lhs, rhs);
+    llvm::Value* result = builder_.CreateExtractValue(pair, 0, name);
+    llvm::Value* overflowed = builder_.CreateExtractValue(pair, 1, "ovf");
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::BasicBlock* trap_bb = llvm::BasicBlock::Create(context_, "ovf.trap", fn);
+    llvm::BasicBlock* cont_bb = llvm::BasicBlock::Create(context_, "ovf.cont", fn);
+    builder_.CreateCondBr(overflowed, trap_bb, cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_int_overflow_);
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return result;
 }
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {

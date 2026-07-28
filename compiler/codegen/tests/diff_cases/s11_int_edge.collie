@@ -1,0 +1,39 @@
+// t58 CG1 差分用例：i64 边界内整数算术（溢出检查接入后的回归 + 边缘路径）
+// 注意：不含溢出场景——溢出时解释器（BigInt）算对而编译产物显式报错，
+// 输出必然不同；trap 行为在任务验证中单独手工确认
+
+// i64 上边界：INT64_MAX 字面量与加减
+integer big = 9223372036854775807;
+print("max:", big, big - 1, big - 1000000 + 999999);
+
+// i64 下边界：INT64_MIN 只能由表达式构造（字面量 9223372036854775808 超 i64 拒编）
+integer min = -9223372036854775807 - 1;
+print("min:", min, min + 1, min + big);
+
+// 一元负号边界：-INT64_MAX 在范围内（-INT64_MIN 会溢出，不在用例内）
+print("neg:", -big, -(big - 1));
+
+// INT64_MIN % -1 边缘：数学结果 0（srem 硬件陷阱边缘走 select 安全除数路径）
+print("mod-edge:", min % -1, min % 7, big % -7);
+
+// floor 取模回归（四象限，结果符号与除数一致）
+print("mod:", 7 % 3, -7 % 3, 7 % -3, -7 % -3);
+
+// 乘法边界：3037000499^2 = 9223372030926249001 < INT64_MAX，不溢出
+integer root = 3037000499;
+print("mul:", root * root, root * -root);
+
+// 复合赋值路径（+= 脱糖为二元加，同样过溢出检查）
+integer acc = 9223372036854775000;
+integer i = 0;
+while (i < 8) {
+    acc += 100;
+    i += 1;
+}
+print("acc:", acc);
+
+// 函数中运算
+function addBig(a integer, b integer) integer {
+    return a + b;
+}
+print("fn:", addBig(big - 5, 5), addBig(min + 3, -3));

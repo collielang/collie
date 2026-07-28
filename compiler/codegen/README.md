@@ -21,7 +21,8 @@
 | S8 | string 六种比较运算（strcmp 降级） | 字典序/相等比较程序编译执行，输出与解释器一致 **✅ t55** |
 | S9 | string length 属性 + 索引 `s[i]`（UTF-8 码点） | 多字节码点 length/正负索引程序编译执行，输出与解释器一致 **✅ t56** |
 | S10 | string 方法 trim 系列/subString + toString 方法形式 | 方法/链式调用程序编译执行，输出与解释器一致 **✅ t57** |
-| 后续 | class、BigInt、array/tuple | 逐任务扩展 |
+| S11 | 整数溢出陷阱（CG1 收窄）：i64 加/减/乘/负号溢出显式报错 | 边界内大数程序输出与解释器一致，溢出程序陷阱退出 **✅ t58** |
+| 后续 | array、class、BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
@@ -46,7 +47,7 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 
 | Collie 类型 | LLVM 类型 | 备注 |
 |------------|-----------|------|
-| `integer` | `i64` | **妥协点**：SPEC §3.2 规定 integer 为任意精度 BigInt；第一期降为 i64，溢出行为未定义（缺口 CG1，后续接 BigInt 运行时库） |
+| `integer` | `i64` | **妥协点**：SPEC §3.2 规定 integer 为任意精度 BigInt；第一期降为 i64，溢出时显式陷阱报错退出（t58 收窄，不静默回绕；任意精度对齐仍属缺口 CG1，后续接 BigInt 运行时库） |
 | `number`（整数表示） | `i64` | 同上 |
 | `decimal` / `number`（小数表示） | `double` | IEEE 754，与解释器一致 |
 | `bool` | `i1` | |
@@ -172,7 +173,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 
 | 编号 | 缺口 | 计划 |
 |------|------|------|
-| CG1 | integer 降为 i64，非任意精度；溢出回绕不报错 | BigInt 运行时库（collie_rt），或先加 `llvm.sadd.with.overflow` 陷阱 |
+| CG1 | integer 降为 i64，非任意精度；溢出已改显式陷阱报错退出（t58：s{add,sub,mul}.with.overflow + collie_rt_trap_int_overflow，含一元负号；INT64_MIN % -1 硬件陷阱边缘 select 安全除数得 0 对齐解释器），不再静默回绕；超 i64 字面量仍编译期拒编 | 任意精度对齐：BigInt 运行时库（collie_rt）远期 |
 | CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组/none/tuple 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |

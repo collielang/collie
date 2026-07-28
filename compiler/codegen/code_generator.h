@@ -163,6 +163,11 @@ private:
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
 
+    /// @brief i64 带溢出检查的加/减/乘（CG1 t58）：s*.with.overflow intrinsic，
+    /// 溢出分支调 collie_rt 陷阱报错退出，插入点落在继续块后返回结果值
+    llvm::Value* checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
+                                   llvm::Value* rhs, const llvm::Twine& name);
+
     /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
     llvm::Value* to_str(const CGValue& v, const Token& where);
 
@@ -192,6 +197,8 @@ private:
     /// collie_rt 字符串方法（S10 t57）：trim 系列与 subString 码点区间
     llvm::FunctionCallee rt_str_trim_;      // ptr(ptr, i32 mode)，mode 0=两端/1=左/2=右
     llvm::FunctionCallee rt_str_substring_; // ptr(ptr, i64, i64)，end==-1 取 length
+    /// collie_rt 整数溢出陷阱（CG1 t58）：i64 算术溢出时报错退出，不静默回绕
+    llvm::FunctionCallee rt_trap_int_overflow_; // void()
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t57 完成：codegen string 方法 trim 系列/subString/toString 方法形式，差分 9/9）
+最后更新：2026-07-26（t58 完成：codegen CG1 整数溢出陷阱，i64 加/减/乘/负号换 with.overflow intrinsic 显式报错，差分 10/10）
 
 ---
 
@@ -376,6 +376,10 @@
     - 实现：collie_rt 新增 collie_rt_str_trim（ptr×i32 mode⇒ptr，mode 0=两端/1=左/2=右，只剥空格与 Tab，对齐解释器 is_blank）+ collie_rt_str_substring（ptr×i64×i64⇒ptr，UTF-8 码点区间 [start,end)，end==-1 特判取 length，clamp 截断、start>=end 空串，对齐解释器 subString）；codegen visitMethodCall 接入：Str 接收者的 trim/trimLeft/trimRight（0 参）与 subString（1-2 参，参数限 Int，缺 end 传 -1）；任意标量接收者的 toString()（0 参，复用 to_str，与内建 toString(x) 同一降级）
     - 范围外：toNumber（返回动态 number，codegen 无对应类型）、number/tribool/tuple 方法（abs/isTrue/get 等，对应类型降级未就绪）；subString 的 Double/NaN 参数拒编不错编（解释器 NaN 特判属 Double 域）
     - 验证：新差分用例 s10_string_methods（trim 三形态正反例/全空白/Tab、subString 基本/缺省 end/-1/越界截断/start>=end/中文码点、toString 方法形式四类接收者、链式调用、函数中使用），ctest -C Release 差分 9/9 逐字节一致；Debug 门禁 6/6 不受影响
+- [x] codegen CG1 整数溢出陷阱（t58）
+    - 实现：M6 三大剩余方向（class/BigInt/array）调研后，先做成本最低的 CG1 溢出陷阱——i64 加/减/乘/一元负号换 llvm.s{add,sub,mul}.with.overflow intrinsic（checked_int_arith helper，每检查点独立 trap/cont 块），溢出即调 collie_rt_trap_int_overflow 报错退出，把"静默回绕错值"变为"显式运行期报错"（符合绝不静默错编原则）；`%` 的 INT64_MIN % -1 硬件陷阱边缘用 select 安全除数处理（数学结果 0，与解释器 BigInt floor_mod 对齐）；后续顺序：t59 array 最小闭环 → t60 class 最小闭环 → BigInt 运行时化远期
+    - 范围外：BigInt 任意精度运行时化（313 行 BigInt 移植纯 C + 整数值改不透明指针，改造面大，远期）；差分用例不含溢出场景（溢出时解释器算对而编译产物报错，输出必然不同，trap 行为单独手工验证）
+    - 验证：新差分用例 s11_int_edge（i64 边界内大数加减乘/负号/INT64_MIN%-1/floor 取模回归/复合赋值/函数中运算），ctest -C Release 差分 10/10 逐字节一致；溢出 trap 手工验证通过（编译 INT64_MAX+1 程序，stderr 输出 runtime error: integer overflow、非零退出码、trap 后语句未执行）；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -430,6 +434,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen CG1 整数溢出陷阱（t58，M6）：i64 加/减/乘/一元负号换 llvm.s{add,sub,mul}.with.overflow intrinsic（checked_int_arith helper，每检查点独立 trap/cont 块），溢出调 collie_rt_trap_int_overflow 报错退出，静默回绕改显式运行期报错；INT64_MIN % -1 硬件陷阱边缘 select 安全除数（结果 0 对齐解释器 floor_mod）；新差分用例 s11_int_edge（边界大数/负号/取模边缘/复合赋值），ctest -C Release 差分 10/10 逐字节一致，溢出 trap 手工验证通过（stderr 报错+非零退出码），Debug 门禁 6/6（M6 t58）
 - 2026-07-26 `feat(compiler)`: codegen string 方法降级（t57，M6）：collie_rt 新增 collie_rt_str_trim（mode 0=两端/1=左/2=右，只剥空格与 Tab）+ collie_rt_str_substring（UTF-8 码点区间 [start,end)，end==-1 取 length，越界 clamp）；codegen visitMethodCall 接入 Str 的 trim 系列/subString（参数限 Int，缺 end 传 -1）与任意标量的 toString() 方法形式（复用 to_str），toNumber 等维持拒编；新差分用例 s10_string_methods（含中文码点/链式调用），ctest -C Release 差分 9/9 逐字节一致，Debug 门禁 6/6（M6 t57）
 - 2026-07-26 `feat(compiler)`: codegen string length 属性 + 索引 s[i] UTF-8 码点降级（t56，M6）：collie_rt 新增 collie_rt_str_len（码点计数，照抄解释器 utf8_length 首字节步进）+ collie_rt_str_index（负索引归一化，越界报错退出，返 malloc 单码点子串）；codegen visitProperty 支持 Str.length（→Int）、visitIndex 支持 Str×Int（→Str），其余维持拒编；新差分用例 s9_string_index（含中文多字节码点），ctest -C Release 差分 8/8 逐字节一致，Debug 门禁 6/6（M6 t56）
 - 2026-07-26 `feat(compiler)`: codegen string 六种比较运算 strcmp 降级（t55，M6）：collie_rt 新增 collie_rt_strcmp（strcmp 语义，逐字节字典序与解释器 std::string 比较一致）单接口；codegen visitBinary 比较 case 新增 Str×Str 分支（call 后与 0 做对应 icmp EQ/NE/SLT/SLE/SGT/SGE），混型维持拒编；SPEC.md §4.4 补 string 关系比较（逐字节字典序）规范条目；新差分用例 s8_string_compare，ctest -C Release 差分 7/7 逐字节一致，Debug 门禁 6/6（M6 t55）

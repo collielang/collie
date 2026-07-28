@@ -38,6 +38,11 @@
  *   const char* collie_rt_str_substring(const char* s, long long start, long long end);
  *     // malloc 新串；UTF-8 码点区间 [start,end)，end==-1 取 length，越界 clamp
  *
+ * 整数溢出陷阱（t58，缺口 CG1）：
+ *   void collie_rt_trap_int_overflow(void);  // stderr 报错后 exit(1)；
+ *     codegen 的 i64 加/减/乘/一元负号经 s*.with.overflow 检查，溢出即调此陷阱，
+ *     把静默回绕错值变为显式运行期报错（解释器 BigInt 任意精度无溢出）
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -237,4 +242,14 @@ const char* collie_rt_str_substring(const char* s, long long start, long long en
     memcpy(out, s + from, n);
     out[n] = '\0';
     return out;
+}
+
+/* ---- 整数溢出陷阱（t58，缺口 CG1）---- */
+
+/* i64 算术溢出：解释器 integer 为 BigInt 任意精度永不溢出，编译产物降为
+ * i64 后超范围无法算对；显式报错退出，绝不静默回绕错值 */
+void collie_rt_trap_int_overflow(void) {
+    fprintf(stderr, "runtime error: integer overflow "
+                    "(compiled code uses 64-bit integers, gap CG1)\n");
+    exit(1);
 }
