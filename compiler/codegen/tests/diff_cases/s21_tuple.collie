@@ -1,0 +1,66 @@
+// t68 S21 差分用例：tuple 静态展开（字面量/常量索引/命名字段/get/length/print）
+
+// 无名元组：整体打印 + 常量索引（含负索引）+ length
+Tuple t = (10, 20, 30);
+print("t:", t);
+print("t[0]:", t[0]);
+print("t[2]:", t[2]);
+print("t[-1]:", t[-1]);
+print("t[-3]:", t[-3]);
+print("t.length:", t.length);
+
+// 命名元组：字段访问 + get("常量键") + length
+Tuple p = (name: "collie", age: 3);
+print("p:", p);
+print("p.name:", p.name);
+print("p.age:", p.age);
+print("p.get:", p.get("name"), p.get("age"));
+print("p.length:", p.length);
+
+// 混合命名：无名/命名共存，get 只匹配非空名
+Tuple m = (7, tag: "hi");
+print("m:", m);
+print("m[0]:", m[0]);
+print("m.tag:", m.tag);
+print("m.get(tag):", m.get("tag"));
+
+// 空元组
+Tuple e = ();
+print("e:", e);
+print("e.length:", e.length);
+
+// 嵌套元组：整体打印 + 逐级常量索引
+Tuple nested = ((1, 2), 3);
+print("nested:", nested);
+print("nested[0]:", nested[0]);
+print("nested[0][1]:", nested[0][1]);
+print("nested[1]:", nested[1]);
+
+// 混型元素：integer/string/decimal/bool
+Tuple mixed = (1, "two", 3.5, true);
+print("mixed:", mixed);
+print("mixed[1]:", mixed[1]);
+print("mixed[3]:", mixed[3]);
+
+// length 属性优先于同名字段（对齐解释器 visitProperty 分支顺序）
+Tuple tricky = (length: 99, x: 1);
+print("tricky.length:", tricky.length);
+print("tricky.x:", tricky.x);
+print("tricky.get(length):", tricky.get("length"));
+
+// 同形状重赋值：元素数与名字表一致，逐槽写
+t = (100, 200, 300);
+print("t2:", t, t[1]);
+p = (name: "dog", age: 5);
+print("p2:", p.name, p.age);
+
+// toString / 插值 / '+' 拼接（均经 tuple_to_str 静态展开）
+print("toString:", toString(t));
+print(@"interp={p}");
+print("concat: " + toString(m)); // 语义层不放行 string + tuple 直拼，经 toString
+
+// 元素参与运算
+print("sum:", t[0] + t[1] + t[2]);
+print("cmp:", t[0] > 99);
+string s = p.name + "!";
+print("s:", s);

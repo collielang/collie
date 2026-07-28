@@ -31,9 +31,10 @@
 | S18 | tribool 三态布尔：i8 三态编码 + Kleene min/max + 三分支三元 | 三态逻辑/短路副作用/穷尽匹配程序编译执行，输出与解释器一致 **✅ t65** |
 | S19 | switch 语句：级联比较块链（首命中 + 无 fallthrough，default 位置无关） | switch 程序编译执行，输出与解释器一致 **✅ t66** |
 | S20 | number 专属方法：abs/integerPart/decimalPart + 7 个 is* 谓词（三路降级） | 三类数值接收者方法程序编译执行，输出与解释器一致 **✅ t67** |
+| S21 | tuple 静态展开：字面量/常量索引/命名字段/get/length/print（无运行时对象） | tuple 程序编译执行，输出与解释器一致 **✅ t68** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：tuple、异常语义（tribool/Kleene 已于 S18 t65 解锁，tribool 进数组/元组仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -152,7 +153,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `s.trim()` / `trimLeft()` / `trimRight()` | `call ptr @collie_rt_str_trim(ptr, i32 mode)`（mode 0=两端/1=左/2=右）：只剥空格与 Tab（对齐解释器 is_blank），返 malloc 新串（CG6 不 free） |
 | `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数限 Int（Double/NaN 特例拒编，解释器 NaN 特判属 Double 域） |
 | `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
-| `toNumber()` / number/tuple 方法 | toNumber() 已于 S16（t63）解锁；tribool 方法（isTrue/isFalse/isUnset）已于 S18（t65）解锁；number 专属方法（abs/integerPart 等）已于 S20（t67）解锁；tuple 方法拒编（待对应类型 codegen 支持） |
+| `toNumber()` / number/tuple 方法 | toNumber() 已于 S16（t63）解锁；tribool 方法（isTrue/isFalse/isUnset）已于 S18（t65）解锁；number 专属方法（abs/integerPart 等）已于 S20（t67）解锁；tuple.get("字面量键")已于 S21（t68）静态解析 |
 
 **S12 降级补充（t59 实现）：array 最小闭环**：
 
@@ -256,6 +257,18 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | Num 接收者（{i64,i64}） | `icmp eq(tag,0)` 分支 nummeth.int / nummeth.dbl 两路各走上述降级，nummeth.merge PHI 合并；数值结果重新 `make_num` 打 tag（整数态保持整数态，对齐解释器 BigInt/double 双路分发） |
 | 接口面 | 零新增 collie_rt 接口（仅复用 `collie_rt_trap_int_overflow`）；10 个方法均 0 参（语义层已校验，codegen 防御拒编） |
 
+**S21 降级补充（t68 实现）：tuple 静态展开**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 元组字面量 `(1, name: v)` | 无运行时对象：逐元素求值后连同名字表登记 `tuple_values_` 注册表，表达式值为 CGType::Tup 虚值（llvm value 恒 nullptr，`tup` 存注册表下标）；元素类型/个数/名字编译期全可知（语义层零追踪，codegen 自建） |
+| `Tuple t = …` 声明 / 重赋值 | 解构为逐元素独立 alloca 槽（槽名 `t.0`/`t.1`，嵌套元组递归子条目，形状入 `tuple_vars_`，取自初始值）；变量读逐槽 load 重组新虚值；重赋值要求同形状（元素数 + 名字表一致）逐槽写，否则拒编 |
+| `t[常量 i]` | 编译期解析成对应元素：`const_int_of` AST 层模式匹配（整数字面量或一元负号包字面量，避开 emit 的溢出检查产非常量指令）；负索引归一化对齐解释器 normalize_index；越界/动态索引拒编 |
+| `t.length` / `t.name` / `t.get("键")` | length 常量折叠 `i64 n`（优先于同名字段，对齐解释器分支顺序）；命名字段线性扫名字表（不排除空名）、get 限字符串字面量键（排除空名）——两处匹配规则分别对齐解释器 visitProperty/get；未命中/动态键拒编 |
+| print / toString / 插值 | `tuple_to_str` 静态展开："("、", "、"name: "、")" 常量段编译期合并，元素经 `to_str` 降级（嵌套 Tup 递归），`collie_rt_concat` 链拼接；格式对齐 Value::to_string Tuple 分支（string 元素不加引号，空元组 `()`） |
+| 防错编守卫 | 三元/`==?` 分支产 tuple 显式拒编（虚值 nullptr 进 PHI 会静默错编）；`llvm_type_of(Tup)` 拒编（类字段等位置）；`declared_signature_type` 对 KW_TUPLE 拒编（形状跨函数边界不可知）；比较/算术/len/进数组等其余触点经既有 default/else 分支自然拒编 |
+| 接口面 | 零新增 collie_rt 接口（仅复用 `collie_rt_concat`） |
+
 ## 五、构建与链接方案（关键决策）
 
 **CRT 对齐**（t48b 已验证的事实）：LLVM 官方预编译包为 Release + **/MT 静态 CRT**；
@@ -287,7 +300,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | 编号 | 缺口 | 计划 |
 |------|------|------|
 | CG1 | integer 降为 i64，非任意精度；溢出已改显式陷阱报错退出（t58：s{add,sub,mul}.with.overflow + collie_rt_trap_int_overflow，含一元负号；INT64_MIN % -1 硬件陷阱边缘 select 安全除数得 0 对齐解释器），不再静默回绕；超 i64 字面量仍编译期拒编 | 任意精度对齐：BigInt 运行时库（collie_rt）远期 |
-| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组格式已对齐（t59 arr_to_str）；none/tuple 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
+| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组格式已对齐（t59 arr_to_str）；tuple 格式已对齐（t68 tuple_to_str 静态展开）；none 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 | CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |

@@ -670,6 +670,11 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 builder_.CreateCall(rt_print_str_,
                                     {builder_.CreateGlobalString("<object>")});
                 break;
+            case CGType::Tup:
+                // tuple 打印（t68）：静态展开拼接后整串输出（格式对齐
+                // Value::to_string Tuple 分支）
+                builder_.CreateCall(rt_print_str_, {tuple_to_str(v, expr.paren())});
+                break;
             case CGType::Void:
                 // none 返回函数的调用结果无值可打（解释器打 none，降级无对应表示）
                 unsupported("print of 'none' value",
@@ -743,6 +748,11 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
         unsupported("identifier '" + name + "'",
                     expr.name().line(), expr.name().column());
     }
+    if (var->type == CGType::Tup) {
+        // tuple 变量（t68）：无单一 slot，逐解构槽 load 重组展开值
+        last_value_ = load_tuple_var(var->tup, name);
+        return;
+    }
     last_value_ = {builder_.CreateLoad(llvm_type_of(var->type), var->slot, name),
                    var->type, var->elem, var->cls};
 }
@@ -777,13 +787,35 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         last_value_ = {v.value, CGType::Obj, CGType::Int, var->cls};
         return;
     }
+    if (var->type == CGType::Tup) {
+        // tuple 变量重赋值（t68）：同形状逐槽写（形状不同拒编不错编）
+        int idx = store_tuple_var(var->tup, v, expr.name());
+        last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
+        return;
+    }
     llvm::Value* stored = coerce_for_slot(v, var->type, expr.name());
     builder_.CreateStore(stored, var->slot);
     // 赋值表达式的值 = 存入后的值（与解释器一致）
     last_value_ = {stored, var->type};
 }
 
-void CodeGenerator::visitTuple(const TupleExpr&) { unsupported("tuple", 0, 0); }
+void CodeGenerator::visitTuple(const TupleExpr& expr) {
+    // 元组字面量（t68）：纯静态展开——元素求值后连同名字表登记注册表，
+    // 无运行时对象（虚值 value=nullptr）；元素类型/个数/名字编译期全可知
+    //（语义层对 tuple 元素零追踪，codegen 自建，对齐解释器 visitTuple 求值顺序）
+    CGTuple t;
+    t.elems.reserve(expr.elements().size());
+    for (const auto& element : expr.elements()) {
+        CGValue v = emit(element.get());
+        if (v.type == CGType::Void) {
+            unsupported("tuple element without value",
+                        expr.paren().line(), expr.paren().column());
+        }
+        t.elems.push_back(v);
+    }
+    t.names = expr.names();
+    last_value_ = {nullptr, CGType::Tup, CGType::Int, "", register_tuple(std::move(t))};
+}
 void CodeGenerator::visitTernary(const TernaryExpr& expr) { gen_ternary(expr); }
 void CodeGenerator::visitMultiMatch(const MultiMatchExpr& expr) { gen_multi_match(expr); }
 void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
@@ -836,6 +868,25 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
     // 运行期（对齐解释器 normalize_index）；tuple 索引待对应类型 codegen 支持，
     // 非 Int 索引拒编不错编
     CGValue object = emit(expr.object());
+    if (object.type == CGType::Tup) {
+        // tuple 常量索引（t68）：编译期解析（含负索引归一化；越界解释器
+        // 为运行期报错，codegen 静态可判，拒编不错编）；动态索引无法
+        // 静态选型，拒编
+        long long idx = 0;
+        if (!const_int_of(expr.index(), idx)) {
+            unsupported("non-constant tuple index",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        const CGTuple& t = tuple_values_[object.tup];
+        const long long n = static_cast<long long>(t.elems.size());
+        if (idx < 0) idx += n; // 负索引归一化（对齐解释器 normalize_index）
+        if (idx < 0 || idx >= n) {
+            unsupported("tuple index out of range",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        last_value_ = t.elems[static_cast<size_t>(idx)];
+        return;
+    }
     if (object.type != CGType::Str && object.type != CGType::Arr) {
         unsupported("indexing this value type",
                     expr.bracket().line(), expr.bracket().column());
@@ -929,6 +980,27 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     if (name == "toString" && expr.arguments().empty()) {
         last_value_ = {to_str(object, expr.name()), CGType::Str};
         return;
+    }
+
+    if (object.type == CGType::Tup && name == "get") {
+        // tuple.get("常量键")（t68）：键限字符串字面量，编译期扫名字表解析
+        //（对齐解释器 get 的非空名匹配；动态键/未命中静态可判，拒编不错编）
+        if (expr.arguments().size() != 1) {
+            unsupported("get() with this arity", line, column);
+        }
+        const auto* key = dynamic_cast<const LiteralExpr*>(expr.arguments()[0].get());
+        if (!key || key->token().type() != TokenType::LITERAL_STRING) {
+            unsupported("non-constant tuple get() key", line, column);
+        }
+        const std::string key_str(key->token().lexeme());
+        const CGTuple& t = tuple_values_[object.tup];
+        for (size_t i = 0; i < t.names.size(); ++i) {
+            if (!t.names[i].empty() && t.names[i] == key_str) {
+                last_value_ = t.elems[i];
+                return;
+            }
+        }
+        unsupported("undefined tuple field '" + key_str + "'", line, column);
     }
 
     if (name == "toNumber" && expr.arguments().empty()) {
@@ -1033,6 +1105,25 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
                        field.type};
         return;
+    }
+    if (object.type == CGType::Tup) {
+        // tuple 属性（t68）：length 常量折叠（优先于同名字段，对齐解释器
+        // visitProperty 分支顺序）；命名字段线性扫名字表编译期解析（未
+        // 找到解释器为运行期报错，codegen 静态可判，拒编不错编）
+        const std::string name(expr.name().lexeme());
+        const CGTuple& t = tuple_values_[object.tup];
+        if (name == "length") {
+            last_value_ = {builder_.getInt64(t.elems.size()), CGType::Int};
+            return;
+        }
+        for (size_t i = 0; i < t.names.size(); ++i) {
+            if (t.names[i] == name) {
+                last_value_ = t.elems[i];
+                return;
+            }
+        }
+        unsupported("undefined tuple field '" + name + "'",
+                    expr.name().line(), expr.name().column());
     }
     unsupported("property access", expr.name().line(), expr.name().column());
 }
@@ -1227,6 +1318,18 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     CGValue init = emit(stmt.initializer());
     CGType elem = CGType::Int;
     llvm::Value* stored = nullptr;
+    if (type == CGType::Tup) {
+        // Tuple 变量（t68）：解构为逐元素独立槽（无单一 slot，形状入
+        // tuple_vars_）；声明无元素类型标注，形状取自初始值
+        if (init.type != CGType::Tup) {
+            unsupported("initializing 'Tuple' variable with non-tuple value",
+                        stmt.name().line(), stmt.name().column());
+        }
+        const std::string name(stmt.name().lexeme());
+        int idx = create_tuple_var(tuple_values_[init.tup], name);
+        scopes_.back()[name] = {nullptr, CGType::Tup, CGType::Int, "", idx};
+        return;
+    }
     if (type == CGType::Arr) {
         // array 槽存不透明 ptr（指针拷贝即引用语义）；声明无元素类型标注，
         // 元素类型取自初始值的同质推断结果（t59）
@@ -1610,6 +1713,7 @@ CodeGenerator::CGType CodeGenerator::declared_cgtype(const Token& type_token) {
         case TokenType::KW_ARRAY:   return CGType::Arr; // 元素类型由初始值推断（t59）
         case TokenType::KW_NUMBER:  return CGType::Num; // tagged 双表示（t62，CG5 收窄）
         case TokenType::KW_TRIBOOL: return CGType::Tri; // i8 三态编码（t65）
+        case TokenType::KW_TUPLE:   return CGType::Tup; // 静态展开虚值（t68，形状取自初始值）
         default:
             unsupported("variable type '" + std::string(type_token.lexeme()) + "'",
                         type_token.line(), type_token.column());
@@ -1620,6 +1724,11 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
                                             CGType& type_out, std::string& cls_out) {
     // 函数/方法签名类型（t61）：IDENTIFIER 视为类名（实例作参数/返回值），
     // 须已注册（类声明在前）；其余走 declared_cgtype 标量面
+    if (type_token.type() == TokenType::KW_TUPLE) {
+        // tuple 进函数签名拒编（t68）：静态展开的形状跨函数边界不可知
+        unsupported("tuple in function signature",
+                    type_token.line(), type_token.column());
+    }
     if (type_token.type() == TokenType::IDENTIFIER) {
         const std::string cname(type_token.lexeme());
         if (classes_.count(cname) == 0) {
@@ -1694,6 +1803,10 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
         case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
         case CGType::Obj:    return llvm::PointerType::getUnqual(context_);
+        case CGType::Tup:
+            // tuple 虚值无 LLVM 承载（t68）：落到此处即进了未静态展开的
+            // 位置（如类字段），拒编不错编
+            unsupported("tuple value in this position", 0, 0);
         case CGType::Void:   return builder_.getVoidTy();
     }
     return builder_.getInt64Ty(); // 不可达，压编译器警告
@@ -2050,6 +2163,11 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         unsupported("ternary branch has no value",
                     expr.question_token().line(), expr.question_token().column());
     }
+    if (result_type == CGType::Tup) {
+        // tuple 虚值（value=nullptr）无法进 PHI，拒编不错编（t68）
+        unsupported("ternary branch yields a tuple",
+                    expr.question_token().line(), expr.question_token().column());
+    }
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
         if (v.type == result_type) {
@@ -2200,6 +2318,10 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     CGType result_type = arms.front().value.type;
     if (result_type == CGType::Void) {
         unsupported("'==?' branch result has no value", op.line(), op.column());
+    }
+    if (result_type == CGType::Tup) {
+        // tuple 虚值（value=nullptr）无法进 PHI，拒编不错编（t68）
+        unsupported("'==?' branch yields a tuple", op.line(), op.column());
     }
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
@@ -2524,6 +2646,9 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
         case CGType::Obj:
             // 实例转串固定 "<object>"（对齐 Value::to_string Instance 分支，t60）
             return builder_.CreateGlobalString("<object>");
+        case CGType::Tup:
+            // tuple 转串（t68）：静态展开拼接（拉通 toString/插值/'+' 拼接）
+            return tuple_to_str(v, where);
         default:
             unsupported("string conversion of this value", where.line(), where.column());
     }
@@ -2560,6 +2685,182 @@ int CodeGenerator::arr_kind_of(CGType elem) {
         case CGType::Str:    return 3;
         default:             unsupported("array element type", 0, 0);
     }
+}
+
+// ---------------- tuple 静态展开（t68） ----------------
+
+bool CodeGenerator::const_int_of(const Expr* e, long long& out) {
+    // AST 层模式匹配：整数字面量或一元负号包字面量（t[-1] 的 AST 为
+    // UnaryExpr('-')+LiteralExpr，若走 emit 会经溢出检查产非常量指令）；
+    // 字面量分类与 visitLiteral 一致（含 .eEf 即小数；Infinity 含 'f' 天然落入）
+    if (const auto* lit = dynamic_cast<const LiteralExpr*>(e)) {
+        if (lit->token().type() != TokenType::LITERAL_NUMBER) {
+            return false;
+        }
+        const std::string lexeme(lit->token().lexeme());
+        const bool is_hex = lexeme.size() > 1 && lexeme[0] == '0' &&
+                            (lexeme[1] == 'x' || lexeme[1] == 'X');
+        if (!is_hex && lexeme.find_first_of(".eEf") != std::string::npos) {
+            return false;
+        }
+        errno = 0;
+        char* end = nullptr;
+        const long long v = std::strtoll(lexeme.c_str(), &end, is_hex ? 16 : 10);
+        if (errno == ERANGE || (end && *end != '\0')) {
+            return false;
+        }
+        out = v;
+        return true;
+    }
+    if (const auto* un = dynamic_cast<const UnaryExpr*>(e)) {
+        long long inner = 0;
+        if (un->op().type() != TokenType::OP_MINUS ||
+            !const_int_of(un->operand(), inner)) {
+            return false;
+        }
+        out = -inner; // inner ≥ 0（字面量无符号），取负不溢出
+        return true;
+    }
+    return false;
+}
+
+int CodeGenerator::register_tuple(CGTuple t) {
+    tuple_values_.push_back(std::move(t));
+    return static_cast<int>(tuple_values_.size()) - 1;
+}
+
+int CodeGenerator::create_tuple_var(CGTuple t, const std::string& name) {
+    // 逐元素独立 entry alloca 槽 + store 初始值；嵌套 tuple 元素递归建
+    // 子槽组（本层槽仅记子条目下标）；参数按值：递归 push 注册表防引用失效
+    CGTupleVar tv;
+    tv.names = t.names;
+    tv.slots.reserve(t.elems.size());
+    for (size_t i = 0; i < t.elems.size(); ++i) {
+        const CGValue& v = t.elems[i];
+        const std::string slot_name = name + "." + std::to_string(i);
+        CGVar var;
+        var.type = v.type;
+        var.elem = v.elem;
+        var.cls = v.cls;
+        if (v.type == CGType::Tup) {
+            var.tup = create_tuple_var(tuple_values_[v.tup], slot_name);
+        } else {
+            var.slot = create_entry_alloca(llvm_type_of(v.type), slot_name);
+            builder_.CreateStore(v.value, var.slot);
+        }
+        tv.slots.push_back(std::move(var));
+    }
+    tuple_vars_.push_back(std::move(tv));
+    return static_cast<int>(tuple_vars_.size()) - 1;
+}
+
+CodeGenerator::CGValue CodeGenerator::load_tuple_var(int var_idx,
+                                                     const std::string& name) {
+    // 逐槽 load 重组展开值（嵌套递归）；注册表下标访问不留引用
+    //（register_tuple 会扩容 tuple_values_）
+    CGTuple t;
+    t.names = tuple_vars_[var_idx].names;
+    const size_t n = tuple_vars_[var_idx].slots.size();
+    t.elems.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+        const CGVar var = tuple_vars_[var_idx].slots[i];
+        const std::string slot_name = name + "." + std::to_string(i);
+        if (var.type == CGType::Tup) {
+            t.elems.push_back(load_tuple_var(var.tup, slot_name));
+        } else {
+            t.elems.push_back({builder_.CreateLoad(llvm_type_of(var.type),
+                                                   var.slot, slot_name),
+                               var.type, var.elem, var.cls});
+        }
+    }
+    return {nullptr, CGType::Tup, CGType::Int, "", register_tuple(std::move(t))};
+}
+
+int CodeGenerator::store_tuple_var(int var_idx, const CGValue& v,
+                                   const Token& where) {
+    // 同形状重赋值：元素数 + 名字表一致才逐槽写（形状不同拒编不错编，
+    // 解释器元组动态换形状，静态解构槽无法承载）
+    if (v.type != CGType::Tup) {
+        unsupported("assigning non-tuple value to tuple variable '" +
+                        std::string(where.lexeme()) + "'",
+                    where.line(), where.column());
+    }
+    const CGTuple t = tuple_values_[v.tup]; // 按值：下方 register 会扩容注册表
+    if (t.elems.size() != tuple_vars_[var_idx].slots.size() ||
+        t.names != tuple_vars_[var_idx].names) {
+        unsupported("assigning tuple of different shape to '" +
+                        std::string(where.lexeme()) + "'",
+                    where.line(), where.column());
+    }
+    CGTuple stored; // 存入后的展开值（标量元素可能经加宽）
+    stored.names = t.names;
+    stored.elems.reserve(t.elems.size());
+    for (size_t i = 0; i < t.elems.size(); ++i) {
+        const CGVar var = tuple_vars_[var_idx].slots[i];
+        const CGValue& e = t.elems[i];
+        if (var.type == CGType::Tup) {
+            int sub = store_tuple_var(var.tup, e, where);
+            stored.elems.push_back({nullptr, CGType::Tup, CGType::Int, "", sub});
+            continue;
+        }
+        if (var.type == CGType::Arr) {
+            // 数组元素指针拷贝（同 visitAssign Arr 分支）：异型元素拒编
+            if (e.type != CGType::Arr || e.elem != var.elem) {
+                unsupported("assigning tuple with incompatible array element to '" +
+                                std::string(where.lexeme()) + "'",
+                            where.line(), where.column());
+            }
+            builder_.CreateStore(e.value, var.slot);
+            stored.elems.push_back(e);
+            continue;
+        }
+        if (var.type == CGType::Obj) {
+            if (e.type != CGType::Obj || e.cls != var.cls) {
+                unsupported("assigning tuple with incompatible instance element to '" +
+                                std::string(where.lexeme()) + "'",
+                            where.line(), where.column());
+            }
+            builder_.CreateStore(e.value, var.slot);
+            stored.elems.push_back(e);
+            continue;
+        }
+        llvm::Value* sv = coerce_for_slot(e, var.type, where);
+        builder_.CreateStore(sv, var.slot);
+        stored.elems.push_back({sv, var.type});
+    }
+    return register_tuple(std::move(stored));
+}
+
+llvm::Value* CodeGenerator::tuple_to_str(const CGValue& v, const Token& where) {
+    // 静态展开拼接（对齐 Value::to_string Tuple 分支）：", " 分隔、命名
+    // 前缀 "name: "、string 元素不加引号、空元组 "()"、嵌套递归（经
+    // to_str 的 Tup case）；括号/分隔/名字等常量段编译期合并，动态段
+    // rt_concat 链接（malloc 串不 free，同缺口 CG6）
+    const CGTuple t = tuple_values_[v.tup]; // 按值：嵌套递归可能扩容注册表
+    std::string pending = "(";
+    llvm::Value* acc = nullptr;
+    auto flush = [&]() {
+        if (pending.empty()) {
+            return;
+        }
+        llvm::Value* c = builder_.CreateGlobalString(pending);
+        acc = acc ? builder_.CreateCall(rt_concat_, {acc, c}, "concattmp") : c;
+        pending.clear();
+    };
+    for (size_t i = 0; i < t.elems.size(); ++i) {
+        if (i != 0) {
+            pending += ", ";
+        }
+        if (!t.names[i].empty()) {
+            pending += t.names[i] + ": ";
+        }
+        flush();
+        llvm::Value* s = to_str(t.elems[i], where);
+        acc = acc ? builder_.CreateCall(rt_concat_, {acc, s}, "concattmp") : s;
+    }
+    pending += ")";
+    flush();
+    return acc;
 }
 
 } // namespace collie

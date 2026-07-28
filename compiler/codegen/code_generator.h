@@ -111,6 +111,7 @@ private:
         Str,     // ptr → 常量字符串
         Arr,     // ptr → collie_rt 数组对象（t59，元素类型另记于 elem 字段）
         Obj,     // ptr → 类实例字段块（t60，类名另记于 cls 字段）
+        Tup,     // 虚值：无 LLVM 承载（t68 静态展开，元素另记于 tuple_values_，value 恒 nullptr）
         Void,    // 无值（none 返回函数的调用结果，S5 t52）
     };
 
@@ -119,6 +120,7 @@ private:
         CGType type = CGType::Int;
         CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
         std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
+        int tup = -1;              // 仅 type == Tup 时有意义：tuple_values_ 下标（t68）
     };
 
     /// @brief 变量存储槽（entry 块 alloca）+ 编译期类型（S3 t50）
@@ -127,6 +129,21 @@ private:
         CGType type = CGType::Int;
         CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
         std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
+        int tup = -1;              // 仅 type == Tup 时有意义：tuple_vars_ 下标（slot 恒 nullptr，t68）
+    };
+
+    /// @brief tuple 静态展开值（t68）：元素值 + 平行名字表（无运行时对象，
+    /// 元素类型/个数/名字编译期全可知——语义层对 tuple 元素零追踪，codegen 自建）
+    struct CGTuple {
+        std::vector<CGValue> elems;
+        std::vector<std::string> names; // 与 elems 等长；无名元素为空串
+    };
+
+    /// @brief tuple 变量的解构槽组（t68）：每元素一个独立 CGVar 槽（嵌套
+    /// tuple 元素递归指向 tuple_vars_ 子条目），同形状重赋值逐槽写
+    struct CGTupleVar {
+        std::vector<CGVar> slots;
+        std::vector<std::string> names; // 形状的一部分：重赋值须名字表一致
     };
 
     /// @brief 循环上下文（S4 t51）：break/continue 跳转目标块
@@ -297,6 +314,30 @@ private:
     /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
     int arr_kind_of(CGType elem);
 
+    /// @brief AST 层常量整数解析（t68 tuple 索引用）：整数字面量与一元负号包
+    /// 字面量（-1 的 AST 为 UnaryExpr('-')+LiteralExpr，emit 会走溢出检查出非常量）
+    bool const_int_of(const Expr* e, long long& out);
+
+    /// @brief tuple 展开值登记（t68）：入 tuple_values_ 返回下标
+    int register_tuple(CGTuple t);
+
+    /// @brief tuple 变量解构槽创建（t68）：逐元素 entry alloca + store 初始值，
+    /// 嵌套 tuple 元素递归建子槽组；返回 tuple_vars_ 下标（参数按值防递归引用失效）
+    int create_tuple_var(CGTuple t, const std::string& name);
+
+    /// @brief tuple 变量读取（t68）：逐槽 load 重组展开值（嵌套递归），
+    /// 返回指向新登记 tuple_values_ 条目的虚值
+    CGValue load_tuple_var(int var_idx, const std::string& name);
+
+    /// @brief tuple 变量同形状重赋值（t68）：元素数/名字表一致才逐槽写
+    ///（标量元素经 coerce_for_slot 加宽、Arr/Obj 同 elem/cls、嵌套递归）；
+    /// 返回存入后展开值的 tuple_values_ 下标（赋值表达式的值）
+    int store_tuple_var(int var_idx, const CGValue& v, const Token& where);
+
+    /// @brief tuple 转串（t68）：静态展开拼接 "(1, 2)" / "(name: v)" 格式
+    ///（对齐 Value::to_string Tuple 分支；常量段编译期合并后 rt_concat 链）
+    llvm::Value* tuple_to_str(const CGValue& v, const Token& where);
+
     /// @brief 不支持的构造统一报错出口
     [[noreturn]] void unsupported(const std::string& what, size_t line, size_t column);
 
@@ -343,6 +384,9 @@ private:
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;
+    /// tuple 静态展开注册表（t68）：CGValue/CGVar 以 tup 下标引用（只增不删）
+    std::vector<CGTuple> tuple_values_;
+    std::vector<CGTupleVar> tuple_vars_;
     /// 循环上下文栈：break/continue 查最内层跳转目标（S4 t51）
     std::vector<LoopContext> loops_;
     /// 顶层函数表（S5 t52）：名字 → 原型；第一遍填充，递归/前向调用天然可用
