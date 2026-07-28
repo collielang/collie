@@ -69,6 +69,11 @@
  *   const char* collie_rt_num_to_str(long long tag, long long bits); // malloc 新串
  *   void collie_rt_print_num(long long tag, long long bits);         // 格式对齐 to_string
  *
+ * toNumber 字符串解析（t63，内建 toNumber/方法形式共用）：
+ *   void collie_rt_str_to_num(s, otag, obits);
+ *     // 复刻解释器 to_number_value 的 string 分支，解析失败返 NaN 不报错；
+ *     // 超 i64 纯整数串走 CG1 陷阱（解释器 BigInt 精确，不静默错编）
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -76,6 +81,8 @@
  *   4) 其余               → "%g"（C++ ostringstream 默认与 printf %g 同为 6 位有效数字）
  */
 
+#include <ctype.h>
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
@@ -555,4 +562,71 @@ void collie_rt_print_num(long long tag, long long bits) {
     } else {
         collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));
     }
+}
+
+/* toNumber 字符串解析（t63）：复刻解释器 to_number_value 的 string 分支——
+ * 剥两端空白 → 严格大小写 "Infinity"/"+Infinity"/"-Infinity" → 纯整数串
+ * （可带单个 +/- 前缀）精确整数表示（超 i64 走 CG1 陷阱：解释器 BigInt
+ * 精确，i64 承载不了则报错退出不静默错编）→ strtod 等价 std::stod
+ * （须消费到剥空白后的串尾且结果有限，"1.5f" 残留/"infinity" 宽松
+ * 拼写均失败）→ 一切失败返 NaN 不报错 */
+void collie_rt_str_to_num(const char* s, long long* otag, long long* obits) {
+    size_t b = 0;
+    size_t e = strlen(s);
+    while (b < e && isspace((unsigned char)s[b])) ++b;
+    while (e > b && isspace((unsigned char)s[e - 1])) --e;
+    size_t len = e - b;
+
+    /* 特殊形式严格大小写匹配（对齐解释器："infinity" 应得 NaN） */
+    if ((len == 8 && strncmp(s + b, "Infinity", 8) == 0) ||
+        (len == 9 && strncmp(s + b, "+Infinity", 9) == 0)) {
+        *otag = 1;
+        *obits = collie_rt_f64_bits(INFINITY);
+        return;
+    }
+    if (len == 9 && strncmp(s + b, "-Infinity", 9) == 0) {
+        *otag = 1;
+        *obits = collie_rt_f64_bits(-INFINITY);
+        return;
+    }
+    /* 纯整数形式（可带符号）→ 整数表示；解释器走 BigInt 不丢精度，
+     * 此处 strtoll 超 i64 范围（ERANGE）触发整数溢出陷阱 */
+    if (len > 0) {
+        size_t digits_begin = (s[b] == '+' || s[b] == '-') ? 1 : 0;
+        int all_digits = digits_begin < len;
+        for (size_t i = digits_begin; i < len; ++i) {
+            if (!isdigit((unsigned char)s[b + i])) {
+                all_digits = 0;
+                break;
+            }
+        }
+        if (all_digits) {
+            char* endp = NULL;
+            errno = 0;
+            long long v = strtoll(s + b, &endp, 10);
+            if (errno == ERANGE) {
+                collie_rt_trap_int_overflow();
+            }
+            *otag = 0;
+            *obits = v;
+            return;
+        }
+        /* strtod 行为等价 std::stod（支持 .5 前导点/科学计数法/十六进制
+         * 浮点）：尾部残留即失败（endp 未到串尾，剥后空白处 strtod 自行
+         * 停步）；非有限（"inf"/"nan" 宽松拼写、上溢）与 ERANGE 下溢
+         * （stod 抛 out_of_range）均视为不可解析 */
+        {
+            char* endp = NULL;
+            errno = 0;
+            double n = strtod(s + b, &endp);
+            if (endp == s + e && errno != ERANGE && isfinite(n)) {
+                *otag = 1;
+                *obits = collie_rt_f64_bits(n);
+                return;
+            }
+        }
+    }
+    /* 空串/不可解析 → NaN（对齐解释器：不报错） */
+    *otag = 1;
+    *obits = collie_rt_f64_bits(NAN);
 }

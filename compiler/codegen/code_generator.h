@@ -244,6 +244,11 @@ private:
     /// 原表示打 tag（对齐解释器 coerce_to_declared），Num 原样返回
     llvm::Value* to_num(const CGValue& v);
 
+    /// @brief toNumber 降级（t63，对齐解释器 to_number_value）：Bool → 0/1
+    /// 整数表示、Str 解析下沉 collie_rt（失败返 NaN）、Int/Double/Num 复用
+    /// to_num；其余参数拒编（解释器此处为运行期报错）
+    llvm::Value* to_number_num(const CGValue& v, size_t line, size_t column);
+
     /// @brief number 算术运行时调用（t62）：op 编码见 collie_rt_num_arith
     /// （0=+ 1=- 2=* 3=/ 4=% 5=一元负号）；结果经 entry alloca 出参写回
     llvm::Value* call_num_arith(int op, llvm::Value* a, llvm::Value* b);
@@ -307,6 +312,8 @@ private:
     llvm::FunctionCallee rt_num_cmp_;    // i32(i64 op, i64, i64, i64, i64)，返 0/1
     llvm::FunctionCallee rt_num_to_str_; // ptr(i64 tag, i64 bits)，malloc 新串
     llvm::FunctionCallee rt_print_num_;  // void(i64 tag, i64 bits)，格式对齐 to_string
+    /// collie_rt toNumber 字符串解析（t63）：复刻解释器 to_number_value，失败返 NaN
+    llvm::FunctionCallee rt_str_to_num_; // void(ptr s, ptr otag, ptr obits)
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;

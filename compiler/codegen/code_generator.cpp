@@ -142,6 +142,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_print_num_ = module_->getOrInsertFunction(
         "collie_rt_print_num",
         llvm::FunctionType::get(void_ty, {i64_ty, i64_ty}, false));
+    // toNumber 字符串解析声明（t63）：复刻解释器 to_number_value 的 string
+    // 分支，失败返 NaN；结果经出参写回（同 num_arith 的 ABI 规避）
+    rt_str_to_num_ = module_->getOrInsertFunction(
+        "collie_rt_str_to_num",
+        llvm::FunctionType::get(void_ty, {ptr_ty, ptr_ty, ptr_ty}, false));
 
     // 第一遍（S5 t52 / t60）：顶层函数建原型、类注册 struct 布局与方法原型，
     // 递归与前向引用天然可用
@@ -549,6 +554,21 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
         unsupported("len() of this value type",
                     expr.paren().line(), expr.paren().column());
     }
+    // toNumber 内建（t63）：结果恒为 number（tagged 双表示）；string 解析
+    // 下沉 collie_rt，bool/integer/decimal/number 纯 IR 内联转 Num；
+    // array/tuple/实例参数拒编（解释器此处为运行期报错）
+    if (callee && callee->name().lexeme() == "toNumber") {
+        const auto& arguments = expr.arguments();
+        if (arguments.size() != 1) {
+            // 语义层已校验元数，此处防御
+            unsupported("toNumber expects exactly 1 argument",
+                        expr.paren().line(), expr.paren().column());
+        }
+        CGValue v = emit(arguments[0].get());
+        last_value_ = {to_number_num(v, expr.paren().line(), expr.paren().column()),
+                       CGType::Num};
+        return;
+    }
     // 用户自定义顶层函数（S5 t52）：查第一遍建好的原型表
     if (callee) {
         auto it = functions_.find(std::string(callee->name().lexeme()));
@@ -822,7 +842,8 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
 void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     // string 方法（S10 t57）：trim 系列/subString 降级到 collie_rt；toString()
     // 方法形式对任意标量接收者复用 to_str（与内建 toString(x) 同一降级）；
-    // toNumber（返动态 number）与 number/tribool/tuple 方法维持拒编不错编
+    // toNumber() 方法形式复用内建 toNumber(x) 降级（t63）；number 专属
+    // 方法（abs/integerPart 等）与 tribool/tuple 方法维持拒编不错编
     const std::string name(expr.name().lexeme());
     size_t line = expr.name().line();
     size_t column = expr.name().column();
@@ -864,6 +885,13 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
 
     if (name == "toString" && expr.arguments().empty()) {
         last_value_ = {to_str(object, expr.name()), CGType::Str};
+        return;
+    }
+
+    if (name == "toNumber" && expr.arguments().empty()) {
+        // toNumber() 方法形式（t63）：与内建 toNumber(x) 同一降级（语义层
+        // 已限接收者为 string/bool/数值）
+        last_value_ = {to_number_num(object, line, column), CGType::Num};
         return;
     }
 
@@ -1947,6 +1975,31 @@ llvm::Value* CodeGenerator::to_num(const CGValue& v) {
             return make_num(builder_.getInt64(1),
                             builder_.CreateBitCast(v.value, builder_.getInt64Ty(), "bits"));
         default:             unsupported("conversion to 'number'", 0, 0);
+    }
+}
+
+llvm::Value* CodeGenerator::to_number_num(const CGValue& v, size_t line, size_t column) {
+    // toNumber 降级（t63，对齐解释器 to_number_value）：number 透传与
+    // 整数/小数加宽复用 to_num；bool → 0/1 整数表示；string 解析下沉
+    // collie_rt（剥空白/严格 Infinity/纯整数精确/strtod 等价，失败返 NaN）
+    switch (v.type) {
+        case CGType::Num:
+        case CGType::Int:
+        case CGType::Double:
+            return to_num(v);
+        case CGType::Bool:
+            return make_num(builder_.getInt64(0),
+                            builder_.CreateZExt(v.value, builder_.getInt64Ty(), "bits"));
+        case CGType::Str: {
+            // 结果经出参写回（同 call_num_arith 的 ABI 规避），槽落 entry alloca
+            llvm::AllocaInst* otag = create_entry_alloca(builder_.getInt64Ty(), "tonum.otag");
+            llvm::AllocaInst* obits = create_entry_alloca(builder_.getInt64Ty(), "tonum.obits");
+            builder_.CreateCall(rt_str_to_num_, {v.value, otag, obits});
+            return make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag, "numtag"),
+                            builder_.CreateLoad(builder_.getInt64Ty(), obits, "numbits"));
+        }
+        default:
+            unsupported("toNumber() of this value type", line, column);
     }
 }
 

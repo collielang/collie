@@ -26,6 +26,7 @@
 | S13 | class 最小闭环：单类/字段/构造器/方法/this/引用语义 | 类程序编译执行，输出与解释器一致 **✅ t60** |
 | S14 | class 二期：继承/覆写/base/模板方法/实例作函数参数返回值 | 继承程序编译执行，输出与解释器一致 **✅ t61** |
 | S15 | number tagged 双表示（CG5 收窄）：算术/比较/转串下沉 collie_rt | number 程序编译执行，整数/小数两态输出与解释器一致 **✅ t62** |
+| S16 | toNumber 内建（函数/方法形式）：string 解析下沉 collie_rt | 解析/失败 NaN/透传加宽程序编译执行，输出与解释器一致 **✅ t63** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、`==?`、异常语义。
@@ -147,7 +148,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `s.trim()` / `trimLeft()` / `trimRight()` | `call ptr @collie_rt_str_trim(ptr, i32 mode)`（mode 0=两端/1=左/2=右）：只剥空格与 Tab（对齐解释器 is_blank），返 malloc 新串（CG6 不 free） |
 | `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数限 Int（Double/NaN 特例拒编，解释器 NaN 特判属 Double 域） |
 | `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
-| `toNumber()` / number/tribool/tuple 方法 | 拒编（toNumber 返动态 number 无对应 CGType；其余待对应类型 codegen 支持） |
+| `toNumber()` / number/tribool/tuple 方法 | toNumber() 已于 S16（t63）解锁；number 专属方法（abs/integerPart 等）与 tribool/tuple 方法拒编（待对应类型 codegen 支持） |
 
 **S12 降级补充（t59 实现）：array 最小闭环**：
 
@@ -194,7 +195,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `print(n)` / `toString(n)` | `collie_rt_print_num(i64 tag, i64 bits)` / `collie_rt_num_to_str(i64, i64)`：整数态按整数打、小数态走 f64 四步格式（与 print_f64 共享，对齐 Value::to_string） |
 | integer/decimal → number 加宽 | 声明/赋值/实参/return 四路径 to_num：保持原表示打 tag（对齐解释器 coerce_to_declared 的 KW_NUMBER 分支）；反向 number→integer/decimal 窄化拒编（静态无法判定 tag） |
 | 三元分支混型 | 任一分支 Num → 两分支块尾统一 to_num，merge 处 PHI 用 struct 类型 |
-| 范围外拒编 | number 类字段/数组元素（维持 S12/S13）、任意精度自动扩容（BigInt 运行时化留远期，超 i64 整数运算陷阱退出）、toNumber 内建 |
+| 范围外拒编 | number 类字段/数组元素（维持 S12/S13）、任意精度自动扩容（BigInt 运行时化留远期，超 i64 整数运算陷阱退出）（toNumber 内建已于 S16 t63 解锁） |
+
+**S16 降级补充（t63 实现）：toNumber 内建**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `toNumber(s)`（string）/ `s.toNumber()` | `call void @collie_rt_str_to_num(ptr s, ptr otag, ptr obits)`（出参写回同 num_arith 的 ABI 规避）：复刻解释器 to_number_value 的 string 分支——剥两端空白 → 严格大小写 `Infinity`/`+Infinity`/`-Infinity` → 纯整数串（可带单个 +/- 前缀）精确整数表示 → strtod 等价 std::stod（须整串消费且结果有限，`"1.5f"` 残留/`"infinity"` 宽松拼写均失败）→ 一切失败返 NaN 不报错；超 i64 纯整数串 strtoll ERANGE 走 CG1 陷阱（解释器 BigInt 精确，不静默错编） |
+| `toNumber(b)`（bool）/ `b.toNumber()` | 纯 IR：`zext i1 → i64` 后打 tag 0（整数表示 0/1，对齐解释器） |
+| `toNumber(x)`（integer/decimal/number） | 纯 IR：复用 to_num 加宽（保持原表示打 tag）/ number 透传 |
+| 内建与方法形式 | visitCall（分发插在 len 之后、用户函数查表之前）与 visitMethodCall 共用 to_number_num 降级；结果恒为 Num |
+| 范围外拒编 | none/array/tuple/实例参数（解释器此处为运行期报错 "toNumber() cannot convert ..."） |
 
 ## 五、构建与链接方案（关键决策）
 

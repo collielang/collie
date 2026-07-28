@@ -1,0 +1,46 @@
+// t63 S16 差分用例：toNumber 内建（string 解析下沉 collie_rt，失败返 NaN 不报错）
+
+// 整数串 → 整数表示（含带符号、前后空白剥除）
+print("int:", toNumber("42"), toNumber("+7"), toNumber("-15"));
+print("int-ws:", toNumber("  42  "), toNumber("	-3	"));
+
+// 小数串 → 小数表示（科学计数法、前导点、十六进制浮点均走 strtod 等价路径）
+print("dec:", toNumber("3.14"), toNumber("-0.5"), toNumber("2.0"));
+print("dec-sci:", toNumber("1e3"), toNumber("2.5e-1"), toNumber(".5"));
+
+// 特殊形式严格大小写匹配：Infinity 三形式命中，宽松拼写得 NaN
+print("inf:", toNumber("Infinity"), toNumber("+Infinity"), toNumber("-Infinity"));
+print("inf-strict:", toNumber("infinity"), toNumber("inf"), toNumber("INFINITY"));
+
+// 不可解析 → NaN（尾部残留 / 空串 / 纯空白 / 非数字）
+print("bad:", toNumber("1.5f"), toNumber(""), toNumber("   "), toNumber("abc"));
+print("bad2:", toNumber("1 2"), toNumber("+"), toNumber("NaN"));
+
+// bool → 0/1（整数表示）
+print("bool:", toNumber(true), toNumber(false));
+
+// 数值入参：integer/decimal 加宽、number 透传（保持原表示）
+integer i = 9;
+decimal d = 1.25;
+number n = 7;
+print("passthrough:", toNumber(i), toNumber(d), toNumber(n), toNumber(2.5));
+
+// 方法形式 x.toNumber()：与内建同一降级
+string s = "8";
+bool flag = true;
+number m = 6.5;
+print("method:", s.toNumber(), flag.toNumber(), m.toNumber(), "12".toNumber());
+
+// 结果参与 number 算术/比较
+number doubled = toNumber("21") * 2;
+print("arith:", doubled, toNumber("1.5") + toNumber("2"), toNumber("10") == 10);
+
+// NaN 结果的运算与比较语义（NaN != NaN、参与算术仍 NaN）
+number bad = toNumber("oops");
+print("nan-sem:", bad == bad, bad != bad, bad + 1);
+
+// 函数内使用（Num 返回值/参数路径）
+function parse_twice(text string) number {
+    return toNumber(text) * 2;
+}
+print("fn:", parse_twice("100"), parse_twice("0.75"));
