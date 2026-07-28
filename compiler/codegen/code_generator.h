@@ -186,6 +186,9 @@ private:
     llvm::FunctionCallee rt_bool_to_str_;  // ptr(i32)，返静态串
     /// collie_rt 字符串比较（S7 t55）：strcmp 语义，六种比较共用
     llvm::FunctionCallee rt_strcmp_;       // i32(ptr, ptr)
+    /// collie_rt 字符串 length/索引（S8 t56）：UTF-8 码点，对齐解释器
+    llvm::FunctionCallee rt_str_len_;      // i64(ptr)
+    llvm::FunctionCallee rt_str_index_;    // ptr(ptr, i64)，越界运行期报错退出
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;

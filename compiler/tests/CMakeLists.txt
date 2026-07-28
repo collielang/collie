@@ -106,7 +106,7 @@ set_tests_properties(cli_syntax_error_gate PROPERTIES
 if(COLLIE_ENABLE_LLVM)
     set(_codegen_dir ${CMAKE_CURRENT_SOURCE_DIR}/../codegen)
     foreach(_case s1_hello s3_control_flow s4_loops s5_functions s6_print_format s7_string_concat
-            s8_string_compare)
+            s8_string_compare s9_string_index)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

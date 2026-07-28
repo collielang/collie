@@ -27,6 +27,11 @@
  * 字符串比较（t55，六种比较运算降级用）：
  *   int collie_rt_strcmp(const char* a, const char* b);  // strcmp 语义（<0/0/>0）
  *
+ * 字符串 length / 索引（t56，UTF-8 码点，对齐解释器 utf8_length/utf8_char_at）：
+ *   long long collie_rt_str_len(const char* s);                    // 码点数
+ *   const char* collie_rt_str_index(const char* s, long long i);   // malloc 单码点子串；
+ *     负索引 -1 为最后一个码点；越界 stderr 报错后 exit(1)（对齐解释器 RuntimeError）
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -128,4 +133,48 @@ const char* collie_rt_bool_to_str(int v) {
  * codegen 拿返回值与 0 做 icmp 实现六种比较，只用符号不依赖幅度 */
 int collie_rt_strcmp(const char* a, const char* b) {
     return strcmp(a, b);
+}
+
+/* ---- 字符串 length / 索引（t56，UTF-8 码点）---- */
+
+/* UTF-8 首字节 → 码点字节长度（非法字节按 1 防御前进，照抄解释器 utf8_char_length） */
+static size_t collie_rt_utf8_char_length(unsigned char c) {
+    if ((c & 0x80) == 0)    return 1; /* ASCII */
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+long long collie_rt_str_len(const char* s) {
+    long long count = 0;
+    size_t n = strlen(s);
+    size_t i = 0;
+    while (i < n) {
+        i += collie_rt_utf8_char_length((unsigned char)s[i]);
+        ++count;
+    }
+    return count;
+}
+
+const char* collie_rt_str_index(const char* s, long long index) {
+    long long size = collie_rt_str_len(s);
+    long long i = index;
+    if (i < 0) {
+        i += size; /* 负索引：-1 表示最后一个码点（对齐解释器 normalize_index） */
+    }
+    if (i < 0 || i >= size) {
+        fprintf(stderr, "Index %lld out of range (size %lld)\n", index, size);
+        exit(1);
+    }
+    size_t byte = 0;
+    long long seen;
+    for (seen = 0; seen < i; ++seen) {
+        byte += collie_rt_utf8_char_length((unsigned char)s[byte]);
+    }
+    size_t char_len = collie_rt_utf8_char_length((unsigned char)s[byte]);
+    char* out = collie_rt_alloc(char_len + 1);
+    memcpy(out, s + byte, char_len);
+    out[char_len] = '\0';
+    return out;
 }

@@ -19,7 +19,8 @@
 | S6 | collie_rt 垫片：print 输出格式对齐解释器 to_string | decimal 四步格式/±Infinity/NaN/混合行输出与解释器一致 **✅ t53** |
 | S7 | string 运行时第一步：拼接 `+`、`toString` 内建、插值路径 | 拼接/插值程序编译执行，输出与解释器一致 **✅ t54** |
 | S8 | string 六种比较运算（strcmp 降级） | 字典序/相等比较程序编译执行，输出与解释器一致 **✅ t55** |
-| 后续 | string 方法/索引、class、BigInt | 逐任务扩展 |
+| S9 | string length 属性 + 索引 `s[i]`（UTF-8 码点） | 多字节码点 length/正负索引程序编译执行，输出与解释器一致 **✅ t56** |
+| 后续 | string 方法（trim/subString）、class、BigInt | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
@@ -122,6 +123,14 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 |------------|--------------|
 | `a == b` / `!=` / `<` / `<=` / `>` / `>=`（双侧 string） | `call i32 @collie_rt_strcmp(ptr, ptr)` 后与 0 做对应 icmp（EQ/NE/SLT/SLE/SGT/SGE）；逐字节字典序与解释器 std::string 比较一致，无 UTF-8 特殊处理 |
 | Str × 非 Str 混型比较 | 维持 require_numeric 拒编（解释器运行期同样报错，无合法程序受影响） |
+
+**S9 降级补充（t56 实现）：string length + 索引**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `s.length`（string） | `call i64 @collie_rt_str_len(ptr)`：UTF-8 首字节步进计码点数（照抄解释器 utf8_length），结果为 Int |
+| `s[i]`（string × Int） | `call ptr @collie_rt_str_index(ptr, i64)`：负索引归一化（-1 为最后码点），越界 stderr 报错后 exit(1)，返 malloc 单码点子串（CG6 同样不 free），结果为 Str |
+| 非 string 接收者 / 非 Int 索引 | 拒编（array/tuple 待对应类型 codegen 支持；Double 索引解释器运行期也报错） |
 
 ## 五、构建与链接方案（关键决策）
 

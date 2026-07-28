@@ -80,6 +80,14 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_strcmp",
         llvm::FunctionType::get(builder_.getInt32Ty(), {ptr_ty, ptr_ty}, false));
 
+    // collie_rt 字符串 length/索引声明（S8 t56）：UTF-8 码点，对齐解释器
+    rt_str_len_ = module_->getOrInsertFunction(
+        "collie_rt_str_len",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty}, false));
+    rt_str_index_ = module_->getOrInsertFunction(
+        "collie_rt_str_index",
+        llvm::FunctionType::get(ptr_ty, {ptr_ty, builder_.getInt64Ty()}, false));
+
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
     in_function_ = false;
@@ -518,10 +526,35 @@ void CodeGenerator::visitTuple(const TupleExpr&) { unsupported("tuple", 0, 0); }
 void CodeGenerator::visitTernary(const TernaryExpr& expr) { gen_ternary(expr); }
 void CodeGenerator::visitMultiMatch(const MultiMatchExpr&) { unsupported("'==?'", 0, 0); }
 void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr&) { unsupported("array literal", 0, 0); }
-void CodeGenerator::visitIndex(const IndexExpr&) { unsupported("indexing", 0, 0); }
+void CodeGenerator::visitIndex(const IndexExpr& expr) {
+    // string 索引（S8 t56）：UTF-8 码点，负索引/越界报错在 collie_rt 运行期；
+    // array/tuple 索引待对应类型 codegen 支持，非 Int 索引拒编不错编
+    CGValue object = emit(expr.object());
+    if (object.type != CGType::Str) {
+        unsupported("indexing non-string values",
+                    expr.bracket().line(), expr.bracket().column());
+    }
+    CGValue index = emit(expr.index());
+    if (index.type != CGType::Int) {
+        unsupported("non-integer string index",
+                    expr.bracket().line(), expr.bracket().column());
+    }
+    last_value_ = {builder_.CreateCall(rt_str_index_, {object.value, index.value}, "idxtmp"),
+                   CGType::Str};
+}
 void CodeGenerator::visitIndexAssign(const IndexAssignExpr&) { unsupported("index assignment", 0, 0); }
 void CodeGenerator::visitMethodCall(const MethodCallExpr&) { unsupported("method call", 0, 0); }
-void CodeGenerator::visitProperty(const PropertyExpr&) { unsupported("property access", 0, 0); }
+void CodeGenerator::visitProperty(const PropertyExpr& expr) {
+    // string 的 length 属性（S8 t56）：UTF-8 码点数，返 integer（对齐解释器）；
+    // array/tuple 的 length 与类实例字段待对应类型 codegen 支持
+    CGValue object = emit(expr.object());
+    if (object.type == CGType::Str && expr.name().lexeme() == "length") {
+        last_value_ = {builder_.CreateCall(rt_str_len_, {object.value}, "lentmp"),
+                       CGType::Int};
+        return;
+    }
+    unsupported("property access", expr.name().line(), expr.name().column());
+}
 void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr&) { unsupported("property assignment", 0, 0); }
 void CodeGenerator::visitNew(const NewExpr&) { unsupported("'new'", 0, 0); }
 void CodeGenerator::visitThis(const ThisExpr&) { unsupported("'this'", 0, 0); }

@@ -1,0 +1,38 @@
+// t56 S9 差分用例：string length 属性 + 索引 s[i]（UTF-8 码点运行时降级）
+
+// ASCII length
+string ascii = "hello";
+print("len-ascii:", ascii.length, "".length, "a".length);
+
+// 中文多字节 length（每个汉字 3 字节但计 1 码点）
+string cn = "牧羊犬";
+string mixed = "Collie牧羊犬!";
+print("len-utf8:", cn.length, mixed.length);
+
+// 正索引：首、中、尾码点
+print("idx:", ascii[0], ascii[2], ascii[4]);
+print("idx-utf8:", cn[0], cn[1], cn[2], mixed[6], mixed[9]);
+
+// 负索引：-1 最后一个码点（Python 风格）
+print("neg:", ascii[-1], ascii[-5], cn[-1], mixed[-1]);
+
+// 索引结果参与拼接与比较
+print("concat-idx:", cn[0] + cn[2], "first=" + ascii[0]);
+print("cmp-idx:", ascii[0] == "h", cn[1] == "羊", ascii[1] < ascii[0]);
+
+// 拼接结果的 length 与索引（malloc 串路径）
+string joined = cn + ascii;
+print("joined:", joined.length, joined[3], joined[-1]);
+
+// 循环按码点遍历
+integer i = 0;
+while (i < cn.length) {
+    print("ch:", i, cn[i]);
+    i = i + 1;
+}
+
+// 函数参数/返回值中使用
+function lastChar(s string) string {
+    return s[s.length - 1];
+}
+print("fn:", lastChar("collie"), lastChar(cn));
