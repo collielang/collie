@@ -52,6 +52,10 @@
  *   long long collie_rt_arr_len(void* arr);                  // 元素个数
  *   const char* collie_rt_arr_to_str(void* arr);             // malloc 新串，[1, 2, 3] 格式
  *
+ * 类实例运行时（t60，class 降级用）：
+ *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
+ *     size 由 codegen 按 8 字节 × 字段数上界给定，字段初始值紧随 new 写入
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -363,4 +367,12 @@ const char* collie_rt_arr_to_str(void* arr) {
     }
     collie_rt_sb_append(&out, &n, &cap, "]");
     return out;
+}
+
+/* 类实例块（t60）：codegen 按 LLVM struct 布局读写字段，运行时只管分配；
+ * 零初始化仅防御（字段必有初始值，new 降级会逐字段覆写）；不 free，缺口 CG6 */
+void* collie_rt_obj_new(long long size) {
+    char* p = collie_rt_alloc((size_t)size);
+    memset(p, 0, (size_t)size);
+    return p;
 }

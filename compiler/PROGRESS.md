@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t59 完成：codegen array 最小闭环——同质字面量/索引读写/length/print/引用语义，collie_rt 数组对象降级，差分 11/11）
+最后更新：2026-07-26（t60 完成：codegen class 最小闭环——单类/字段/构造器/方法/this，LLVM StructType 布局 + 隐藏首参降级，差分 12/12）
 
 ---
 
@@ -384,6 +384,10 @@
     - 实现：语义层对 array 一刀切 KW_ARRAY（元素类型不追踪、索引结果 KW_OBJECT 动态放行），codegen 自行做字面量同质推断（CGValue/CGVar 增设 elem 元素类型字段，Int/Double 混合提升 Double，其余混合/嵌套拒编）；运行时表示为不透明 ptr → collie_rt 数组对象（单块 malloc：头部 len+kind，8 字节槽：Int 直存/Double bitcast/Bool zext/Str ptrtoint），指针拷贝天然对齐解释器引用语义；支持：同质字面量/索引读写（负索引+越界报错退出，对齐 normalize_index）/length 属性 + len() 内建（顺带支持 string）/print+toString（[1, 2, 3] 格式对齐 Value::to_string）/引用语义赋值/三元（elem 一致校验）
     - 范围外：嵌套数组（元素为数组拒编）、array 作函数参数/返回值（KW_ARRAY 无元素类型标注，无法定签名）、数组比较运算、无初始化 array 声明（既有拒编）；另语义层不允许 string + array 直接拼接（比解释器运行期更严，属既有语义面，用例经 toString 转换）
     - 验证：新差分用例 s12_array（四类元素字面量 print/空数组/混合提升/正负索引读写/length+len/引用语义共享写入/循环求和/反向遍历/toString+拼接/三元/函数内局部数组），ctest -C Release 差分 11/11 逐字节一致；越界索引手工验证通过（stderr "Index 5 out of range (size 3)"、非零退出码、后续语句未执行，与解释器核心消息一致）；Debug 门禁 6/6 不受影响
+- [x] codegen class 最小闭环（t60）
+    - 实现：单类无继承——每类一个 LLVM StructType（collie.class.<类名>，字段按声明顺序布局，下标即 GEP 索引），`new` 降级 collie_rt_obj_new（malloc+memset 零初始化，size=8×字段数上界与 DataLayout 解耦）+ 字段初始值写入 + 构造器调用（三段顺序对齐解释器 visitNew），实例值为不透明 ptr（指针拷贝即引用语义）；方法/构造器降级 `collie.类名.方法名` InternalLinkage 独立函数、this 作隐藏首参 ptr（直持 SSA 值不落栈槽）；支持字段读写（含 this.x）、方法调用（含 this.m() 互调、toString 无参兜底）、print/toString 实例固定 "<object>"、三元（类名一致校验）；CGType 新增 Obj，CGValue/CGVar 增设 cls 字段，visitVarDecl 前置 IDENTIFIER 类名分支；解释器四处 coerce 以静态检查 + Int→Double 提升等价对齐
+    - 范围外（拒编不错编）：extends/base/@override（继承二期）、字段无初值（解释器为 none，codegen 无 none 表示，零值初始化会静默错编——对齐 visitVarDecl 先例）、number/tribool/tuple/array 类型字段（对应 codegen 降级未就绪）、实例相等比较、实例进数组/元组、实例作普通函数参数/返回值（二期）、object 声明类型动态放行路径、方法重载
+    - 验证：新差分用例 s13_class（字段初值/构造器赋字段/方法读写字段/this 互调/多实例独立/引用语义共享/print 实例 + toString 兜底/四类字段初值无构造器类/三元/循环方法调用），ctest -C Release 差分 12/12 逐字节一致；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -438,6 +442,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen class 最小闭环（t60，M6）：collie_rt 新增 collie_rt_obj_new（malloc+memset 零初始化）；codegen CGType 新增 Obj，CGValue/CGVar 增设 cls 字段，每类一个 StructType（字段按声明顺序布局），方法/构造器降级 collie.类名.方法名 独立函数 + this 隐藏首参，支持 new 三段顺序/字段读写/方法调用含 this 互调/toString 兜底/print 实例 "<object>"/引用语义/三元，继承、无初值字段、实例作函数参数/返回值等拒编；新差分用例 s13_class，ctest -C Release 差分 12/12 逐字节一致，Debug 门禁 6/6（M6 t60）
 - 2026-07-26 `feat(compiler)`: codegen array 最小闭环（t59，M6）：collie_rt 新增数组运行时（collie_rt_arr_new/get/set/len/to_str，单块 malloc 对象头部 len+kind + 8 字节槽位模式，负索引归一化+越界报错退出，[1, 2, 3] 格式对齐 Value::to_string）；codegen CGType 新增 Arr，CGValue/CGVar 增设 elem 字段做字面量同质推断（Int/Double 混合提升 Double，异质/嵌套拒编），支持同质字面量/索引读写/length+len 内建/print+toString/引用语义赋值/三元，array 函数参数/返回值拒编；新差分用例 s12_array，ctest -C Release 差分 11/11 逐字节一致，越界索引手工验证通过，Debug 门禁 6/6（M6 t59）
 - 2026-07-26 `feat(compiler)`: codegen CG1 整数溢出陷阱（t58，M6）：i64 加/减/乘/一元负号换 llvm.s{add,sub,mul}.with.overflow intrinsic（checked_int_arith helper，每检查点独立 trap/cont 块），溢出调 collie_rt_trap_int_overflow 报错退出，静默回绕改显式运行期报错；INT64_MIN % -1 硬件陷阱边缘 select 安全除数（结果 0 对齐解释器 floor_mod）；新差分用例 s11_int_edge（边界大数/负号/取模边缘/复合赋值），ctest -C Release 差分 10/10 逐字节一致，溢出 trap 手工验证通过（stderr 报错+非零退出码），Debug 门禁 6/6（M6 t58）
 - 2026-07-26 `feat(compiler)`: codegen string 方法降级（t57，M6）：collie_rt 新增 collie_rt_str_trim（mode 0=两端/1=左/2=右，只剥空格与 Tab）+ collie_rt_str_substring（UTF-8 码点区间 [start,end)，end==-1 取 length，越界 clamp）；codegen visitMethodCall 接入 Str 的 trim 系列/subString（参数限 Int，缺 end 传 -1）与任意标量的 toString() 方法形式（复用 to_str），toNumber 等维持拒编；新差分用例 s10_string_methods（含中文码点/链式调用），ctest -C Release 差分 9/9 逐字节一致，Debug 门禁 6/6（M6 t57）

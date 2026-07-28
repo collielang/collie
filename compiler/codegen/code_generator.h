@@ -7,7 +7,8 @@
  * S3（t50）：变量声明/赋值（integer/decimal/bool/string）、比较、
  * 短路 && || 与 !、if/else、while、块作用域遮蔽；
  * S4（t51）：for/do-while/break/continue、二元三元表达式 a ? x : y；
- * S5（t52）：顶层函数声明/调用/return/递归（两遍：先建原型再生成函数体）。
+ * S5（t52）：顶层函数声明/调用/return/递归（两遍：先建原型再生成函数体）；
+ * S13（t60）：单类无继承——字段/构造器/方法/this（LLVM struct + 隐藏首参降级）。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -103,6 +104,7 @@ private:
         Bool,    // i1
         Str,     // ptr → 常量字符串
         Arr,     // ptr → collie_rt 数组对象（t59，元素类型另记于 elem 字段）
+        Obj,     // ptr → 类实例字段块（t60，类名另记于 cls 字段）
         Void,    // 无值（none 返回函数的调用结果，S5 t52）
     };
 
@@ -110,6 +112,7 @@ private:
         llvm::Value* value = nullptr;
         CGType type = CGType::Int;
         CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
+        std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
     };
 
     /// @brief 变量存储槽（entry 块 alloca）+ 编译期类型（S3 t50）
@@ -117,6 +120,7 @@ private:
         llvm::AllocaInst* slot = nullptr;
         CGType type = CGType::Int;
         CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
+        std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
     };
 
     /// @brief 循环上下文（S4 t51）：break/continue 跳转目标块
@@ -126,11 +130,28 @@ private:
         llvm::BasicBlock* break_target = nullptr;
     };
 
-    /// @brief 顶层函数信息（S5 t52）：两遍处理第一遍建原型登记于此
+    /// @brief 顶层函数信息（S5 t52）：两遍处理第一遍建原型登记于此；
+    /// 类方法/构造器复用同结构（param_types 不含隐藏的 this 首参，t60）
     struct CGFunction {
         llvm::Function* fn = nullptr;
         std::vector<CGType> param_types;
         CGType ret_type = CGType::Void; // Void 即 none 返回
+    };
+
+    /// @brief 类字段信息（t60）：声明顺序即 struct 布局顺序
+    struct CGField {
+        std::string name;
+        CGType type = CGType::Int;
+        const VarDeclStmt* decl = nullptr; // 初始值表达式/错误位置取自声明节点
+    };
+
+    /// @brief 类信息（t60）：注册遍登记 struct 布局与方法原型，visitClass 生成方法体
+    struct CGClass {
+        const ClassStmt* stmt = nullptr;
+        llvm::StructType* type = nullptr;
+        std::vector<CGField> fields;                          // 声明顺序 = 字段下标
+        std::unordered_map<std::string, unsigned> field_index; // 字段名 → struct 下标
+        std::unordered_map<std::string, CGFunction> methods;   // 含构造器（键 = 类名）
     };
 
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
@@ -162,6 +183,14 @@ private:
 
     /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void
     void declare_function(const FunctionStmt& stmt);
+
+    /// @brief 类注册（第一遍，t60）：struct 布局 + 方法原型（this 作隐藏首参 ptr）；
+    /// 继承/无初值字段/范围外字段类型拒编
+    void register_class(const ClassStmt& stmt);
+
+    /// @brief 类方法/构造器函数体生成（第二遍，t60）：与 visitFunction 同机制，
+    /// 另维护 current_this_/current_class_name_ 供体内 this 解析
+    void gen_method_body(const CGClass& cls, const FunctionStmt& stmt);
 
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
@@ -218,6 +247,8 @@ private:
     llvm::FunctionCallee rt_arr_set_;    // void(ptr, i64, i64 bits)，同上索引规则
     llvm::FunctionCallee rt_arr_len_;    // i64(ptr)
     llvm::FunctionCallee rt_arr_to_str_; // ptr(ptr)，[1, 2, 3] 格式对齐 Value::to_string
+    /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧
+    llvm::FunctionCallee rt_obj_new_;    // ptr(i64 size)
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;
@@ -225,6 +256,11 @@ private:
     std::vector<LoopContext> loops_;
     /// 顶层函数表（S5 t52）：名字 → 原型；第一遍填充，递归/前向调用天然可用
     std::unordered_map<std::string, CGFunction> functions_;
+    /// 类表（t60）：类名 → struct 布局 + 方法原型；第一遍注册，前向 new 可用
+    std::unordered_map<std::string, CGClass> classes_;
+    /// 当前方法的 this 实参与所属类名（t60）：仅方法体生成期非空
+    llvm::Value* current_this_ = nullptr;
+    std::string current_class_name_;
     /// 当前是否在生成函数体（顶层 return / 嵌套函数拒编用）
     bool in_function_ = false;
     /// 当前函数的返回类型（visitReturn 校验/提升用；Void 即 none）

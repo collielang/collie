@@ -23,9 +23,10 @@
 | S10 | string 方法 trim 系列/subString + toString 方法形式 | 方法/链式调用程序编译执行，输出与解释器一致 **✅ t57** |
 | S11 | 整数溢出陷阱（CG1 收窄）：i64 加/减/乘/负号溢出显式报错 | 边界内大数程序输出与解释器一致，溢出程序陷阱退出 **✅ t58** |
 | S12 | array 最小闭环：同质字面量/索引读写/length/print/引用语义 | 数组程序编译执行，输出与解释器一致，越界陷阱退出 **✅ t59** |
-| 后续 | class、BigInt 运行时化 | 逐任务扩展 |
+| S13 | class 最小闭环：单类/字段/构造器/方法/this/引用语义 | 类程序编译执行，输出与解释器一致 **✅ t60** |
+| 后续 | class 继承、BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：tribool/Kleene、tuple、class、`==?`、异常语义。
+不在第一期范围：tribool/Kleene、tuple、class 继承、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -54,8 +55,9 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `bool` | `i1` | |
 | `string` | `ptr`（指向常量串或 collie_rt malloc 串） | 字面量 = `private unnamed_addr constant [N x i8]`；拼接结果 = `collie_rt_concat` malloc 串（不 free，缺口 CG6） |
 | `array` | `ptr`（指向 collie_rt 数组对象） | **妥协点**：解释器数组元素动态异质；codegen 限同质数组（元素类型由字面量推断，另记于 CGValue/CGVar 的 elem 字段），异质/嵌套拒编；指针拷贝即引用语义（对齐解释器 shared_ptr） |
+| 类实例（`Point p = new Point()`） | `ptr`（指向 malloc 零初始化块，按 `collie.class.<类名>` StructType GEP 访问） | 每类一个 StructType（字段按声明顺序布局）；类名另记于 CGValue/CGVar 的 cls 字段；指针拷贝即引用语义；实例不可进数组/元组、不可作普通函数参数/返回值（拒编） |
 | `none` / `void` | `void` | |
-| 其余（tribool/tuple/class/char...） | 不支持，显式报错 | |
+| 其余（tribool/tuple/char...） | 不支持，显式报错 | |
 
 ## 四、降级映射表（S1/S2 核心）
 
@@ -155,6 +157,18 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `print(a)` / `toString(a)` / 拼接 | `call ptr @collie_rt_arr_to_str(ptr)` 整体转 `[1, 2, 3]` 格式串（对齐 Value::to_string：元素递归格式化、字符串不加引号）后走 print_str/Str 路径 |
 | 赋值/三元中的数组 | 指针拷贝即引用语义；两侧 elem 不一致拒编（解释器动态异质无此限制，同质表示无法承载 → 拒编不错编） |
 | array 函数参数/返回值 | 拒编（`array` 声明无元素类型标注，跨函数签名无法定 elem；待带元素类型的声明语法或动态 kind 方案） |
+
+**S13 降级补充（t60 实现）：class 最小闭环**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `class C { ... }` 声明 | 注册遍（与函数原型同属第一遍）建 `collie.class.C` StructType：字段按声明顺序布局（下标即 GEP 索引）；方法/构造器降为 `collie.C.<方法名>` InternalLinkage 独立函数，this 作隐藏首参 ptr；第二遍生成方法体（现场保存/还原同 visitFunction，this 直持 SSA 值不落栈槽） |
+| `new C(args)` | `call ptr @collie_rt_obj_new(i64 size)`（malloc + memset 零初始化，size = 8×字段数上界，与 DataLayout 解耦）→ 字段初始值按声明顺序求值写入（仅 Int→Double 隐式提升，同 coerce 四处）→ 构造器实参求值 → 构造器调用（与解释器 visitNew 三段顺序一致）；无构造器带实参拒编 |
+| `obj.field` 读 / `obj.field = v` 写 | `CreateStructGEP` + load/store；写入仅允许 Int→Double 提升否则拒编；求值顺序 object→value 对齐解释器 |
+| `obj.m(args)` / `this.m(args)` | 类方法表优先命中 → `call @collie.C.m(ptr this, args...)`；未命中且 `toString()` 无参 → 固定串 `"<object>"` 兜底（分派顺序对齐解释器）；否则拒编 |
+| `print(obj)` / `toString(obj)` | 固定输出 `"<object>"`（对齐 Value::to_string Instance 分支） |
+| 赋值/三元中的实例 | 指针拷贝即引用语义；两侧类名不一致拒编 |
+| 范围外拒编 | extends/base/@override、无初值字段（解释器落 none 无静态表示）、number/tribool/tuple/array 字段、实例相等比较、实例进数组/元组、实例作普通函数参数/返回值、`object` 声明类型、方法重载 |
 
 ## 五、构建与链接方案（关键决策）
 

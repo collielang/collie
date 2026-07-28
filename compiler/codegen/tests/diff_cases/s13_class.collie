@@ -1,0 +1,83 @@
+// t60 S13 差分用例：class 最小闭环（单类/字段/构造器/方法/this/引用语义）
+
+class Point {
+    public integer x = 0;
+    public integer y = 0;
+
+    public Point(px integer, py integer) {
+        this.x = px;
+        this.y = py;
+    }
+
+    public function sum() integer {
+        return this.x + this.y;
+    }
+
+    public function scale(k integer) none {
+        this.x = this.x * k;
+        this.y = this.y * k;
+    }
+
+    public function describe() string {
+        return "(" + toString(this.x) + ", " + toString(this.y) + ")";
+    }
+
+    public function doubled() integer {
+        // this 互调：方法内调用同类其它方法
+        return this.sum() * 2;
+    }
+}
+
+// 构造器赋字段 + 方法读字段
+Point p = new Point(3, 4);
+print("sum:", p.sum(), p.doubled());
+print("fields:", p.x, p.y);
+
+// 外部字段写 + 方法写字段（含实参参与计算）
+p.x = 30;
+p.scale(2);
+print("scaled:", p.x, p.y, p.sum());
+
+// 多实例独立：各自持有独立字段存储
+Point q = new Point(1, 2);
+print("multi:", p.sum(), q.sum(), q.x);
+
+// 引用语义：赋值共享同一实例，一方写入另一方可见
+Point alias = p;
+alias.y = 999;
+print("ref:", p.y, alias.y, p.sum());
+
+// 方法返回字符串 + 拼接路径
+print("desc:", p.describe(), "q=" + q.describe());
+
+// print 实例与 toString 兜底（对齐解释器固定 "<object>"）
+print("obj:", p, p.toString());
+
+// 无构造器类：四类字段初始值直接生效（integer/decimal/bool/string）
+class Counter {
+    public integer count = 100;
+    public decimal ratio = 1.5;
+    public bool on = true;
+    public string tag = "counter";
+
+    public function bump() none {
+        this.count = this.count + 1;
+    }
+}
+
+Counter c = new Counter();
+c.bump();
+c.bump();
+print("counter:", c.count, c.ratio, c.on, c.tag);
+
+// 三元中的实例（两分支同类）
+bool pickP = true;
+Point picked = pickP ? p : q;
+print("ternary:", picked.sum());
+
+// 循环中方法调用
+Counter c2 = new Counter();
+for (integer i = 0; i < 5; i = i + 1) {
+    c2.bump();
+}
+print("loop:", c2.count);

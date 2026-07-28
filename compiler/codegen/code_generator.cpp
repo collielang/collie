@@ -119,11 +119,22 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_arr_to_str_ = module_->getOrInsertFunction(
         "collie_rt_arr_to_str", llvm::FunctionType::get(ptr_ty, {ptr_ty}, false));
 
-    // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
+    // collie_rt 类实例分配声明（t60）：字段块 malloc，struct 布局读写全在 codegen 侧
+    rt_obj_new_ = module_->getOrInsertFunction(
+        "collie_rt_obj_new",
+        llvm::FunctionType::get(ptr_ty, {builder_.getInt64Ty()}, false));
+
+    // 第一遍（S5 t52 / t60）：顶层函数建原型、类注册 struct 布局与方法原型，
+    // 递归与前向引用天然可用
     functions_.clear();
+    classes_.clear();
     in_function_ = false;
+    current_this_ = nullptr;
+    current_class_name_.clear();
     for (const auto& stmt : statements) {
-        if (const auto* fn_stmt = dynamic_cast<const FunctionStmt*>(stmt.get())) {
+        if (const auto* class_stmt = dynamic_cast<const ClassStmt*>(stmt.get())) {
+            register_class(*class_stmt);
+        } else if (const auto* fn_stmt = dynamic_cast<const FunctionStmt*>(stmt.get())) {
             declare_function(*fn_stmt);
         }
     }
@@ -521,6 +532,11 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                     rt_print_str_,
                     {builder_.CreateCall(rt_arr_to_str_, {v.value}, "arrstr")});
                 break;
+            case CGType::Obj:
+                // 实例打印固定 "<object>"（对齐解释器 Value::to_string Instance 分支）
+                builder_.CreateCall(rt_print_str_,
+                                    {builder_.CreateGlobalString("<object>")});
+                break;
             case CGType::Void:
                 // none 返回函数的调用结果无值可打（解释器打 none，降级无对应表示）
                 unsupported("print of 'none' value",
@@ -584,7 +600,7 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
                     expr.name().line(), expr.name().column());
     }
     last_value_ = {builder_.CreateLoad(llvm_type_of(var->type), var->slot, name),
-                   var->type, var->elem};
+                   var->type, var->elem, var->cls};
 }
 
 void CodeGenerator::visitAssign(const AssignExpr& expr) {
@@ -604,6 +620,17 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         }
         builder_.CreateStore(v.value, var->slot);
         last_value_ = {v.value, CGType::Arr, var->elem};
+        return;
+    }
+    if (var->type == CGType::Obj) {
+        // 实例赋值即指针拷贝（引用语义对齐解释器 shared_ptr，t60）；
+        // 跨类赋值拒编不错编（字段布局不同，错类会错值）
+        if (v.type != CGType::Obj || v.cls != var->cls) {
+            unsupported("assigning incompatible value to '" + name + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        builder_.CreateStore(v.value, var->slot);
+        last_value_ = {v.value, CGType::Obj, CGType::Int, var->cls};
         return;
     }
     llvm::Value* stored = coerce_for_slot(v, var->type, expr.name());
@@ -720,6 +747,46 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     size_t column = expr.name().column();
     CGValue object = emit(expr.object());
 
+    if (object.type == CGType::Obj) {
+        // 类实例方法（t60）：查类方法表（单类无继承）调 this 隐藏首参函数；
+        // 未命中时 toString 内建兜底返 "<object>"（对齐解释器分派顺序：
+        // find_method 优先，类自定义 toString 覆盖内建）
+        const CGClass& cls = classes_.at(object.cls);
+        auto mit = cls.methods.find(name);
+        if (mit != cls.methods.end()) {
+            const CGFunction& info = mit->second;
+            const auto& arguments = expr.arguments();
+            if (arguments.size() != info.param_types.size()) {
+                // 解释器运行期报错；codegen 静态可判，拒编不错编
+                unsupported("method arity mismatch for '" + name + "'", line, column);
+            }
+            std::vector<llvm::Value*> args{object.value};
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                CGValue a = emit(arguments[i].get());
+                // 实参按形参类型对齐：仅 integer→decimal 提升（coerce 等价，t60）
+                if (a.type != info.param_types[i]) {
+                    if (info.param_types[i] == CGType::Double && a.type == CGType::Int) {
+                        a = {to_double(a), CGType::Double};
+                    } else {
+                        unsupported("method argument type mismatch", line, column);
+                    }
+                }
+                args.push_back(a.value);
+            }
+            llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+            last_value_ = (info.ret_type == CGType::Void)
+                              ? CGValue{nullptr, CGType::Void}
+                              : CGValue{call, info.ret_type};
+            return;
+        }
+        if (name == "toString" && expr.arguments().empty()) {
+            last_value_ = {to_str(object, expr.name()), CGType::Str};
+            return;
+        }
+        unsupported("undefined method '" + name + "' on class '" + object.cls + "'",
+                    line, column);
+    }
+
     if (name == "toString" && expr.arguments().empty()) {
         last_value_ = {to_str(object, expr.name()), CGType::Str};
         return;
@@ -779,11 +846,112 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                        CGType::Int};
         return;
     }
+    if (object.type == CGType::Obj) {
+        // 类实例字段读（t60）：struct GEP + load，字段类型静态已知
+        const CGClass& cls = classes_.at(object.cls);
+        const std::string name(expr.name().lexeme());
+        auto it = cls.field_index.find(name);
+        if (it == cls.field_index.end()) {
+            unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        const CGField& field = cls.fields[it->second];
+        llvm::Value* slot =
+            builder_.CreateStructGEP(cls.type, object.value, it->second, name);
+        last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
+                       field.type};
+        return;
+    }
     unsupported("property access", expr.name().line(), expr.name().column());
 }
-void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr&) { unsupported("property assignment", 0, 0); }
-void CodeGenerator::visitNew(const NewExpr&) { unsupported("'new'", 0, 0); }
-void CodeGenerator::visitThis(const ThisExpr&) { unsupported("'this'", 0, 0); }
+void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
+    // 字段赋值（t60）：求值顺序 object → value（对齐解释器 visitPropertyAssign）；
+    // 按字段声明类型对齐（仅 integer→decimal 提升，与四处 coerce 等价）
+    CGValue object = emit(expr.object());
+    if (object.type != CGType::Obj) {
+        unsupported("property assignment on this value type",
+                    expr.name().line(), expr.name().column());
+    }
+    const CGClass& cls = classes_.at(object.cls);
+    const std::string name(expr.name().lexeme());
+    auto it = cls.field_index.find(name);
+    if (it == cls.field_index.end()) {
+        unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
+                    expr.name().line(), expr.name().column());
+    }
+    CGValue v = emit(expr.value());
+    const CGField& field = cls.fields[it->second];
+    llvm::Value* stored = coerce_for_slot(v, field.type, expr.name());
+    builder_.CreateStore(
+        stored, builder_.CreateStructGEP(cls.type, object.value, it->second, name));
+    last_value_ = {stored, field.type}; // 赋值表达式的值 = 所赋的值（与解释器一致）
+}
+void CodeGenerator::visitNew(const NewExpr& expr) {
+    // 类实例化（t60）：collie_rt_obj_new 分配字段块（8 字节 × 字段数上界：
+    // struct 各字段 ≤ 8 字节、对齐 ≤ 8，任意目标布局下恒足够），再按声明顺序
+    // 求值字段初始值写入 → 求值构造器实参 → 调构造器（三段顺序对齐解释器 visitNew）
+    const std::string name(expr.class_name().lexeme());
+    size_t line = expr.class_name().line();
+    size_t column = expr.class_name().column();
+    auto it = classes_.find(name);
+    if (it == classes_.end()) {
+        unsupported("'new' of unknown class '" + name + "'", line, column);
+    }
+    const CGClass& cls = it->second;
+    const uint64_t size = cls.fields.empty() ? 8 : 8 * cls.fields.size();
+    llvm::Value* obj =
+        builder_.CreateCall(rt_obj_new_, {builder_.getInt64(size)}, "objnew");
+    for (unsigned i = 0; i < cls.fields.size(); ++i) {
+        const CGField& field = cls.fields[i];
+        CGValue v = emit(field.decl->initializer());
+        // 字段初始值按声明类型对齐（解释器 coerce_to_declared 等价静态检查）
+        llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name());
+        builder_.CreateStore(stored,
+                             builder_.CreateStructGEP(cls.type, obj, i, field.name));
+    }
+    // 构造器实参在字段初始化之后求值（对齐解释器顺序）
+    std::vector<CGValue> args;
+    for (const auto& argument : expr.arguments()) {
+        args.push_back(emit(argument.get()));
+    }
+    auto mit = cls.methods.find(name); // 构造器 = 与类名同名成员
+    if (mit == cls.methods.end()) {
+        if (!args.empty()) {
+            // 解释器运行期报错；codegen 静态可判，拒编不错编
+            unsupported("constructor arguments for class '" + name +
+                            "' without constructor",
+                        line, column);
+        }
+    } else {
+        const CGFunction& ctor = mit->second;
+        if (args.size() != ctor.param_types.size()) {
+            unsupported("constructor arity mismatch for '" + name + "'", line, column);
+        }
+        std::vector<llvm::Value*> call_args{obj};
+        for (size_t i = 0; i < args.size(); ++i) {
+            CGValue a = args[i];
+            // 实参按形参类型对齐：仅 integer→decimal 提升（coerce 等价）
+            if (a.type != ctor.param_types[i]) {
+                if (ctor.param_types[i] == CGType::Double && a.type == CGType::Int) {
+                    a = {to_double(a), CGType::Double};
+                } else {
+                    unsupported("constructor argument type mismatch", line, column);
+                }
+            }
+            call_args.push_back(a.value);
+        }
+        builder_.CreateCall(ctor.fn, call_args);
+    }
+    last_value_ = {obj, CGType::Obj, CGType::Int, name};
+}
+void CodeGenerator::visitThis(const ThisExpr& expr) {
+    // this 仅在方法体生成期可用（语义层对 object 动态放行，此处防御）
+    if (!current_this_) {
+        unsupported("'this' outside class method",
+                    expr.keyword().line(), expr.keyword().column());
+    }
+    last_value_ = {current_this_, CGType::Obj, CGType::Int, current_class_name_};
+}
 void CodeGenerator::visitBaseCall(const BaseCallExpr&) { unsupported("'base' call", 0, 0); }
 void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr&) { unsupported("'base' method call", 0, 0); }
 
@@ -792,6 +960,25 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     if (!stmt.initializer()) {
         unsupported("variable declaration without initializer",
                     stmt.name().line(), stmt.name().column());
+    }
+    // 类类型变量（t60）：声明类型为已注册类名的 IDENTIFIER token（语义层
+    // 内部改写 KW_OBJECT，AST 原样保留标识符）；槽存实例 ptr，指针拷贝即引用语义
+    if (stmt.type().type() == TokenType::IDENTIFIER) {
+        const std::string cls_name(stmt.type().lexeme());
+        if (classes_.count(cls_name) == 0) {
+            unsupported("variable type '" + cls_name + "'",
+                        stmt.type().line(), stmt.type().column());
+        }
+        CGValue init = emit(stmt.initializer());
+        if (init.type != CGType::Obj || init.cls != cls_name) {
+            unsupported("initializing '" + cls_name + "' variable with incompatible value",
+                        stmt.name().line(), stmt.name().column());
+        }
+        const std::string name(stmt.name().lexeme());
+        llvm::AllocaInst* slot = create_entry_alloca(llvm_type_of(CGType::Obj), name);
+        builder_.CreateStore(init.value, slot);
+        scopes_.back()[name] = {slot, CGType::Obj, CGType::Int, cls_name};
+        return;
     }
     CGType type = declared_cgtype(stmt.type());
     CGValue init = emit(stmt.initializer());
@@ -1052,7 +1239,25 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
     builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "ret.dead", fn));
 }
 
-void CodeGenerator::visitClass(const ClassStmt&) { unsupported("'class'", 0, 0); }
+void CodeGenerator::visitClass(const ClassStmt& stmt) {
+    // 方法体生成（第二遍，t60）：struct 布局与方法原型已在注册遍建好
+    const std::string name(stmt.name().lexeme());
+    if (in_function_) {
+        unsupported("class declaration inside function",
+                    stmt.name().line(), stmt.name().column());
+    }
+    auto it = classes_.find(name);
+    if (it == classes_.end()) {
+        // 非顶层位置的类声明（块内等）未进类表
+        unsupported("class declaration outside top level",
+                    stmt.name().line(), stmt.name().column());
+    }
+    for (const auto& member : stmt.members()) {
+        if (const auto* method = dynamic_cast<const FunctionStmt*>(member.get())) {
+            gen_method_body(it->second, *method);
+        }
+    }
+}
 
 void CodeGenerator::visitBreak(const BreakStmt& stmt) {
     // 循环外的 break 由语义层拦截，此处防御
@@ -1102,6 +1307,7 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Bool:   return builder_.getInt1Ty();
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
         case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
+        case CGType::Obj:    return llvm::PointerType::getUnqual(context_);
         case CGType::Void:   return builder_.getVoidTy();
     }
     return builder_.getInt64Ty(); // 不可达，压编译器警告
@@ -1171,6 +1377,151 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt) {
     functions_[name] = {fn, std::move(param_types), ret};
 }
 
+void CodeGenerator::register_class(const ClassStmt& stmt) {
+    const std::string name(stmt.name().lexeme());
+    if (stmt.has_superclass()) {
+        // 继承需字段合并/方法覆写解析，t60 范围外拒编
+        unsupported("class inheritance",
+                    stmt.name().line(), stmt.name().column());
+    }
+    if (classes_.count(name) != 0) {
+        unsupported("duplicate class '" + name + "'",
+                    stmt.name().line(), stmt.name().column());
+    }
+    CGClass cls;
+    cls.stmt = &stmt;
+
+    // 字段按声明顺序布局（下标即 GEP 索引）；类型限 declared_cgtype 支持面
+    std::vector<llvm::Type*> field_types;
+    for (const auto& member : stmt.members()) {
+        const auto* field = dynamic_cast<const VarDeclStmt*>(member.get());
+        if (!field) continue;
+        const std::string fname(field->name().lexeme());
+        if (cls.field_index.count(fname) != 0) {
+            unsupported("duplicate field '" + fname + "'",
+                        field->name().line(), field->name().column());
+        }
+        if (!field->initializer()) {
+            // 无初值字段解释器落 none，静态布局无对应表示（t60 范围外）
+            unsupported("class field without initializer",
+                        field->name().line(), field->name().column());
+        }
+        CGType ftype = declared_cgtype(field->type());
+        if (ftype == CGType::Arr) {
+            // 数组字段无处标注元素类型（同 t59 参数/返回值拒编理由）
+            unsupported("array field",
+                        field->name().line(), field->name().column());
+        }
+        cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
+        cls.fields.push_back({fname, ftype, field});
+        field_types.push_back(llvm_type_of(ftype));
+    }
+    cls.type = llvm::StructType::create(context_, field_types,
+                                        "collie.class." + name);
+
+    // 方法（含构造器，键 = 类名）降级为独立函数：this 作隐藏首参 ptr，
+    // 符号名 collie.<类名>.<方法名>（用户标识符无 '.'，天然不冲突）
+    for (const auto& member : stmt.members()) {
+        const auto* method = dynamic_cast<const FunctionStmt*>(member.get());
+        if (!method) continue;
+        const std::string mname(method->name().lexeme());
+        if (cls.methods.count(mname) != 0) {
+            // 语义层支持方法重载，codegen 第一期仅单签名（同 declare_function）
+            unsupported("method overloading for '" + mname + "'",
+                        method->name().line(), method->name().column());
+        }
+        const CGType ret = method->return_type().type() == TokenType::KW_NONE
+                               ? CGType::Void
+                               : declared_cgtype(method->return_type());
+        if (ret == CGType::Arr) {
+            unsupported("array return type",
+                        method->name().line(), method->name().column());
+        }
+        std::vector<CGType> param_types;
+        std::vector<llvm::Type*> llvm_params;
+        llvm_params.push_back(llvm::PointerType::getUnqual(context_)); // 隐藏 this
+        for (const auto& param : method->parameters()) {
+            CGType t = declared_cgtype(param.type);
+            if (t == CGType::Arr) {
+                unsupported("array parameter",
+                            method->name().line(), method->name().column());
+            }
+            param_types.push_back(t);
+            llvm_params.push_back(llvm_type_of(t));
+        }
+        auto* fn_type = llvm::FunctionType::get(llvm_type_of(ret), llvm_params,
+                                                /*isVarArg=*/false);
+        auto* fn = llvm::Function::Create(fn_type, llvm::Function::InternalLinkage,
+                                          "collie." + name + "." + mname,
+                                          module_.get());
+        cls.methods[mname] = {fn, std::move(param_types), ret};
+    }
+    classes_[name] = std::move(cls);
+}
+
+void CodeGenerator::gen_method_body(const CGClass& cls, const FunctionStmt& stmt) {
+    const std::string name(stmt.name().lexeme());
+    const CGFunction& info = cls.methods.at(name);
+
+    // 保存生成现场（同 visitFunction）：方法体用独立的变量环境/循环栈
+    llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
+    auto saved_scopes = std::move(scopes_);
+    auto saved_loops = std::move(loops_);
+    scopes_.clear();
+    scopes_.emplace_back();
+    loops_.clear();
+    in_function_ = true;
+    current_ret_type_ = info.ret_type;
+    current_class_name_ = std::string(cls.stmt->name().lexeme());
+
+    builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "entry", info.fn));
+    // 首参为隐藏 this（直接持 SSA 值不落栈槽：this 不可被赋值）；
+    // 其余形参落栈槽（与 visitFunction 同机制，注意下标偏移 1）
+    size_t i = 0;
+    for (auto& arg : info.fn->args()) {
+        if (i == 0) {
+            arg.setName("this");
+            current_this_ = &arg;
+        } else {
+            const Parameter& param = stmt.parameters()[i - 1];
+            const std::string pname(param.name.lexeme());
+            arg.setName(pname);
+            llvm::AllocaInst* slot =
+                create_entry_alloca(llvm_type_of(info.param_types[i - 1]), pname);
+            builder_.CreateStore(&arg, slot);
+            scopes_.back()[pname] = {slot, info.param_types[i - 1]};
+        }
+        ++i;
+    }
+
+    for (const auto& body_stmt : stmt.body()->statements()) {
+        body_stmt->accept(*this);
+    }
+
+    // 尾块收尾（同 visitFunction）：none 方法补 ret void（构造器返回类型即 none）；
+    // 非 none 方法不可达尾块补 unreachable，可达无 return 拒编
+    llvm::BasicBlock* tail = builder_.GetInsertBlock();
+    if (!tail->getTerminator()) {
+        if (info.ret_type == CGType::Void) {
+            builder_.CreateRetVoid();
+        } else if (!reachable_from_entry(tail)) {
+            builder_.CreateUnreachable();
+        } else {
+            throw CodeGenError(
+                "codegen: method '" + name + "' may reach end without return",
+                stmt.name().line(), stmt.name().column());
+        }
+    }
+
+    in_function_ = false;
+    current_ret_type_ = CGType::Void;
+    current_this_ = nullptr;
+    current_class_name_.clear();
+    scopes_ = std::move(saved_scopes);
+    loops_ = std::move(saved_loops);
+    builder_.SetInsertPoint(saved_bb);
+}
+
 void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     // 三分支 tribool 形式 a ? x : y : z 属 tribool 后续阶段，拒编
     if (expr.unset_expr() != nullptr) {
@@ -1204,6 +1555,11 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
             unsupported("ternary branches yield arrays of different element types",
                         expr.question_token().line(), expr.question_token().column());
         }
+        if (tv.type == CGType::Obj && tv.cls != ev.cls) {
+            // 同为实例但类不同：静态无公共类型可表，拒编不错编（t60）
+            unsupported("ternary branches yield instances of different classes",
+                        expr.question_token().line(), expr.question_token().column());
+        }
         result_type = tv.type;
     } else if ((tv.type == CGType::Int || tv.type == CGType::Double) &&
                (ev.type == CGType::Int || ev.type == CGType::Double)) {
@@ -1225,7 +1581,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     llvm::PHINode* phi = builder_.CreatePHI(llvm_type_of(result_type), 2, "terntmp");
     phi->addIncoming(then_val, then_end);
     phi->addIncoming(else_val, else_end);
-    last_value_ = {phi, result_type, tv.elem}; // elem 仅 Arr 有意义（两分支已校验一致）
+    last_value_ = {phi, result_type, tv.elem, tv.cls}; // elem/cls 仅 Arr/Obj 有意义（两分支已校验一致）
 }
 
 llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
@@ -1273,6 +1629,9 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
         case CGType::Arr:
             // [1, 2, 3] 格式（对齐 Value::to_string 的 Array 分支，t59）
             return builder_.CreateCall(rt_arr_to_str_, {v.value}, "arrstr");
+        case CGType::Obj:
+            // 实例转串固定 "<object>"（对齐 Value::to_string Instance 分支，t60）
+            return builder_.CreateGlobalString("<object>");
         default:
             unsupported("string conversion of this value", where.line(), where.column());
     }
