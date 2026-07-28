@@ -125,9 +125,10 @@ private:
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_values_ 下标（t68）
     };
 
-    /// @brief 变量存储槽（entry 块 alloca）+ 编译期类型（S3 t50）
+    /// @brief 变量存储槽（entry 块 alloca；顶层变量为 GlobalVariable，t73）
+    /// + 编译期类型（S3 t50）
     struct CGVar {
-        llvm::AllocaInst* slot = nullptr;
+        llvm::Value* slot = nullptr;
         CGType type = CGType::Int;
         CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
         std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
@@ -215,6 +216,10 @@ private:
 
     /// @brief 在函数 entry 块创建 alloca（IR 规范位置，利于后续 mem2reg）
     llvm::AllocaInst* create_entry_alloca(llvm::Type* type, const std::string& name);
+
+    /// @brief 变量建槽（t73）：顶层（非函数体且作用域深度 1）建零初始化
+    /// GlobalVariable（跨函数共享，初始值仍在 @main 按源序 store），其余走 entry alloca
+    llvm::Value* create_var_slot(llvm::Type* type, const std::string& name);
 
     /// @brief 待存值对齐槽类型：仅 integer→decimal 隐式提升（与语义层一致），其余不匹配报错；
     /// slot_cls 仅槽为 Obj 时有意义（字段路径严格同类校验，t72——其余调用点 Obj 另有前置分支）

@@ -11,6 +11,7 @@
 #include <set>
 
 #include <llvm/IR/CFG.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
@@ -1449,7 +1450,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
                         stmt.name().line(), stmt.name().column());
         }
         const std::string name(stmt.name().lexeme());
-        llvm::AllocaInst* slot = create_entry_alloca(llvm_type_of(CGType::Obj), name);
+        llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
         builder_.CreateStore(init.value, slot);
         scopes_.back()[name] = {slot, CGType::Obj, CGType::Int, cls_name};
         return;
@@ -1470,7 +1471,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         llvm::Value* checked = check_bit_range(bit_init.value, max_val,
                                                is_byte ? "byte" : "word");
         const std::string bit_name(stmt.name().lexeme());
-        llvm::AllocaInst* slot = create_entry_alloca(builder_.getInt64Ty(), bit_name);
+        llvm::Value* slot = create_var_slot(builder_.getInt64Ty(), bit_name);
         builder_.CreateStore(checked, slot);
         scopes_.back()[bit_name] = {slot, CGType::Int, CGType::Int, "", -1, max_val};
         return;
@@ -1504,7 +1505,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         stored = coerce_for_slot(init, type, stmt.name());
     }
     const std::string name(stmt.name().lexeme());
-    llvm::AllocaInst* slot = create_entry_alloca(llvm_type_of(type), name);
+    llvm::Value* slot = create_var_slot(llvm_type_of(type), name);
     builder_.CreateStore(stored, slot);
     scopes_.back()[name] = {slot, type, elem}; // 同名直接遮蔽（重复声明由语义层拦截）
 }
@@ -1710,13 +1711,22 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     const CGFunction& info = it->second;
 
     // 保存 @main（或外层）生成现场，函数体用独立的变量环境/循环栈；
-    // 函数内仅参数与局部变量可见（顶层变量住 @main 栈槽，跨函数不可访问，
-    // 引用外层变量会走 identifier 未找到拒编）
+    // 顶层作用域拷贝为链底（t73）：全局槽（GlobalVariable）跨函数可见；
+    // Tup 条目剔除（tuple 解构槽组是 @main 的 alloca，跨函数引用非法，
+    // 剔除后函数内引用走既有 identifier 拒编）
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
     scopes_.clear();
     scopes_.emplace_back();
+    if (!saved_scopes.empty()) {
+        for (const auto& [gname, gvar] : saved_scopes.front()) {
+            if (gvar.type != CGType::Tup) {
+                scopes_.back()[gname] = gvar;
+            }
+        }
+    }
+    scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
     in_function_ = true;
     current_ret_type_ = info.ret_type;
@@ -2000,6 +2010,21 @@ llvm::AllocaInst* CodeGenerator::create_entry_alloca(llvm::Type* type,
     return tmp.CreateAlloca(type, nullptr, name);
 }
 
+llvm::Value* CodeGenerator::create_var_slot(llvm::Type* type,
+                                            const std::string& name) {
+    if (!in_function_ && scopes_.size() == 1) {
+        // 顶层变量升全局槽（t73）：零初始化 GlobalVariable（内部链接 +
+        // collie.g. 前缀防符号冲突），初始值仍在 @main 当前位置按源序
+        // store——语义层在函数声明处分析函数体（只见此前声明的顶层变量），
+        // 且调用必在函数声明之后，零初始化值不可能先于 store 被读到
+        return new llvm::GlobalVariable(
+            *module_, type, /*isConstant=*/false,
+            llvm::GlobalValue::InternalLinkage,
+            llvm::Constant::getNullValue(type), "collie.g." + name);
+    }
+    return create_entry_alloca(type, name);
+}
+
 llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
                                             const Token& where,
                                             const std::string& slot_cls) {
@@ -2227,12 +2252,21 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     const FunctionStmt& stmt = *method.stmt;
     const std::string name(stmt.name().lexeme());
 
-    // 保存生成现场（同 visitFunction）：方法体用独立的变量环境/循环栈
+    // 保存生成现场（同 visitFunction）：方法体用独立的变量环境/循环栈；
+    // 顶层作用域拷贝为链底（t73，Tup 条目剔除，同 visitFunction）
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
     scopes_.clear();
     scopes_.emplace_back();
+    if (!saved_scopes.empty()) {
+        for (const auto& [gname, gvar] : saved_scopes.front()) {
+            if (gvar.type != CGType::Tup) {
+                scopes_.back()[gname] = gvar;
+            }
+        }
+    }
+    scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
     in_function_ = true;
     current_ret_type_ = method.ret_type;

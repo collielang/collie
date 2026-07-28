@@ -1,0 +1,92 @@
+// t73 S26 差分用例：顶层变量提升全局槽（函数/方法读写全局、引用语义、遮蔽）
+// 顶层声明建零初始化 GlobalVariable，初始值仍在 @main 按源序 store
+
+integer counter = 10;
+decimal rate = 2.5;
+string tag = "g";
+bool flag = true;
+byte lim = 200;
+word big = 4096;
+array nums = [1, 2, 3];
+
+// 函数读全局（标量/字符串/布尔/byte/word）
+function show() string {
+    return @"{tag}:{counter} {flag} {lim} {big}";
+}
+print("read:", show());
+
+// 函数写全局：调用后顶层可见
+function bump(v integer) none {
+    counter = counter + v;
+}
+bump(5);
+print("write:", counter);
+
+// 函数内读写 decimal 全局并参与运算
+function scale() decimal {
+    rate = rate * 2;
+    return rate + counter;
+}
+print("scale:", scale(), rate);
+
+// 全局数组跨函数：引用语义（函数内写元素顶层可见）
+function firstBump() integer {
+    nums[0] = nums[0] + 100;
+    return nums[0];
+}
+print("arr:", firstBump(), nums, nums[0]);
+
+// 形参遮蔽全局：函数内 counter 是参数，全局不受影响
+function shadow(counter integer) integer {
+    counter = counter + 1000;
+    return counter;
+}
+print("shadow:", shadow(1), counter);
+
+// 局部声明遮蔽全局
+function localShadow() integer {
+    integer counter = 7;
+    return counter;
+}
+print("local:", localShadow(), counter);
+
+// 全局实例跨函数/方法：字段写共享 + 方法体读写全局
+class Cell {
+    public integer v = 1;
+
+    public function read() integer {
+        return this.v;
+    }
+
+    public function sync() integer {
+        counter = counter + this.v;
+        return counter;
+    }
+}
+
+Cell cell = new Cell();
+
+function poke(n integer) none {
+    cell.v = cell.v + n;
+}
+poke(41);
+print("cell:", cell.v, cell.read());
+print("sync:", cell.sync(), counter);
+
+// 顶层块内声明不全局化（for 计数器/块内局部仍走 alloca）
+integer acc = 0;
+for (integer i = 1; i <= 3; i = i + 1) {
+    integer twice = i * 2;
+    acc = acc + twice;
+}
+print("block:", acc);
+
+// byte 全局在函数内重赋值（赋值点范围检查通过）
+function tweak() integer {
+    lim = 100;
+    return lim + 1;
+}
+print("byte:", tweak(), lim);
+
+// 全局参与插值/比较/算术
+print("mixed:", counter * 2, big > 1000, @"t={tag} c={counter}");

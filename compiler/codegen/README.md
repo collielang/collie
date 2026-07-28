@@ -36,6 +36,7 @@
 | S23 | 数组进函数签名：参数/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵（运行时 kind 驱动） | 排序/累加/跨边界引用语义程序编译执行，输出与解释器一致 **✅ t70** |
 | S24 | 数组作类字段：字段声明/初始值/读写放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用） | 字段数组初始值/索引读写/引用语义/跨签名边界程序编译执行，输出与解释器一致 **✅ t71** |
 | S25 | 类实例作类字段：CGField 加 cls 伴随，字段声明识 IDENTIFIER 类名，读写严格同类（属性链/引用语义/整体替换/继承） | 字段实例属性链读写/深链写/跨签名/继承程序编译执行，输出与解释器一致 **✅ t72** |
+| S26 | 顶层变量提升全局槽：CGVar.slot 改型 Value*，顶层声明建零初始化 GlobalVariable（初始值仍在 @main 按源序 store），函数/方法体以顶层层拷贝为作用域链底（Tup 剔除） | 函数/方法读写全局、全局数组/实例引用语义、遮蔽程序编译执行，输出与解释器一致 **✅ t73** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
@@ -315,6 +316,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 字段写 `obj.e = v` / 字段初始值 | coerce_for_slot 加 slot_cls 参数（默认空串），相等分支 Obj 严格同类校验（t61 拍板：静态 cls 即动态类是单态化分派前提，向上转型拒编不错编）；变量/tuple 槽的 Obj 另有前置分支，加参零回归 |
 | 引用语义 | 字段槽存实例指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr）；深层属性链写（`g.car.engine.power = v`）沿 cls 伴随逐级定位布局 |
 | 范围外 | 向上转型字段（同 t61）、相互/自引用类字段（声明序不可达，语义层已拦）、Num/Tup 字段（既有拒编不变） |
+
+**S26 降级补充（t73 实现）：顶层变量提升全局槽**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 顶层 `integer counter = 10;` | create_var_slot 统一建槽：顶层（`!in_function_ && scopes_.size()==1`）建零初始化 GlobalVariable（InternalLinkage + `collie.g.` 前缀防符号冲突），初始值仍在 @main 当前位置按源序 store；块内（for/if 等，深度 >1）声明维持 entry alloca |
+| 函数/方法体读写全局 | visitFunction/gen_method_body 重建作用域栈时以顶层层（saved_scopes.front()）拷贝为链底，再压参数层；lookup_var 零改动，形参/局部声明天然遮蔽全局 |
+| 顺序安全 | 语义层在函数声明处分析函数体（只见此前声明的顶层变量）+ 前向调用为语义/运行期错误 ⇒ 变量 store 必先于任何函数内读，零初始化值不可被观察 |
+| CGVar.slot 改型 | `AllocaInst*` → `Value*`（全部使用点仅 CreateLoad/CreateStore，纯声明面改动零风险），GlobalVariable/alloca 同型共用 |
+| 范围外 | 顶层 tuple 跨函数（解构槽组是 @main 的 alloca，链底拷贝时剔除 Tup 条目，函数内引用走既有 identifier 拒编；解释器可容） |
 
 ## 五、构建与链接方案（关键决策）
 
