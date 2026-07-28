@@ -1,0 +1,46 @@
+// t69 S22 差分用例：char/byte/word + 位运算
+
+// hex 字面量与位运算（十进制输出；~x = -x-1，右移算术移位）
+print(0x10);
+print(0xFF & 0x0F);
+print(0x0F | 0xF0);
+print(0xFF ^ 0x0F);
+print(1 << 4);
+print(0xFF >> 4);
+print(~0);
+print(~0xFF);
+print(-8 >> 1);
+
+// 优先级（C 家族）：`|` < `^` < `&`；移位低于加减
+print(1 | 2 ^ 3 & 4);
+print(1 << 2 + 1);
+print(0xF0 | 0xFF & 0x0F);
+
+// byte/word 声明（integer 窄化 + 运行期范围校验通过）
+byte b = 0xFF & 0x0F;
+word w = 0xFFFF;
+print(b, w);
+
+// byte 参与算术即 integer（表达式域无截断）
+print(b + 1);
+print(b * 2 + w);
+
+// byte 变量重赋值（赋值点范围检查通过）
+b = 200;
+print(b);
+
+// 变量间位运算与移位
+integer m = 0xF0;
+print(b & m, b | m, b ^ m);
+print(m << 2, m >> 2);
+
+// char/character 声明：打印裸字符/字典序比较/可拼接
+char c = 'A';
+character g = '好';
+print(c);
+print(g);
+print(c < 'B', c == 'A');
+string s = "x" + c;
+print(s);
+string t = c + "!";
+print(t, "ch:" + g);

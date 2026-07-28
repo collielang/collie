@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t68 完成：codegen tuple 静态展开——字面量/常量索引/命名字段/get/length/print 全部编译期解析，最后一个未降级类型收口，差分 20/20）
+最后更新：2026-07-28（t69 完成：codegen char/byte/word + 位运算——char 走 Str、byte/word i64+赋值点范围陷阱、位运算 Int 域含移位检查，差分 21/21）
 
 ---
 
@@ -419,6 +419,9 @@
     - 实现：语义层对 tuple 元素类型零追踪，但 tuple 不可变且字面量处元素类型/名字表编译期完全可知——采 codegen 侧纯静态展开：CGType::Tup 虚值（value 恒 nullptr，元素 CGValue 向量 + 平行名字表登记 tuple_values_ 注册表，无运行时对象）；变量声明解构为逐元素独立 alloca 槽（tuple_vars_，槽名 var.0/var.1，嵌套递归子条目，形状取自初始值），变量读逐槽 load 重组、重赋值同形状（元素数+名字表一致）逐槽写否则拒编；t[常量 i] 编译期解析（const_int_of AST 层模式匹配含一元负号包字面量，负索引归一化，越界拒编）；t.length 常量折叠（优先于同名字段，对齐解释器分支顺序）；t.name 线性扫名字表（不排除空名）、t.get("字面量键")（排除空名）双双对齐解释器；print/toString/插值经 tuple_to_str 静态展开成 "(1, 2)" / "(name: v)" 拼接（常量段编译期合并 + rt_concat 链，嵌套递归）；零新增 collie_rt 接口
     - 范围外（拒编维持）：动态索引/动态键 get/tuple 进函数签名（declared_signature_type 显式拒编，形状跨边界不可知）/tuple 进数组/tuple 相等比较/三元与 ==? 分支产 tuple（虚值防进 PHI 显式守卫）/类字段 tuple（llvm_type_of Tup 拒编）
     - 验证：新差分用例 s21_tuple（无名/命名/混合字面量、常量正负索引、命名字段、get 常量键、length 优先于同名字段、print 空元组/嵌套/混型元素、同形状重赋值、toString/插值/经 toString 拼接、元素参与算术），先解释器跑通再进差分门禁；ctest -C Release 差分 20/20 逐字节一致（s21 首跑即过）；Debug 门禁 6/6 不受影响
+- [x] codegen char/byte/word + 位运算（t69）
+    - 实现：char/character 承载 = CGType::Str（visitLiteral LITERAL_CHAR/LITERAL_CHARACTER→GlobalString + declared_cgtype KW_CHAR/KW_CHARACTER→Str，打印/比较/拼接零新触点复用既有 Str 路径，对齐解释器 char 即 string 语义）；byte/word 承载 = i64 零类型扩散（CGVar 新增 bit_max 字段 255/65535/0）——visitVarDecl 前置分支特判 KW_BYTE/KW_WORD（初始值须 Int，Num/Double 拒编）+ visitAssign 按 bit_max 在赋值点插范围检查（check_bit_range：(u64)v > max 一次覆盖负数与超上限，越界陷阱），对齐解释器 coerce_to_declared 只在赋值点校验、表达式域无截断、位运算结果加宽 integer；declared_cgtype 不映射 KW_BYTE/KW_WORD（类字段/函数签名维持拒编不静默丢范围校验）；位运算双侧限 Int（Num tag 静态不可判/Double 拒编不错编）：& | ^ → and/or/xor，<< >> → 移位量 (u64)count > 63 检查后 shl/ashr，~ → CreateNot（xor -1，i64 域 = 解释器 BigInt -x-1）；collie_rt 新增陷阱 2 个 collie_rt_trap_bit_range(name,max,got)/collie_rt_trap_shift_count()（t58 风格 stderr+exit(1)，文案对齐解释器措辞）
+    - 验证：新差分用例 s22_bits（hex 字面量、& | ^ ~ << >> 与优先级、~0xFF=-256、-8>>1=-4、byte/word 声明打印 "15 65535"、byte 参与算术加宽与重赋值、变量间位运算移位、char/character 声明打印比较拼接含 UTF-8），先解释器跑通再进差分门禁；byte 越界（256）/word 负值（~0xFF）/移位越界（变量移位量 64）三陷阱手动实证（stderr 报错文案对齐解释器 + exit 1）；ctest -C Release 差分 21/21 逐字节一致（s22 首跑即过）；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -473,6 +476,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen char/byte/word + 位运算（t69，M6）：char/character 承载 CGType::Str（字面量 GlobalString + declared_cgtype 映射，打印/比较/拼接零新触点）；byte/word 承载 i64 零类型扩散（CGVar.bit_max，声明/赋值点 check_bit_range 范围陷阱，表达式域无截断加宽 integer，类字段/函数签名维持拒编）；位运算双侧限 Int：& | ^ → and/or/xor、<< >> 移位量 0-63 检查后 shl/ashr、~ → xor -1；collie_rt 新增 trap_bit_range/trap_shift_count 两陷阱（文案对齐解释器）；新差分用例 s22_bits + 三陷阱手动实证，ctest -C Release 差分 21/21 逐字节一致，Debug 门禁 6/6（M6 t69）
 - 2026-07-28 `feat(compiler)`: codegen tuple 静态展开（t68，M6）：CGType::Tup 虚值（元素 CGValue 向量 + 名字表登记注册表，无运行时对象）；变量解构逐元素 alloca 槽（嵌套递归，重赋值同形状逐槽写）；t[常量 i]（AST 层 const_int_of 含负索引归一化）/t.name/t.get("字面量键")/length（优先于同名字段）全部编译期解析；print/toString/插值经 tuple_to_str 静态展开（常量段编译期合并 + rt_concat 链，嵌套递归）零新增 collie_rt 接口；动态索引/动态键/函数签名/进数组/相等比较/三元与 ==? 分支产 tuple 拒编维持；最后一个未降级类型收口；新差分用例 s21_tuple，ctest -C Release 差分 20/20 逐字节一致，Debug 门禁 6/6（M6 t68）
 - 2026-07-28 `feat(compiler)`: codegen number 专属方法（t67，M6）：gen_number_method 三路降级 10 个方法（abs/integerPart/decimalPart → 同型数值，7 个 is* 谓词 → bool）——Int 纯 IR（abs 走 checked ssub 陷阱，INT64_MIN 拒错编从陷阱；谓词常量折叠）、Double 走 fabs/trunc/floor intrinsic + fcmp（isNaN uno 自反、isFinite/isInfinity |a| 与 inf 有序比较、isInteger/isDecimal finite AND floor 判等）、Num tag 分支两路 PHI（整数态保持整数态）；零新增 collie_rt 接口；方法调用最后一块标量拒编面收口；新差分用例 s20_number_methods，ctest -C Release 差分 19/19 逐字节一致，Debug 门禁 6/6（M6 t67）
 - 2026-07-26 `feat(compiler)`: codegen switch 语句（t66，M6）：visitSwitch 级联比较块链降级（gen_multi_match 同构语句版，无结果 PHI）——条件求值一次、候选惰性求值首命中即执行 body 后跳 end（无 fallthrough），default 位置无关最后兜底，候选比较复用 gen_match_eq（Int/Double/Bool/Str/Num/Tri 含混型提升）零新增 collie_rt 接口；body 内 break/continue 绑定外层循环，含终结器不补 br；object/数组/元组候选拒编维持；新差分用例 s19_switch，ctest -C Release 差分 18/18 逐字节一致，Debug 门禁 6/6（M6 t66）

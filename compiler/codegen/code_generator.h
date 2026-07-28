@@ -13,6 +13,8 @@
  * base(...)/base.method() 静态解析、实例作函数参数/返回值；
  * S15（t62）：number tagged 双表示（{i64 tag, i64 bits}，CG5 收窄）——
  * 算术/比较/转串下沉 collie_rt 单点对齐解释器语义。
+ * S22（t69）：char/character（Str 承载，运行期即字符串）、byte/word（i64 承载 +
+ * 赋值点范围陷阱）与位运算 & | ^ ~ << >>（i64 域，移位量 0-63 运行时检查）。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -130,6 +132,7 @@ private:
         CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
         std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_vars_ 下标（slot 恒 nullptr，t68）
+        long long bit_max = 0;     // byte/word 声明的范围上限 255/65535，0 即非位类型（t69）
     };
 
     /// @brief tuple 静态展开值（t68）：元素值 + 平行名字表（无运行时对象，
@@ -301,6 +304,12 @@ private:
     llvm::Value* checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
                                    llvm::Value* rhs, const llvm::Twine& name);
 
+    /// @brief byte/word 赋值点范围检查（t69）：无符号比较 (u64)v > max 一次
+    /// 覆盖负数与超上限，越界分支调 collie_rt 陷阱（对齐解释器
+    /// coerce_to_declared 的 "Value out of range"）；返回原值
+    llvm::Value* check_bit_range(llvm::Value* v, long long max_val,
+                                 const char* type_name);
+
     /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
     llvm::Value* to_str(const CGValue& v, const Token& where);
 
@@ -366,6 +375,9 @@ private:
     llvm::FunctionCallee rt_str_substring_; // ptr(ptr, i64, i64)，end==-1 取 length
     /// collie_rt 整数溢出陷阱（CG1 t58）：i64 算术溢出时报错退出，不静默回绕
     llvm::FunctionCallee rt_trap_int_overflow_; // void()
+    /// collie_rt byte/word 范围与移位量陷阱（t69）：越界报错退出
+    llvm::FunctionCallee rt_trap_bit_range_;    // void(ptr name, i64 max, i64 got)
+    llvm::FunctionCallee rt_trap_shift_count_;  // void()
     /// collie_rt 数组运行时（t59）：不透明 ptr 数组对象，8 字节槽存位模式（引用语义）
     llvm::FunctionCallee rt_arr_new_;    // ptr(i64 len, i64 kind)
     llvm::FunctionCallee rt_arr_get_;    // i64(ptr, i64)，负索引/越界处理在运行期

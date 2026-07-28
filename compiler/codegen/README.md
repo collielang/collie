@@ -32,6 +32,7 @@
 | S19 | switch 语句：级联比较块链（首命中 + 无 fallthrough，default 位置无关） | switch 程序编译执行，输出与解释器一致 **✅ t66** |
 | S20 | number 专属方法：abs/integerPart/decimalPart + 7 个 is* 谓词（三路降级） | 三类数值接收者方法程序编译执行，输出与解释器一致 **✅ t67** |
 | S21 | tuple 静态展开：字面量/常量索引/命名字段/get/length/print（无运行时对象） | tuple 程序编译执行，输出与解释器一致 **✅ t68** |
+| S22 | char/byte/word + 位运算：char 走 Str、byte/word i64+赋值点范围陷阱、& \| ^ ~ << >>（移位 0-63 检查） | 位运算/位类型程序编译执行，输出与解释器一致 **✅ t69** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
@@ -268,6 +269,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | print / toString / 插值 | `tuple_to_str` 静态展开："("、", "、"name: "、")" 常量段编译期合并，元素经 `to_str` 降级（嵌套 Tup 递归），`collie_rt_concat` 链拼接；格式对齐 Value::to_string Tuple 分支（string 元素不加引号，空元组 `()`） |
 | 防错编守卫 | 三元/`==?` 分支产 tuple 显式拒编（虚值 nullptr 进 PHI 会静默错编）；`llvm_type_of(Tup)` 拒编（类字段等位置）；`declared_signature_type` 对 KW_TUPLE 拒编（形状跨函数边界不可知）；比较/算术/len/进数组等其余触点经既有 default/else 分支自然拒编 |
 | 接口面 | 零新增 collie_rt 接口（仅复用 `collie_rt_concat`） |
+
+**S22 降级补充（t69 实现）：char/byte/word + 位运算**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `char`/`character` 字面量与声明 | CGType::Str 承载：字面量 `CreateGlobalString(lexeme)`、`declared_cgtype` KW_CHAR/KW_CHARACTER→Str（解释器运行期 char 即 string：打印裸字符/字典序比较 strcmp/可拼接，零新触点复用既有 Str 路径） |
+| `byte b = e;` / `word w = e;` | i64 承载零类型扩散（表达式域即 CGType::Int）：visitVarDecl 前置分支特判（初始值须 Int，Num/Double 拒编），`check_bit_range` 插 `icmp ugt v, 255/65535` → bitrange.trap 调 `collie_rt_trap_bit_range(name,max,got)` + unreachable；CGVar.bit_max 记录上限，visitAssign 赋值点同样插检查（对齐解释器 coerce_to_declared 只在赋值点校验、表达式域无截断加宽 integer）；`declared_cgtype` 不映射 KW_BYTE/KW_WORD（类字段/函数签名维持拒编，不静默丢范围校验） |
+| `a & b` / `a \| b` / `a ^ b` | 双侧限 CGType::Int（Num tag 静态不可判/Double 拒编不错编）：`and`/`or`/`xor` |
+| `a << n` / `a >> n` | 移位量检查 `icmp ugt n, 63`（无符号比较一次覆盖负数与超上限）→ shift.trap 调 `collie_rt_trap_shift_count()` + unreachable，回避 shl/ashr 移位量越界的 poison；通过后 `shl`（位模式 = 解释器无符号域回绕）/`ashr`（算术移位 = 解释器符号扩展） |
+| `~a` | `CreateNot`（xor -1）：i64 域 `~x = -x-1` 与解释器 BigInt 精确取反在 i64 范围内一致；仅 Int 操作数 |
+| 接口面 | collie_rt 新增陷阱 2 个：`collie_rt_trap_bit_range` / `collie_rt_trap_shift_count`（t58 风格 stderr+exit(1)，文案对齐解释器措辞）；hex 字面量既有 strtoll base16 支持零工作 |
 
 ## 五、构建与链接方案（关键决策）
 

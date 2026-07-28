@@ -100,6 +100,15 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_int_overflow_ = module_->getOrInsertFunction(
         "collie_rt_trap_int_overflow",
         llvm::FunctionType::get(builder_.getVoidTy(), false));
+    // collie_rt byte/word 范围与移位量陷阱声明（t69）：越界报错退出
+    rt_trap_bit_range_ = module_->getOrInsertFunction(
+        "collie_rt_trap_bit_range",
+        llvm::FunctionType::get(
+            builder_.getVoidTy(),
+            {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty()}, false));
+    rt_trap_shift_count_ = module_->getOrInsertFunction(
+        "collie_rt_trap_shift_count",
+        llvm::FunctionType::get(builder_.getVoidTy(), false));
 
     // collie_rt 数组运行时声明（t59）：不透明 ptr 数组对象，8 字节槽存位模式；
     // 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）
@@ -223,6 +232,12 @@ void CodeGenerator::visitLiteral(const LiteralExpr& expr) {
     switch (tok.type()) {
         case TokenType::LITERAL_STRING:
             // lexer 已解码转义，lexeme 即最终字符串值
+            last_value_ = {builder_.CreateGlobalString(lexeme), CGType::Str};
+            return;
+        case TokenType::LITERAL_CHAR:
+        case TokenType::LITERAL_CHARACTER:
+            // char/character 字面量（t69）：解释器运行期即 string（打印裸
+            // 字符/字典序比较/可拼接），lexeme 为解码后裸字符，Str 承载即对齐
             last_value_ = {builder_.CreateGlobalString(lexeme), CGType::Str};
             return;
         case TokenType::LITERAL_NUMBER: {
@@ -494,6 +509,52 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             last_value_ = {v, CGType::Bool};
             return;
         }
+        case TokenType::OP_BIT_AND:
+        case TokenType::OP_BIT_OR:
+        case TokenType::OP_BIT_XOR: {
+            // 位运算（t69）：仅整数域（对齐解释器 eval_bitwise 的 int64 路径）；
+            // Num 整数态 tag 静态不可判、Double 拒编不错编
+            if (lhs.type != CGType::Int || rhs.type != CGType::Int) {
+                unsupported("bitwise '" + std::string(op.lexeme()) +
+                                "' on non-integer operand",
+                            op.line(), op.column());
+            }
+            llvm::Value* v =
+                op.type() == TokenType::OP_BIT_AND
+                    ? builder_.CreateAnd(lhs.value, rhs.value, "bandtmp")
+                : op.type() == TokenType::OP_BIT_OR
+                    ? builder_.CreateOr(lhs.value, rhs.value, "bortmp")
+                    : builder_.CreateXor(lhs.value, rhs.value, "bxortmp");
+            last_value_ = {v, CGType::Int};
+            return;
+        }
+        case TokenType::OP_BIT_LSHIFT:
+        case TokenType::OP_BIT_RSHIFT: {
+            // 移位（t69）：移位量限 0-63，越界运行时陷阱（对齐解释器报错，
+            // 回避 shl/ashr 移位量越界的 poison）；左移位模式移动 =
+            // 解释器无符号域回绕，右移 ashr = 解释器算术移位（符号扩展）
+            if (lhs.type != CGType::Int || rhs.type != CGType::Int) {
+                unsupported("shift '" + std::string(op.lexeme()) +
+                                "' on non-integer operand",
+                            op.line(), op.column());
+            }
+            llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+            auto* trap_bb = llvm::BasicBlock::Create(context_, "shift.trap", fn);
+            auto* cont_bb = llvm::BasicBlock::Create(context_, "shift.cont", fn);
+            // 无符号比较 (u64)count > 63 一次覆盖负数与超上限
+            llvm::Value* bad = builder_.CreateICmpUGT(
+                rhs.value, builder_.getInt64(63), "shift.bad");
+            builder_.CreateCondBr(bad, trap_bb, cont_bb);
+            builder_.SetInsertPoint(trap_bb);
+            builder_.CreateCall(rt_trap_shift_count_);
+            builder_.CreateUnreachable();
+            builder_.SetInsertPoint(cont_bb);
+            llvm::Value* v = op.type() == TokenType::OP_BIT_LSHIFT
+                                 ? builder_.CreateShl(lhs.value, rhs.value, "shltmp")
+                                 : builder_.CreateAShr(lhs.value, rhs.value, "ashrtmp");
+            last_value_ = {v, CGType::Int};
+            return;
+        }
         default:
             unsupported("binary operator '" + std::string(op.lexeme()) + "'",
                         op.line(), op.column());
@@ -515,6 +576,16 @@ void CodeGenerator::visitUnary(const UnaryExpr& expr) {
             unsupported("'!' on non-bool operand", op.line(), op.column());
         }
         last_value_ = {builder_.CreateNot(v.value, "nottmp"), CGType::Bool};
+        return;
+    }
+    if (op.type() == TokenType::OP_BIT_NOT) {
+        // 按位取反（t69）：i64 域 xor 全一（~x = -x-1，与解释器 BigInt 精确
+        // 取反在 i64 范围内一致）；仅整数操作数，其余拒编
+        CGValue v = emit(expr.operand());
+        if (v.type != CGType::Int) {
+            unsupported("'~' on non-integer operand", op.line(), op.column());
+        }
+        last_value_ = {builder_.CreateNot(v.value, "bnottmp"), CGType::Int};
         return;
     }
     if (op.type() != TokenType::OP_MINUS) {
@@ -794,6 +865,11 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         return;
     }
     llvm::Value* stored = coerce_for_slot(v, var->type, expr.name());
+    if (var->bit_max > 0) {
+        // byte/word 变量赋值点范围陷阱（t69，对齐解释器 coerce_to_declared）
+        stored = check_bit_range(stored, var->bit_max,
+                                 var->bit_max == 255 ? "byte" : "word");
+    }
     builder_.CreateStore(stored, var->slot);
     // 赋值表达式的值 = 存入后的值（与解释器一致）
     last_value_ = {stored, var->type};
@@ -1314,6 +1390,27 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         scopes_.back()[name] = {slot, CGType::Obj, CGType::Int, cls_name};
         return;
     }
+    // byte/word 变量（t69）：i64 承载零类型扩散，仅声明/赋值点插范围陷阱
+    //（对齐解释器 coerce_to_declared 只在赋值点校验、表达式域无截断）；
+    // 初始值须 Int（Num 整数态静态不可判、Double 拒编不错编）
+    if (stmt.type().type() == TokenType::KW_BYTE ||
+        stmt.type().type() == TokenType::KW_WORD) {
+        const bool is_byte = stmt.type().type() == TokenType::KW_BYTE;
+        const long long max_val = is_byte ? 255 : 65535;
+        CGValue bit_init = emit(stmt.initializer());
+        if (bit_init.type != CGType::Int) {
+            unsupported(std::string("initializing '") + (is_byte ? "byte" : "word") +
+                            "' variable with non-integer value",
+                        stmt.name().line(), stmt.name().column());
+        }
+        llvm::Value* checked = check_bit_range(bit_init.value, max_val,
+                                               is_byte ? "byte" : "word");
+        const std::string bit_name(stmt.name().lexeme());
+        llvm::AllocaInst* slot = create_entry_alloca(builder_.getInt64Ty(), bit_name);
+        builder_.CreateStore(checked, slot);
+        scopes_.back()[bit_name] = {slot, CGType::Int, CGType::Int, "", -1, max_val};
+        return;
+    }
     CGType type = declared_cgtype(stmt.type());
     CGValue init = emit(stmt.initializer());
     CGType elem = CGType::Int;
@@ -1710,6 +1807,13 @@ CodeGenerator::CGType CodeGenerator::declared_cgtype(const Token& type_token) {
         case TokenType::KW_DECIMAL: return CGType::Double;
         case TokenType::KW_BOOL:    return CGType::Bool;
         case TokenType::KW_STRING:  return CGType::Str;
+        case TokenType::KW_CHAR:
+        case TokenType::KW_CHARACTER:
+            // char/character（t69）：解释器运行期即 string（coerce_to_declared
+            // 走 default 不校验），Str 承载零新触点；KW_BYTE/KW_WORD 不在此
+            // 映射（变量声明另有前置分支插范围陷阱，类字段/函数签名维持
+            // 拒编，不静默丢范围校验）
+            return CGType::Str;
         case TokenType::KW_ARRAY:   return CGType::Arr; // 元素类型由初始值推断（t59）
         case TokenType::KW_NUMBER:  return CGType::Num; // tagged 双表示（t62，CG5 收窄）
         case TokenType::KW_TRIBOOL: return CGType::Tri; // i8 三态编码（t65）
@@ -2388,6 +2492,25 @@ llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Valu
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(cont_bb);
     return result;
+}
+
+llvm::Value* CodeGenerator::check_bit_range(llvm::Value* v, long long max_val,
+                                            const char* type_name) {
+    // byte/word 赋值点范围检查（t69）：无符号比较 (u64)v > max 一次覆盖
+    // 负数与超上限，越界调陷阱报错退出（对齐解释器 coerce_to_declared 报错）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "bitrange.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "bitrange.cont", fn);
+    llvm::Value* bad = builder_.CreateICmpUGT(
+        v, builder_.getInt64(static_cast<uint64_t>(max_val)), "bitrange.bad");
+    builder_.CreateCondBr(bad, trap_bb, cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_bit_range_,
+                        {builder_.CreateGlobalString(type_name),
+                         builder_.getInt64(static_cast<uint64_t>(max_val)), v});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return v;
 }
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {

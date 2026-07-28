@@ -43,6 +43,11 @@
  *     codegen 的 i64 加/减/乘/一元负号经 s*.with.overflow 检查，溢出即调此陷阱，
  *     把静默回绕错值变为显式运行期报错（解释器 BigInt 任意精度无溢出）
  *
+ * byte/word 范围与移位量陷阱（t69）：
+ *   void collie_rt_trap_bit_range(const char* name, long long max, long long got);
+ *     // byte/word 赋值点越界（0-255/0-65535），stderr 报错后 exit(1)
+ *   void collie_rt_trap_shift_count(void);  // 移位量越界 0-63，同上
+ *
  * 数组运行时（t59，同质数组降级用）：
  *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
  *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
@@ -286,6 +291,23 @@ const char* collie_rt_str_substring(const char* s, long long start, long long en
 void collie_rt_trap_int_overflow(void) {
     fprintf(stderr, "runtime error: integer overflow "
                     "(compiled code uses 64-bit integers, gap CG1)\n");
+    exit(1);
+}
+
+/* ---- byte/word 范围与移位量陷阱（t69）---- */
+
+/* byte/word 赋值点范围校验失败：对齐解释器 coerce_to_declared 的
+ * "Value out of range" 报错（byte 0-255 / word 0-65535，无回绕） */
+void collie_rt_trap_bit_range(const char* name, long long max, long long got) {
+    fprintf(stderr, "runtime error: Value out of range for '%s' "
+                    "(expected 0-%lld, got %lld)\n", name, max, got);
+    exit(1);
+}
+
+/* 移位量越界（<0 或 >63）：对齐解释器 eval_bitwise 的运行期报错，
+ * 回避 LLVM shl/ashr 移位量越界的 poison */
+void collie_rt_trap_shift_count(void) {
+    fprintf(stderr, "runtime error: Shift count must be in range 0-63\n");
     exit(1);
 }
 
