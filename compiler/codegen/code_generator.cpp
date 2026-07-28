@@ -65,6 +65,16 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_print_newline_ = module_->getOrInsertFunction(
         "collie_rt_print_newline", llvm::FunctionType::get(void_ty, {}, false));
 
+    // collie_rt 字符串运行时声明（S7 t54）：拼接与标量转串（malloc 串不 free，缺口 CG6）
+    rt_concat_ = module_->getOrInsertFunction(
+        "collie_rt_concat", llvm::FunctionType::get(ptr_ty, {ptr_ty, ptr_ty}, false));
+    rt_i64_to_str_ = module_->getOrInsertFunction(
+        "collie_rt_i64_to_str", llvm::FunctionType::get(ptr_ty, {builder_.getInt64Ty()}, false));
+    rt_f64_to_str_ = module_->getOrInsertFunction(
+        "collie_rt_f64_to_str", llvm::FunctionType::get(ptr_ty, {builder_.getDoubleTy()}, false));
+    rt_bool_to_str_ = module_->getOrInsertFunction(
+        "collie_rt_bool_to_str", llvm::FunctionType::get(ptr_ty, {builder_.getInt32Ty()}, false));
+
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
     in_function_ = false;
@@ -224,6 +234,15 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
         case TokenType::OP_PLUS:
         case TokenType::OP_MINUS:
         case TokenType::OP_MULTIPLY: {
+            // '+' 任一侧为 string 即拼接（与解释器一致，非 string 侧隐式转串）；
+            // 走 collie_rt_concat（malloc 出新串，缺口 CG6：不 free）
+            if (op.type() == TokenType::OP_PLUS &&
+                (lhs.type == CGType::Str || rhs.type == CGType::Str)) {
+                last_value_ = {builder_.CreateCall(
+                                   rt_concat_, {to_str(lhs, op), to_str(rhs, op)}, "concattmp"),
+                               CGType::Str};
+                return;
+            }
             require_numeric(lhs);
             require_numeric(rhs);
             if (lhs.type == CGType::Double || rhs.type == CGType::Double) {
@@ -321,6 +340,20 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
     const auto* callee = dynamic_cast<const IdentifierExpr*>(expr.callee());
     if (callee && callee->name().lexeme() == "print") {
         gen_print(expr);
+        return;
+    }
+    // toString 内建（S7 t54）：任意标量转串（与解释器 Value::to_string 对齐）；
+    // 字符串插值 @"{expr}" 由 parser 脱糖为 toString(expr) 拼接链，此处即插值落地点。
+    // 内建分发先于用户函数查表，与解释器 visitCall 的优先顺序一致
+    if (callee && callee->name().lexeme() == "toString") {
+        const auto& arguments = expr.arguments();
+        if (arguments.size() != 1) {
+            // 语义层已校验元数，此处防御
+            unsupported("toString expects exactly 1 argument",
+                        expr.paren().line(), expr.paren().column());
+        }
+        CGValue v = emit(arguments[0].get());
+        last_value_ = {to_str(v, expr.paren()), CGType::Str};
         return;
     }
     // 用户自定义顶层函数（S5 t52）：查第一遍建好的原型表
@@ -894,6 +927,25 @@ llvm::Value* CodeGenerator::to_double(const CGValue& v) {
         case CGType::Int:    return builder_.CreateSIToFP(v.value, builder_.getDoubleTy());
         case CGType::Bool:   return builder_.CreateUIToFP(v.value, builder_.getDoubleTy());
         default:             unsupported("numeric conversion of non-numeric value", 0, 0);
+    }
+}
+
+llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
+    // 对齐解释器 Value::to_string：整数 %lld、小数四步格式、bool true/false（垫片实现）
+    switch (v.type) {
+        case CGType::Str:
+            return v.value;
+        case CGType::Int:
+            return builder_.CreateCall(rt_i64_to_str_, {v.value}, "i64str");
+        case CGType::Double:
+            return builder_.CreateCall(rt_f64_to_str_, {v.value}, "f64str");
+        case CGType::Bool: {
+            // i1 → i32（C 接口边界），垫片返静态串
+            llvm::Value* ext = builder_.CreateZExt(v.value, builder_.getInt32Ty());
+            return builder_.CreateCall(rt_bool_to_str_, {ext}, "boolstr");
+        }
+        default:
+            unsupported("string conversion of this value", where.line(), where.column());
     }
 }
 

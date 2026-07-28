@@ -17,6 +17,13 @@
  *   void collie_rt_print_sep(void);             // 参数间分隔：单个空格
  *   void collie_rt_print_newline(void);         // 一行结束：换行
  *
+ * 字符串运行时（t54，拼接 + toString 降级用）：
+ *   const char* collie_rt_concat(const char* a, const char* b);  // malloc 新串
+ *   const char* collie_rt_i64_to_str(long long v);               // malloc 新串
+ *   const char* collie_rt_f64_to_str(double v);                  // malloc 新串，四步格式
+ *   const char* collie_rt_bool_to_str(int v);                    // 静态串，勿 free
+ *   注：malloc 产物不 free（缺口 CG6：短生命周期编译产物暂容忍泄漏）
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -26,6 +33,32 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* decimal 四步格式化写入 buf（print_f64 与 f64_to_str 共享，保两路径输出一致） */
+static void collie_rt_format_f64(char* buf, size_t size, double v) {
+    if (isnan(v)) {
+        snprintf(buf, size, "NaN");
+    } else if (isinf(v)) {
+        snprintf(buf, size, v > 0 ? "+Infinity" : "-Infinity");
+    } else if (v == floor(v) && fabs(v) < 1e15) {
+        /* 整值且绝对值 < 1e15：按整数打印（避免 %g 的 3e+06 科学计数） */
+        snprintf(buf, size, "%lld", (long long)v);
+    } else {
+        snprintf(buf, size, "%g", v);
+    }
+}
+
+/* malloc 失败直接终止（编译产物无恢复路径，与解释器 bad_alloc 行为等效） */
+static char* collie_rt_alloc(size_t n) {
+    char* p = (char*)malloc(n);
+    if (!p) {
+        fputs("collie_rt: out of memory\n", stderr);
+        exit(1);
+    }
+    return p;
+}
 
 void collie_rt_print_str(const char* s) {
     fputs(s, stdout);
@@ -36,20 +69,9 @@ void collie_rt_print_i64(long long v) {
 }
 
 void collie_rt_print_f64(double v) {
-    if (isnan(v)) {
-        fputs("NaN", stdout);
-        return;
-    }
-    if (isinf(v)) {
-        fputs(v > 0 ? "+Infinity" : "-Infinity", stdout);
-        return;
-    }
-    /* 整值且绝对值 < 1e15：按整数打印，与解释器一致（避免 %g 的 3e+06 科学计数） */
-    if (v == floor(v) && fabs(v) < 1e15) {
-        printf("%lld", (long long)v);
-        return;
-    }
-    printf("%g", v);
+    char buf[64];
+    collie_rt_format_f64(buf, sizeof buf, v);
+    fputs(buf, stdout);
 }
 
 void collie_rt_print_bool(int v) {
@@ -62,4 +84,37 @@ void collie_rt_print_sep(void) {
 
 void collie_rt_print_newline(void) {
     fputc('\n', stdout);
+}
+
+/* ---- 字符串运行时（t54）---- */
+
+const char* collie_rt_concat(const char* a, const char* b) {
+    size_t la = strlen(a);
+    size_t lb = strlen(b);
+    char* out = collie_rt_alloc(la + lb + 1);
+    memcpy(out, a, la);
+    memcpy(out + la, b, lb + 1); /* 含结尾 '\0' */
+    return out;
+}
+
+const char* collie_rt_i64_to_str(long long v) {
+    char buf[32];
+    snprintf(buf, sizeof buf, "%lld", v);
+    size_t n = strlen(buf) + 1;
+    char* out = collie_rt_alloc(n);
+    memcpy(out, buf, n);
+    return out;
+}
+
+const char* collie_rt_f64_to_str(double v) {
+    char buf[64];
+    collie_rt_format_f64(buf, sizeof buf, v);
+    size_t n = strlen(buf) + 1;
+    char* out = collie_rt_alloc(n);
+    memcpy(out, buf, n);
+    return out;
+}
+
+const char* collie_rt_bool_to_str(int v) {
+    return v ? "true" : "false"; /* 静态串，调用方勿 free */
 }

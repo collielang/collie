@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t53 完成：collie_rt 运行时垫片第一版——print 输出格式对齐解释器，销账缺口 CG2 标量部分）
+最后更新：2026-07-26（t54 完成：codegen string 运行时第一步——拼接 + toString 内建 + 字符串插值路径全线打通，差分 6/6）
 
 ---
 
@@ -359,6 +359,10 @@
     - 关键发现：CG2 真实差异不止 Infinity/NaN 拼写——整值大数 3000000.0 解释器打 3000000 而 %g 打 3e+06；纯 C 实现避免 clang 链 .ll 时不自动带 C++ 标准库的坑
     - 踩坑：①COLLIE_RT_LIB 宏烘焙绝对路径方案失败——构建树路径含中文时宏值经 MSVC 命令行编码错乱（clang 收到乱码路径找不到 lib），改为 colliec 运行期 GetModuleFileName 从自身目录定位 collie_rt.lib（两目标同目录产出）；②windows.h 的 min/max 宏污染 LLVM 头文件→必须 NOMINMAX + WIN32_LEAN_AND_MEAN
     - 验证：新差分用例 s6_print_format（整值大数/非整值/科学计数/1.0÷0.0/0.0÷0.0/混合行），ctest -C Release 差分 5/5 逐字节一致；Debug 门禁 6/6 不受影响
+- [x] codegen string 运行时第一步（t54）
+    - 实现：collie_rt 新增 collie_rt_concat（malloc 拼接）/i64_to_str/f64_to_str（与 print_f64 共享四步格式化 helper）/bool_to_str（静态串）；codegen visitBinary OP_PLUS 任一侧 Str 走拼接路径（非 Str 侧经 to_str 隐式转串，与解释器任一侧 string 即拼接对齐）；visitCall 新增内建 toString（单参转串，分发先于用户函数查表，与解释器一致）→ 插值脱糖产物（字面量 + toString(expr) 左结合 + 链）自然打通
+    - 范围外：len/toNumber 内建、tribool 拼接（语义层本就拒绝）；BigInt 大整数拼接精度属 CG1 延伸（i64 回绕容忍）；新登记缺口 CG6：拼接串 malloc 后不 free，短生命周期编译产物暂容忍泄漏
+    - 验证：新差分用例 s7_string_concat（串+串/串+整数/串+小数四步格式/±Infinity/NaN 拼接/串+bool/显式 toString/插值 @"{expr}"/string 变量拼接赋值/函数返回拼接），ctest -C Release 差分 6/6 逐字节一致；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -413,6 +417,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen string 运行时第一步——拼接 + toString 内建 + 插值路径（t54，M6）：collie_rt 新增 collie_rt_concat（malloc 拼接）/i64_to_str/f64_to_str（与 print_f64 共享四步格式化 helper collie_rt_format_f64）/bool_to_str（静态串）4 接口；codegen visitBinary OP_PLUS 任一侧 Str 走 rt_concat（非 Str 侧经新 to_str 转串，对齐解释器任一侧 string 即拼接语义）；visitCall 新增内建 toString（单参转串，分发先于用户函数查表）→ 字符串插值 @"{expr}"（parser 脱糖为 toString 拼接链）自然打通；新登记缺口 CG6（拼接串 malloc 不 free，短生命周期编译产物暂容忍）；新差分用例 s7_string_concat，ctest -C Release 差分 6/6 逐字节一致，Debug 门禁 6/6（M6 t54）
 - 2026-07-26 `feat(compiler)`: collie_rt 运行时垫片第一版，print 输出格式对齐解释器（t53，M6）：纯 C 静态库 `codegen/runtime/collie_rt.c`（print_str/i64/f64/bool + 参间 sep + 末尾 newline 逐参接口；纯 C 免 clang 链 .ll 时的 C++ 标准库依赖）；f64 移植解释器 to_string 四步格式（NaN→±Infinity→整值<1e15 按整数打，修复 %g 把 3000000 打成 3e+06→其余 %g）；gen_print 改逐参调用垫片不再直连 printf/puts；colliec 运行期从自身目录定位 collie_rt.lib（CMake 宏烘焙绝对路径在非 ASCII 构建树下编码错乱，改 GetModuleFileName 方案；windows.h 需 NOMINMAX 免污染 LLVM 头）；新差分用例 s6_print_format，ctest -C Release 差分 5/5 逐字节一致，Debug 门禁 6/6（M6 t53）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S5 函数 + 修复 parser 参数类型 token 缺口（t52，M6）：顶层 `function name(param type, ...) retType` 声明/调用/`return`/递归；两遍处理（generate() 第一遍 declare_function 建全部原型→递归/前向调用天然可用，符号名 `collie.<name>`+InternalLinkage；第二遍 visitFunction 现场保存/恢复后生成函数体）；CGType 新增 Void（none 返回降 void）；形参 entry alloca+store，实参/返回值仅 integer→decimal 提升；visitReturn 落 ret.dead 块；尾块收尾（void 补 RetVoid/不可达补 unreachable/可达无 return 拒编，可达性用 entry 起 DFS 判定）；同名重载/嵌套函数拒编；修复 parser consume_type_token 类型关键字列表缺口（缺 KW_INTEGER/KW_DECIMAL/KW_TRIBOOL/KW_DWORD/KW_BIT，影响函数参数/返回类型与类字段）+ 防退化测试；新增差分用例 s5_functions.collie，ctest -C Release 差分 4/4 逐字节一致，Debug 门禁 6/6（M6 t52）
 - 2026-07-26 `feat(compiler)`: codegen 扩展 S4 循环控制流 + 修复 parser for 初始化类型缺口（t51，M6）：LoopContext 栈支撑 break/continue（break→end、continue→while/do-while 的 cond、for 的 inc，与解释器对齐；CreateBr 后落 `*.dead` 块保每块单终结符）；for 初始化限自身作用域 + cond/body/inc/end 四块；do-while 先 br body 保至少执行一次；gen_ternary（bool 条件 CondBr + PHI 汇合，int/double 混型在各分支块内提升 double，三分支 tribool 拒编）；修复 parser parse_for_statement 初始化类型列表历史缺口（缺 integer/decimal/tribool 等，对齐 parse_declaration，解释器/编译器共同受益）+ 防退化测试；新增差分用例 s4_loops.collie，ctest -C Release 差分 3/3 逐字节一致，Debug 门禁 6/6（M6 t51）

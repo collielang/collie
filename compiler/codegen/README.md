@@ -17,11 +17,11 @@
 | S4 | `for`/`do-while`、`break`/`continue`、二分支三元 `a ? x : y` | 循环控制流程序编译执行，输出与解释器一致 **✅ t51** |
 | S5 | 顶层函数声明/调用/`return`/递归 | 函数程序编译执行，输出与解释器一致 **✅ t52** |
 | S6 | collie_rt 垫片：print 输出格式对齐解释器 to_string | decimal 四步格式/±Infinity/NaN/混合行输出与解释器一致 **✅ t53** |
-| 后续 | string 运行时、class、BigInt | 逐任务扩展 |
+| S7 | string 运行时第一步：拼接 `+`、`toString` 内建、插值路径 | 拼接/插值程序编译执行，输出与解释器一致 **✅ t54** |
+| 后续 | string 方法/索引、class、BigInt | 逐任务扩展 |
 
-不在第一期范围：tribool/Kleene、tuple、array、class、字符串插值（parser 已脱糖为拼接，
-依赖 string 运行时）、`==?`、异常语义。CodeGenVisitor 遇到不支持的节点**显式报错**
-（"codegen: not yet supported: XXX"），绝不静默错编。
+不在第一期范围：tribool/Kleene、tuple、array、class、`==?`、异常语义。
+CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
 
@@ -47,7 +47,7 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `number`（整数表示） | `i64` | 同上 |
 | `decimal` / `number`（小数表示） | `double` | IEEE 754，与解释器一致 |
 | `bool` | `i1` | |
-| `string` 字面量 | `ptr`（指向 `private unnamed_addr constant [N x i8]`） | 第一期只支持字面量常量，无拼接/方法 |
+| `string` | `ptr`（指向常量串或 collie_rt malloc 串） | 字面量 = `private unnamed_addr constant [N x i8]`；拼接结果 = `collie_rt_concat` malloc 串（不 free，缺口 CG6） |
 | `none` / `void` | `void` | |
 | 其余（tribool/tuple/array/class/char...） | 不支持，显式报错 | |
 
@@ -105,7 +105,15 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | f64 四步格式 | 移植解释器 `Value::to_string`：①NaN→`NaN`；②±Inf→`+Infinity`/`-Infinity`；③整值且 |v|<1e15 按整数打（修复 `%g` 把 3000000 打成 3e+06）；④其余 `%g`（6 位有效，与 ostringstream defaultfloat 一致） |
 | 链接定位 | colliec **运行期**从自身目录定位 `collie_rt.lib`（两目标同目录产出）；不用 CMake 烘焙绝对路径——构建树路径含非 ASCII 时宏值经编译器命令行会编码错乱 |
 
-print 现已不直连 printf/puts；后续 string 拼接/数组/none 格式随 collie_rt 扩展。
+print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 collie_rt 扩展。
+
+**S7 降级补充（t54 实现）：string 拼接与转串**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `a + b`（任一侧 string） | 非 string 侧先 `to_str` 转串，再 `call ptr @collie_rt_concat(ptr, ptr)`（malloc 出新串，不 free，缺口 CG6）；与解释器“任一侧 string 即拼接、另一侧隐式转串”对齐 |
+| `toString(x)` 内建 | 按类型分发：Str 原样；Int → `collie_rt_i64_to_str`；Double → `collie_rt_f64_to_str`（与 print_f64 共享四步格式化，两路径输出一致）；Bool → zext i1→i32 后 `collie_rt_bool_to_str`（返静态串）；分发先于用户函数查表，与解释器一致 |
+| 字符串插值 `@"a{x}b"` | 无 codegen 专门逻辑：parser 已脱糖为 `"a" + toString(x) + "b"` 左结合拼接链，拼接 + toString 两条路径即自然打通 |
 
 ## 五、构建与链接方案（关键决策）
 
@@ -141,6 +149,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组/none/tuple 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
+| CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |
 
 ## 八、构建方式速查
 

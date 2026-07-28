@@ -1,0 +1,34 @@
+// t54 S7 差分用例：字符串拼接 + toString 内建 + 插值路径（collie_rt 字符串运行时）
+
+// 串 + 串
+string ab = "Hello, " + "Collie!";
+print("concat:", ab);
+
+// 串 + 整数 / 整数 + 串（非 string 侧隐式转串）
+print("int:", "n=" + 42, 42 + "!");
+
+// 串 + 小数：四步格式（整值按整数打 / 非整值 %g 6 位有效 / ±Infinity / NaN）
+print("dec:", "v=" + 2.5, "big=" + 3000000.0, "third=" + 1.0 / 3.0);
+print("special:", "inf=" + 1.0 / 0.0, "ninf=" + (-1.0 / 0.0), "nan=" + 0.0 / 0.0);
+
+// 串 + bool（垫片静态串 true/false）
+print("bool:", "t=" + true, "f=" + false);
+
+// 显式 toString 内建
+print("tostr:", toString(123), toString(2.5), toString(true), toString("s"));
+
+// 字符串插值 @"{expr}"：parser 脱糖为 toString(expr) 拼接链
+integer n = 7;
+decimal pi = 3.14;
+print("interp:", @"n={n}, pi={pi}, sum={n + 1}");
+
+// string 变量拼接赋值
+string acc = "a";
+acc = acc + "b" + "c";
+print("acc:", acc);
+
+// 函数返回拼接结果
+function tag(name string, id integer) string {
+    return "[" + name + "#" + id + "]";
+}
+print("fn:", tag("collie", 9));

@@ -163,6 +163,9 @@ private:
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
 
+    /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
+    llvm::Value* to_str(const CGValue& v, const Token& where);
+
     /// @brief 不支持的构造统一报错出口
     [[noreturn]] void unsupported(const std::string& what, size_t line, size_t column);
 
@@ -176,6 +179,11 @@ private:
     llvm::FunctionCallee rt_print_bool_;  // void(i32)
     llvm::FunctionCallee rt_print_sep_;   // void()
     llvm::FunctionCallee rt_print_newline_; // void()
+    /// collie_rt 字符串运行时（S7 t54）：拼接与标量转串（malloc 串不 free，缺口 CG6）
+    llvm::FunctionCallee rt_concat_;       // ptr(ptr, ptr)
+    llvm::FunctionCallee rt_i64_to_str_;   // ptr(i64)
+    llvm::FunctionCallee rt_f64_to_str_;   // ptr(double)
+    llvm::FunctionCallee rt_bool_to_str_;  // ptr(i32)，返静态串
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;
