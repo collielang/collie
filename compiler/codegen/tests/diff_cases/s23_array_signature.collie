@@ -1,0 +1,94 @@
+// t70 S23 差分用例：数组进函数签名（参数/返回值，顶层函数 + 类方法）
+// 签名处元素类型不可知：elem 动态化（运行时 kind 驱动），读出为 number
+
+// 数组作参数：累加（动态域索引读 + length/len）
+function sum(a array) number {
+    number s = 0;
+    for (integer i = 0; i < a.length; i = i + 1) {
+        s = s + a[i];
+    }
+    return s;
+}
+
+// 数组作返回值：字面量直接返回
+function makeArr(n integer) array {
+    return [n, n * 2, n * 3];
+}
+
+// 引用语义跨签名边界：被调方写入调用方可见（动态域索引写）
+function fill(a array, v number) none {
+    a[0] = v;
+}
+
+// 冒泡排序：动态域读/写/比较/交换全链路（实用示例）
+function sortArr(a array) none {
+    integer n = len(a);
+    for (integer i = 0; i < n - 1; i = i + 1) {
+        for (integer j = 0; j < n - 1 - i; j = j + 1) {
+            if (a[j] > a[j + 1]) {
+                number t = a[j];
+                a[j] = a[j + 1];
+                a[j + 1] = t;
+            }
+        }
+    }
+}
+
+// 数组再经另一签名边界（elem 动态数组作实参）
+function first(a array) number {
+    return a[0];
+}
+
+// 整数数组与小数数组同一函数（运行时 kind 分流）
+print("sum int:", sum([1, 2, 3]));
+print("sum dec:", sum([1.5, 2.5]));
+
+// 返回值接收：打印/索引/长度
+array m = makeArr(4);
+print("made:", m, m[0], m[-1], m.length, len(m));
+
+// 动态数组再作实参
+print("first:", first(m), first([7.5, 8.5]));
+
+// 引用语义：int 写 int 数组直存；int 写 double 数组提升
+array xs = [10, 20, 30];
+fill(xs, 99);
+print("filled int:", xs);
+array ds = [1.5, 2.5];
+fill(ds, 7);
+print("filled dec:", ds);
+
+// 排序（引用语义就地修改）
+array u = [5, 3, 8, 1, 9, 2];
+sortArr(u);
+print("sorted:", u);
+array du = [3.5, 1.25, 2.75];
+sortArr(du);
+print("sorted dec:", du);
+
+// 类方法：数组参数 + 数组返回值
+class Stats {
+    public integer calls = 0;
+
+    public function total(a array) number {
+        this.calls = this.calls + 1;
+        number s = 0;
+        for (integer i = 0; i < len(a); i = i + 1) {
+            s = s + a[i];
+        }
+        return s;
+    }
+
+    public function pair(n integer) array {
+        return [n, n + 1];
+    }
+}
+
+Stats st = new Stats();
+print("stats:", st.total([2, 4, 6]), st.total([0.5, 0.25]), st.calls);
+array p = st.pair(41);
+print("pair:", p, p[1]);
+
+// 动态数组参与算术/比较/插值
+number h = first(m) + sum([1, 1]);
+print("mixed:", h, first(m) > 3, @"sum={sum([2, 3])}");

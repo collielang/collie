@@ -33,6 +33,7 @@
 | S20 | number 专属方法：abs/integerPart/decimalPart + 7 个 is* 谓词（三路降级） | 三类数值接收者方法程序编译执行，输出与解释器一致 **✅ t67** |
 | S21 | tuple 静态展开：字面量/常量索引/命名字段/get/length/print（无运行时对象） | tuple 程序编译执行，输出与解释器一致 **✅ t68** |
 | S22 | char/byte/word + 位运算：char 走 Str、byte/word i64+赋值点范围陷阱、& \| ^ ~ << >>（移位 0-63 检查） | 位运算/位类型程序编译执行，输出与解释器一致 **✅ t69** |
+| S23 | 数组进函数签名：参数/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵（运行时 kind 驱动） | 排序/累加/跨边界引用语义程序编译执行，输出与解释器一致 **✅ t70** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
@@ -281,6 +282,18 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `~a` | `CreateNot`（xor -1）：i64 域 `~x = -x-1` 与解释器 BigInt 精确取反在 i64 范围内一致；仅 Int 操作数 |
 | 接口面 | collie_rt 新增陷阱 2 个：`collie_rt_trap_bit_range` / `collie_rt_trap_shift_count`（t58 风格 stderr+exit(1)，文案对齐解释器措辞）；hex 字面量既有 strtoll base16 支持零工作 |
 
+**S23 降级补充（t70 实现）：数组进函数签名**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `function f(a array) …` / `… f(…) array` | 签名承载零成本（`llvm_type_of(Arr)` 本就是不透明 ptr）；卡点纯在元素类型跨不过边界——**elem 动态化为 Num 哨兵**（关键洞察：collie_rt 数组 kind 0=int/1=double 与 t62 Num tag 0/1 编码完全重合）；形参落槽/调用返回点 CGValue.elem 记 Num（顶层函数 + 类方法 + base 调用共 5 处） |
+| 动态域不变量 | 进动态域的数组 elem 限 {Int, Double, Num}：bool/str 数组（kind 2/3 无 number 对应）作实参（coerce_call_arg）/返回值（visitReturn）静态拒编，保证动态域运行期 kind ∈ {0,1} |
+| `a[i]` 读（elem==Num） | `rt_arr_get` bits + 新接口 `collie_rt_arr_kind` 直接拼 Num（kind 即 tag，零转换）；后续算术/比较/打印走既有 Num 路径 |
+| `a[i] = v` 写（elem==Num） | v 限数值系转 Num 表示，下沉新接口 `collie_rt_arr_set_num(arr,i,tag,bits)`：tag==kind 直存 / int 写 double 数组提升（对齐静态路径 Int→Double）/ decimal 写 int 数组陷阱退出（解释器动态异质可容、同质表示不可，拒错编从陷阱，新缺口 CG7） |
+| 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持（Num vs 静态自然拒编） |
+| length/len/print/toString | 运行时 kind 驱动（rt_arr_len/rt_arr_to_str），零改动天然支持动态域 |
+| 接口面 | collie_rt 新增 2 个：`collie_rt_arr_kind`（读 kind）/ `collie_rt_arr_set_num`（kind 感知写，含 CG7 陷阱）；范围外：数组类字段（coerce_for_slot 标量向，留后续）、嵌套/异质数组 |
+
 ## 五、构建与链接方案（关键决策）
 
 **CRT 对齐**（t48b 已验证的事实）：LLVM 官方预编译包为 Release + **/MT 静态 CRT**；
@@ -316,6 +329,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 | CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |
+| CG7 | 动态域（数组经函数签名边界）decimal 写 integer 数组陷阱退出（t70：解释器数组动态异质可容，编译产物同质 8 字节槽无法承载，拒错编从陷阱不静默错值） | 异质数组降级支持（元素 tagged 表示）时一并消除 |
 
 ## 八、构建方式速查
 

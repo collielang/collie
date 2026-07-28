@@ -108,7 +108,7 @@ if(COLLIE_ENABLE_LLVM)
     foreach(_case s1_hello s3_control_flow s4_loops s5_functions s6_print_format s7_string_concat
             s8_string_compare s9_string_index s10_string_methods s11_int_edge s12_array
             s13_class s14_inherit s15_number s16_tonumber s17_multimatch s18_tribool s19_switch
-            s20_number_methods s21_tuple s22_bits)
+            s20_number_methods s21_tuple s22_bits s23_array_signature)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

@@ -56,6 +56,12 @@
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
  *   long long collie_rt_arr_len(void* arr);                  // 元素个数
  *   const char* collie_rt_arr_to_str(void* arr);             // malloc 新串，[1, 2, 3] 格式
+ *   long long collie_rt_arr_kind(void* arr);                 // 元素 kind（t70 动态域索引读：
+ *     kind 0/1 与 number tag 0/1 编码重合，bits+kind 直接拼 number 零转换）
+ *   void collie_rt_arr_set_num(void* arr, long long i, long long tag, long long bits);
+ *     // 动态域索引写（t70）：tag==kind 直存；integer 写 decimal 数组提升 double 位模式；
+ *     // decimal 写 integer 数组陷阱退出（解释器动态异质可容、编译产物同质表示
+ *     // 不可，拒错编从陷阱，缺口 CG7）
  *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
@@ -356,6 +362,36 @@ void collie_rt_arr_set(void* arr, long long index, long long bits) {
 
 long long collie_rt_arr_len(void* arr) {
     return ((collie_rt_array*)arr)->len;
+}
+
+/* 元素 kind（t70）：动态域（数组经函数签名边界后元素类型静态不可知）的索引读
+ * 据此拼 number：kind 0=integer/1=decimal 与 number tag 编码重合，零转换；
+ * 进动态域的数组 codegen 静态保证 kind ∈ {0,1}（bool/str 数组作实参/返回值拒编） */
+long long collie_rt_arr_kind(void* arr) {
+    return ((collie_rt_array*)arr)->kind;
+}
+
+/* 动态域索引写（t70）：写入值为 number 表示（tag+bits），按数组实际 kind 对齐——
+ * tag==kind 直存；integer 写 decimal 数组提升（对齐静态路径的 Int→Double 提升）；
+ * decimal 写 integer 数组无法同质承载（解释器动态异质可容，编译产物陷阱退出
+ * 不静默错值，缺口 CG7） */
+void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long bits) {
+    collie_rt_array* a = (collie_rt_array*)arr;
+    long long i = collie_rt_arr_norm_index(a, index);
+    if (tag == a->kind) {
+        a->slots[i] = bits;
+        return;
+    }
+    if (tag == 0 && a->kind == 1) { /* integer 写 decimal 数组：提升 double */
+        double v = (double)bits;
+        long long out;
+        memcpy(&out, &v, sizeof out);
+        a->slots[i] = out;
+        return;
+    }
+    fprintf(stderr, "runtime error: decimal element in integer array "
+                    "(compiled arrays are homogeneous, gap CG7)\n");
+    exit(1);
 }
 
 /* 追加一段字节到增长缓冲（arr_to_str 专用；旧块不 free，缺口 CG6 同其它 malloc 串） */

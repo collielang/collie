@@ -127,6 +127,17 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty}, false));
     rt_arr_to_str_ = module_->getOrInsertFunction(
         "collie_rt_arr_to_str", llvm::FunctionType::get(ptr_ty, {ptr_ty}, false));
+    // 动态域数组接口（t70）：签名边界后元素类型静态不可知，读拼 number（kind
+    // 即 tag）、写按运行时 kind 对齐（含 CG7 陷阱）
+    rt_arr_kind_ = module_->getOrInsertFunction(
+        "collie_rt_arr_kind",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty}, false));
+    rt_arr_set_num_ = module_->getOrInsertFunction(
+        "collie_rt_arr_set_num",
+        llvm::FunctionType::get(
+            void_ty,
+            {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty()},
+            false));
 
     // collie_rt 类实例分配声明（t60）：字段块 malloc，struct 布局读写全在 codegen 侧
     rt_obj_new_ = module_->getOrInsertFunction(
@@ -689,9 +700,12 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
                                                expr.paren().column()));
             }
             llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+            // Arr 返回值 elem 记 Num 哨兵（t70：跨签名边界元素类型动态化）
             last_value_ = (info.ret_type == CGType::Void)
                               ? CGValue{nullptr, CGType::Void}
-                              : CGValue{call, info.ret_type, CGType::Int,
+                              : CGValue{call, info.ret_type,
+                                        info.ret_type == CGType::Arr ? CGType::Num
+                                                                     : CGType::Int,
                                         info.ret_cls};
             return;
         }
@@ -839,7 +853,19 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     if (var->type == CGType::Arr) {
         // 数组赋值即指针拷贝（引用语义对齐解释器，t59）；元素类型不同的数组
         // 拒编不错编（后续索引读写按变量记录的元素类型解码，错型会错值）
-        if (v.type != CGType::Arr || v.elem != var->elem) {
+        if (v.type != CGType::Arr) {
+            unsupported("assigning non-array value to '" + name + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        if (var->elem == CGType::Num) {
+            // 动态 elem 槽（t70）：来源限数值系（不变量 kind ∈ {0,1}）
+            if (v.elem != CGType::Int && v.elem != CGType::Double &&
+                v.elem != CGType::Num) {
+                unsupported("assigning bool/string array to '" + name + "'",
+                            expr.name().line(), expr.name().column());
+            }
+        } else if (v.elem != var->elem) {
+            // 含 Num 来源写静态槽：元素类型静态不可知，拒编
             unsupported("assigning array with different element type to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
@@ -976,6 +1002,14 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         // 8 字节槽位模式按元素类型解码（字面量同质推断/变量槽记录，t59）
         llvm::Value* bits = builder_.CreateCall(
             rt_arr_get_, {object.value, index.value}, "arrget");
+        if (object.elem == CGType::Num) {
+            // 动态域读（t70）：运行时 kind（恒 0/1，入口守卫所保）即 number
+            // tag，bits+kind 直接拼 Num 零转换
+            llvm::Value* kind = builder_.CreateCall(
+                rt_arr_kind_, {object.value}, "arrkind");
+            last_value_ = {make_num(kind, bits), CGType::Num};
+            return;
+        }
         last_value_ = {bits_to_elem(bits, object.elem), object.elem};
         return;
     }
@@ -998,6 +1032,20 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
                     expr.bracket().line(), expr.bracket().column());
     }
     CGValue v = emit(expr.value());
+    if (object.elem == CGType::Num) {
+        // 动态域写（t70）：值限数值系，转 Num 表示下沉 rt 按运行时 kind 对齐
+        //（tag==kind 直存 / int→double 提升 / decimal 写 int 数组 CG7 陷阱）
+        if (v.type != CGType::Int && v.type != CGType::Double &&
+            v.type != CGType::Num) {
+            unsupported("array element type mismatch in index assignment",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        llvm::Value* num = to_num(v);
+        builder_.CreateCall(rt_arr_set_num_,
+                            {object.value, index.value, num_tag(num), num_bits(num)});
+        last_value_ = v;
+        return;
+    }
     if (v.type != object.elem) {
         if (object.elem == CGType::Double && v.type == CGType::Int) {
             v = {to_double(v), CGType::Double};
@@ -1039,9 +1087,12 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                                                info.param_cls[i], line, column));
             }
             llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+            // Arr 返回值 elem 记 Num 哨兵（t70，同 visitCall）
             last_value_ = (info.ret_type == CGType::Void)
                               ? CGValue{nullptr, CGType::Void}
-                              : CGValue{call, info.ret_type, CGType::Int,
+                              : CGValue{call, info.ret_type,
+                                        info.ret_type == CGType::Arr ? CGType::Num
+                                                                     : CGType::Int,
                                         info.ret_cls};
             return;
         }
@@ -1360,9 +1411,13 @@ void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
                                        info.param_cls[i], line, column));
     }
     llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+    // Arr 返回值 elem 记 Num 哨兵（t70，同 visitCall）
     last_value_ = (info.ret_type == CGType::Void)
                       ? CGValue{nullptr, CGType::Void}
-                      : CGValue{call, info.ret_type, CGType::Int, info.ret_cls};
+                      : CGValue{call, info.ret_type,
+                                info.ret_type == CGType::Arr ? CGType::Num
+                                                             : CGType::Int,
+                                info.ret_cls};
 }
 
 void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
@@ -1668,7 +1723,10 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         llvm::AllocaInst* slot =
             create_entry_alloca(llvm_type_of(info.param_types[i]), pname);
         builder_.CreateStore(&arg, slot);
-        scopes_.back()[pname] = {slot, info.param_types[i], CGType::Int,
+        // Arr 形参 elem 记 Num 哨兵（t70：签名处元素类型不可知，动态域路径）
+        scopes_.back()[pname] = {slot, info.param_types[i],
+                                 info.param_types[i] == CGType::Arr ? CGType::Num
+                                                                    : CGType::Int,
                                  info.param_cls[i]};
         ++i;
     }
@@ -1738,6 +1796,11 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
         } else if (v.type == CGType::Obj && v.cls != current_ret_cls_) {
             unsupported("returning instance of class '" + v.cls +
                             "' where '" + current_ret_cls_ + "' is declared",
+                        stmt.keyword().line(), stmt.keyword().column());
+        } else if (v.type == CGType::Arr && v.elem != CGType::Int &&
+                   v.elem != CGType::Double && v.elem != CGType::Num) {
+            // 动态域不变量（t70）：bool/str 数组 kind 2/3 无 number 对应，拒编
+            unsupported("returning bool/string array",
                         stmt.keyword().line(), stmt.keyword().column());
         }
         builder_.CreateRet(v.value);
@@ -1858,6 +1921,11 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
                             "' where '" + want_cls + "' is expected",
                         line, column);
         }
+        if (want == CGType::Arr && a.elem != CGType::Int &&
+            a.elem != CGType::Double && a.elem != CGType::Num) {
+            // 动态域不变量（t70）：bool/str 数组 kind 2/3 无 number 对应，拒编
+            unsupported("passing bool/string array as argument", line, column);
+        }
         return a.value;
     }
     if (want == CGType::Double && a.type == CGType::Int) {
@@ -1969,10 +2037,8 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt) {
     if (stmt.return_type().type() != TokenType::KW_NONE) {
         declared_signature_type(stmt.return_type(), ret, ret_cls);
     }
-    if (ret == CGType::Arr) {
-        // KW_ARRAY 无元素类型标注，签名处无法确定元素表示（t59 范围外）
-        unsupported("array return type", stmt.name().line(), stmt.name().column());
-    }
+    // Arr 返回/形参放行（t70）：签名处无元素类型标注，elem 动态化为 Num 哨兵
+    //（运行时 kind 驱动，调用点/返回点静态守卫 kind ∈ {0,1}）
     std::vector<CGType> param_types;
     std::vector<std::string> param_cls;
     std::vector<llvm::Type*> llvm_params;
@@ -1980,10 +2046,6 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt) {
         CGType t = CGType::Void;
         std::string t_cls;
         declared_signature_type(param.type, t, t_cls);
-        if (t == CGType::Arr) {
-            // 同上：形参处无元素类型信息，拒编不错编
-            unsupported("array parameter", stmt.name().line(), stmt.name().column());
-        }
         param_types.push_back(t);
         param_cls.push_back(t_cls);
         llvm_params.push_back(llvm_type_of(t));
@@ -2101,20 +2163,13 @@ void CodeGenerator::register_class_methods(const ClassStmt& stmt) {
             declared_signature_type(method->return_type(), info.ret_type,
                                     info.ret_cls);
         }
-        if (info.ret_type == CGType::Arr) {
-            unsupported("array return type",
-                        method->name().line(), method->name().column());
-        }
+        // Arr 返回/形参放行（t70，同 declare_function）
         std::vector<llvm::Type*> llvm_params;
         llvm_params.push_back(llvm::PointerType::getUnqual(context_)); // 隐藏 this
         for (const auto& param : method->parameters()) {
             CGType t = CGType::Void;
             std::string t_cls;
             declared_signature_type(param.type, t, t_cls);
-            if (t == CGType::Arr) {
-                unsupported("array parameter",
-                            method->name().line(), method->name().column());
-            }
             info.param_types.push_back(t);
             info.param_cls.push_back(t_cls);
             llvm_params.push_back(llvm_type_of(t));
@@ -2163,7 +2218,11 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
             llvm::AllocaInst* slot =
                 create_entry_alloca(llvm_type_of(method.param_types[i - 1]), pname);
             builder_.CreateStore(&arg, slot);
-            scopes_.back()[pname] = {slot, method.param_types[i - 1], CGType::Int,
+            // Arr 形参 elem 记 Num 哨兵（t70，同 visitFunction）
+            scopes_.back()[pname] = {slot, method.param_types[i - 1],
+                                     method.param_types[i - 1] == CGType::Arr
+                                         ? CGType::Num
+                                         : CGType::Int,
                                      method.param_cls[i - 1]};
         }
         ++i;

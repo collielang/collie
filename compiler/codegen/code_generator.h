@@ -384,6 +384,8 @@ private:
     llvm::FunctionCallee rt_arr_set_;    // void(ptr, i64, i64 bits)，同上索引规则
     llvm::FunctionCallee rt_arr_len_;    // i64(ptr)
     llvm::FunctionCallee rt_arr_to_str_; // ptr(ptr)，[1, 2, 3] 格式对齐 Value::to_string
+    llvm::FunctionCallee rt_arr_kind_;   // i64(ptr)，动态域索引读拼 number 用（t70）
+    llvm::FunctionCallee rt_arr_set_num_; // void(ptr, i64, i64 tag, i64 bits)，动态域索引写（t70，含 CG7 陷阱）
     /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧
     llvm::FunctionCallee rt_obj_new_;    // ptr(i64 size)
     /// collie_rt number 运行时（t62，CG5 收窄）：tagged 双表示，语义单点对齐解释器

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t69 完成：codegen char/byte/word + 位运算——char 走 Str、byte/word i64+赋值点范围陷阱、位运算 Int 域含移位检查，差分 21/21）
+最后更新：2026-07-28（t70 完成：codegen 数组进函数签名——参数/返回值放行，elem 动态化为 Num 哨兵（运行时 kind 驱动），新缺口 CG7，差分 22/22）
 
 ---
 
@@ -422,6 +422,9 @@
 - [x] codegen char/byte/word + 位运算（t69）
     - 实现：char/character 承载 = CGType::Str（visitLiteral LITERAL_CHAR/LITERAL_CHARACTER→GlobalString + declared_cgtype KW_CHAR/KW_CHARACTER→Str，打印/比较/拼接零新触点复用既有 Str 路径，对齐解释器 char 即 string 语义）；byte/word 承载 = i64 零类型扩散（CGVar 新增 bit_max 字段 255/65535/0）——visitVarDecl 前置分支特判 KW_BYTE/KW_WORD（初始值须 Int，Num/Double 拒编）+ visitAssign 按 bit_max 在赋值点插范围检查（check_bit_range：(u64)v > max 一次覆盖负数与超上限，越界陷阱），对齐解释器 coerce_to_declared 只在赋值点校验、表达式域无截断、位运算结果加宽 integer；declared_cgtype 不映射 KW_BYTE/KW_WORD（类字段/函数签名维持拒编不静默丢范围校验）；位运算双侧限 Int（Num tag 静态不可判/Double 拒编不错编）：& | ^ → and/or/xor，<< >> → 移位量 (u64)count > 63 检查后 shl/ashr，~ → CreateNot（xor -1，i64 域 = 解释器 BigInt -x-1）；collie_rt 新增陷阱 2 个 collie_rt_trap_bit_range(name,max,got)/collie_rt_trap_shift_count()（t58 风格 stderr+exit(1)，文案对齐解释器措辞）
     - 验证：新差分用例 s22_bits（hex 字面量、& | ^ ~ << >> 与优先级、~0xFF=-256、-8>>1=-4、byte/word 声明打印 "15 65535"、byte 参与算术加宽与重赋值、变量间位运算移位、char/character 声明打印比较拼接含 UTF-8），先解释器跑通再进差分门禁；byte 越界（256）/word 负值（~0xFF）/移位越界（变量移位量 64）三陷阱手动实证（stderr 报错文案对齐解释器 + exit 1）；ctest -C Release 差分 21/21 逐字节一致（s22 首跑即过）；Debug 门禁 6/6 不受影响
+- [x] codegen 数组进函数签名（t70）
+    - 实现：array 形参/返回值放行（顶层函数 + 类方法），签名处元素类型不可知——elem 动态化为 Num 哨兵（关键洞察：collie_rt 数组 kind 编码 0=int/1=double 与 t62 Num tag 完全重合，被调方索引读 = rt_arr_get bits + 新接口 rt_arr_kind 直接拼 Num 零转换）；不变量：进动态域的数组 elem 限 {Int, Double, Num}（bool/str 数组作实参/返回值静态拒编不错编），保证动态域运行期 kind ∈ {0,1}；触点：declare_function/register_class_methods 4 处 Arr 拒编放行、形参落槽/调用返回点 elem=Num 共 5 处、visitIndex/visitIndexAssign 动态路径（写下沉新接口 collie_rt_arr_set_num：tag==kind 直存 / int→double 提升 / decimal 写 int 数组陷阱，新缺口 CG7）、visitAssign 规则扩展（Num 槽 ← 数值系来源；静态槽 ← Num 来源拒编）；length/len/print/toString 运行时 kind 驱动零改动；范围外：数组类字段（coerce_for_slot 标量向牵扯三处重构，留后续）、嵌套/异质数组
+    - 验证：新差分用例 s23_array_signature（int/double 数组同函数运行时 kind 分流、返回值接收打印/负索引/长度、动态数组再作实参、跨边界引用语义 fill、冒泡排序读写比较交换全链路、类方法数组参数/返回值、动态元素参与算术比较插值），先解释器跑通再进差分门禁；CG7 陷阱（decimal 写 int 数组经动态域，解释器可容异质产物陷阱退出）+ bool 数组作实参拒编 + 动态数组赋静态槽拒编三实证通过；ctest -C Release 差分 22/22 逐字节一致（s23 首跑即过）；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -475,6 +478,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-07-28 `feat(compiler)`: codegen 数组进函数签名（t70，M6）：array 形参/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵——collie_rt 数组 kind 0/1 与 Num tag 编码重合，动态域索引读 rt_arr_get bits + 新接口 rt_arr_kind 直接拼 Num 零转换，写下沉新接口 rt_arr_set_num（tag==kind 直存/int→double 提升/decimal 写 int 数组陷阱，新缺口 CG7）；不变量：进动态域数组 elem 限 {Int,Double,Num}（bool/str 数组作实参/返回值拒编）保 kind ∈ {0,1}；数组赋值规则扩展（Num 槽 ← 数值系；静态槽 ← Num 拒编）；数组类字段/嵌套/异质维持拒编；新差分用例 s23_array_signature + CG7 陷阱与两拒编实证，ctest -C Release 差分 22/22 逐字节一致，Debug 门禁 6/6（M6 t70）
 
 - 2026-07-28 `feat(compiler)`: codegen char/byte/word + 位运算（t69，M6）：char/character 承载 CGType::Str（字面量 GlobalString + declared_cgtype 映射，打印/比较/拼接零新触点）；byte/word 承载 i64 零类型扩散（CGVar.bit_max，声明/赋值点 check_bit_range 范围陷阱，表达式域无截断加宽 integer，类字段/函数签名维持拒编）；位运算双侧限 Int：& | ^ → and/or/xor、<< >> 移位量 0-63 检查后 shl/ashr、~ → xor -1；collie_rt 新增 trap_bit_range/trap_shift_count 两陷阱（文案对齐解释器）；新差分用例 s22_bits + 三陷阱手动实证，ctest -C Release 差分 21/21 逐字节一致，Debug 门禁 6/6（M6 t69）
 - 2026-07-28 `feat(compiler)`: codegen tuple 静态展开（t68，M6）：CGType::Tup 虚值（元素 CGValue 向量 + 名字表登记注册表，无运行时对象）；变量解构逐元素 alloca 槽（嵌套递归，重赋值同形状逐槽写）；t[常量 i]（AST 层 const_int_of 含负索引归一化）/t.name/t.get("字面量键")/length（优先于同名字段）全部编译期解析；print/toString/插值经 tuple_to_str 静态展开（常量段编译期合并 + rt_concat 链，嵌套递归）零新增 collie_rt 接口；动态索引/动态键/函数签名/进数组/相等比较/三元与 ==? 分支产 tuple 拒编维持；最后一个未降级类型收口；新差分用例 s21_tuple，ctest -C Release 差分 20/20 逐字节一致，Debug 门禁 6/6（M6 t68）
