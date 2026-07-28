@@ -88,6 +88,15 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_str_index",
         llvm::FunctionType::get(ptr_ty, {ptr_ty, builder_.getInt64Ty()}, false));
 
+    // collie_rt 字符串方法声明（S10 t57）：trim 系列与 subString 码点区间
+    rt_str_trim_ = module_->getOrInsertFunction(
+        "collie_rt_str_trim",
+        llvm::FunctionType::get(ptr_ty, {ptr_ty, builder_.getInt32Ty()}, false));
+    rt_str_substring_ = module_->getOrInsertFunction(
+        "collie_rt_str_substring",
+        llvm::FunctionType::get(
+            ptr_ty, {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty()}, false));
+
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
     in_function_ = false;
@@ -543,7 +552,59 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
                    CGType::Str};
 }
 void CodeGenerator::visitIndexAssign(const IndexAssignExpr&) { unsupported("index assignment", 0, 0); }
-void CodeGenerator::visitMethodCall(const MethodCallExpr&) { unsupported("method call", 0, 0); }
+void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
+    // string 方法（S10 t57）：trim 系列/subString 降级到 collie_rt；toString()
+    // 方法形式对任意标量接收者复用 to_str（与内建 toString(x) 同一降级）；
+    // toNumber（返动态 number）与 number/tribool/tuple 方法维持拒编不错编
+    const std::string name(expr.name().lexeme());
+    size_t line = expr.name().line();
+    size_t column = expr.name().column();
+    CGValue object = emit(expr.object());
+
+    if (name == "toString" && expr.arguments().empty()) {
+        last_value_ = {to_str(object, expr.name()), CGType::Str};
+        return;
+    }
+
+    if (object.type == CGType::Str) {
+        if (name == "trim" || name == "trimLeft" || name == "trimRight") {
+            // 0 参（语义层已校验，此处防御）；mode 编码见 collie_rt_str_trim
+            if (!expr.arguments().empty()) {
+                unsupported(name + "() with arguments", line, column);
+            }
+            int mode = name == "trim" ? 0 : name == "trimLeft" ? 1 : 2;
+            last_value_ = {builder_.CreateCall(
+                               rt_str_trim_, {object.value, builder_.getInt32(mode)}, "trimtmp"),
+                           CGType::Str};
+            return;
+        }
+        if (name == "subString") {
+            // subString(start[, end])：参数限 Int（Double/NaN 特例拒编）；
+            // 缺省 end 传 -1，运行时取 length（对齐解释器 end 缺省/-1 语义）
+            const auto& arguments = expr.arguments();
+            if (arguments.empty() || arguments.size() > 2) {
+                unsupported("subString() with this arity", line, column);
+            }
+            CGValue start = emit(arguments[0].get());
+            if (start.type != CGType::Int) {
+                unsupported("non-integer subString() start", line, column);
+            }
+            llvm::Value* end = llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1);
+            if (arguments.size() == 2) {
+                CGValue end_value = emit(arguments[1].get());
+                if (end_value.type != CGType::Int) {
+                    unsupported("non-integer subString() end", line, column);
+                }
+                end = end_value.value;
+            }
+            last_value_ = {builder_.CreateCall(
+                               rt_str_substring_, {object.value, start.value, end}, "substrtmp"),
+                           CGType::Str};
+            return;
+        }
+    }
+    unsupported("method call '" + name + "'", line, column);
+}
 void CodeGenerator::visitProperty(const PropertyExpr& expr) {
     // string 的 length 属性（S8 t56）：UTF-8 码点数，返 integer（对齐解释器）；
     // array/tuple 的 length 与类实例字段待对应类型 codegen 支持

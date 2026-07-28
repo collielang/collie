@@ -189,6 +189,9 @@ private:
     /// collie_rt 字符串 length/索引（S8 t56）：UTF-8 码点，对齐解释器
     llvm::FunctionCallee rt_str_len_;      // i64(ptr)
     llvm::FunctionCallee rt_str_index_;    // ptr(ptr, i64)，越界运行期报错退出
+    /// collie_rt 字符串方法（S10 t57）：trim 系列与 subString 码点区间
+    llvm::FunctionCallee rt_str_trim_;      // ptr(ptr, i32 mode)，mode 0=两端/1=左/2=右
+    llvm::FunctionCallee rt_str_substring_; // ptr(ptr, i64, i64)，end==-1 取 length
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;

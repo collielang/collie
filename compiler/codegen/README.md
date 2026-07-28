@@ -20,7 +20,8 @@
 | S7 | string 运行时第一步：拼接 `+`、`toString` 内建、插值路径 | 拼接/插值程序编译执行，输出与解释器一致 **✅ t54** |
 | S8 | string 六种比较运算（strcmp 降级） | 字典序/相等比较程序编译执行，输出与解释器一致 **✅ t55** |
 | S9 | string length 属性 + 索引 `s[i]`（UTF-8 码点） | 多字节码点 length/正负索引程序编译执行，输出与解释器一致 **✅ t56** |
-| 后续 | string 方法（trim/subString）、class、BigInt | 逐任务扩展 |
+| S10 | string 方法 trim 系列/subString + toString 方法形式 | 方法/链式调用程序编译执行，输出与解释器一致 **✅ t57** |
+| 后续 | class、BigInt、array/tuple | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、array、class、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
@@ -131,6 +132,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `s.length`（string） | `call i64 @collie_rt_str_len(ptr)`：UTF-8 首字节步进计码点数（照抄解释器 utf8_length），结果为 Int |
 | `s[i]`（string × Int） | `call ptr @collie_rt_str_index(ptr, i64)`：负索引归一化（-1 为最后码点），越界 stderr 报错后 exit(1)，返 malloc 单码点子串（CG6 同样不 free），结果为 Str |
 | 非 string 接收者 / 非 Int 索引 | 拒编（array/tuple 待对应类型 codegen 支持；Double 索引解释器运行期也报错） |
+
+**S10 降级补充（t57 实现）：string 方法**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `s.trim()` / `trimLeft()` / `trimRight()` | `call ptr @collie_rt_str_trim(ptr, i32 mode)`（mode 0=两端/1=左/2=右）：只剥空格与 Tab（对齐解释器 is_blank），返 malloc 新串（CG6 不 free） |
+| `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数限 Int（Double/NaN 特例拒编，解释器 NaN 特判属 Double 域） |
+| `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
+| `toNumber()` / number/tribool/tuple 方法 | 拒编（toNumber 返动态 number 无对应 CGType；其余待对应类型 codegen 支持） |
 
 ## 五、构建与链接方案（关键决策）
 

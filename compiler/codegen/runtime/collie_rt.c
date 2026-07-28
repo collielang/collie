@@ -32,6 +32,12 @@
  *   const char* collie_rt_str_index(const char* s, long long i);   // malloc 单码点子串；
  *     负索引 -1 为最后一个码点；越界 stderr 报错后 exit(1)（对齐解释器 RuntimeError）
  *
+ * 字符串方法 trim / subString（t57，对齐解释器 visitMethodCall string 分支）：
+ *   const char* collie_rt_str_trim(const char* s, int mode);  // malloc 新串；
+ *     只剥空格与 Tab，mode 0=两端/1=左/2=右
+ *   const char* collie_rt_str_substring(const char* s, long long start, long long end);
+ *     // malloc 新串；UTF-8 码点区间 [start,end)，end==-1 取 length，越界 clamp
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -176,5 +182,59 @@ const char* collie_rt_str_index(const char* s, long long index) {
     char* out = collie_rt_alloc(char_len + 1);
     memcpy(out, s + byte, char_len);
     out[char_len] = '\0';
+    return out;
+}
+
+/* ---- 字符串方法 trim / subString（t57）---- */
+
+/* trim 系列：只剥空格与 Tab（对齐解释器 is_blank，见 03-character.md）；
+ * mode 0=两端（trim）、1=左（trimLeft）、2=右（trimRight），纯字节操作 */
+const char* collie_rt_str_trim(const char* s, int mode) {
+    size_t begin = 0;
+    size_t end = strlen(s);
+    if (mode != 2) { /* 非 trimRight → 剥左端 */
+        while (begin < end && (s[begin] == ' ' || s[begin] == '\t')) { ++begin; }
+    }
+    if (mode != 1) { /* 非 trimLeft → 剥右端 */
+        while (end > begin && (s[end - 1] == ' ' || s[end - 1] == '\t')) { --end; }
+    }
+    size_t n = end - begin;
+    char* out = collie_rt_alloc(n + 1);
+    memcpy(out, s + begin, n);
+    out[n] = '\0';
+    return out;
+}
+
+/* 码点序号 → 字节偏移（idx 不超码点数，照抄解释器 utf8_byte_offset） */
+static size_t collie_rt_utf8_byte_offset(const char* s, long long idx) {
+    size_t byte = 0;
+    long long seen;
+    for (seen = 0; seen < idx; ++seen) {
+        byte += collie_rt_utf8_char_length((unsigned char)s[byte]);
+    }
+    return byte;
+}
+
+/* subString：UTF-8 码点区间 [start, end)，end==-1 取 length（缺省 end 的传转）；
+ * 越界 clamp 截断、start >= end 得空串，对齐解释器 subString（NaN 特例属
+ * Double 域，codegen 侧参数限 Int 已拒编，此处无需处理） */
+const char* collie_rt_str_substring(const char* s, long long start, long long end) {
+    long long size = collie_rt_str_len(s);
+    if (end == -1) { end = size; } /* 特判仅 -1；其它负值照常 clamp 到 0 */
+    if (start < 0) { start = 0; }
+    if (start > size) { start = size; }
+    if (end < 0) { end = 0; }
+    if (end > size) { end = size; }
+    if (start >= end) {
+        char* empty = collie_rt_alloc(1);
+        empty[0] = '\0';
+        return empty;
+    }
+    size_t from = collie_rt_utf8_byte_offset(s, start);
+    size_t to = collie_rt_utf8_byte_offset(s, end);
+    size_t n = to - from;
+    char* out = collie_rt_alloc(n + 1);
+    memcpy(out, s + from, n);
+    out[n] = '\0';
     return out;
 }

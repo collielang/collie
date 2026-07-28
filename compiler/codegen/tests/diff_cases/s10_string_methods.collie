@@ -1,0 +1,46 @@
+// t57 S10 差分用例：string 方法 trim/trimLeft/trimRight/subString + toString 方法形式
+
+// trim 三形态：空格与 Tab 混合（用 [] 包裹看清剥离边界）
+string padded = " \t hello world\t  ";
+print("trim:", "[" + padded.trim() + "]");
+print("trimLeft:", "[" + padded.trimLeft() + "]");
+print("trimRight:", "[" + padded.trimRight() + "]");
+
+// 无空白/全空白/空串
+string clean = "collie";
+string blanks = " \t\t ";
+print("edge:", "[" + clean.trim() + "]", "[" + blanks.trim() + "]", "[" + "".trim() + "]");
+print("edge2:", "[" + blanks.trimLeft() + "]", "[" + blanks.trimRight() + "]");
+
+// subString 基本：区间 [start, end) 按码点
+string s = "hello collie";
+print("sub:", s.subString(0, 5), s.subString(6, 12), s.subString(4, 7));
+
+// 缺省 end / 显式 -1 均取 length
+print("sub-end:", s.subString(6), s.subString(6, -1), s.subString(0));
+
+// 越界截断与空串：end 超长截断、start>=end、start 超长
+print("sub-clamp:", "[" + s.subString(6, 99) + "]", "[" + s.subString(5, 5) + "]",
+      "[" + s.subString(8, 3) + "]", "[" + s.subString(99) + "]");
+
+// 中文多字节：按码点切（每个汉字 3 字节计 1 码点）
+string cn = "牧羊犬Collie";
+print("sub-utf8:", cn.subString(0, 3), cn.subString(3), cn.subString(1, 2), cn.subString(2, 4));
+
+// toString 方法形式：四类接收者（与内建 toString(x) 同一降级）
+integer n = 42;
+decimal d = 3.5;
+bool b = true;
+print("tostr:", n.toString(), d.toString(), b.toString(), "abc".toString());
+print("tostr-expr:", (n * 2).toString() + "!", (1 < 2).toString());
+
+// 链式调用：trim 后再 subString、结果的 length 与索引
+string chained = "  collie lang  ";
+print("chain:", chained.trim().subString(0, 6), chained.trim().length, chained.trim()[0]);
+print("chain2:", cn.subString(0, 3).length, cn.subString(0, 3)[2]);
+
+// 函数中使用
+function firstWord(text string) string {
+    return text.trim().subString(0, 6);
+}
+print("fn:", firstWord("   collie runs fast"), firstWord(chained));
