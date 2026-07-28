@@ -43,6 +43,15 @@
  *     codegen 的 i64 加/减/乘/一元负号经 s*.with.overflow 检查，溢出即调此陷阱，
  *     把静默回绕错值变为显式运行期报错（解释器 BigInt 任意精度无溢出）
  *
+ * 数组运行时（t59，同质数组降级用）：
+ *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
+ *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
+ *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
+ *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
+ *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
+ *   long long collie_rt_arr_len(void* arr);                  // 元素个数
+ *   const char* collie_rt_arr_to_str(void* arr);             // malloc 新串，[1, 2, 3] 格式
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -51,6 +60,7 @@
  */
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -252,4 +262,105 @@ void collie_rt_trap_int_overflow(void) {
     fprintf(stderr, "runtime error: integer overflow "
                     "(compiled code uses 64-bit integers, gap CG1)\n");
     exit(1);
+}
+
+/* ---- 数组运行时（t59）---- */
+
+/* 数组对象：单块 malloc 的 len + kind + 8 字节槽；codegen 以不透明 ptr 持有，
+ * 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）。
+ * kind：0=integer(i64 直存) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式) */
+typedef struct {
+    long long len;
+    long long kind;
+    long long slots[]; /* C99 柔性数组成员 */
+} collie_rt_array;
+
+void* collie_rt_arr_new(long long len, long long kind) {
+    collie_rt_array* a = (collie_rt_array*)collie_rt_alloc(
+        sizeof(collie_rt_array) + (size_t)len * sizeof(long long));
+    a->len = len;
+    a->kind = kind;
+    memset(a->slots, 0, (size_t)len * sizeof(long long));
+    return a;
+}
+
+/* 负索引归一化 + 越界报错退出（对齐解释器 normalize_index：-1 为最后一个元素） */
+static long long collie_rt_arr_norm_index(const collie_rt_array* a, long long index) {
+    long long i = index;
+    if (i < 0) {
+        i += a->len;
+    }
+    if (i < 0 || i >= a->len) {
+        fprintf(stderr, "Index %lld out of range (size %lld)\n", index, a->len);
+        exit(1);
+    }
+    return i;
+}
+
+long long collie_rt_arr_get(void* arr, long long index) {
+    collie_rt_array* a = (collie_rt_array*)arr;
+    return a->slots[collie_rt_arr_norm_index(a, index)];
+}
+
+void collie_rt_arr_set(void* arr, long long index, long long bits) {
+    collie_rt_array* a = (collie_rt_array*)arr;
+    a->slots[collie_rt_arr_norm_index(a, index)] = bits;
+}
+
+long long collie_rt_arr_len(void* arr) {
+    return ((collie_rt_array*)arr)->len;
+}
+
+/* 追加一段字节到增长缓冲（arr_to_str 专用；旧块不 free，缺口 CG6 同其它 malloc 串） */
+static void collie_rt_sb_append(char** buf, size_t* n, size_t* cap, const char* s) {
+    size_t add = strlen(s);
+    if (*n + add + 1 > *cap) {
+        while (*n + add + 1 > *cap) {
+            *cap *= 2;
+        }
+        char* grown = collie_rt_alloc(*cap);
+        memcpy(grown, *buf, *n);
+        *buf = grown;
+    }
+    memcpy(*buf + *n, s, add + 1); /* 含结尾 '\0' */
+    *n += add;
+}
+
+/* 数组转串：形如 [1, 2, 3]，元素按 kind 格式化（对齐解释器 Value::to_string 的
+ * Array 分支：整数 %lld、小数四步格式、bool true/false、字符串原样不加引号） */
+const char* collie_rt_arr_to_str(void* arr) {
+    collie_rt_array* a = (collie_rt_array*)arr;
+    size_t cap = 64;
+    size_t n = 0;
+    char* out = collie_rt_alloc(cap);
+    out[0] = '\0';
+    collie_rt_sb_append(&out, &n, &cap, "[");
+    long long i;
+    for (i = 0; i < a->len; ++i) {
+        if (i > 0) {
+            collie_rt_sb_append(&out, &n, &cap, ", ");
+        }
+        char tmp[64];
+        switch ((int)a->kind) {
+            case 0: /* integer */
+                snprintf(tmp, sizeof tmp, "%lld", a->slots[i]);
+                collie_rt_sb_append(&out, &n, &cap, tmp);
+                break;
+            case 1: { /* decimal：位模式还原 double 后四步格式化 */
+                double v;
+                memcpy(&v, &a->slots[i], sizeof v);
+                collie_rt_format_f64(tmp, sizeof tmp, v);
+                collie_rt_sb_append(&out, &n, &cap, tmp);
+                break;
+            }
+            case 2: /* bool */
+                collie_rt_sb_append(&out, &n, &cap, a->slots[i] ? "true" : "false");
+                break;
+            default: /* 3 = string：指针位模式还原 */
+                collie_rt_sb_append(&out, &n, &cap, (const char*)(intptr_t)a->slots[i]);
+                break;
+        }
+    }
+    collie_rt_sb_append(&out, &n, &cap, "]");
+    return out;
 }

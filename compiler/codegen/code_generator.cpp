@@ -101,6 +101,24 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_trap_int_overflow",
         llvm::FunctionType::get(builder_.getVoidTy(), false));
 
+    // collie_rt 数组运行时声明（t59）：不透明 ptr 数组对象，8 字节槽存位模式；
+    // 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）
+    rt_arr_new_ = module_->getOrInsertFunction(
+        "collie_rt_arr_new",
+        llvm::FunctionType::get(ptr_ty, {builder_.getInt64Ty(), builder_.getInt64Ty()}, false));
+    rt_arr_get_ = module_->getOrInsertFunction(
+        "collie_rt_arr_get",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, builder_.getInt64Ty()}, false));
+    rt_arr_set_ = module_->getOrInsertFunction(
+        "collie_rt_arr_set",
+        llvm::FunctionType::get(
+            void_ty, {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty()}, false));
+    rt_arr_len_ = module_->getOrInsertFunction(
+        "collie_rt_arr_len",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty}, false));
+    rt_arr_to_str_ = module_->getOrInsertFunction(
+        "collie_rt_arr_to_str", llvm::FunctionType::get(ptr_ty, {ptr_ty}, false));
+
     // 第一遍（S5 t52）：顶层函数先建原型，递归与前向调用天然可用
     functions_.clear();
     in_function_ = false;
@@ -416,6 +434,29 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
         last_value_ = {to_str(v, expr.paren()), CGType::Str};
         return;
     }
+    // len 内建（t59）：array 元素个数 / string UTF-8 码点数（对齐解释器 len，
+    // 长度恒为整数）；其余参数类型拒编不错编
+    if (callee && callee->name().lexeme() == "len") {
+        const auto& arguments = expr.arguments();
+        if (arguments.size() != 1) {
+            // 语义层已校验元数，此处防御
+            unsupported("len expects exactly 1 argument",
+                        expr.paren().line(), expr.paren().column());
+        }
+        CGValue v = emit(arguments[0].get());
+        if (v.type == CGType::Arr) {
+            last_value_ = {builder_.CreateCall(rt_arr_len_, {v.value}, "lentmp"),
+                           CGType::Int};
+            return;
+        }
+        if (v.type == CGType::Str) {
+            last_value_ = {builder_.CreateCall(rt_str_len_, {v.value}, "lentmp"),
+                           CGType::Int};
+            return;
+        }
+        unsupported("len() of this value type",
+                    expr.paren().line(), expr.paren().column());
+    }
     // 用户自定义顶层函数（S5 t52）：查第一遍建好的原型表
     if (callee) {
         auto it = functions_.find(std::string(callee->name().lexeme()));
@@ -474,6 +515,12 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 builder_.CreateCall(rt_print_bool_, {as_i32});
                 break;
             }
+            case CGType::Arr:
+                // 数组打印（t59）：垫片转 [1, 2, 3] 格式串后原样输出
+                builder_.CreateCall(
+                    rt_print_str_,
+                    {builder_.CreateCall(rt_arr_to_str_, {v.value}, "arrstr")});
+                break;
             case CGType::Void:
                 // none 返回函数的调用结果无值可打（解释器打 none，降级无对应表示）
                 unsupported("print of 'none' value",
@@ -537,7 +584,7 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
                     expr.name().line(), expr.name().column());
     }
     last_value_ = {builder_.CreateLoad(llvm_type_of(var->type), var->slot, name),
-                   var->type};
+                   var->type, var->elem};
 }
 
 void CodeGenerator::visitAssign(const AssignExpr& expr) {
@@ -548,6 +595,17 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                     expr.name().line(), expr.name().column());
     }
     CGValue v = emit(expr.value());
+    if (var->type == CGType::Arr) {
+        // 数组赋值即指针拷贝（引用语义对齐解释器，t59）；元素类型不同的数组
+        // 拒编不错编（后续索引读写按变量记录的元素类型解码，错型会错值）
+        if (v.type != CGType::Arr || v.elem != var->elem) {
+            unsupported("assigning array with different element type to '" + name + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        builder_.CreateStore(v.value, var->slot);
+        last_value_ = {v.value, CGType::Arr, var->elem};
+        return;
+    }
     llvm::Value* stored = coerce_for_slot(v, var->type, expr.name());
     builder_.CreateStore(stored, var->slot);
     // 赋值表达式的值 = 存入后的值（与解释器一致）
@@ -557,24 +615,102 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
 void CodeGenerator::visitTuple(const TupleExpr&) { unsupported("tuple", 0, 0); }
 void CodeGenerator::visitTernary(const TernaryExpr& expr) { gen_ternary(expr); }
 void CodeGenerator::visitMultiMatch(const MultiMatchExpr&) { unsupported("'==?'", 0, 0); }
-void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr&) { unsupported("array literal", 0, 0); }
+void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
+    // 数组字面量（t59）：语义层不追踪元素类型（一刀切 KW_ARRAY），codegen 自行
+    // 做同质推断——Int/Double 混合整体提升 Double（提升后输出与解释器一致：整值
+    // double 按整数打印），其余混合与嵌套数组拒编不错编；空字面量元素类型记
+    // Int（print 得 []，索引必越界报错，行为与解释器一致）
+    const Token& bracket = expr.bracket();
+    std::vector<CGValue> elements;
+    elements.reserve(expr.elements().size());
+    CGType elem = CGType::Int;
+    for (const auto& element : expr.elements()) {
+        CGValue v = emit(element.get());
+        if (v.type == CGType::Arr) {
+            unsupported("nested array literal", bracket.line(), bracket.column());
+        }
+        if (v.type == CGType::Void) {
+            unsupported("array element without value", bracket.line(), bracket.column());
+        }
+        if (elements.empty()) {
+            elem = v.type;
+        } else if (v.type != elem) {
+            if ((elem == CGType::Int || elem == CGType::Double) &&
+                (v.type == CGType::Int || v.type == CGType::Double)) {
+                elem = CGType::Double;
+            } else {
+                unsupported("heterogeneous array literal",
+                            bracket.line(), bracket.column());
+            }
+        }
+        elements.push_back(v);
+    }
+    llvm::Value* arr = builder_.CreateCall(
+        rt_arr_new_,
+        {builder_.getInt64(static_cast<uint64_t>(elements.size())),
+         builder_.getInt64(static_cast<uint64_t>(arr_kind_of(elem)))},
+        "arrnew");
+    for (size_t i = 0; i < elements.size(); ++i) {
+        CGValue v = elements[i];
+        if (elem == CGType::Double && v.type == CGType::Int) {
+            v = {to_double(v), CGType::Double}; // 同质提升：整数元素升 double
+        }
+        builder_.CreateCall(rt_arr_set_,
+                            {arr, builder_.getInt64(i), elem_to_bits(v)});
+    }
+    last_value_ = {arr, CGType::Arr, elem};
+}
 void CodeGenerator::visitIndex(const IndexExpr& expr) {
-    // string 索引（S8 t56）：UTF-8 码点，负索引/越界报错在 collie_rt 运行期；
-    // array/tuple 索引待对应类型 codegen 支持，非 Int 索引拒编不错编
+    // string 索引（S8 t56）/数组索引（t59）：负索引与越界报错在 collie_rt
+    // 运行期（对齐解释器 normalize_index）；tuple 索引待对应类型 codegen 支持，
+    // 非 Int 索引拒编不错编
     CGValue object = emit(expr.object());
-    if (object.type != CGType::Str) {
-        unsupported("indexing non-string values",
+    if (object.type != CGType::Str && object.type != CGType::Arr) {
+        unsupported("indexing this value type",
                     expr.bracket().line(), expr.bracket().column());
     }
     CGValue index = emit(expr.index());
     if (index.type != CGType::Int) {
-        unsupported("non-integer string index",
+        unsupported("non-integer index",
                     expr.bracket().line(), expr.bracket().column());
+    }
+    if (object.type == CGType::Arr) {
+        // 8 字节槽位模式按元素类型解码（字面量同质推断/变量槽记录，t59）
+        llvm::Value* bits = builder_.CreateCall(
+            rt_arr_get_, {object.value, index.value}, "arrget");
+        last_value_ = {bits_to_elem(bits, object.elem), object.elem};
+        return;
     }
     last_value_ = {builder_.CreateCall(rt_str_index_, {object.value, index.value}, "idxtmp"),
                    CGType::Str};
 }
-void CodeGenerator::visitIndexAssign(const IndexAssignExpr&) { unsupported("index assignment", 0, 0); }
+void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
+    // 数组索引赋值（t59）：求值顺序对齐解释器（object → index → value），
+    // 写入共享底层存储（引用语义）；值仅 Int→Double 隐式提升，其余元素类型
+    // 不匹配拒编不错编（解释器数组元素动态异质，codegen 同质表示无法承载）；
+    // string/tuple 的索引赋值语义层已拦
+    CGValue object = emit(expr.object());
+    if (object.type != CGType::Arr) {
+        unsupported("index assignment on this value type",
+                    expr.bracket().line(), expr.bracket().column());
+    }
+    CGValue index = emit(expr.index());
+    if (index.type != CGType::Int) {
+        unsupported("non-integer index",
+                    expr.bracket().line(), expr.bracket().column());
+    }
+    CGValue v = emit(expr.value());
+    if (v.type != object.elem) {
+        if (object.elem == CGType::Double && v.type == CGType::Int) {
+            v = {to_double(v), CGType::Double};
+        } else {
+            unsupported("array element type mismatch in index assignment",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+    }
+    builder_.CreateCall(rt_arr_set_, {object.value, index.value, elem_to_bits(v)});
+    last_value_ = v; // 赋值表达式的值为右侧值（与解释器一致，支持链式赋值）
+}
 void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     // string 方法（S10 t57）：trim 系列/subString 降级到 collie_rt；toString()
     // 方法形式对任意标量接收者复用 to_str（与内建 toString(x) 同一降级）；
@@ -637,6 +773,12 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                        CGType::Int};
         return;
     }
+    if (object.type == CGType::Arr && expr.name().lexeme() == "length") {
+        // 数组 length 属性（t59）：元素个数，返 integer（对齐解释器）
+        last_value_ = {builder_.CreateCall(rt_arr_len_, {object.value}, "arrlen"),
+                       CGType::Int};
+        return;
+    }
     unsupported("property access", expr.name().line(), expr.name().column());
 }
 void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr&) { unsupported("property assignment", 0, 0); }
@@ -653,11 +795,24 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     }
     CGType type = declared_cgtype(stmt.type());
     CGValue init = emit(stmt.initializer());
-    llvm::Value* stored = coerce_for_slot(init, type, stmt.name());
+    CGType elem = CGType::Int;
+    llvm::Value* stored = nullptr;
+    if (type == CGType::Arr) {
+        // array 槽存不透明 ptr（指针拷贝即引用语义）；声明无元素类型标注，
+        // 元素类型取自初始值的同质推断结果（t59）
+        if (init.type != CGType::Arr) {
+            unsupported("initializing 'array' variable with non-array value",
+                        stmt.name().line(), stmt.name().column());
+        }
+        stored = init.value;
+        elem = init.elem;
+    } else {
+        stored = coerce_for_slot(init, type, stmt.name());
+    }
     const std::string name(stmt.name().lexeme());
     llvm::AllocaInst* slot = create_entry_alloca(llvm_type_of(type), name);
     builder_.CreateStore(stored, slot);
-    scopes_.back()[name] = {slot, type}; // 同名直接遮蔽（重复声明由语义层拦截）
+    scopes_.back()[name] = {slot, type, elem}; // 同名直接遮蔽（重复声明由语义层拦截）
 }
 
 void CodeGenerator::visitBlock(const BlockStmt& stmt) {
@@ -929,6 +1084,7 @@ CodeGenerator::CGType CodeGenerator::declared_cgtype(const Token& type_token) {
         case TokenType::KW_DECIMAL: return CGType::Double;
         case TokenType::KW_BOOL:    return CGType::Bool;
         case TokenType::KW_STRING:  return CGType::Str;
+        case TokenType::KW_ARRAY:   return CGType::Arr; // 元素类型由初始值推断（t59）
         case TokenType::KW_NUMBER:
             // number 需整数/小数双表示（缺口 CG5，见 codegen/README.md）
             unsupported("'number' variable (gap CG5: needs tagged int/decimal repr)",
@@ -945,6 +1101,7 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Double: return builder_.getDoubleTy();
         case CGType::Bool:   return builder_.getInt1Ty();
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
+        case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
         case CGType::Void:   return builder_.getVoidTy();
     }
     return builder_.getInt64Ty(); // 不可达，压编译器警告
@@ -991,10 +1148,18 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt) {
     const CGType ret = stmt.return_type().type() == TokenType::KW_NONE
                            ? CGType::Void
                            : declared_cgtype(stmt.return_type());
+    if (ret == CGType::Arr) {
+        // KW_ARRAY 无元素类型标注，签名处无法确定元素表示（t59 范围外）
+        unsupported("array return type", stmt.name().line(), stmt.name().column());
+    }
     std::vector<CGType> param_types;
     std::vector<llvm::Type*> llvm_params;
     for (const auto& param : stmt.parameters()) {
         CGType t = declared_cgtype(param.type);
+        if (t == CGType::Arr) {
+            // 同上：形参处无元素类型信息，拒编不错编
+            unsupported("array parameter", stmt.name().line(), stmt.name().column());
+        }
         param_types.push_back(t);
         llvm_params.push_back(llvm_type_of(t));
     }
@@ -1034,6 +1199,11 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     // 两分支类型统一：同型直用；int/double 混型统一提升为 double（与算术混型一致）
     CGType result_type;
     if (tv.type == ev.type && tv.type != CGType::Void) {
+        if (tv.type == CGType::Arr && tv.elem != ev.elem) {
+            // 同为数组但元素类型不同：合并后无法单一解码，拒编不错编（t59）
+            unsupported("ternary branches yield arrays of different element types",
+                        expr.question_token().line(), expr.question_token().column());
+        }
         result_type = tv.type;
     } else if ((tv.type == CGType::Int || tv.type == CGType::Double) &&
                (ev.type == CGType::Int || ev.type == CGType::Double)) {
@@ -1055,7 +1225,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     llvm::PHINode* phi = builder_.CreatePHI(llvm_type_of(result_type), 2, "terntmp");
     phi->addIncoming(then_val, then_end);
     phi->addIncoming(else_val, else_end);
-    last_value_ = {phi, result_type};
+    last_value_ = {phi, result_type, tv.elem}; // elem 仅 Arr 有意义（两分支已校验一致）
 }
 
 llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
@@ -1100,8 +1270,44 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
             llvm::Value* ext = builder_.CreateZExt(v.value, builder_.getInt32Ty());
             return builder_.CreateCall(rt_bool_to_str_, {ext}, "boolstr");
         }
+        case CGType::Arr:
+            // [1, 2, 3] 格式（对齐 Value::to_string 的 Array 分支，t59）
+            return builder_.CreateCall(rt_arr_to_str_, {v.value}, "arrstr");
         default:
             unsupported("string conversion of this value", where.line(), where.column());
+    }
+}
+
+llvm::Value* CodeGenerator::elem_to_bits(const CGValue& v) {
+    // 数组槽统一 i64 位模式（t59）：bitcast/zext/ptrtoint 均无损，bits_to_elem 逆转
+    switch (v.type) {
+        case CGType::Int:    return v.value;
+        case CGType::Double: return builder_.CreateBitCast(v.value, builder_.getInt64Ty(), "bits");
+        case CGType::Bool:   return builder_.CreateZExt(v.value, builder_.getInt64Ty(), "bits");
+        case CGType::Str:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
+        default:             unsupported("array element type", 0, 0);
+    }
+}
+
+llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
+    switch (elem) {
+        case CGType::Int:    return bits;
+        case CGType::Double: return builder_.CreateBitCast(bits, builder_.getDoubleTy(), "elemtmp");
+        case CGType::Bool:   return builder_.CreateTrunc(bits, builder_.getInt1Ty(), "elemtmp");
+        case CGType::Str:
+            return builder_.CreateIntToPtr(bits, llvm::PointerType::getUnqual(context_), "elemtmp");
+        default:             unsupported("array element type", 0, 0);
+    }
+}
+
+int CodeGenerator::arr_kind_of(CGType elem) {
+    // 编码与 collie_rt_array.kind 约定一致（collie_rt.c 数组运行时段）
+    switch (elem) {
+        case CGType::Int:    return 0;
+        case CGType::Double: return 1;
+        case CGType::Bool:   return 2;
+        case CGType::Str:    return 3;
+        default:             unsupported("array element type", 0, 0);
     }
 }
 

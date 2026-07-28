@@ -1,0 +1,68 @@
+// t59 S12 差分用例：array 最小闭环（同质字面量/索引读写/length/print/引用语义）
+
+// 四类同质字面量直接 print（[1, 2, 3] 格式对齐解释器 to_string）
+array ints = [1, 2, 3];
+array decs = [1.5, 2.0, 3.25];
+array bools = [true, false, true];
+array strs = ["collie", "牧羊犬", "lang"];
+print("lit:", ints, decs);
+print("lit2:", bools, strs);
+
+// 空数组与 Int/Double 混合提升（整体提成 decimal，整值仍按整数打印）
+array empty = [];
+array mixed = [1, 2.5, 3];
+print("edge:", empty, mixed);
+
+// 元素可为表达式
+integer k = 10;
+array calc = [k + 1, k * 2, k - 3];
+print("calc:", calc);
+
+// 索引读：正索引与负索引（-1 为最后一个元素）
+print("index:", ints[0], ints[2], ints[-1], strs[-2]);
+
+// 索引写：正负索引赋值后整体打印
+ints[0] = 100;
+ints[-1] = 300;
+print("write:", ints, ints[0] + ints[2]);
+
+// length 属性与 len() 内建（len 同时支持 string）
+print("len:", ints.length, empty.length, len(strs), len("hello"), len("牧羊犬"));
+
+// 引用语义：赋值共享同一存储，一方写入另一方可见
+array alias = ints;
+alias[1] = 222;
+print("ref:", ints, alias, ints[1]);
+
+// 循环求和与逐元素打印
+integer total = 0;
+for (integer i = 0; i < ints.length; i = i + 1) {
+    total = total + ints[i];
+}
+print("sum:", total);
+
+// while 反向遍历
+integer j = strs.length - 1;
+while (j >= 0) {
+    print("rev:", j, strs[j]);
+    j = j - 1;
+}
+
+// toString 与字符串拼接路径（语义层不允许 string + array 直接拼接，经 toString 转换）
+print("tostr:", toString(ints), "arr=" + toString(decs));
+
+// 三元中的数组（元素类型一致）
+bool useFirst = false;
+array picked = useFirst ? ints : calc;
+print("ternary:", picked, picked[0]);
+
+// 函数内局部数组（array 参数/返回值不在本阶段范围）
+function arraySum() integer {
+    array xs = [10, 20, 30, 40];
+    integer acc = 0;
+    for (integer i = 0; i < xs.length; i = i + 1) {
+        acc = acc + xs[i];
+    }
+    return acc;
+}
+print("fn:", arraySum(), arraySum() * 2);

@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t58 完成：codegen CG1 整数溢出陷阱，i64 加/减/乘/负号换 with.overflow intrinsic 显式报错，差分 10/10）
+最后更新：2026-07-26（t59 完成：codegen array 最小闭环——同质字面量/索引读写/length/print/引用语义，collie_rt 数组对象降级，差分 11/11）
 
 ---
 
@@ -380,6 +380,10 @@
     - 实现：M6 三大剩余方向（class/BigInt/array）调研后，先做成本最低的 CG1 溢出陷阱——i64 加/减/乘/一元负号换 llvm.s{add,sub,mul}.with.overflow intrinsic（checked_int_arith helper，每检查点独立 trap/cont 块），溢出即调 collie_rt_trap_int_overflow 报错退出，把"静默回绕错值"变为"显式运行期报错"（符合绝不静默错编原则）；`%` 的 INT64_MIN % -1 硬件陷阱边缘用 select 安全除数处理（数学结果 0，与解释器 BigInt floor_mod 对齐）；后续顺序：t59 array 最小闭环 → t60 class 最小闭环 → BigInt 运行时化远期
     - 范围外：BigInt 任意精度运行时化（313 行 BigInt 移植纯 C + 整数值改不透明指针，改造面大，远期）；差分用例不含溢出场景（溢出时解释器算对而编译产物报错，输出必然不同，trap 行为单独手工验证）
     - 验证：新差分用例 s11_int_edge（i64 边界内大数加减乘/负号/INT64_MIN%-1/floor 取模回归/复合赋值/函数中运算），ctest -C Release 差分 10/10 逐字节一致；溢出 trap 手工验证通过（编译 INT64_MAX+1 程序，stderr 输出 runtime error: integer overflow、非零退出码、trap 后语句未执行）；Debug 门禁 6/6 不受影响
+- [x] codegen array 最小闭环（t59）
+    - 实现：语义层对 array 一刀切 KW_ARRAY（元素类型不追踪、索引结果 KW_OBJECT 动态放行），codegen 自行做字面量同质推断（CGValue/CGVar 增设 elem 元素类型字段，Int/Double 混合提升 Double，其余混合/嵌套拒编）；运行时表示为不透明 ptr → collie_rt 数组对象（单块 malloc：头部 len+kind，8 字节槽：Int 直存/Double bitcast/Bool zext/Str ptrtoint），指针拷贝天然对齐解释器引用语义；支持：同质字面量/索引读写（负索引+越界报错退出，对齐 normalize_index）/length 属性 + len() 内建（顺带支持 string）/print+toString（[1, 2, 3] 格式对齐 Value::to_string）/引用语义赋值/三元（elem 一致校验）
+    - 范围外：嵌套数组（元素为数组拒编）、array 作函数参数/返回值（KW_ARRAY 无元素类型标注，无法定签名）、数组比较运算、无初始化 array 声明（既有拒编）；另语义层不允许 string + array 直接拼接（比解释器运行期更严，属既有语义面，用例经 toString 转换）
+    - 验证：新差分用例 s12_array（四类元素字面量 print/空数组/混合提升/正负索引读写/length+len/引用语义共享写入/循环求和/反向遍历/toString+拼接/三元/函数内局部数组），ctest -C Release 差分 11/11 逐字节一致；越界索引手工验证通过（stderr "Index 5 out of range (size 3)"、非零退出码、后续语句未执行，与解释器核心消息一致）；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -434,6 +438,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen array 最小闭环（t59，M6）：collie_rt 新增数组运行时（collie_rt_arr_new/get/set/len/to_str，单块 malloc 对象头部 len+kind + 8 字节槽位模式，负索引归一化+越界报错退出，[1, 2, 3] 格式对齐 Value::to_string）；codegen CGType 新增 Arr，CGValue/CGVar 增设 elem 字段做字面量同质推断（Int/Double 混合提升 Double，异质/嵌套拒编），支持同质字面量/索引读写/length+len 内建/print+toString/引用语义赋值/三元，array 函数参数/返回值拒编；新差分用例 s12_array，ctest -C Release 差分 11/11 逐字节一致，越界索引手工验证通过，Debug 门禁 6/6（M6 t59）
 - 2026-07-26 `feat(compiler)`: codegen CG1 整数溢出陷阱（t58，M6）：i64 加/减/乘/一元负号换 llvm.s{add,sub,mul}.with.overflow intrinsic（checked_int_arith helper，每检查点独立 trap/cont 块），溢出调 collie_rt_trap_int_overflow 报错退出，静默回绕改显式运行期报错；INT64_MIN % -1 硬件陷阱边缘 select 安全除数（结果 0 对齐解释器 floor_mod）；新差分用例 s11_int_edge（边界大数/负号/取模边缘/复合赋值），ctest -C Release 差分 10/10 逐字节一致，溢出 trap 手工验证通过（stderr 报错+非零退出码），Debug 门禁 6/6（M6 t58）
 - 2026-07-26 `feat(compiler)`: codegen string 方法降级（t57，M6）：collie_rt 新增 collie_rt_str_trim（mode 0=两端/1=左/2=右，只剥空格与 Tab）+ collie_rt_str_substring（UTF-8 码点区间 [start,end)，end==-1 取 length，越界 clamp）；codegen visitMethodCall 接入 Str 的 trim 系列/subString（参数限 Int，缺 end 传 -1）与任意标量的 toString() 方法形式（复用 to_str），toNumber 等维持拒编；新差分用例 s10_string_methods（含中文码点/链式调用），ctest -C Release 差分 9/9 逐字节一致，Debug 门禁 6/6（M6 t57）
 - 2026-07-26 `feat(compiler)`: codegen string length 属性 + 索引 s[i] UTF-8 码点降级（t56，M6）：collie_rt 新增 collie_rt_str_len（码点计数，照抄解释器 utf8_length 首字节步进）+ collie_rt_str_index（负索引归一化，越界报错退出，返 malloc 单码点子串）；codegen visitProperty 支持 Str.length（→Int）、visitIndex 支持 Str×Int（→Str），其余维持拒编；新差分用例 s9_string_index（含中文多字节码点），ctest -C Release 差分 8/8 逐字节一致，Debug 门禁 6/6（M6 t56）

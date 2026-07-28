@@ -102,18 +102,21 @@ private:
         Double,  // double（decimal / number 小数表示）
         Bool,    // i1
         Str,     // ptr → 常量字符串
+        Arr,     // ptr → collie_rt 数组对象（t59，元素类型另记于 elem 字段）
         Void,    // 无值（none 返回函数的调用结果，S5 t52）
     };
 
     struct CGValue {
         llvm::Value* value = nullptr;
         CGType type = CGType::Int;
+        CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
     };
 
     /// @brief 变量存储槽（entry 块 alloca）+ 编译期类型（S3 t50）
     struct CGVar {
         llvm::AllocaInst* slot = nullptr;
         CGType type = CGType::Int;
+        CGType elem = CGType::Int; // 仅 type == Arr 时有意义：元素类型（t59）
     };
 
     /// @brief 循环上下文（S4 t51）：break/continue 跳转目标块
@@ -171,6 +174,16 @@ private:
     /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
     llvm::Value* to_str(const CGValue& v, const Token& where);
 
+    /// @brief 数组元素值 → 8 字节槽位模式 i64（t59）：Int 直存/Double bitcast/
+    /// Bool zext/Str ptrtoint（collie_rt 数组对象槽统一为 i64）
+    llvm::Value* elem_to_bits(const CGValue& v);
+
+    /// @brief 8 字节槽位模式 i64 → 数组元素值（t59，elem_to_bits 的逆变换）
+    llvm::Value* bits_to_elem(llvm::Value* bits, CGType elem);
+
+    /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
+    int arr_kind_of(CGType elem);
+
     /// @brief 不支持的构造统一报错出口
     [[noreturn]] void unsupported(const std::string& what, size_t line, size_t column);
 
@@ -199,6 +212,12 @@ private:
     llvm::FunctionCallee rt_str_substring_; // ptr(ptr, i64, i64)，end==-1 取 length
     /// collie_rt 整数溢出陷阱（CG1 t58）：i64 算术溢出时报错退出，不静默回绕
     llvm::FunctionCallee rt_trap_int_overflow_; // void()
+    /// collie_rt 数组运行时（t59）：不透明 ptr 数组对象，8 字节槽存位模式（引用语义）
+    llvm::FunctionCallee rt_arr_new_;    // ptr(i64 len, i64 kind)
+    llvm::FunctionCallee rt_arr_get_;    // i64(ptr, i64)，负索引/越界处理在运行期
+    llvm::FunctionCallee rt_arr_set_;    // void(ptr, i64, i64 bits)，同上索引规则
+    llvm::FunctionCallee rt_arr_len_;    // i64(ptr)
+    llvm::FunctionCallee rt_arr_to_str_; // ptr(ptr)，[1, 2, 3] 格式对齐 Value::to_string
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;

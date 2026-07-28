@@ -22,9 +22,10 @@
 | S9 | string length 属性 + 索引 `s[i]`（UTF-8 码点） | 多字节码点 length/正负索引程序编译执行，输出与解释器一致 **✅ t56** |
 | S10 | string 方法 trim 系列/subString + toString 方法形式 | 方法/链式调用程序编译执行，输出与解释器一致 **✅ t57** |
 | S11 | 整数溢出陷阱（CG1 收窄）：i64 加/减/乘/负号溢出显式报错 | 边界内大数程序输出与解释器一致，溢出程序陷阱退出 **✅ t58** |
-| 后续 | array、class、BigInt 运行时化 | 逐任务扩展 |
+| S12 | array 最小闭环：同质字面量/索引读写/length/print/引用语义 | 数组程序编译执行，输出与解释器一致，越界陷阱退出 **✅ t59** |
+| 后续 | class、BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：tribool/Kleene、tuple、array、class、`==?`、异常语义。
+不在第一期范围：tribool/Kleene、tuple、class、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -52,8 +53,9 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | `decimal` / `number`（小数表示） | `double` | IEEE 754，与解释器一致 |
 | `bool` | `i1` | |
 | `string` | `ptr`（指向常量串或 collie_rt malloc 串） | 字面量 = `private unnamed_addr constant [N x i8]`；拼接结果 = `collie_rt_concat` malloc 串（不 free，缺口 CG6） |
+| `array` | `ptr`（指向 collie_rt 数组对象） | **妥协点**：解释器数组元素动态异质；codegen 限同质数组（元素类型由字面量推断，另记于 CGValue/CGVar 的 elem 字段），异质/嵌套拒编；指针拷贝即引用语义（对齐解释器 shared_ptr） |
 | `none` / `void` | `void` | |
-| 其余（tribool/tuple/array/class/char...） | 不支持，显式报错 | |
+| 其余（tribool/tuple/class/char...） | 不支持，显式报错 | |
 
 ## 四、降级映射表（S1/S2 核心）
 
@@ -143,6 +145,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
 | `toNumber()` / number/tribool/tuple 方法 | 拒编（toNumber 返动态 number 无对应 CGType；其余待对应类型 codegen 支持） |
 
+**S12 降级补充（t59 实现）：array 最小闭环**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 数组字面量 `[a, b, c]` | 逐元素求值后同质推断（Int/Double 混合整体提升 Double，提升后输出仍与解释器一致；其余混合/嵌套拒编；空数组 elem 记 Int）→ `call ptr @collie_rt_arr_new(i64 len, i64 kind)` 单块 malloc 数组对象（kind：0=Int/1=Double/2=Bool/3=Str）→ 逐元素 `elem_to_bits` 转 8 字节位模式后 `collie_rt_arr_set` 写槽 |
+| `a[i]` 读 / `a[i] = v` 写 | `collie_rt_arr_get/set(ptr, i64[, i64 bits])`：负索引归一化（-1 为最后一个元素），越界 stderr 报错后 exit(1)（消息格式同 str_index）；读结果 `bits_to_elem` 按 elem 还原；写入仅允许 Int→Double 提升否则拒编；求值顺序 object→index→value 对齐解释器 |
+| `a.length` / `len(a)` | `call i64 @collie_rt_arr_len(ptr)`（len 内建同时支持 string 走 str_len） |
+| `print(a)` / `toString(a)` / 拼接 | `call ptr @collie_rt_arr_to_str(ptr)` 整体转 `[1, 2, 3]` 格式串（对齐 Value::to_string：元素递归格式化、字符串不加引号）后走 print_str/Str 路径 |
+| 赋值/三元中的数组 | 指针拷贝即引用语义；两侧 elem 不一致拒编（解释器动态异质无此限制，同质表示无法承载 → 拒编不错编） |
+| array 函数参数/返回值 | 拒编（`array` 声明无元素类型标注，跨函数签名无法定 elem；待带元素类型的声明语法或动态 kind 方案） |
+
 ## 五、构建与链接方案（关键决策）
 
 **CRT 对齐**（t48b 已验证的事实）：LLVM 官方预编译包为 Release + **/MT 静态 CRT**；
@@ -174,7 +187,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | 编号 | 缺口 | 计划 |
 |------|------|------|
 | CG1 | integer 降为 i64，非任意精度；溢出已改显式陷阱报错退出（t58：s{add,sub,mul}.with.overflow + collie_rt_trap_int_overflow，含一元负号；INT64_MIN % -1 硬件陷阱边缘 select 安全除数得 0 对齐解释器），不再静默回绕；超 i64 字面量仍编译期拒编 | 任意精度对齐：BigInt 运行时库（collie_rt）远期 |
-| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组/none/tuple 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
+| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组格式已对齐（t59 arr_to_str）；none/tuple 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 | CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |
