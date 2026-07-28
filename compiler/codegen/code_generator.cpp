@@ -124,6 +124,25 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_obj_new",
         llvm::FunctionType::get(ptr_ty, {builder_.getInt64Ty()}, false));
 
+    // collie_rt number 运行时声明（t62，CG5 收窄）：tagged 双表示（tag 0=整数
+    // i64 / 1=小数 double 位模式），算术/比较/转串在运行时单点对齐解释器；
+    // 结果经出参写回（16 字节 struct 返回在 Win x64 走隐藏指针，出参避开 ABI 错配）
+    llvm::Type* i64_ty = builder_.getInt64Ty();
+    rt_num_arith_ = module_->getOrInsertFunction(
+        "collie_rt_num_arith",
+        llvm::FunctionType::get(
+            void_ty, {i64_ty, i64_ty, i64_ty, i64_ty, i64_ty, ptr_ty, ptr_ty}, false));
+    rt_num_cmp_ = module_->getOrInsertFunction(
+        "collie_rt_num_cmp",
+        llvm::FunctionType::get(builder_.getInt32Ty(),
+                                {i64_ty, i64_ty, i64_ty, i64_ty, i64_ty}, false));
+    rt_num_to_str_ = module_->getOrInsertFunction(
+        "collie_rt_num_to_str",
+        llvm::FunctionType::get(ptr_ty, {i64_ty, i64_ty}, false));
+    rt_print_num_ = module_->getOrInsertFunction(
+        "collie_rt_print_num",
+        llvm::FunctionType::get(void_ty, {i64_ty, i64_ty}, false));
+
     // 第一遍（S5 t52 / t60）：顶层函数建原型、类注册 struct 布局与方法原型，
     // 递归与前向引用天然可用
     functions_.clear();
@@ -261,13 +280,18 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
     CGValue lhs = emit(expr.left());
     CGValue rhs = emit(expr.right());
 
-    // 仅数值算术在范围内（比较/逻辑/位运算属 S3+）
+    // 仅数值算术在范围内（比较/逻辑/位运算属 S3+）；Num 也是数值（t62）
     auto require_numeric = [&](const CGValue& v) {
-        if (v.type != CGType::Int && v.type != CGType::Double) {
+        if (v.type != CGType::Int && v.type != CGType::Double &&
+            v.type != CGType::Num) {
             unsupported("non-numeric operand of '" + std::string(op.lexeme()) + "'",
                         op.line(), op.column());
         }
     };
+
+    // number 参与的算术/比较（t62）：任一侧为 Num 即双方 to_num 后下沉
+    // collie_rt，双整数精确/混合 double 视图等语义单点对齐解释器
+    const bool has_num = lhs.type == CGType::Num || rhs.type == CGType::Num;
 
     switch (op.type()) {
         case TokenType::OP_DIVIDE: {
@@ -275,6 +299,10 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             // 除零走 IEEE 754 得 ±Infinity/NaN（t33），fdiv 天然满足
             require_numeric(lhs);
             require_numeric(rhs);
+            if (has_num) {
+                last_value_ = {call_num_arith(3, to_num(lhs), to_num(rhs)), CGType::Num};
+                return;
+            }
             last_value_ = {builder_.CreateFDiv(to_double(lhs), to_double(rhs), "divtmp"),
                            CGType::Double};
             return;
@@ -282,6 +310,14 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
         case TokenType::OP_MODULO: {
             // '%' floor 取模（SPEC §4，结果符号与除数一致）：
             //   r = srem(a, b); r 非零且与 b 异号时 r += b（select 无分支实现）
+            if (has_num) {
+                // number 参与（t62）：下沉运行时（双整数 floor 取模、除零落
+                // double 路径 NaN，对齐解释器 eval_arithmetic）
+                require_numeric(lhs);
+                require_numeric(rhs);
+                last_value_ = {call_num_arith(4, to_num(lhs), to_num(rhs)), CGType::Num};
+                return;
+            }
             if (lhs.type != CGType::Int || rhs.type != CGType::Int) {
                 unsupported("'%' on non-integer operands", op.line(), op.column());
             }
@@ -324,6 +360,15 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             }
             require_numeric(lhs);
             require_numeric(rhs);
+            if (has_num) {
+                // number 参与（t62）：下沉运行时（双整数精确 + i64 溢出走
+                // CG1 陷阱，混合走 double，对齐解释器 eval_arithmetic）
+                const int op_code = op.type() == TokenType::OP_PLUS    ? 0
+                                  : op.type() == TokenType::OP_MINUS   ? 1 : 2;
+                last_value_ = {call_num_arith(op_code, to_num(lhs), to_num(rhs)),
+                               CGType::Num};
+                return;
+            }
             if (lhs.type == CGType::Double || rhs.type == CGType::Double) {
                 llvm::Value* l = to_double(lhs);
                 llvm::Value* r = to_double(rhs);
@@ -378,6 +423,27 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                 last_value_ = {v, CGType::Bool};
                 return;
             }
+            if (has_num) {
+                // number 比较（t62）：collie_rt_num_cmp（双整数精确、混合 double
+                // 视图、NaN IEEE 语义），返 0/1 后与 0 做 icmp ne 得 i1
+                require_numeric(lhs);
+                require_numeric(rhs);
+                const int op_code = t == TokenType::OP_EQUAL      ? 0
+                                  : t == TokenType::OP_NOT_EQUAL  ? 1
+                                  : t == TokenType::OP_LESS       ? 2
+                                  : t == TokenType::OP_LESS_EQ    ? 3
+                                  : t == TokenType::OP_GREATER    ? 4 : 5;
+                llvm::Value* a = to_num(lhs);
+                llvm::Value* b = to_num(rhs);
+                llvm::Value* c = builder_.CreateCall(
+                    rt_num_cmp_,
+                    {builder_.getInt64(static_cast<uint64_t>(op_code)),
+                     num_tag(a), num_bits(a), num_tag(b), num_bits(b)},
+                    "numcmp");
+                last_value_ = {builder_.CreateICmpNE(c, builder_.getInt32(0), "cmptmp"),
+                               CGType::Bool};
+                return;
+            }
             require_numeric(lhs);
             require_numeric(rhs);
             llvm::Value* v = nullptr;
@@ -430,6 +496,10 @@ void CodeGenerator::visitUnary(const UnaryExpr& expr) {
                        CGType::Int};
     } else if (v.type == CGType::Double) {
         last_value_ = {builder_.CreateFNeg(v.value, "negtmp"), CGType::Double};
+    } else if (v.type == CGType::Num) {
+        // number 一元负号（t62）：op 5 下沉运行时（-INT64_MIN 走 CG1 陷阱）
+        llvm::Value* zero = make_num(builder_.getInt64(0), builder_.getInt64(0));
+        last_value_ = {call_num_arith(5, to_num(v), zero), CGType::Num};
     } else {
         unsupported("unary '-' on non-numeric operand", op.line(), op.column());
     }
@@ -526,6 +596,10 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 break;
             case CGType::Double:
                 builder_.CreateCall(rt_print_f64_, {v.value});
+                break;
+            case CGType::Num:
+                // number 打印（t62）：垫片按 tag 分派 %lld / 四步小数格式
+                builder_.CreateCall(rt_print_num_, {num_tag(v.value), num_bits(v.value)});
                 break;
             case CGType::Bool: {
                 // i1 零扩展为 i32（C 接口参数为 int）
@@ -1303,6 +1377,10 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
         if (v.type != current_ret_type_) {
             if (current_ret_type_ == CGType::Double && v.type == CGType::Int) {
                 v = {to_double(v), CGType::Double};
+            } else if (current_ret_type_ == CGType::Num &&
+                       (v.type == CGType::Int || v.type == CGType::Double)) {
+                // integer/decimal → number 加宽（t62）：保持原表示打 tag
+                v = {to_num(v), CGType::Num};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -1380,10 +1458,7 @@ CodeGenerator::CGType CodeGenerator::declared_cgtype(const Token& type_token) {
         case TokenType::KW_BOOL:    return CGType::Bool;
         case TokenType::KW_STRING:  return CGType::Str;
         case TokenType::KW_ARRAY:   return CGType::Arr; // 元素类型由初始值推断（t59）
-        case TokenType::KW_NUMBER:
-            // number 需整数/小数双表示（缺口 CG5，见 codegen/README.md）
-            unsupported("'number' variable (gap CG5: needs tagged int/decimal repr)",
-                        type_token.line(), type_token.column());
+        case TokenType::KW_NUMBER:  return CGType::Num; // tagged 双表示（t62，CG5 收窄）
         default:
             unsupported("variable type '" + std::string(type_token.lexeme()) + "'",
                         type_token.line(), type_token.column());
@@ -1424,6 +1499,12 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     if (want == CGType::Double && a.type == CGType::Int) {
         return to_double(a);
     }
+    // integer/decimal → number 加宽（t62）：保持原表示打 tag；反向窄化
+    // （number→integer/decimal）静态无法判 tag，落入下方拒编
+    if (want == CGType::Num &&
+        (a.type == CGType::Int || a.type == CGType::Double)) {
+        return to_num(a);
+    }
     unsupported("argument type mismatch", line, column);
 }
 
@@ -1449,6 +1530,10 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
     switch (type) {
         case CGType::Int:    return builder_.getInt64Ty();
         case CGType::Double: return builder_.getDoubleTy();
+        case CGType::Num:
+            // number tagged 双表示（t62）：{i64 tag, i64 bits} first-class struct，
+            // SSA 单值流转；仅 collie_rt 边界拆散标量（同模块内降级一致安全）
+            return llvm::StructType::get(builder_.getInt64Ty(), builder_.getInt64Ty());
         case CGType::Bool:   return builder_.getInt1Ty();
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
         case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
@@ -1473,6 +1558,11 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
     // 仅 integer → decimal 隐式提升（与语义层/解释器 coerce_to_declared 一致）
     if (slot_type == CGType::Double && v.type == CGType::Int) {
         return builder_.CreateSIToFP(v.value, builder_.getDoubleTy());
+    }
+    // integer/decimal → number 加宽（t62）：保持原表示打 tag
+    if (slot_type == CGType::Num &&
+        (v.type == CGType::Int || v.type == CGType::Double)) {
+        return to_num(v);
     }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
@@ -1578,6 +1668,12 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         if (ftype == CGType::Arr) {
             // 数组字段无处标注元素类型（同 t59 参数/返回值拒编理由）
             unsupported("array field",
+                        field->name().line(), field->name().column());
+        }
+        if (ftype == CGType::Num) {
+            // number 字段维持范围外（t62 拍板：类字段不解锁，字段块 8 字节
+            // 槽装不下 16 字节 tagged 表示，拒编不错编）
+            unsupported("'number' class field",
                         field->name().line(), field->name().column());
         }
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
@@ -1765,9 +1861,15 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
                         expr.question_token().line(), expr.question_token().column());
         }
         result_type = tv.type;
-    } else if ((tv.type == CGType::Int || tv.type == CGType::Double) &&
-               (ev.type == CGType::Int || ev.type == CGType::Double)) {
-        result_type = CGType::Double;
+    } else if ((tv.type == CGType::Int || tv.type == CGType::Double ||
+                tv.type == CGType::Num) &&
+               (ev.type == CGType::Int || ev.type == CGType::Double ||
+                ev.type == CGType::Num)) {
+        // 数值混型：任一分支为 number 统一 Num（保持原表示，t62），
+        // 否则 int/double 混型统一提升 double（与算术混型一致）
+        result_type = (tv.type == CGType::Num || ev.type == CGType::Num)
+                          ? CGType::Num
+                          : CGType::Double;
     } else {
         unsupported("ternary branches have incompatible types",
                     expr.question_token().line(), expr.question_token().column());
@@ -1775,10 +1877,14 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
 
     // 各分支块尾把值对齐 result_type 后再跳 merge（提升指令须落在该分支块内）
     builder_.SetInsertPoint(then_end);
-    llvm::Value* then_val = (result_type == CGType::Double) ? to_double(tv) : tv.value;
+    llvm::Value* then_val = result_type == CGType::Double ? to_double(tv)
+                          : result_type == CGType::Num    ? to_num(tv)
+                                                          : tv.value;
     builder_.CreateBr(merge_bb);
     builder_.SetInsertPoint(else_end);
-    llvm::Value* else_val = (result_type == CGType::Double) ? to_double(ev) : ev.value;
+    llvm::Value* else_val = result_type == CGType::Double ? to_double(ev)
+                          : result_type == CGType::Num    ? to_num(ev)
+                                                          : ev.value;
     builder_.CreateBr(merge_bb);
 
     builder_.SetInsertPoint(merge_bb);
@@ -1816,6 +1922,47 @@ llvm::Value* CodeGenerator::to_double(const CGValue& v) {
     }
 }
 
+llvm::Value* CodeGenerator::make_num(llvm::Value* tag, llvm::Value* bits) {
+    // number 值组装（t62）：{i64 tag, i64 bits} first-class struct，SSA 单值流转
+    llvm::Value* v = llvm::PoisonValue::get(llvm_type_of(CGType::Num));
+    v = builder_.CreateInsertValue(v, tag, 0);
+    return builder_.CreateInsertValue(v, bits, 1, "numtmp");
+}
+
+llvm::Value* CodeGenerator::num_tag(llvm::Value* num) {
+    return builder_.CreateExtractValue(num, 0, "numtag");
+}
+
+llvm::Value* CodeGenerator::num_bits(llvm::Value* num) {
+    return builder_.CreateExtractValue(num, 1, "numbits");
+}
+
+llvm::Value* CodeGenerator::to_num(const CGValue& v) {
+    // integer/decimal → number 加宽保持原表示打 tag（对齐解释器
+    // coerce_to_declared 的 KW_NUMBER 分支）；Num 原样返回
+    switch (v.type) {
+        case CGType::Num:    return v.value;
+        case CGType::Int:    return make_num(builder_.getInt64(0), v.value);
+        case CGType::Double:
+            return make_num(builder_.getInt64(1),
+                            builder_.CreateBitCast(v.value, builder_.getInt64Ty(), "bits"));
+        default:             unsupported("conversion to 'number'", 0, 0);
+    }
+}
+
+llvm::Value* CodeGenerator::call_num_arith(int op, llvm::Value* a, llvm::Value* b) {
+    // 结果经出参写回（16 字节 struct 返回在 Win x64 走隐藏指针，出参避开
+    // ABI 错配）；出参槽落 entry alloca（IR 规范位置，利于 mem2reg）
+    llvm::AllocaInst* otag = create_entry_alloca(builder_.getInt64Ty(), "num.otag");
+    llvm::AllocaInst* obits = create_entry_alloca(builder_.getInt64Ty(), "num.obits");
+    builder_.CreateCall(rt_num_arith_,
+                        {builder_.getInt64(static_cast<uint64_t>(op)),
+                         num_tag(a), num_bits(a), num_tag(b), num_bits(b),
+                         otag, obits});
+    return make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag, "numtag"),
+                    builder_.CreateLoad(builder_.getInt64Ty(), obits, "numbits"));
+}
+
 llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
     // 对齐解释器 Value::to_string：整数 %lld、小数四步格式、bool true/false（垫片实现）
     switch (v.type) {
@@ -1825,6 +1972,10 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
             return builder_.CreateCall(rt_i64_to_str_, {v.value}, "i64str");
         case CGType::Double:
             return builder_.CreateCall(rt_f64_to_str_, {v.value}, "f64str");
+        case CGType::Num:
+            // number 转串（t62）：垫片按 tag 分派，对齐 Value::to_string
+            return builder_.CreateCall(
+                rt_num_to_str_, {num_tag(v.value), num_bits(v.value)}, "numstr");
         case CGType::Bool: {
             // i1 → i32（C 接口边界），垫片返静态串
             llvm::Value* ext = builder_.CreateZExt(v.value, builder_.getInt32Ty());

@@ -56,6 +56,19 @@
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
  *     size 由 codegen 按 8 字节 × 字段数上界给定，字段初始值紧随 new 写入
  *
+ * number 双表示运行时（t62，缺口 CG5 收窄）：值 = tag + 8 字节位模式
+ *   （tag 0=整数 i64 / 1=小数 double 位模式），算术/比较/转串集中在运行时
+ *   单点对齐解释器 eval_arithmetic/eval_comparison/Value::to_string：
+ *   void collie_rt_num_arith(op, atag, abits, btag, bbits, otag, obits);
+ *     // op 0=+ 1=- 2=* 3=/ 4=% 5=一元负号（b 忽略）；双整数精确 + - * %
+ *     // （i64 溢出走 CG1 陷阱）、除法恒小数、混合走 double、除零 IEEE 754；
+ *     // 结果经出参写回（16 字节 struct 返回在 Win x64 走隐藏指针，出参避开 ABI 错配）
+ *   int collie_rt_num_cmp(op, atag, abits, btag, bbits);
+ *     // op 0='==' 1='!=' 2='<' 3='<=' 4='>' 5='>='，返 0/1；NaN 比较与 '=='
+ *     // 恒 false、'!=' 恒 true（IEEE 语义对齐解释器）
+ *   const char* collie_rt_num_to_str(long long tag, long long bits); // malloc 新串
+ *   void collie_rt_print_num(long long tag, long long bits);         // 格式对齐 to_string
+ *
  * decimal 格式化四步（移植 Value::to_string 的 Number 小数分支）：
  *   1) NaN                → "NaN"
  *   2) +Inf / -Inf        → "+Infinity" / "-Infinity"
@@ -63,6 +76,7 @@
  *   4) 其余               → "%g"（C++ ostringstream 默认与 printf %g 同为 6 位有效数字）
  */
 
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -375,4 +389,170 @@ void* collie_rt_obj_new(long long size) {
     char* p = collie_rt_alloc((size_t)size);
     memset(p, 0, (size_t)size);
     return p;
+}
+
+/* ---- number 双表示运行时（t62，缺口 CG5 收窄）---- */
+
+/* number 值 = tag + 8 字节位模式：tag 0=整数（i64 直存）、1=小数（double 位模式）。
+ * 语义集中在此单点对齐解释器；整数域 i64 溢出走既有 CG1 陷阱（解释器 BigInt
+ * 自动扩容，编译产物边界内一致、越界显式报错不静默错值） */
+
+static double collie_rt_num_as_f64(long long tag, long long bits) {
+    if (tag == 0) {
+        return (double)bits; /* 整数表示的 double 视图（对齐 Value::as_number） */
+    }
+    double v;
+    memcpy(&v, &bits, sizeof v);
+    return v;
+}
+
+static long long collie_rt_f64_bits(double v) {
+    long long bits;
+    memcpy(&bits, &v, sizeof bits);
+    return bits;
+}
+
+/* op：0=+ 1=- 2=* 3=/ 4=% 5=一元负号（b 忽略）；结果经 otag/obits 写回 */
+void collie_rt_num_arith(long long op, long long atag, long long abits,
+                         long long btag, long long bbits,
+                         long long* otag, long long* obits) {
+    if (op == 5) { /* 一元负号：整数走溢出检查（-LLONG_MIN 超范围），小数直接取负 */
+        if (atag == 0) {
+            if (abits == LLONG_MIN) {
+                collie_rt_trap_int_overflow();
+            }
+            *otag = 0;
+            *obits = -abits;
+        } else {
+            *otag = 1;
+            *obits = collie_rt_f64_bits(-collie_rt_num_as_f64(atag, abits));
+        }
+        return;
+    }
+    /* 双整数精确路径（对齐解释器 eval_arithmetic）：+ - * 溢出陷阱；
+     * % floor 语义；/ 恒产小数与取模除零均落到下方 double 路径 */
+    if (atag == 0 && btag == 0) {
+        long long a = abits;
+        long long b = bbits;
+        switch ((int)op) {
+            case 0: /* + */
+                if ((b > 0 && a > LLONG_MAX - b) || (b < 0 && a < LLONG_MIN - b)) {
+                    collie_rt_trap_int_overflow();
+                }
+                *otag = 0;
+                *obits = a + b;
+                return;
+            case 1: /* - */
+                if ((b < 0 && a > LLONG_MAX + b) || (b > 0 && a < LLONG_MIN + b)) {
+                    collie_rt_trap_int_overflow();
+                }
+                *otag = 0;
+                *obits = a - b;
+                return;
+            case 2: /* *：除法预判法，四象限分支覆盖 LLONG_MIN × -1 边界 */
+                if (a > 0) {
+                    if (b > 0 ? a > LLONG_MAX / b : b < LLONG_MIN / a) {
+                        collie_rt_trap_int_overflow();
+                    }
+                } else if (a < 0) {
+                    if (b > 0 ? a < LLONG_MIN / b : b < LLONG_MAX / a) {
+                        collie_rt_trap_int_overflow();
+                    }
+                }
+                *otag = 0;
+                *obits = a * b;
+                return;
+            case 4: /* %：floor 语义（结果符号与除数一致）；除零落 double 路径得 NaN */
+                if (b != 0) {
+                    long long r;
+                    if (b == -1) {
+                        r = 0; /* a % -1 恒 0，绕开 LLONG_MIN / -1 硬件陷阱 */
+                    } else {
+                        r = a % b;
+                        if (r != 0 && ((r < 0) != (b < 0))) {
+                            r += b;
+                        }
+                    }
+                    *otag = 0;
+                    *obits = r;
+                    return;
+                }
+                break;
+            default: /* 3 = '/'：恒产小数（Python 式 true division） */
+                break;
+        }
+    }
+    /* double 路径（混合表示 / 除法 / 整数取模除零）：对齐解释器同名分支 */
+    {
+        double a = collie_rt_num_as_f64(atag, abits);
+        double b = collie_rt_num_as_f64(btag, bbits);
+        double r;
+        switch ((int)op) {
+            case 0: r = a + b; break;
+            case 1: r = a - b; break;
+            case 2: r = a * b; break;
+            case 3: r = a / b; break; /* 除零 IEEE 754：±Infinity / NaN */
+            default: /* 4 = %：floor 语义；除数为 0 得 NaN（fmod(x, 0) 对齐） */
+                if (b == 0.0) {
+                    r = NAN;
+                } else {
+                    r = fmod(a, b);
+                    if (r != 0.0 && ((r < 0.0) != (b < 0.0))) {
+                        r += b;
+                    }
+                }
+                break;
+        }
+        *otag = 1;
+        *obits = collie_rt_f64_bits(r);
+    }
+}
+
+/* op：0='==' 1='!=' 2='<' 3='<=' 4='>' 5='>='，返 0/1；双整数走 i64 精确比较，
+ * 其余走 double 视图（NaN：全序比较与 '==' 均 false、'!=' 为 true，C 比较
+ * 运算符天然满足，与解释器 eval_comparison/values_equal 一致） */
+int collie_rt_num_cmp(long long op, long long atag, long long abits,
+                      long long btag, long long bbits) {
+    if (atag == 0 && btag == 0) {
+        long long a = abits;
+        long long b = bbits;
+        switch ((int)op) {
+            case 0:  return a == b;
+            case 1:  return a != b;
+            case 2:  return a < b;
+            case 3:  return a <= b;
+            case 4:  return a > b;
+            default: return a >= b;
+        }
+    }
+    {
+        double a = collie_rt_num_as_f64(atag, abits);
+        double b = collie_rt_num_as_f64(btag, bbits);
+        switch ((int)op) {
+            case 0:  return a == b;
+            case 1:  return a != b;
+            case 2:  return a < b;
+            case 3:  return a <= b;
+            case 4:  return a > b;
+            default: return a >= b;
+        }
+    }
+}
+
+/* number 转串：整数表示 %lld（对齐 BigInt::to_string 在 i64 域的输出），
+ * 小数表示四步格式；复用既有转串接口，malloc 新串不 free（缺口 CG6） */
+const char* collie_rt_num_to_str(long long tag, long long bits) {
+    if (tag == 0) {
+        return collie_rt_i64_to_str(bits);
+    }
+    return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
+}
+
+/* number 打印：与 print_i64/print_f64 同格式（对齐 Value::to_string Number 分支） */
+void collie_rt_print_num(long long tag, long long bits) {
+    if (tag == 0) {
+        printf("%lld", bits);
+    } else {
+        collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));
+    }
 }

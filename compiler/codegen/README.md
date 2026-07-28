@@ -25,7 +25,8 @@
 | S12 | array 最小闭环：同质字面量/索引读写/length/print/引用语义 | 数组程序编译执行，输出与解释器一致，越界陷阱退出 **✅ t59** |
 | S13 | class 最小闭环：单类/字段/构造器/方法/this/引用语义 | 类程序编译执行，输出与解释器一致 **✅ t60** |
 | S14 | class 二期：继承/覆写/base/模板方法/实例作函数参数返回值 | 继承程序编译执行，输出与解释器一致 **✅ t61** |
-| 后续 | BigInt 运行时化、number 双表示 | 逐任务扩展 |
+| S15 | number tagged 双表示（CG5 收窄）：算术/比较/转串下沉 collie_rt | number 程序编译执行，整数/小数两态输出与解释器一致 **✅ t62** |
+| 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：tribool/Kleene、tuple、`==?`、异常语义。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
@@ -51,8 +52,8 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | Collie 类型 | LLVM 类型 | 备注 |
 |------------|-----------|------|
 | `integer` | `i64` | **妥协点**：SPEC §3.2 规定 integer 为任意精度 BigInt；第一期降为 i64，溢出时显式陷阱报错退出（t58 收窄，不静默回绕；任意精度对齐仍属缺口 CG1，后续接 BigInt 运行时库） |
-| `number`（整数表示） | `i64` | 同上 |
-| `decimal` / `number`（小数表示） | `double` | IEEE 754，与解释器一致 |
+| `decimal` | `double` | IEEE 754，与解释器一致 |
+| `number` | `{i64 tag, i64 bits}` first-class struct | tagged 双表示（t62，CG5 收窄）：tag 0=整数（bits 即 i64）/1=小数（bits 为 double bitcast 位模式）；单 SSA 值流转（alloca 槽/函数签名/PHI 直用该 struct），仅 collie_rt 边界拆散标量 + out 指针 |
 | `bool` | `i1` | |
 | `string` | `ptr`（指向常量串或 collie_rt malloc 串） | 字面量 = `private unnamed_addr constant [N x i8]`；拼接结果 = `collie_rt_concat` malloc 串（不 free，缺口 CG6） |
 | `array` | `ptr`（指向 collie_rt 数组对象） | **妥协点**：解释器数组元素动态异质；codegen 限同质数组（元素类型由字面量推断，另记于 CGValue/CGVar 的 elem 字段），异质/嵌套拒编；指针拷贝即引用语义（对齐解释器 shared_ptr） |
@@ -77,7 +78,7 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 
 | Collie 构造 | LLVM IR 降级 |
 |------------|--------------|
-| 变量声明 `integer/decimal/bool/string x = init` | entry 块头部 `alloca`（利于 mem2reg）+ `store`；无初始化拒编（解释器绑 none 无静态对应）；`number` 变量拒编（双表示需运行时标记，缺口 CG5） |
+| 变量声明 `integer/decimal/bool/string x = init` | entry 块头部 `alloca`（利于 mem2reg）+ `store`；无初始化拒编（解释器绑 none 无静态对应）；`number` 变量已于 S15（t62）解锁 |
 | 读变量 / 赋值 | `load` / `store`；仅 integer→decimal 槽隐式提升（`sitofp`，与语义层一致） |
 | 块作用域遮蔽 | `scopes_` 作用域栈（vector<unordered_map>），逆向查找 |
 | 比较 `== != < <= > >=` | 纯整数 `icmp eq/ne/slt/sle/sgt/sge`；含小数一侧统一 `sitofp` 后 `fcmp oeq/une/olt/ole/ogt/oge`（`!=` 用 UNE 保 NaN 语义）；bool 仅 `==`/`!=` |
@@ -182,6 +183,18 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 实例作函数参数/返回值 | 签名处 IDENTIFIER 类名 → ptr + cls；实参/return 处 cls 严格相等否则拒编（语义层同步支持类名签名→object 动态放行，t61） |
 | `@override` | 纯语义层校验（t40），codegen 忽略注解位 |
 | 范围外拒编（继承相关） | 向上转型（声明/赋值/三元/实参/返回均严格同类）、子类同名字段遮蔽、父类声明晚于子类、构造器/方法重载 |
+
+**S15 降级补充（t62 实现）：number tagged 双表示（CG5 收窄）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `number` 值表示 | `{i64 tag, i64 bits}` first-class literal struct：tag 0=整数（bits 即 i64）/1=小数（bits 为 double bitcast 位模式）；变量单 alloca 槽、函数签名/PHI 直用该 struct（LLVM 自动处理 ABI 降级），仅 collie_rt 边界 extractvalue 拆散标量传参 + out 指针写回（规避 MSVC x64 16 字节 struct 传参隐藏指针 ABI 错配） |
+| 算术 `+ - * / %` / 一元 `-`（任一侧 Num） | `call void @collie_rt_num_arith(i64 op, i64 atag, i64 abits, i64 btag, i64 bbits, ptr otag, ptr obits)`（op：0=+ 1=- 2=* 3=/ 4=% 5=一元负号）：双整数精确 + - * 与 floor 取模（i64 溢出复用 CG1 陷阱报错退出）、`/` 恒 double、混合走 double、除零 IEEE 754；另一侧 Int/Double 先 to_num 加宽 |
+| 比较 `== != < <= > >=`（任一侧 Num） | `call i32 @collie_rt_num_cmp(i64 op, i64 atag, i64 abits, i64 btag, i64 bbits)`（op：0..5 对应 == != < <= > >=）后与 0 做 icmp ne 返 i1：双整数精确、混合 double 视图（5 == 5.0 为 true）、NaN 语义对齐解释器 |
+| `print(n)` / `toString(n)` | `collie_rt_print_num(i64 tag, i64 bits)` / `collie_rt_num_to_str(i64, i64)`：整数态按整数打、小数态走 f64 四步格式（与 print_f64 共享，对齐 Value::to_string） |
+| integer/decimal → number 加宽 | 声明/赋值/实参/return 四路径 to_num：保持原表示打 tag（对齐解释器 coerce_to_declared 的 KW_NUMBER 分支）；反向 number→integer/decimal 窄化拒编（静态无法判定 tag） |
+| 三元分支混型 | 任一分支 Num → 两分支块尾统一 to_num，merge 处 PHI 用 struct 类型 |
+| 范围外拒编 | number 类字段/数组元素（维持 S12/S13）、任意精度自动扩容（BigInt 运行时化留远期，超 i64 整数运算陷阱退出）、toNumber 内建 |
 
 ## 五、构建与链接方案（关键决策）
 

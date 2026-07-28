@@ -10,7 +10,9 @@
  * S5（t52）：顶层函数声明/调用/return/递归（两遍：先建原型再生成函数体）；
  * S13（t60）：单类无继承——字段/构造器/方法/this（LLVM struct + 隐藏首参降级）；
  * S14（t61）：继承——字段 base-first 合并、方法按分派类单态化生成（collie.C.D.m）、
- * base(...)/base.method() 静态解析、实例作函数参数/返回值。
+ * base(...)/base.method() 静态解析、实例作函数参数/返回值；
+ * S15（t62）：number tagged 双表示（{i64 tag, i64 bits}，CG5 收窄）——
+ * 算术/比较/转串下沉 collie_rt 单点对齐解释器语义。
  * 遇到范围外的 AST 节点显式抛 CodeGenError，绝不静默错编。
  */
 #pragma once
@@ -101,8 +103,9 @@ public:
 private:
     /// @brief 生成值的编译期类型标记（选 printf 格式符与算术指令用）
     enum class CGType {
-        Int,     // i64（integer / number 整数表示，妥协点 CG1）
-        Double,  // double（decimal / number 小数表示）
+        Int,     // i64（integer，妥协点 CG1）
+        Double,  // double（decimal）
+        Num,     // {i64 tag, i64 bits}（number tagged 双表示：tag 0=整数/1=小数，t62）
         Bool,    // i1
         Str,     // ptr → 常量字符串
         Arr,     // ptr → collie_rt 数组对象（t59，元素类型另记于 elem 字段）
@@ -230,6 +233,21 @@ private:
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
 
+    /// @brief number 值组装（t62）：tag + bits → {i64, i64} first-class struct
+    llvm::Value* make_num(llvm::Value* tag, llvm::Value* bits);
+
+    /// @brief number 值拆解（t62）：extractvalue 取 tag / bits 分量
+    llvm::Value* num_tag(llvm::Value* num);
+    llvm::Value* num_bits(llvm::Value* num);
+
+    /// @brief Int/Double/Num → Num（t62）：integer/decimal→number 加宽保持
+    /// 原表示打 tag（对齐解释器 coerce_to_declared），Num 原样返回
+    llvm::Value* to_num(const CGValue& v);
+
+    /// @brief number 算术运行时调用（t62）：op 编码见 collie_rt_num_arith
+    /// （0=+ 1=- 2=* 3=/ 4=% 5=一元负号）；结果经 entry alloca 出参写回
+    llvm::Value* call_num_arith(int op, llvm::Value* a, llvm::Value* b);
+
     /// @brief i64 带溢出检查的加/减/乘（CG1 t58）：s*.with.overflow intrinsic，
     /// 溢出分支调 collie_rt 陷阱报错退出，插入点落在继续块后返回结果值
     llvm::Value* checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,
@@ -284,6 +302,11 @@ private:
     llvm::FunctionCallee rt_arr_to_str_; // ptr(ptr)，[1, 2, 3] 格式对齐 Value::to_string
     /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧
     llvm::FunctionCallee rt_obj_new_;    // ptr(i64 size)
+    /// collie_rt number 运行时（t62，CG5 收窄）：tagged 双表示，语义单点对齐解释器
+    llvm::FunctionCallee rt_num_arith_;  // void(i64 op, i64, i64, i64, i64, ptr otag, ptr obits)
+    llvm::FunctionCallee rt_num_cmp_;    // i32(i64 op, i64, i64, i64, i64)，返 0/1
+    llvm::FunctionCallee rt_num_to_str_; // ptr(i64 tag, i64 bits)，malloc 新串
+    llvm::FunctionCallee rt_print_num_;  // void(i64 tag, i64 bits)，格式对齐 to_string
     CGValue last_value_;
     /// 作用域栈：块进出 push/pop，支持遮蔽（与解释器 Environment 对齐）
     std::vector<std::unordered_map<std::string, CGVar>> scopes_;

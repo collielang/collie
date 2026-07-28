@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-26（t61 完成：codegen class 二期——继承/base/实例作函数参数返回值，方法按分派类单态化生成 collie.C.D.m，差分 13/13）
+最后更新：2026-07-26（t62 完成：codegen number 双表示（CG5 收窄）——{tag, bits} tagged 值下沉 collie_rt，差分 14/14）
 
 ---
 
@@ -392,6 +392,10 @@
     - 实现：①继承布局——子类字段 = 父链 base-first 合并 + 自身追加（GEP 索引前缀不变），同名字段遮蔽拒编；②方法按分派类单态化——对每个类 C 沿链每个 (定义类 D, 方法 m) 生成 `collie.C.D.m`（分派上下文 C、base 解析上下文 D），与解释器 call_class_method(instance, method, defining_class) 同构，模板方法模式（父类方法内 this.m() 命中子类覆写）与解释器动态分派等价（向上转型拒编保证静态 cls 即动态类）；CGClass 改造为 super/dispatch/instances，CGMethod 携 defining + AST 指针，register_class 拆分为 register_class_layout + register_class_methods，generate 第一遍改三阶段（全部类布局→全部类方法原型→函数原型）；③base(...) 构造器委托/base.method() 按定义类（current_defining_class_）的父类静态解析，调当前分派类下单态化实例，父类无构造器时 0 实参空操作；④实例作函数参数/返回值——declared_signature_type 把签名处 IDENTIFIER 类名→Obj+cls，coerce_call_arg/visitReturn 处 cls 严格相等；语义层同步支持类名签名→object 动态放行（visitFunction 参数/返回类型映射，与 visitVarDecl 同规则），并修复 must-return 检查在 end_scope 前抛出导致的作用域泄漏级联误报（既有 bug）；⑤@override 纯语义层校验，codegen 忽略
     - 范围外（拒编维持）：向上转型（Base b = new Derived()）、子类同名字段遮蔽、object 声明类型、方法/构造器重载、实例比较/进容器、父类声明晚于子类（布局合并需父类先注册）
     - 验证：新差分用例 s14_inherit（继承字段/方法、覆写、: base(...) 构造器委托、base.method 绕过覆写、模板方法动态分派、三级继承、实例作函数参数返回值、无构造器父类 base() 空操作），先解释器跑通再进差分门禁；ctest -C Release 差分 13/13 逐字节一致；Debug 门禁 6/6（含语义层改动回归）
+- [x] codegen number 双表示（t62，CG5 收窄）
+    - 实现：number 值为 tagged 双表示（tag：0=整数 i64 直存/1=小数 double bitcast i64 位模式），codegen 内以 LLVM first-class struct `{i64 tag, i64 bits}` 单 SSA 值流转（CGType 新增 Num；变量单 alloca 槽、函数签名/三元 PHI 直用该 struct，LLVM 自动处理 ABI 降级），仅 collie_rt 边界 extractvalue 拆散标量传参 + out 指针写回（规避 MSVC x64 16 字节 struct 传参隐藏指针 ABI 错配——比登记时"两个 SSA 值成对流转"方案更简洁，verifyModule 全链路验证通过）；算术（+ - * / % 一元负号）/比较/toString/print 全部下沉 collie_rt 四接口（collie_rt_num_arith/num_cmp/num_to_str/print_num）单点对齐解释器语义：双整数精确 + - * 与 floor 取模（i64 加/减/乘溢出复用 CG1 陷阱报错）、/ 恒 double、混合运算走 double、除零 IEEE 754、打印格式对齐 Value::to_string；Int/Double→Num 加宽保持原表示打 tag（coerce_for_slot/coerce_call_arg/visitReturn 三处一致，对齐 coerce_to_declared 的 KW_NUMBER 分支）；三元任一分支 Num 则两分支统一 Num；解锁 number 变量声明/赋值/算术/比较/print/toString/三元/函数参数返回值
+    - 范围外：任意精度自动扩容（BigInt 运行时化留远期——需 extern "C" 包装 C++ BigInt 进 collie_rt 且全部整数运算变运行时调用，收益仅超大数场景）、number→integer/decimal 窄化（解释器 integer 拒 decimal 值为运行期错误，codegen 静态无法判定 tag → number 赋给 integer/decimal 变量拒编）、number 数组元素/类字段（维持 S12/S13 拒编）、toNumber 返 number（维持拒编）
+    - 验证：新差分用例 s15_number（整数/小数两态与重赋值、integer/decimal 加宽、混合算术、/ 恒小数、floor 取模含负数四象限与小数、除零 ±Infinity/NaN、一元负号、比较相等含 5==5.0 与 NaN 语义、print/toString 格式、三元混型统一、number 签名函数与 return 加宽），先解释器跑通再进差分门禁；ctest -C Release 差分 14/14 逐字节一致；Debug 门禁 6/6 不受影响
 
 ---
 
@@ -446,6 +450,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-26 `feat(compiler)`: codegen number 双表示（t62，M6，CG5 收窄）：collie_rt 新增 number 运行时四接口（collie_rt_num_arith/num_cmp/num_to_str/print_num，标量参数 + out 指针规避 16 字节 struct ABI）；codegen CGType 新增 Num——{i64 tag, i64 bits} first-class struct 单 SSA 值流转（tag 0=整数 i64 直存/1=小数 double bitcast），算术/比较/转串/打印下沉运行时单点对齐解释器（双整数精确运算 + floor 取模 + i64 溢出陷阱、/ 恒 double、混合走 double、除零 IEEE 754、打印格式对齐 Value::to_string），Int/Double→Num 三处加宽保持原表示，三元分支混 Num 统一 Num，number 类字段/数组元素/窄化维持拒编；新差分用例 s15_number，ctest -C Release 差分 14/14 逐字节一致，Debug 门禁 6/6（M6 t62）
 - 2026-07-26 `feat(compiler)`: codegen class 二期（t61，M6）：继承布局父链字段 base-first 合并；方法按分派类单态化生成 collie.C.D.m（CGClass super/dispatch/instances + CGMethod defining，register_class 拆布局/方法两遍，generate 第一遍三阶段），模板方法动态分派与解释器等价；: base(...) 委托/base.method() 按定义类父链静态解析；实例作函数参数/返回值（签名类名→Obj+cls 严格同类）；语义层函数签名类名→object 动态放行 + 修复 visitFunction must-return 异常路径作用域泄漏；新差分用例 s14_inherit，ctest -C Release 差分 13/13 逐字节一致，Debug 门禁 6/6（M6 t61）
 - 2026-07-26 `feat(compiler)`: codegen class 最小闭环（t60，M6）：collie_rt 新增 collie_rt_obj_new（malloc+memset 零初始化）；codegen CGType 新增 Obj，CGValue/CGVar 增设 cls 字段，每类一个 StructType（字段按声明顺序布局），方法/构造器降级 collie.类名.方法名 独立函数 + this 隐藏首参，支持 new 三段顺序/字段读写/方法调用含 this 互调/toString 兜底/print 实例 "<object>"/引用语义/三元，继承、无初值字段、实例作函数参数/返回值等拒编；新差分用例 s13_class，ctest -C Release 差分 12/12 逐字节一致，Debug 门禁 6/6（M6 t60）
 - 2026-07-26 `feat(compiler)`: codegen array 最小闭环（t59，M6）：collie_rt 新增数组运行时（collie_rt_arr_new/get/set/len/to_str，单块 malloc 对象头部 len+kind + 8 字节槽位模式，负索引归一化+越界报错退出，[1, 2, 3] 格式对齐 Value::to_string）；codegen CGType 新增 Arr，CGValue/CGVar 增设 elem 字段做字面量同质推断（Int/Double 混合提升 Double，异质/嵌套拒编），支持同质字面量/索引读写/length+len 内建/print+toString/引用语义赋值/三元，array 函数参数/返回值拒编；新差分用例 s12_array，ctest -C Release 差分 11/11 逐字节一致，越界索引手工验证通过，Debug 门禁 6/6（M6 t59）

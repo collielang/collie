@@ -1,0 +1,67 @@
+// t62 S15 差分用例：number tagged 双表示（整数/小数两态、算术/比较/转串下沉 collie_rt）
+
+// 整数/小数两态与重赋值（保持原表示：10 按整数打、2.5 按小数打）
+number n = 10;
+print("int-state:", n);
+n = 2.5;
+print("dec-state:", n);
+
+// integer/decimal → number 加宽（变量初始化处）
+integer i = 7;
+decimal d = 1.5;
+number wi = i;
+number wd = d;
+print("widen:", wi, wd);
+
+// 混合算术：双整数精确 + - *；任一小数走 double
+number a = 6;
+number b = 4;
+print("arith-int:", a + b, a - b, a * b);
+print("arith-mixed:", a + 0.5, b * 2.5, a - 0.25);
+
+// '/' 恒小数（整除得整值小数按整数打印：6/4=1.5、8/4=2）
+print("div:", a / b, 8 / b, a / 0.5);
+
+// floor 取模（符号与除数一致，对齐解释器 BigInt floor_mod）
+number m1 = 7;
+number m2 = -7;
+print("mod:", m1 % 3, m2 % 3, m1 % -3, m2 % -3);
+print("mod-dec:", 7.5 % b, m2 % 2.5);
+
+// 除零 IEEE 754：/ 得 ±Infinity、0/0 与 %0 得 NaN
+number z = 0;
+print("div-zero:", a / z, -a / z, z / z, a % z);
+
+// 一元负号
+number neg = -a;
+print("neg:", neg, -neg, -(a + 0.5));
+
+// 比较与相等：双整数精确、混合 double 视图（5 == 5.0 为 true）、NaN 语义
+number five = 5;
+print("cmp:", five == 5.0, five < 5.5, five > b, five <= 5, five != b);
+number nan = z / z;
+print("nan-cmp:", nan == nan, nan != nan, nan < five);
+
+// print/toString 格式（整值小数按整数打、四步小数格式）
+number whole = 5.0;
+print("format:", whole, toString(whole), n.toString(), toString(a));
+
+// 三元：分支混型统一 number（保持原表示）
+number pick1 = a > b ? a : 0.5;
+number pick2 = a < b ? a : 0.5;
+print("ternary:", pick1, pick2);
+
+// 函数参数/返回值：number 签名 + integer/decimal 实参加宽 + return 加宽
+function nadd(x number, y number) number {
+    return x + y;
+}
+
+function choose(flag bool) number {
+    if (flag) {
+        return 42;
+    }
+    return 2.5;
+}
+
+print("fn:", nadd(2, 3), nadd(1.5, 2), nadd(a, b));
+print("fn-return:", choose(true), choose(false));
