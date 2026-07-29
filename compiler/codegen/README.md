@@ -44,6 +44,7 @@
 | S31 | ==?/switch 的 tuple 候选：gen_match_eq 加 Tup 分支单点复用 gen_tuple_eq（静态展开深比较），Tup×非 Tup 恒 false | tuple 目标/候选命中/归组/默认/嵌套/命名程序编译执行，输出与解释器一致 **✅ t78** |
 | S32 | 数组相等比较：新接口 collie_rt_arr_eq C 层深比较（先比 len 再逐元素按运行时 kind，数值系混合 double 视图、string strcmp），==/!=、tuple 含数组元素、==?/switch 数组候选三触点同时解锁 | 数组 ==/!=、tuple 含数组元素、==?/switch 数组候选、跨签名动态域数组比较程序编译执行，输出与解释器一致 **✅ t79** |
 | S33 | 小数取模：decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）FRem + floor 修正（符号随除数，select 无分支），除零 FRem 天然 NaN | 小数取模程序（四象限符号/混合类型/除零/Infinity/%=/跨签名/数组元素）编译执行，输出与解释器一致 **✅ t80** |
+| S34 | none 值（CG2 缺口收敛）：gen_print Void 打常量串 "none"、to_str Void 返 "none"（覆盖 toString/插值）、visitBinary ==/!= 双 Void 恒 true/false，零新增 rt 接口 | none 函数调用结果 print/toString/插值/相等比较/逻辑运算/条件/方法体内程序编译执行，输出与解释器一致 **✅ t81** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
@@ -401,6 +402,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 覆盖类型组合 | Double×Double / Int×Double / Double×Int；`%=` 复合赋值天然复用（parser 脱糖）；数组 double 元素索引读出参与 |
 | 范围外 | number 参与的 `%`（S15 t62 已下沉 rt_num_arith op 4，路径不动）；BigInt 超 i64 整数取模（既有 CG1 陷阱域）；非数值参与（语义层两端一致拦截 "Numeric operands expected for arithmetic operation"）；零新增 collie_rt 接口 |
 
+**S34 降级补充（t81 实现）：none 值的 print/toString/==**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `print(f())`（f 返回 none） | gen_print Void case 打常量串 "none"（`CreateGlobalString("none")` → rt_print_str），对齐解释器 Value::to_string None 分支；两阶段收集（t77）中 Void 值 value=nullptr 无碍，副作用求值保序 |
+| `toString(f())` / `@"...{f()}..."` | to_str Void case 返回 "none" 常量串（覆盖显式 toString 与插值脱糖 `"..." + toString(f()) + "..."`）；结果 Str，`.length` 得 4 |
+| `f() == g()` / `f() != g()` | visitBinary 比较分支链首加 Void 分支：双 Void 恒 true（对齐解释器 values_equal None 分支）、Void × 非 Void 恒 false（语义层已拦 "Incomparable operand types"，此为防御性双保险）；两侧已 emit 副作用保序 |
+| 范围外 | none 拼接 `"v=" + f()`（语义层两端一致拦截 "Invalid operands for string concatenation"）；`f() == 1` Void×Int（语义层拦 "Incomparable operand types"）；`f() ==? ...`（语义层拦 "Incomparable candidate value type in '==?'"）；`print(none)`/`none` 字面量（parser 两端一致 Parse error，none 非表达式）；`none n = f()` 变量声明（codegen 维持拒编 "variable type 'none'"）；tuple/数组含 none 元素、三元 none 分支（维持既有拒编）；零新增 collie_rt 接口 |
+
 ## 五、构建与链接方案（关键决策）
 
 **CRT 对齐**（t48b 已验证的事实）：LLVM 官方预编译包为 Release + **/MT 静态 CRT**；
@@ -432,7 +442,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | 编号 | 缺口 | 计划 |
 |------|------|------|
 | CG1 | integer 降为 i64，非任意精度；溢出已改显式陷阱报错退出（t58：s{add,sub,mul}.with.overflow + collie_rt_trap_int_overflow，含一元负号；INT64_MIN % -1 硬件陷阱边缘 select 安全除数得 0 对齐解释器），不再静默回绕；超 i64 字面量仍编译期拒编 | 任意精度对齐：BigInt 运行时库（collie_rt）远期 |
-| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组格式已对齐（t59 arr_to_str）；tuple 格式已对齐（t68 tuple_to_str 静态展开）；none 等复合值格式仍缺 | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
+| CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组格式已对齐（t59 arr_to_str）；tuple 格式已对齐（t68 tuple_to_str 静态展开）；none 值 print/toString/插值已对齐（t81 常量串 "none"）；对象仍固定 "\<object\>" | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
 | CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 | CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |

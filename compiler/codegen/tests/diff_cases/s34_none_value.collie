@@ -1,0 +1,42 @@
+// s34: none 值的 print/toString/==（t81）——none 函数调用结果参与打印、
+// 转串（toString/插值）、相等比较；副作用求值序保持（结合 t77 两阶段 print）
+function quiet() none {}
+function speak() none {
+    print("side");
+}
+
+// print 单参/多参混排（副作用先于本行输出）
+print(quiet());              // none
+print(speak());              // side ↵ none
+print(1, quiet(), "x");      // 1 none x
+print(quiet(), quiet());     // none none
+print(3.5, speak(), true);   // side ↵ 3.5 none true
+
+// toString 与插值
+print(toString(quiet()));    // none
+print(@"got {quiet()}!");    // got none!
+string s = toString(speak()); // side（副作用）
+print(s);                    // none
+print(s.length);             // 4
+
+// 相等比较（双 Void 恒 true）
+print(quiet() == quiet());   // true
+print(quiet() != quiet());   // false
+print(speak() == quiet());   // side ↵ true（副作用先发生）
+bool b = quiet() == quiet();
+print(b && true);            // true
+
+// 条件中使用
+if (quiet() == quiet()) {
+    print("branch");         // branch
+}
+
+// 方法体内（this 上下文）none 调用参与 print
+class Box {
+    integer v = 1;
+    function show() none {
+        print("box", quiet());
+    }
+}
+Box bx = new Box();
+bx.show();                   // box none

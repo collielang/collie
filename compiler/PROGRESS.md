@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t80 完成：codegen 小数取模——decimal 参与的 `%` FRem + floor 修正（符号随除数，select 无分支），除零 FRem 天然 NaN 对齐解释器，零新增 rt 接口，差分 32/32）
+最后更新：2026-07-28（t81 完成：codegen none 值的 print/toString/==——gen_print Void 打常量串 "none"、to_str Void 返 "none"（覆盖 toString/插值）、visitBinary ==/!= 双 Void 恒 true/false，对齐解释器 values_equal None 分支，零新增 rt 接口，差分 33/33）
 
 ---
 
@@ -479,6 +479,12 @@
     - 实现：visitBinary OP_MODULO 加 Double 分支（Num 路径之后、Int×Int 之前）单处改动；-0.0 == 0.0 使 nonzero 为 false 同解释器 r != 0.0 判定
     - 验证：新差分用例 s33_decimal_mod（四象限符号、混合 Int×Double/Double×Int、精确整除 -0.0 归一格式化、除零 NaN、Infinity 边界（-7.5%Infinity 修正为 +Infinity）、NaN 传播、%= 复合赋值、表达式嵌套与比较参与、跨函数签名含浮点残差 8.88178e-16 两端一致、循环累积、数组 double 元素参与、number 路径回归保护）；实证——true % 2.0 语义层两端一致拦截 "Numeric operands expected for arithmetic operation"；ctest -C Release 差分 32/32 逐字节一致（s33 首跑即过），Debug 门禁 6/6
     - 范围外：number 参与的 `%`（t62 已下沉 rt_num_arith op 4）；BigInt 超 i64 整数取模（既有 CG1 陷阱域）
+- [x] codegen none 值的 print/toString/==（t81）
+    - 选型：CG2 缺口的 none 部分——解释器 none 函数调用结果可 print（打 "none"）/toString/插值/相等比较（values_equal None 分支恒 true），colliec 三触点分别拒编 "print of 'none' value"、"string conversion of this value"、"non-numeric operand of '=='"；预检实证：print(greet()) 解释器输出 side↵none、print(1, greet(), "x") 输出 side↵1 none x、toString(f())="none"、@"got {f()}"="got none"、f()==f() 为 true
+    - 范围拍板：三触点——gen_print Void case 打常量串 "none"（替换拒编，两阶段收集 Void 值 value=nullptr 无碍）、to_str Void case 返回 "none" 常量串（覆盖 toString 与插值脱糖）、visitBinary ==/!= 双 Void 前置分支恒 true/false（两侧已 emit 副作用保序）；零新增 rt 接口
+    - 实现：code_generator.cpp 三处——gen_print Void case（CreateGlobalString("none") → rt_print_str）、to_str Void case（返回 "none" 常量串）、visitBinary 比较分支链首加 Void 分支（双 Void 恒 true / Void×非Void 恒 false，!= 取反）
+    - 验证：新差分用例 s34_none_value（print 单/多参混排副作用保序、print(quiet(),quiet())、toString/插值/s.length=4、==/!= 双 Void、副作用求值序、bool 变量参与逻辑运算、if 条件、类方法体内 print("box", quiet())）；实证——true % 2.0 已于 t80；none 拼接 "v="+f() 语义层两端一致拦截 "Invalid operands for string concatenation"、f()==1 拦 "Incomparable operand types"、print(none) 字面量 parser 两端一致 Parse error；ctest -C Release 差分 33/33 逐字节一致（s34 首跑即过），Debug 门禁 6/6
+    - 范围外：Void×非Void ==、==? none 目标、none 拼接（语义层两端一致拦截实证）；`none` 非表达式字面量（parser 两端一致 Parse error）；none 变量声明 `none n = f()`（解释器支持但价值低、牵动声明面，codegen 维持拒编）；tuple/数组含 none 元素、三元 none 分支（维持既有拒编）
 
 ---
 
@@ -533,6 +539,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen none 值的 print/toString/==（t81，M6）：三触点解锁 CG2 缺口的 none 部分——gen_print Void case 打常量串 "none"（CreateGlobalString → rt_print_str，替换既有拒编 "print of 'none' value"，t77 两阶段收集中 Void 值 value=nullptr 无碍、副作用求值保序）、to_str Void case 返回 "none" 常量串（覆盖显式 toString 与插值脱糖 `"..."+toString(f())+"..."`，替换 "string conversion of this value"）、visitBinary 比较分支链首加 Void 分支（双 Void 恒 true 对齐解释器 values_equal None 分支、Void×非Void 恒 false 防御性双保险，!= 取反，替换 "non-numeric operand of '=='"）；零新增 collie_rt 接口；新差分用例 s34_none_value（print 单/多参混排副作用保序、toString/插值/s.length=4、==/!= 双 Void、bool 变量参与逻辑运算、if 条件、类方法体内 print）+ none 拼接 "v="+f() 语义层两端一致拦截 "Invalid operands for string concatenation" 实证，ctest -C Release 差分 33/33 逐字节一致（s34 首跑即过），Debug 门禁 6/6（M6 t81）
 - 2026-07-28 `feat(compiler)`: codegen 小数取模（t80，M6）：visitBinary OP_MODULO 加 Double 分支（Num 路径之后、Int×Int 之前）——decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）两侧 to_double 后 FRem（语义即 fmod 截断取余）+ floor 修正（r 非零且与除数异号时 r += b，FCmp ONE/OLT + select 无分支，仿 Int 路径既有写法），对齐解释器 eval_arithmetic；除零 FRem 天然 NaN 且 NaN 使 ONE 比较为 false 不触发修正（与解释器 b==0.0 提前返 NaN 殊途同归），-0.0 == 0.0 同解释器 r != 0.0 判定；零新增 collie_rt 接口；选型来自拒编面盘点（130+ 处 unsupported 归类，唯一"解释器支持、机制就绪、单触点"活跃解锁面）；新差分用例 s33_decimal_mod + true % 2.0 语义层两端一致拦截实证，ctest -C Release 差分 32/32 逐字节一致，Debug 门禁 6/6（M6 t80）
 - 2026-07-28 `feat(compiler)`: codegen 数组相等比较（t79，M6）：新增 rt 接口 collie_rt_arr_eq(l, r) C 层深比较——先比 len 再逐元素按两侧运行时 kind（同 kind integer/bool i64 直比、decimal double 值比较（NaN != NaN 与解释器一致）、string strcmp；kind {0,1} 混合按 double 视图对齐解释器混合表示 `[1,2,3] == [1.0,2.0,3.0]` 为 true；bool/string 与其它 kind 配对恒不等；len==0 天然相等；运行时 kind 判定天然覆盖 t70 动态域数组），对齐解释器 values_equal Array 分支；codegen 三触点同时解锁并单点复用：visitBinary ==/!=（Arr×Arr 前置分支）、gen_tuple_eq Arr 元素（替换 t75 既有拒编 "tuple equality with array element"）、gen_match_eq Arr 候选（==?/switch 两调用点，Arr×非Arr 恒 false 双保险）；新差分用例 s32_array_eq + 数组关系比较语义层两端一致拦截实证，ctest -C Release 差分 31/31 逐字节一致，Debug 门禁 6/6（M6 t79）
 - 2026-07-28 `feat(compiler)`: codegen ==?/switch 的 tuple 候选（t78，M6）：gen_match_eq 末尾 unsupported 前加 Tup 分支——双 Tup 走 gen_tuple_eq（t75 静态展开深比较单点复用：形状不一致编译期常量 false、逐元素四路降级 And 链、嵌套递归），Tup×非 Tup 恒 false（对齐解释器 values_equal kind 不等，实测语义层更早拦截 "Incomparable candidate value type"，codegen 为防御性双保险）；==?（级联比较块链）与 switch 两调用点同时解锁，含 Arr 元素 tuple 由 gen_tuple_eq 既有拒编覆盖，零新增 collie_rt 接口；新差分用例 s31_match_tuple + 含数组元素候选拒编/Tup×非Tup 两端语义层一致两实证，ctest -C Release 差分 30/30 逐字节一致，Debug 门禁 6/6（M6 t78）

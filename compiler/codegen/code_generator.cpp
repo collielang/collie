@@ -465,6 +465,18 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             // 比较运算（S3 t50）：bool 仅支持 ==/!=；数值混型提升为 double 后 fcmp，
             // 纯整数走 icmp；!= 用 UNE（NaN != NaN 为 true，IEEE 语义与解释器一致）
             const TokenType t = op.type();
+            // none 相等（t81）：双 Void 恒 true（对齐解释器 values_equal None
+            // 分支）；Void × 非 Void 恒 false（语义层已拦截 "Incomparable
+            // operand types"，此分支为防御性双保险）；两侧已 emit 副作用保序
+            if ((lhs.type == CGType::Void || rhs.type == CGType::Void) &&
+                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                llvm::Value* eq = builder_.getInt1(lhs.type == rhs.type);
+                last_value_ = {t == TokenType::OP_EQUAL
+                                   ? eq
+                                   : builder_.CreateNot(eq, "cmptmp"),
+                               CGType::Bool};
+                return;
+            }
             // tuple 相等（t75）：任一侧 Tup 且 ==/!= 时静态展开深比较；
             // Tup × 非 Tup 恒 false（对齐解释器 values_equal kind 不等）；
             // tuple 关系比较落下方 require_numeric 拒编（解释器同样不支持）
@@ -829,9 +841,11 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 builder_.CreateCall(rt_print_str_, {tuple_to_str(v, expr.paren())});
                 break;
             case CGType::Void:
-                // none 返回函数的调用结果无值可打（解释器打 none，降级无对应表示）
-                unsupported("print of 'none' value",
-                            expr.paren().line(), expr.paren().column());
+                // none 打印（t81）：常量串 "none"（对齐解释器 Value::to_string
+                // None 分支；求值已于收集阶段发生，副作用保序）
+                builder_.CreateCall(rt_print_str_,
+                                    {builder_.CreateGlobalString("none")});
+                break;
         }
     }
     builder_.CreateCall(rt_print_newline_, {}); // 一行结束换行
@@ -3058,6 +3072,10 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
         case CGType::Tup:
             // tuple 转串（t68）：静态展开拼接（拉通 toString/插值/'+' 拼接）
             return tuple_to_str(v, where);
+        case CGType::Void:
+            // none 转串（t81）："none" 常量串（对齐 Value::to_string None 分支，
+            // 覆盖 toString(none) 与插值脱糖；none 拼接语义层已拦截）
+            return builder_.CreateGlobalString("none");
         default:
             unsupported("string conversion of this value", where.line(), where.column());
     }
