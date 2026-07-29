@@ -59,8 +59,8 @@ class Box {
     }
 }
 Box b = new Box();
-// 注意：peek() 体内含 print 副作用，须先单独求值再打印——codegen print
-// 为逐参交错打印（缺口 CG8），实参副作用输出次序与解释器不同
+// 历史注：t76 时 codegen print 逐参交错打印（缺口 CG8）须经局部变量中转；
+// CG8 已于 t77 修复（直接形态见 s30_print_order），此处保留中转写法
 integer got = b.peek();
 print("peek:", got);
 b.poke();

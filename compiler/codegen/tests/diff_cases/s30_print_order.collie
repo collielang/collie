@@ -1,0 +1,49 @@
+// t77 S30 差分用例：print 先求值全部实参再统一输出（CG8 修复）
+// 实参含副作用输出（函数/方法体内 print）时，副作用行先于本行输出，
+// 次序与解释器一致
+
+// 单个副作用实参居中
+function tick() integer {
+    print("side");
+    return 1;
+}
+print("a", tick(), "b");
+
+// 多个副作用实参：求值按源序，输出行在全部副作用之后
+integer counter = 0;
+function bump(tag string) integer {
+    counter = counter + 1;
+    print("bump:", tag, counter);
+    return counter;
+}
+print("sum:", bump("x") + bump("y"), "last:", bump("z"));
+
+// 方法体内 print 副作用（t76 s29 曾回避的形态，现直接使用）
+class Box {
+    public integer id = 7;
+
+    public Box() {
+    }
+
+    public function peek() integer {
+        print("method reads:", this.id);
+        return this.id * 10;
+    }
+}
+Box b = new Box();
+print("peek:", b.peek(), "end");
+
+// 副作用实参与多类型参数混排（string/decimal/bool/tuple/数组）
+function loud() decimal {
+    print("loud!");
+    return 2.5;
+}
+Tuple t = (1, "x");
+array arr = [3, 4];
+print("mix:", loud(), true, t, arr);
+
+// 嵌套：副作用函数的返回值参与运算后再打印
+print("calc:", tick() + bump("w") * 2);
+
+// 无副作用多参照常（回归保护）
+print("plain:", 1, 2.5, "s", false);

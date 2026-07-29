@@ -730,11 +730,19 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
 
 void CodeGenerator::gen_print(const CallExpr& expr) {
     // print(a, b, ...)：与解释器 call_builtin_print 对齐——空格分隔 + 末尾换行；
-    // 逐参按 CGType 调对应 collie_rt 接口（垫片接管格式化，输出对齐解释器）
+    // 逐参按 CGType 调对应 collie_rt 接口（垫片接管格式化，输出对齐解释器）。
+    // 两阶段（t77 修 CG8）：先求值全部实参（副作用输出按源序发生在本行
+    // 之前，对齐解释器先求值再打印），再统一输出；打印阶段的
+    // to_str/tuple_to_str/arr_to_str 无输出副作用，安全
     const auto& arguments = expr.arguments();
-    for (size_t i = 0; i < arguments.size(); ++i) {
+    std::vector<CGValue> values;
+    values.reserve(arguments.size());
+    for (const auto& argument : arguments) {
+        values.push_back(emit(argument.get()));
+    }
+    for (size_t i = 0; i < values.size(); ++i) {
         if (i > 0) builder_.CreateCall(rt_print_sep_, {}); // 参数间单个空格
-        CGValue v = emit(arguments[i].get());
+        const CGValue& v = values[i];
         switch (v.type) {
             case CGType::Str:
                 builder_.CreateCall(rt_print_str_, {v.value});

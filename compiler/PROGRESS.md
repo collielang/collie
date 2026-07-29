@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t76 完成：codegen 顶层 tuple 全局化——create_tuple_var 建槽经 create_var_slot 顶层解构槽组升 GlobalVariable，visitFunction/gen_method_body 链底拷贝取消 Tup 剔除，函数/方法内读写全局 tuple 跨函数可见，差分 28/28；发现并登记 CG8 print 逐参求值次序缺口）
+最后更新：2026-07-28（t77 完成：codegen 修复 CG8 print 求值序——gen_print 两阶段化先求值全部实参再统一输出，实参副作用输出次序对齐解释器，差分 29/29）
 
 ---
 
@@ -455,6 +455,12 @@
     - 实现：三处——create_tuple_var 换 create_var_slot、visitFunction/gen_method_body 剔除循环换整层拷贝 `scopes_.back() = saved_scopes.front();`
     - 验证：新差分用例 s29_tuple_global（函数内读/索引/length/运算、命名 .name/.get/插值、整体重赋值跨函数可见、嵌套读写、全局 tuple 相等（结合 t75）、方法体读写、局部遮蔽、bool/number 元素）；两实证——函数内换形状重赋值拒编 "assigning tuple of different shape"、tuple 形参既有拒编 "tuple in function signature"；ctest -C Release 差分 28/28 逐字节一致（s29 首跑即过），Debug 门禁 6/6；期间发现既有缺口 CG8（print 逐参求值边打边走，实参含副作用输出时次序与解释器不同，s29 经局部变量中转回避，已登记 codegen/README 缺口表）
     - 范围外：tuple 进函数签名（形状跨边界不可知，既有拒编不变）、顶层块内声明 tuple（非顶层层，维持 alloca 不入链底，与 t73 标量一致）
+- [x] codegen 修复 CG8：print 先求值全部实参再统一输出（t77）
+    - 选型：CG8 是活错编面——print 实参含副作用输出（函数/方法体内 print）时产物输出次序与解释器不同且静默（t76 发现），违背"拒编不错编"，优先于 ==?/switch tuple 候选等解锁类任务；预检实证：解释器 `side`↵`a 1 b`（先求值后打印），产物 `a side`↵`1 b`（逐参交错）
+    - 范围拍板：gen_print 两阶段化——第一循环 emit 全部实参按值收集 vector<CGValue>（副作用按源序发生），第二循环打印 sep+值+换行；打印阶段 to_str/tuple_to_str/arr_to_str 调用无输出副作用安全；Tup 注册表只追加不重排，按值收集下标有效；零新增 collie_rt 接口
+    - 实现：gen_print 单函数改动（两循环拆分），改后预检产物输出与解释器逐行一致
+    - 验证：新差分用例 s30_print_order（单副作用实参居中、多副作用实参源序求值、方法体内 print 副作用（s29 曾回避形态直接使用）、副作用与 string/decimal/bool/tuple/数组混排、副作用返回值参与运算、无副作用多参回归保护）；s29 历史注更新（CG8 已修复指向 s30）；README 缺口表 CG8 划线标记已消除；ctest -C Release 差分 29/29 逐字节一致（s30 首跑即过），Debug 门禁 6/6
+    - 范围外：CG2（none 等复合值打印格式）不动；toString/插值拼接链单实参无交错问题不涉及
 
 ---
 
@@ -509,6 +515,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `fix(compiler)`: codegen 修复 CG8 print 求值序（t77，M6）：gen_print 两阶段化——第一循环 emit 全部实参按值收集（副作用调用按源序发生），第二循环统一打印 sep+值+换行，对齐解释器 call_builtin_print 先求值全部实参再打印；此前逐参求值边打边走，实参含副作用输出（函数/方法体内 print）时产物输出次序与解释器不同且静默错编（t76 发现登记 CG8）；打印阶段转串调用无输出副作用、Tup 注册表只追加下标跨阶段有效、零新增 collie_rt 接口；新差分用例 s30_print_order（单/多副作用实参、方法体副作用、多类型混排、运算嵌套、无副作用回归保护），s29 历史注更新、README 缺口表 CG8 标记已消除，ctest -C Release 差分 29/29 逐字节一致，Debug 门禁 6/6（M6 t77）
 - 2026-07-28 `feat(compiler)`: codegen 顶层 tuple 全局化（t76，M6）：create_tuple_var 建槽从 create_entry_alloca 换 create_var_slot——顶层 tuple 逐元素解构槽升零初始化 GlobalVariable（collie.g. 前缀，t73 机制单点复用，初始值仍当前位置 store，嵌套子槽组递归天然覆盖，块内/函数内维持 alloca）；visitFunction/gen_method_body 链底拷贝取消 Tup 条目剔除（换整层拷贝），tuple_vars_ 注册表本为成员跨函数存活，lookup/load/store 零改动；函数/方法内读全局 tuple、同形状整体重赋值跨函数可见、局部同名遮蔽均对齐解释器；tuple 进签名/换形状重赋值既有拒编不变；期间发现并登记缺口 CG8（print 逐参求值边打边走，实参含副作用输出时次序与解释器不同）；新差分用例 s29_tuple_global + 换形状重赋值/tuple 形参两拒编实证，ctest -C Release 差分 28/28 逐字节一致，Debug 门禁 6/6（M6 t76）
 - 2026-07-28 `feat(compiler)`: codegen tuple 相等比较（t75，M6）：visitBinary ==/!= 加 Tup×Tup 前置分支（先于 require_numeric），gen_tuple_eq 纯编译期静态展开递归深比较——长度或名字表不一致编译期常量 false（对齐解释器 values_equal 先比 size 再比 names），逐元素复用四路标量降级（Str→rt_strcmp、Tri/Bool→三态 icmp、Num/混型→rt_num_cmp op 0、Int/Double→icmp/fcmp）And 链合并，嵌套递归（注册表按值拷贝防扩容失效）；Obj 元素/异型标量配对恒 false 对齐解释器，含 Arr 元素拒编不错编（深比较恒 false 会错值），!= 整体取反；零新增 collie_rt 接口；新差分用例 s28_tuple_eq + 含数组元素拒编/Obj 元素两端恒 false 两实证，ctest -C Release 差分 27/27 逐字节一致，Debug 门禁 6/6（M6 t75）
 - 2026-07-28 `feat(compiler)`: codegen number 作类字段（t74，M6）：复评推翻 t62「字段块 8 字节槽装不下 16 字节 tagged」拒编理由——StructType 按 llvm_type_of 逐字段拼装，Num 自动占位 {i64,i64}；改动两处：删 register_class_layout 拒编守卫 + visitNew malloc 上界改按字段类型累计（Num 16、其余 8，空字段类保底 8）；字段 GEP 读写/coerce_for_slot 加宽（Int/Double→to_num、Num 直通）全零新增，对齐解释器 coerce_to_declared KW_NUMBER；调研修正：tribool 字段实已随 S18 自然放行，实际拒编面仅 Num/Tup；新差分用例 s27_number_field + Tuple 字段/Num 读出赋 decimal 槽两拒编实证，ctest -C Release 差分 26/26 逐字节一致，Debug 门禁 6/6（M6 t74）
