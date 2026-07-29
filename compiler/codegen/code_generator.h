@@ -180,6 +180,7 @@ private:
         CGType type = CGType::Int;
         const VarDeclStmt* decl = nullptr; // 初始值表达式/错误位置取自声明节点
         std::string cls;                   // 仅 type == Obj 时有意义：类名（t72）
+        long long bit_max = 0;             // byte/word 字段的范围上限 255/65535，0 即非位类型（t87）
     };
 
     /// @brief 类信息（t60/t61）：注册遍登记合并布局与单态化方法原型，

@@ -1582,6 +1582,11 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     CGValue v = emit(expr.value());
     const CGField& field = cls.fields[it->second];
     llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
+    if (field.bit_max > 0) {
+        // byte/word 字段赋值点范围陷阱（t87，对齐解释器 coerce_to_declared）
+        stored = check_bit_range(stored, field.bit_max,
+                                 field.bit_max == 255 ? "byte" : "word");
+    }
     builder_.CreateStore(
         stored, builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name));
     // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
@@ -1618,6 +1623,11 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         // 字段初始值按声明类型对齐（解释器 coerce_to_declared 等价静态检查）
         llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name(),
                                               field.cls);
+        if (field.bit_max > 0) {
+            // byte/word 字段初始化范围陷阱（t87，对齐解释器 coerce_to_declared）
+            stored = check_bit_range(stored, field.bit_max,
+                                     field.bit_max == 255 ? "byte" : "word");
+        }
         builder_.CreateStore(stored,
                              builder_.CreateStructGEP(cls.type, obj, i + 1, field.name));
     }
@@ -2489,6 +2499,7 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         }
         CGType ftype;
         std::string fcls;
+        long long fbit_max = 0;
         if (field->type().type() == TokenType::IDENTIFIER) {
             // 类实例字段（t72）：IDENTIFIER 视为类名，须已注册（声明在前，
             // 同父类/签名要求）；自引用字段本类尚未入表自然落此拒编——
@@ -2499,6 +2510,13 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
                             field->name().line(), field->name().column());
             }
             ftype = CGType::Obj;
+        } else if (field->type().type() == TokenType::KW_BYTE ||
+                   field->type().type() == TokenType::KW_WORD) {
+            // byte/word 字段（t87）：i64 槽承载 + 记 bit_max，初始化/赋值
+            // 两触点插 check_bit_range 陷阱（对齐解释器 coerce_to_declared
+            // 赋值点校验）；读出恒 Int，表达式域无截断（同 t69 变量语义）
+            ftype = CGType::Int;
+            fbit_max = field->type().type() == TokenType::KW_BYTE ? 255 : 65535;
         } else {
             ftype = declared_cgtype(field->type());
         }
@@ -2508,7 +2526,7 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         // number 字段放行（t74）：StructType 按 llvm_type_of 逐字段拼装，
         // {i64,i64} 自动占位；malloc 上界在 visitNew 按字段类型累计（Num 16）
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
-        cls.fields.push_back({fname, ftype, field, fcls});
+        cls.fields.push_back({fname, ftype, field, fcls, fbit_max});
         field_types.push_back(llvm_type_of(ftype));
     }
     cls.type = llvm::StructType::create(context_, field_types,

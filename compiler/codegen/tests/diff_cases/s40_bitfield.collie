@@ -1,0 +1,54 @@
+// t87 S40 差分用例：byte/word 类字段——初始化/读取/赋值/边界值/
+// 表达式域无截断/构造器与方法体内 this.field 赋值/继承字段范围保持
+
+class Pixel {
+    public byte level = 16;
+    public word depth = 4096;
+
+    public Pixel(l integer, d integer) {
+        this.level = l;
+        this.depth = d;
+    }
+
+    public function bump(step integer) integer {
+        // 方法体内字段赋值同样过范围校验（运行期值在界内）
+        this.level = this.level + step;
+        return this.level;
+    }
+}
+
+// 1) 构造器内 this.field 赋值 + 字段读取
+Pixel p = new Pixel(10, 300);
+print(p.level, p.depth);        // 10 300
+
+// 2) 字段赋值与边界值（byte 255 / word 65535 / 双端 0）
+p.level = 255;
+p.depth = 65535;
+print(p.level, p.depth);        // 255 65535
+p.level = 0;
+p.depth = 0;
+print(p.level, p.depth);        // 0 0
+
+// 3) 表达式域无截断：读出恒 integer，运算结果可越过声明范围
+p.level = 200;
+print(p.level + 100);           // 300
+print(p.level * 2);             // 400
+p.depth = 60000;
+print(p.depth + p.level);       // 60200
+
+// 4) 方法体内字段赋值（200 + 55 = 255 恰达上界）
+print(p.bump(55));              // 255
+
+// 5) 继承字段：byte/word 范围随父类前缀布局保持
+class Sprite extends Pixel {
+    public word id = 7;
+
+    public Sprite(n integer) : base(n, n * 2) {
+    }
+}
+Sprite s = new Sprite(100);
+print(s.level, s.depth, s.id);  // 100 200 7
+s.level = 254;
+s.id = 65000;
+print(s.level, s.id);           // 254 65000
+print(s.level + s.id);          // 65254
