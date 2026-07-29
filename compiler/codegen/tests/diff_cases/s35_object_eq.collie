@@ -1,0 +1,67 @@
+// t82 S35 差分用例：实例（Obj）相等比较（==/!=/==?/switch 恒 false 常量折叠）
+// 对齐解释器 values_equal 无 Instance 分支落 default 恒 false（含同一实例 a==a）
+
+class Box {
+    integer v = 1;
+}
+class Dog {
+    string name = "rex";
+}
+
+Box a = new Box();
+Box b = new Box();
+
+// 基础 ==/!=：不同实例、同一实例均恒 false
+print("e1:", a == b);        // false
+print("e2:", a != b);        // true
+print("e3:", a == a);        // false（解释器同一实例也 default false）
+print("e4:", a != a);        // true
+
+// 比较结果进逻辑/条件
+bool r = a == b;
+print("e5:", r);             // false
+print("e6:", r || true);     // true
+print("e7:", (a == a) && false); // false
+if (a != b) {
+    print("e8: branch");     // e8: branch
+}
+if (a == a) {
+    print("e9: no");
+} else {
+    print("e9: else");       // e9: else
+}
+
+// 跨类实例相等（kind 一致但实例不同，仍 false）
+Dog d = new Dog();
+Box c = a;                    // 引用别名（指向同一实例）
+print("e10:", a == c);       // false（即便别名指向同一实例）
+print("e11:", c != a);       // true
+
+// ==? 目标为实例：全部不命中走默认
+print("m1:", a ==? b: "hit-b", "miss");        // miss
+print("m2:", a ==? a: "hit-self", "miss");     // miss
+print("m3:", a ==? b: "no1", c: "no2", "def"); // def
+
+// switch 目标为实例：全部不命中走 default
+switch (a) {
+    b { print("sw1: b"); }
+    c { print("sw1: c"); }
+    default { print("sw1: def"); }             // sw1: def
+}
+
+// switch 无 default 且不命中：静默跳过
+switch (a) {
+    b { print("sw2: b"); }
+}
+print("after-switch");                          // after-switch
+
+// 函数内实例相等（局部实例）
+function same(x Box, y Box) bool {
+    return x == y;
+}
+print("fn1:", same(a, b));                      // false
+print("fn2:", same(a, a));                      // false
+
+// 实例相等参与更复杂表达式
+print("x1:", (a == b) == (b == a));             // true（false == false）
+print("x2:", (a == a) != (b == b));             // false（false != false）

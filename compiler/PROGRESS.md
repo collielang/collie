@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t81 完成：codegen none 值的 print/toString/==——gen_print Void 打常量串 "none"、to_str Void 返 "none"（覆盖 toString/插值）、visitBinary ==/!= 双 Void 恒 true/false，对齐解释器 values_equal None 分支，零新增 rt 接口，差分 33/33）
+最后更新：2026-07-28（t82 完成：codegen 实例（Obj）相等比较——visitBinary ==/!= 与 gen_match_eq（==?/switch）对任一侧 Obj 恒 false 常量折叠，对齐解释器 values_equal 无 Instance 分支落 default 恒 false（含同一实例 a==a），零新增 rt 接口，差分 34/34）
 
 ---
 
@@ -485,6 +485,12 @@
     - 实现：code_generator.cpp 三处——gen_print Void case（CreateGlobalString("none") → rt_print_str）、to_str Void case（返回 "none" 常量串）、visitBinary 比较分支链首加 Void 分支（双 Void 恒 true / Void×非Void 恒 false，!= 取反）
     - 验证：新差分用例 s34_none_value（print 单/多参混排副作用保序、print(quiet(),quiet())、toString/插值/s.length=4、==/!= 双 Void、副作用求值序、bool 变量参与逻辑运算、if 条件、类方法体内 print("box", quiet())）；实证——true % 2.0 已于 t80；none 拼接 "v="+f() 语义层两端一致拦截 "Invalid operands for string concatenation"、f()==1 拦 "Incomparable operand types"、print(none) 字面量 parser 两端一致 Parse error；ctest -C Release 差分 33/33 逐字节一致（s34 首跑即过），Debug 门禁 6/6
     - 范围外：Void×非Void ==、==? none 目标、none 拼接（语义层两端一致拦截实证）；`none` 非表达式字面量（parser 两端一致 Parse error）；none 变量声明 `none n = f()`（解释器支持但价值低、牵动声明面，codegen 维持拒编）；tuple/数组含 none 元素、三元 none 分支（维持既有拒编）
+- [x] codegen 实例（Obj）相等比较（t82）
+    - 选型：拒编面盘点（约 120 处 unsupported 归类）后，最小规模且有实测价值的解锁面——实例（Obj）相等 `==`/`!=`/`==?`/switch；预检实证：解释器 values_equal Instance 落 default 恒 false（`a==b`→false、`a!=b`→true、**同一实例 `a==a` 也 false**），`==?`/switch 目标为实例时全部不命中（miss/default）；colliec 两触点拒编 "non-numeric operand of '=='"（visitBinary L572）、"'==?' comparison of these value types"（gen_match_eq L2590）；候选零 rt 改动、零结构改动，`gen_tuple_eq` L2620-2624 已有"任一 Obj 元素恒 false"先例。排除 tribool 混型（`tribool==integer`/`==string` 语义层两端一致拦截 "Incomparable operand types"，无实测差分价值）
+    - 范围拍板：两触点常量折叠——visitBinary 比较分支在 require_numeric 前加 Obj 分支（任一侧 Obj 且 ==/!=：eq=false 常量、!= 取反，镜像 Tup 分支 L483-493）；gen_match_eq 末尾拒编前加 Obj 分支（任一侧 Obj → false，镜像 Tup/Arr L2574-2588，覆盖 ==?/switch）；关系比较 `<`/`<=`/`>`/`>=` 仍落 require_numeric 拒编（解释器同样不支持）；零新增 rt 接口
+    - 实现：code_generator.cpp 两处——visitBinary 比较分支在 Arr 分支之后加 Obj 分支（任一侧 Obj 且 ==/!= 时 eq=false 常量、!= 取反）；gen_match_eq 末尾拒编前加 Obj 分支（任一侧 Obj → false）
+    - 验证：新差分用例 s35_object_eq（不同实例/同一实例 ==/!=、引用别名 == 仍 false、比较结果进逻辑与 if/else 分支、==? 目标为实例全 miss/def、switch 目标为实例全走 default、switch 无 default 静默跳过、函数内实例相等、实例相等结果再参与 ==/!= 复合表达式）；实证——实例关系比较 `a < b` 两端一致拦截（解释器 runtime "Comparison operands must be both numbers or both strings"、colliec 拒编 "non-numeric operand of '<'"）；ctest -C Release 差分 34/34 逐字节一致（s35 首跑即过），Debug 门禁 6/6
+    - 范围外：实例关系比较 `<`/`<=`/`>`/`>=`（两端一致拦截实证）；tribool 混型相等（语义层拦截，无实测价值）；实例作为 tuple/数组元素相等（`gen_tuple_eq` 已恒 false，本任务前即支持）
 
 ---
 
@@ -539,6 +545,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen 实例（Obj）相等比较（t82，M6）：两触点常量折叠解锁实例 `==`/`!=`/`==?`/switch——visitBinary 比较分支在 Arr 分支之后加 Obj 分支（任一侧 Obj 且 ==/!= 时 eq=false 常量、!= 取反，镜像 Tup 分支写法，替换既有拒编 "non-numeric operand of '=='"）、gen_match_eq 末尾拒编前加 Obj 分支（任一侧 Obj → false，覆盖 ==?/switch 两调用点，替换 "'==?' comparison of these value types"）；对齐解释器 values_equal 无 Instance 分支落 default 恒 false（含同一实例 `a==a` 也 false、引用别名亦 false），`gen_tuple_eq` 早有"任一 Obj 元素恒 false"先例，零新增 collie_rt 接口、零结构改动；关系比较 `<`/`<=`/`>`/`>=` 仍落 require_numeric 拒编；选型来自拒编面盘点（约 120 处 unsupported 归类，最小规模且有实测价值的活跃解锁面），排除 tribool 混型（语义层两端一致拦截 "Incomparable operand types"，无实测差分价值）；新差分用例 s35_object_eq（不同/同一实例 ==/!=、引用别名、比较结果进逻辑与 if/else、==? 全 miss/def、switch 全 default、无 default 静默跳过、函数内实例相等、复合表达式）+ 实例关系比较 `a < b` 两端一致拦截实证，ctest -C Release 差分 34/34 逐字节一致（s35 首跑即过），Debug 门禁 6/6（M6 t82）
 - 2026-07-28 `feat(compiler)`: codegen none 值的 print/toString/==（t81，M6）：三触点解锁 CG2 缺口的 none 部分——gen_print Void case 打常量串 "none"（CreateGlobalString → rt_print_str，替换既有拒编 "print of 'none' value"，t77 两阶段收集中 Void 值 value=nullptr 无碍、副作用求值保序）、to_str Void case 返回 "none" 常量串（覆盖显式 toString 与插值脱糖 `"..."+toString(f())+"..."`，替换 "string conversion of this value"）、visitBinary 比较分支链首加 Void 分支（双 Void 恒 true 对齐解释器 values_equal None 分支、Void×非Void 恒 false 防御性双保险，!= 取反，替换 "non-numeric operand of '=='"）；零新增 collie_rt 接口；新差分用例 s34_none_value（print 单/多参混排副作用保序、toString/插值/s.length=4、==/!= 双 Void、bool 变量参与逻辑运算、if 条件、类方法体内 print）+ none 拼接 "v="+f() 语义层两端一致拦截 "Invalid operands for string concatenation" 实证，ctest -C Release 差分 33/33 逐字节一致（s34 首跑即过），Debug 门禁 6/6（M6 t81）
 - 2026-07-28 `feat(compiler)`: codegen 小数取模（t80，M6）：visitBinary OP_MODULO 加 Double 分支（Num 路径之后、Int×Int 之前）——decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）两侧 to_double 后 FRem（语义即 fmod 截断取余）+ floor 修正（r 非零且与除数异号时 r += b，FCmp ONE/OLT + select 无分支，仿 Int 路径既有写法），对齐解释器 eval_arithmetic；除零 FRem 天然 NaN 且 NaN 使 ONE 比较为 false 不触发修正（与解释器 b==0.0 提前返 NaN 殊途同归），-0.0 == 0.0 同解释器 r != 0.0 判定；零新增 collie_rt 接口；选型来自拒编面盘点（130+ 处 unsupported 归类，唯一"解释器支持、机制就绪、单触点"活跃解锁面）；新差分用例 s33_decimal_mod + true % 2.0 语义层两端一致拦截实证，ctest -C Release 差分 32/32 逐字节一致，Debug 门禁 6/6（M6 t80）
 - 2026-07-28 `feat(compiler)`: codegen 数组相等比较（t79，M6）：新增 rt 接口 collie_rt_arr_eq(l, r) C 层深比较——先比 len 再逐元素按两侧运行时 kind（同 kind integer/bool i64 直比、decimal double 值比较（NaN != NaN 与解释器一致）、string strcmp；kind {0,1} 混合按 double 视图对齐解释器混合表示 `[1,2,3] == [1.0,2.0,3.0]` 为 true；bool/string 与其它 kind 配对恒不等；len==0 天然相等；运行时 kind 判定天然覆盖 t70 动态域数组），对齐解释器 values_equal Array 分支；codegen 三触点同时解锁并单点复用：visitBinary ==/!=（Arr×Arr 前置分支）、gen_tuple_eq Arr 元素（替换 t75 既有拒编 "tuple equality with array element"）、gen_match_eq Arr 候选（==?/switch 两调用点，Arr×非Arr 恒 false 双保险）；新差分用例 s32_array_eq + 数组关系比较语义层两端一致拦截实证，ctest -C Release 差分 31/31 逐字节一致，Debug 门禁 6/6（M6 t79）

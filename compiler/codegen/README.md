@@ -45,6 +45,7 @@
 | S32 | 数组相等比较：新接口 collie_rt_arr_eq C 层深比较（先比 len 再逐元素按运行时 kind，数值系混合 double 视图、string strcmp），==/!=、tuple 含数组元素、==?/switch 数组候选三触点同时解锁 | 数组 ==/!=、tuple 含数组元素、==?/switch 数组候选、跨签名动态域数组比较程序编译执行，输出与解释器一致 **✅ t79** |
 | S33 | 小数取模：decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）FRem + floor 修正（符号随除数，select 无分支），除零 FRem 天然 NaN | 小数取模程序（四象限符号/混合类型/除零/Infinity/%=/跨签名/数组元素）编译执行，输出与解释器一致 **✅ t80** |
 | S34 | none 值（CG2 缺口收敛）：gen_print Void 打常量串 "none"、to_str Void 返 "none"（覆盖 toString/插值）、visitBinary ==/!= 双 Void 恒 true/false，零新增 rt 接口 | none 函数调用结果 print/toString/插值/相等比较/逻辑运算/条件/方法体内程序编译执行，输出与解释器一致 **✅ t81** |
+| S35 | 实例（Obj）相等：visitBinary ==/!= 与 gen_match_eq（==?/switch）对任一侧 Obj 恒 false 常量折叠（对齐解释器 values_equal 无 Instance 分支落 default，含同一实例），零新增 rt 接口 | 实例 ==/!=（不同/同一实例/引用别名）、==? / switch 目标为实例、函数内实例相等、结果进逻辑/条件程序编译执行，输出与解释器一致 **✅ t82** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
@@ -189,7 +190,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `obj.m(args)` / `this.m(args)` | 类方法表优先命中 → `call @collie.C.m(ptr this, args...)`；未命中且 `toString()` 无参 → 固定串 `"<object>"` 兜底（分派顺序对齐解释器）；否则拒编 |
 | `print(obj)` / `toString(obj)` | 固定输出 `"<object>"`（对齐 Value::to_string Instance 分支） |
 | 赋值/三元中的实例 | 指针拷贝即引用语义；两侧类名不一致拒编 |
-| 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、tuple 字段、实例相等比较、实例进数组/元组、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁；array 字段 S24 t71、实例字段 S25 t72、number 字段 S27 t74 陆续解锁；tribool 字段随 S18 tribool 支持自然放行，t74 实测确认） |
+| 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、tuple 字段、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁；array 字段 S24 t71、实例字段 S25 t72、number 字段 S27 t74 陆续解锁；tribool 字段随 S18 tribool 支持自然放行，t74 实测确认；实例相等比较已于 S35 t82 解锁恒 false、实例进数组/元组仍拒编） |
 
 **S14 降级补充（t61 实现）：class 二期——继承/base/实例作函数参数返回值**：
 
@@ -232,7 +233,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `target ==? v1, v2: r1, v3: r2, default` | 级联比较块链：目标只求值一次，按分支序/候选序生成「比较→命中跳分支结果块/未中顺延下一候选」，链末端即默认块；块链天然对齐解释器首命中 + 惰性求值（未命中分支的候选/结果不求值）；各分支结果块尾对齐统一类型后跳 merge 块，N+1 入口 PHI 收拢 |
 | 候选相等比较 | 复用 == 四路降级出 i1（gen_match_eq）：Str×Str `collie_rt_strcmp`==0、任一 Num 走 `collie_rt_num_cmp` op 0（双整数精确/混合 double 视图）、Bool×Bool icmp、Int/Double icmp/fcmp 含混型提升（5 == 5.0，对齐解释器 values_equal）；零新增 collie_rt 接口 |
 | 结果混型统一 | 沿用 gen_ternary 规则扩展到 N+1 支：同型直用（含 Arr elem/Obj cls 一致性校验）；数值混型任一 Num 统一 Num 否则 Double |
-| 范围外拒编 | 无默认分支形式（tribool 穷尽三态省默认已于 S18 t65 解锁，其余目标类型仍要求默认分支）；object 动态比较；数组/元组深比较候选（元组已于 S31 t78、数组已于 S32 t79 解锁） |
+| 范围外拒编 | 无默认分支形式（tribool 穷尽三态省默认已于 S18 t65 解锁，其余目标类型仍要求默认分支）；object 相等比较目标/候选已于 S35 t82 解锁（恒 false 常量折叠，全部不命中）；数组/元组深比较候选（元组已于 S31 t78、数组已于 S32 t79 解锁） |
 
 **S18 降级补充（t65 实现）：tribool 三态布尔**：
 
@@ -259,7 +260,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | default 分支 | 位置无关最后兜底：非 default 分支优先比较，链尾跳 switch.default（无 default 或其 body 为空则直接跳 switch.end） |
 | 候选相等比较 | 复用 gen_match_eq（Str×Str strcmp==0、任一 Num 走 num_cmp op 0、Bool/Tri icmp、Int/Double 含混型提升），零新增 collie_rt 接口 |
 | body 内 break/continue | 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动） |
-| 范围外拒编 | object 动态比较目标/候选；数组/元组深比较候选（同 `==?` 拒编面，元组已于 S31 t78、数组已于 S32 t79 解锁） |
+| 范围外拒编 | object 相等比较目标/候选已于 S35 t82 解锁（恒 false 常量折叠，全部不命中）；数组/元组深比较候选（同 `==?` 拒编面，元组已于 S31 t78、数组已于 S32 t79 解锁） |
 
 **S20 降级补充（t67 实现）：number 专属方法**：
 
@@ -410,6 +411,14 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `toString(f())` / `@"...{f()}..."` | to_str Void case 返回 "none" 常量串（覆盖显式 toString 与插值脱糖 `"..." + toString(f()) + "..."`）；结果 Str，`.length` 得 4 |
 | `f() == g()` / `f() != g()` | visitBinary 比较分支链首加 Void 分支：双 Void 恒 true（对齐解释器 values_equal None 分支）、Void × 非 Void 恒 false（语义层已拦 "Incomparable operand types"，此为防御性双保险）；两侧已 emit 副作用保序 |
 | 范围外 | none 拼接 `"v=" + f()`（语义层两端一致拦截 "Invalid operands for string concatenation"）；`f() == 1` Void×Int（语义层拦 "Incomparable operand types"）；`f() ==? ...`（语义层拦 "Incomparable candidate value type in '==?'"）；`print(none)`/`none` 字面量（parser 两端一致 Parse error，none 非表达式）；`none n = f()` 变量声明（codegen 维持拒编 "variable type 'none'"）；tuple/数组含 none 元素、三元 none 分支（维持既有拒编）；零新增 collie_rt 接口 |
+
+**S35 降级补充（t82 实现）：实例（Obj）相等比较**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `a == b` / `a != b`（任一侧实例） | visitBinary 比较分支在 Arr 分支之后加 Obj 分支：任一侧 Obj 且 ==/!= 时 eq = `i1 false` 常量，!= 取反（`CreateNot`）；对齐解释器 values_equal 无 Instance 分支落 default 恒 false——不同实例、同一实例 `a == a`、引用别名 `Box c = a; a == c` 全 false（值相等语义即引用恒不等价） |
+| `a ==? cand: r, default` / `switch (a) {…}`（实例目标） | gen_match_eq 末尾拒编前加 Obj 分支：任一侧 Obj → `i1 false`；==? 全部候选不命中走默认结果、switch 全部 case 不命中走 default（无 default 静默跳过）；与 gen_tuple_eq 早有"任一 Obj 元素恒 false"先例一致 |
+| 范围外 | 实例关系比较 `<`/`<=`/`>`/`>=`（落 require_numeric 拒编 "non-numeric operand of '<'"，解释器 runtime 亦报 "Comparison operands must be both numbers or both strings"）；tribool 混型相等（语义层两端一致拦截 "Incomparable operand types"）；实例作 tuple/数组元素相等（gen_tuple_eq/rt_arr_eq 早已恒 false）；零新增 collie_rt 接口、零结构改动 |
 
 ## 五、构建与链接方案（关键决策）
 

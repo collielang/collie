@@ -507,6 +507,19 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                                CGType::Bool};
                 return;
             }
+            // 实例（Obj）相等（t82）：解释器 values_equal 无 Instance 分支落
+            // default 恒 false（含同一实例 a==a），故 ==/!= 常量折叠——Obj×Obj
+            // 与 Obj×非Obj（kind 不等，语义层通常更早拦截，此为双保险）均 false；
+            // 关系比较落下方 require_numeric 拒编（解释器同样不支持）
+            if ((lhs.type == CGType::Obj || rhs.type == CGType::Obj) &&
+                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                llvm::Value* eq = builder_.getInt1(false);
+                last_value_ = {t == TokenType::OP_EQUAL
+                                   ? eq
+                                   : builder_.CreateNot(eq, "cmptmp"),
+                               CGType::Bool};
+                return;
+            }
             // string × string（S7 t55）：call collie_rt_strcmp 后与 0 做对应 icmp；
             // 逐字节字典序与解释器 std::string 比较一致（eval_comparison/values_equal）；
             // 混型（Str × 非 Str）落入下方 require_numeric 拒编，解释器运行期也报错
@@ -2584,6 +2597,12 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
                 rt_arr_eq_, {target.value, cand.value}, "arreqtmp");
             return builder_.CreateICmpNE(c, builder_.getInt64(0), "matcheq");
         }
+        return builder_.getInt1(false);
+    }
+    // 实例（Obj）目标/候选（t82）：解释器 values_equal 无 Instance 分支落
+    // default 恒 false（含同一实例），==?/switch 目标为实例时全部不命中；
+    // 与 gen_tuple_eq Obj 元素恒 false 先例一致
+    if (target.type == CGType::Obj || cand.type == CGType::Obj) {
         return builder_.getInt1(false);
     }
     // object 等候选比较范围外，拒编不错编
