@@ -51,6 +51,7 @@
  * 数组运行时（t59，同质数组降级用）：
  *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
  *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
+ *     4=array(内层数组指针位模式，嵌套数组 t85)
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -328,7 +329,8 @@ void collie_rt_trap_shift_count(void) {
 
 /* 数组对象：单块 malloc 的 len + kind + 8 字节槽；codegen 以不透明 ptr 持有，
  * 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）。
- * kind：0=integer(i64 直存) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式) */
+ * kind：0=integer(i64 直存) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
+ * 4=array(内层数组指针位模式，嵌套数组 t85) */
 typedef struct {
     long long len;
     long long kind;
@@ -403,9 +405,10 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
 
 /* 数组深比较（t79）：对齐解释器 values_equal Array 分支——先比 len 再逐元素。
  * 同 kind：integer/bool i64 直比、decimal 位模式还原 double 后按值比较
- * （NaN != NaN 与解释器 as_number() == 一致）、string strcmp 内容比较；
+ * （NaN != NaN 与解释器 as_number() == 一致）、string strcmp 内容比较、
+ * array 递归深比较（嵌套数组，t85）；
  * kind {0,1} 混合按 double 视图（对齐解释器 Number 混合表示 5 == 5.0）；
- * bool/string 与其它 kind 配对元素 kind 不等恒不等；len==0 天然相等。返 1/0 */
+ * bool/string/array 与其它 kind 配对元素 kind 不等恒不等；len==0 天然相等。返 1/0 */
 long long collie_rt_arr_eq(void* lhs, void* rhs) {
     const collie_rt_array* l = (const collie_rt_array*)lhs;
     const collie_rt_array* r = (const collie_rt_array*)rhs;
@@ -425,6 +428,9 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
             } else if (l->kind == 3) { /* string：指针位模式还原后内容比较 */
                 if (strcmp((const char*)(intptr_t)lb,
                            (const char*)(intptr_t)rb) != 0) return 0;
+            } else if (l->kind == 4) { /* array：递归深比较（嵌套数组，t85） */
+                if (!collie_rt_arr_eq((void*)(intptr_t)lb,
+                                      (void*)(intptr_t)rb)) return 0;
             } else { /* integer / bool：位模式即值 */
                 if (lb != rb) return 0;
             }
@@ -506,8 +512,12 @@ const char* collie_rt_arr_to_str(void* arr) {
             case 2: /* bool */
                 collie_rt_sb_append(&out, &n, &cap, a->slots[i] ? "true" : "false");
                 break;
-            default: /* 3 = string：指针位模式还原 */
+            case 3: /* string：指针位模式还原 */
                 collie_rt_sb_append(&out, &n, &cap, (const char*)(intptr_t)a->slots[i]);
+                break;
+            default: /* 4 = array：指针位模式还原后递归转串（嵌套数组，t85） */
+                collie_rt_sb_append(&out, &n, &cap,
+                                    collie_rt_arr_to_str((void*)(intptr_t)a->slots[i]));
                 break;
         }
     }

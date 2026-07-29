@@ -48,9 +48,10 @@
 | S35 | 实例（Obj）相等：visitBinary ==/!= 与 gen_match_eq（==?/switch）对任一侧 Obj 恒 false 常量折叠（对齐解释器 values_equal 无 Instance 分支落 default，含同一实例），零新增 rt 接口 | 实例 ==/!=（不同/同一实例/引用别名）、==? / switch 目标为实例、函数内实例相等、结果进逻辑/条件程序编译执行，输出与解释器一致 **✅ t82** |
 | S36 | 非常量 tuple 索引：同质 tuple（元素同 CGType 且 ∈ {Int/Double/Bool/Str}）的 `t[i]`（i 变量/表达式）物化运行时数组后 rt_arr_get(动态 idx) 取值，复用负索引归一化 + 越界陷阱（消息与解释器一致），零新增 rt 接口 | 同质 tuple 变量/表达式/负索引变量、命名同质 tuple、for 循环遍历、嵌套索引、函数内局部 tuple 程序编译执行，输出与解释器一致 **✅ t83** |
 | S37 | 非常量 tuple get() 动态键：同质命名 tuple（≥1 非空名）的 `t.get(k)`（k 运行期字符串）物化 names+values 数组后新接口 collie_rt_tuple_get 按非空名 strcmp 查找，未命中陷阱消息与解释器核心消息一致 | 四类同质命名 tuple 变量键/常量键回归/混合命名+无名/拼接键/循环动态键/函数内局部 tuple 程序编译执行，输出与解释器一致 **✅ t84** |
+| S38 | 嵌套数组：新增数组 kind 4（槽存内层数组 ptr 位模式），限两层且内层数值系（elem ∈ {Int/Double/Num}）——内层读出记 Num 动态域哨兵复用 t70 机制，rt_arr_to_str/rt_arr_eq kind 4 递归，零新增 rt 接口 | 嵌套字面量/print/逐层索引读写/负索引/别名联动/整槽替换/内层混合提升/深比较/length/len/toString 程序编译执行，输出与解释器一致 **✅ t85** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -439,6 +440,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 常量字符串键 `t.get("a")`（回归） | 保持编译期解析（t68 路径不变），未命中静态拒编 "undefined tuple field 'X'" 不错编 |
 | 悬垂防护 | `const CGTuple t` 按值拷贝——动态键路径 `emit(key)` 可能触发 register_tuple 扩容 tuple_values_ 使引用悬垂，与 S36 visitIndex/gen_tuple_eq 同一防护 |
 | 范围外 | 异质 tuple 动态键（拒编 "non-constant get() on heterogeneous tuple"）；无命名字段 tuple（"non-constant get() on tuple with no named fields"）；空 tuple（"non-constant get() on empty tuple"）；Num/嵌套(Tup/Arr/Obj)元素（"non-constant tuple get() on this element type"）；非 string 键（"non-string tuple get() key"，解释器亦运行期报错）；新增 1 个 collie_rt 接口 |
+
+**S38 降级补充（t85 实现）：嵌套数组**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `[[1, 2], [3, 4]]` 嵌套字面量 | visitArrayLiteral：全 Arr 元素放行为 kind 4 数组（槽存内层数组 ptr 位模式，elem_to_bits PtrToInt 同 Str kind 3 先例）；两守卫——内层 elem==Arr 拒编 "array nesting deeper than two levels"（限两层）、内层 elem ∉ {Int/Double/Num} 拒编 "nested array with non-numeric inner elements"（保动态域不变量 kind∈{0,1}）；混合 Arr/非 Arr 元素落既有异质拒编 |
+| `m[i]` 内层读 / `m[i][j]` 逐层读写 | visitIndex object.elem==Arr 分支：rt_arr_get 取 bits 后 IntToPtr 还原内层数组 ptr，elem 记 **Num 动态域哨兵**——内层索引读写/print/len 全走 t70 既有动态域机制（rt_arr_kind + make_num 读、rt_arr_set_num 写）零新码；`m[0].length` 链式天然可用 |
+| `m[i] = [5, 6]` 整槽替换 | visitIndexAssign object.elem==Arr 分支：值限数值系内层数组（v.type==Arr 且 v.elem ∈ {Int/Double/Num}），elem_to_bits PtrToInt 写 rt_arr_set；其余拒编 "array element type mismatch in index assignment" |
+| print / toString / == | rt_arr_to_str 加 case 4（指针位模式还原后递归转串，string 改显式 case 3）；rt_arr_eq 同 kind 分支加 kind 4 递归深比较（kind 4 × 其它 kind 落既有恒不等） |
+| 范围外 | ≥3 层嵌套与内层 bool/str 数组（拒编不错编）；嵌套数组进函数签名/类字段/返回值（t70/t71 既有守卫 elem 限数值系天然拒编，消息沿用 "passing/returning bool/string array" 措辞）；嵌套数组元素进 tuple（物化/gen_tuple_eq 既有拒编）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

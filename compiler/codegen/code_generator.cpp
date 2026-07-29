@@ -1023,8 +1023,11 @@ void CodeGenerator::visitMultiMatch(const MultiMatchExpr& expr) { gen_multi_matc
 void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     // 数组字面量（t59）：语义层不追踪元素类型（一刀切 KW_ARRAY），codegen 自行
     // 做同质推断——Int/Double 混合整体提升 Double（提升后输出与解释器一致：整值
-    // double 按整数打印），其余混合与嵌套数组拒编不错编；空字面量元素类型记
-    // Int（print 得 []，索引必越界报错，行为与解释器一致）
+    // double 按整数打印），其余混合拒编不错编；空字面量元素类型记
+    // Int（print 得 []，索引必越界报错，行为与解释器一致）。
+    // 嵌套数组（t85）：全 Arr 元素放行为 kind 4（槽存内层数组 ptr 位模式），
+    // 限两层且内层数值系（elem ∈ {Int/Double/Num}，保动态域不变量 kind∈{0,1}；
+    // ≥3 层与内层 bool/str 拒编不错编）
     const Token& bracket = expr.bracket();
     std::vector<CGValue> elements;
     elements.reserve(expr.elements().size());
@@ -1032,7 +1035,15 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     for (const auto& element : expr.elements()) {
         CGValue v = emit(element.get());
         if (v.type == CGType::Arr) {
-            unsupported("nested array literal", bracket.line(), bracket.column());
+            if (v.elem == CGType::Arr) {
+                unsupported("array nesting deeper than two levels",
+                            bracket.line(), bracket.column());
+            }
+            if (v.elem != CGType::Int && v.elem != CGType::Double &&
+                v.elem != CGType::Num) {
+                unsupported("nested array with non-numeric inner elements",
+                            bracket.line(), bracket.column());
+            }
         }
         if (v.type == CGType::Void) {
             unsupported("array element without value", bracket.line(), bracket.column());
@@ -1143,6 +1154,15 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         // 8 字节槽位模式按元素类型解码（字面量同质推断/变量槽记录，t59）
         llvm::Value* bits = builder_.CreateCall(
             rt_arr_get_, {object.value, index.value}, "arrget");
+        if (object.elem == CGType::Arr) {
+            // 嵌套数组内层读（t85）：槽存内层数组 ptr 位模式，还原后 elem 记
+            // Num 动态域哨兵（内层实际 kind 恒 0/1，字面量入口守卫所保），
+            // 内层索引读写/print/len 全走 t70 既有动态域机制零新码
+            llvm::Value* inner = builder_.CreateIntToPtr(
+                bits, llvm::PointerType::getUnqual(context_), "inner");
+            last_value_ = {inner, CGType::Arr, CGType::Num};
+            return;
+        }
         if (object.elem == CGType::Num) {
             // 动态域读（t70）：运行时 kind（恒 0/1，入口守卫所保）即 number
             // tag，bits+kind 直接拼 Num 零转换
@@ -1173,6 +1193,20 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
                     expr.bracket().line(), expr.bracket().column());
     }
     CGValue v = emit(expr.value());
+    if (object.elem == CGType::Arr) {
+        // 嵌套数组整槽替换（t85）：外层槽写入新内层数组 ptr 位模式；值限
+        // 数值系内层数组（保动态域不变量 kind∈{0,1}），其余拒编不错编
+        if (v.type != CGType::Arr ||
+            (v.elem != CGType::Int && v.elem != CGType::Double &&
+             v.elem != CGType::Num)) {
+            unsupported("array element type mismatch in index assignment",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        builder_.CreateCall(rt_arr_set_,
+                            {object.value, index.value, elem_to_bits(v)});
+        last_value_ = v;
+        return;
+    }
     if (object.elem == CGType::Num) {
         // 动态域写（t70）：值限数值系，转 Num 表示下沉 rt 按运行时 kind 对齐
         //（tag==kind 直存 / int→double 提升 / decimal 写 int 数组 CG7 陷阱）
@@ -3214,6 +3248,7 @@ llvm::Value* CodeGenerator::elem_to_bits(const CGValue& v) {
         case CGType::Double: return builder_.CreateBitCast(v.value, builder_.getInt64Ty(), "bits");
         case CGType::Bool:   return builder_.CreateZExt(v.value, builder_.getInt64Ty(), "bits");
         case CGType::Str:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
+        case CGType::Arr:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
         default:             unsupported("array element type", 0, 0);
     }
 }
@@ -3224,6 +3259,7 @@ llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
         case CGType::Double: return builder_.CreateBitCast(bits, builder_.getDoubleTy(), "elemtmp");
         case CGType::Bool:   return builder_.CreateTrunc(bits, builder_.getInt1Ty(), "elemtmp");
         case CGType::Str:
+        case CGType::Arr:
             return builder_.CreateIntToPtr(bits, llvm::PointerType::getUnqual(context_), "elemtmp");
         default:             unsupported("array element type", 0, 0);
     }
@@ -3236,6 +3272,7 @@ int CodeGenerator::arr_kind_of(CGType elem) {
         case CGType::Double: return 1;
         case CGType::Bool:   return 2;
         case CGType::Str:    return 3;
+        case CGType::Arr:    return 4; // 嵌套数组：槽存内层数组 ptr 位模式（t85）
         default:             unsupported("array element type", 0, 0);
     }
 }
