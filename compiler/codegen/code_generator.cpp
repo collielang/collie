@@ -1286,9 +1286,10 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
                    field.cls};
 }
 void CodeGenerator::visitNew(const NewExpr& expr) {
-    // 类实例化（t60）：collie_rt_obj_new 分配字段块（8 字节 × 字段数上界：
-    // struct 各字段 ≤ 8 字节、对齐 ≤ 8，任意目标布局下恒足够），再按声明顺序
-    // 求值字段初始值写入 → 求值构造器实参 → 调构造器（三段顺序对齐解释器 visitNew）
+    // 类实例化（t60）：collie_rt_obj_new 分配字段块（按字段类型累计上界：
+    // Num {i64,i64} 记 16、其余字段 ≤ 8 字节记 8，对齐 ≤ 8，任意目标布局下
+    // 恒足够，t74），再按声明顺序求值字段初始值写入 → 求值构造器实参 →
+    // 调构造器（三段顺序对齐解释器 visitNew）
     const std::string name(expr.class_name().lexeme());
     size_t line = expr.class_name().line();
     size_t column = expr.class_name().column();
@@ -1297,7 +1298,11 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
-    const uint64_t size = cls.fields.empty() ? 8 : 8 * cls.fields.size();
+    uint64_t size = 0;
+    for (const CGField& field : cls.fields) {
+        size += field.type == CGType::Num ? 16 : 8;
+    }
+    if (size == 0) size = 8;  // 空字段类给最小分配（rt_obj_new 非零入参）
     llvm::Value* obj =
         builder_.CreateCall(rt_obj_new_, {builder_.getInt64(size)}, "objnew");
     for (unsigned i = 0; i < cls.fields.size(); ++i) {
@@ -2173,12 +2178,8 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         // array 字段放行（t71）：字段槽即 opaque ptr；无处标注元素类型，
         // 读出即动态域（visitProperty 置 Num 哨兵，t70 机制复用），
         // 写入守卫在 coerce_for_slot（elem 限数值系，保 kind ∈ {0,1}）
-        if (ftype == CGType::Num) {
-            // number 字段维持范围外（t62 拍板：类字段不解锁，字段块 8 字节
-            // 槽装不下 16 字节 tagged 表示，拒编不错编）
-            unsupported("'number' class field",
-                        field->name().line(), field->name().column());
-        }
+        // number 字段放行（t74）：StructType 按 llvm_type_of 逐字段拼装，
+        // {i64,i64} 自动占位；malloc 上界在 visitNew 按字段类型累计（Num 16）
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
         cls.fields.push_back({fname, ftype, field, fcls});
         field_types.push_back(llvm_type_of(ftype));

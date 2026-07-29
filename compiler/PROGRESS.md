@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t73 完成：codegen 顶层变量提升 LLVM 全局槽——CGVar.slot 改型 Value*，顶层声明建零初始化 GlobalVariable，函数/方法体以顶层层拷贝为作用域链底（Tup 剔除），全局读写/引用语义/遮蔽全通，差分 25/25）
+最后更新：2026-07-28（t74 完成：codegen number 作类字段——推翻 t62「8 字节槽」拒编理由，删守卫 + visitNew malloc 上界按字段类型累计（Num 16），struct 建型/GEP 读写/coerce_for_slot 加宽全零新增，差分 26/26）
 
 ---
 
@@ -438,6 +438,11 @@
     - 实现：create_var_slot 统一建槽入口（顶层建 GlobalVariable，否则 create_entry_alloca），visitVarDecl 三处建槽（Obj/byte-word/普通标量）改走该入口；tuple 分支不动（create_tuple_var 内仍 alloca，符合范围外拍板）
     - 验证：新差分用例 s26_globals（函数读多类型全局/函数写全局可见性/decimal 读写运算/全局数组元素写引用语义/形参与局部声明遮蔽/全局实例跨函数字段写 + 方法体读写全局/顶层 for 块内声明不全局化/byte 全局函数内重赋值范围检查/插值比较算术），先解释器跑通（11 行）再进差分门禁；拒编实证：函数内引用顶层 tuple 报 "identifier 't'"（解释器可容输出 10）；ctest -C Release 差分 25/25 逐字节一致（s26 首跑即过）；Debug 门禁 6/6 不受影响；陷阱：cmake --build 默认目标不含 colliec（EXCLUDE_FROM_ALL），须走 t50_build.cmd 或 MSBuild colliec.vcxproj，否则改动未编译门禁"假绿"
     - 范围外：顶层 tuple 跨函数访问（拒编）、函数内整体替换全局数组换 elem（既有静态守卫维持）、const 守卫（语义层既有职责）
+- [x] codegen number 作类字段（t74）
+    - 范围拍板：复评并推翻 t62「字段块 8 字节槽装不下 16 字节 tagged 表示」的拒编理由——类布局并非固定 8 字节槽，StructType 由各字段 llvm_type_of 结果直接拼装，Num 放行则建型/字段 GEP 读写零改动；改动仅两处：①删 register_class_layout 的 Num 字段拒编守卫；②visitNew malloc 上界 `8 * fields.size()` 改按字段类型累计（Num 记 16、其余记 8，维持编译期常量上界风格）；转换零新增：coerce_for_slot 已有 Num 槽加宽分支（Int/Double→to_num）+ 相等直通，覆盖字段初始值/属性赋值两入口，与解释器 coerce_to_declared KW_NUMBER 原样通过语义对齐；16 字节按值流转先例充分（变量/全局槽、tuple 解构槽、函数签名传参返回）
+    - 实现：register_class_layout 守卫删除（放行注释登记）+ visitNew size 累计循环（空字段类保底 8）；collie_rt.c rt_obj_new 注释同步；调研修正：tribool 字段实测早已随 S18 tribool 支持自然放行（此前文档「tribool 字段拒编」记录有偏差，README 已更正），实际拒编面仅 Num（本次解锁）/Tup
+    - 验证：新差分用例 s27_number_field（字段两态初始值/方法内 this 读写混合算术/外部写三态加宽直通/字段参与算术除法取模比较/abs・isInteger・integerPart・toString 字段上调用/跨签名传参返回写回/构造器接 number 形参存字段/Num 夹 8 字节字段混合布局 GEP 偏移/继承父类 Num 字段/插值三元），先解释器跑通（17 行）再进差分门禁；拒编实证两项：Tuple 字段报 "tuple value in this position"、number 字段读出赋 decimal 槽报 "implicit conversion"（解释器均可容）；ctest -C Release 差分 26/26 逐字节一致（s27 首跑即过）；Debug 门禁 6/6 不受影响
+    - 范围外：Tup 字段（既有拒编不变）、number 字段读出赋窄化静态槽（既有拒编）、字段上直接一元负号/相等比较（语义层对属性访问的既有限制，非 codegen 范围）、数组元素 Num 表示（t70 拆 kind+payload 路线不变）
 
 ---
 
@@ -492,6 +497,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen number 作类字段（t74，M6）：复评推翻 t62「字段块 8 字节槽装不下 16 字节 tagged」拒编理由——StructType 按 llvm_type_of 逐字段拼装，Num 自动占位 {i64,i64}；改动两处：删 register_class_layout 拒编守卫 + visitNew malloc 上界改按字段类型累计（Num 16、其余 8，空字段类保底 8）；字段 GEP 读写/coerce_for_slot 加宽（Int/Double→to_num、Num 直通）全零新增，对齐解释器 coerce_to_declared KW_NUMBER；调研修正：tribool 字段实已随 S18 自然放行，实际拒编面仅 Num/Tup；新差分用例 s27_number_field + Tuple 字段/Num 读出赋 decimal 槽两拒编实证，ctest -C Release 差分 26/26 逐字节一致，Debug 门禁 6/6（M6 t74）
 - 2026-07-28 `feat(compiler)`: codegen 顶层变量提升 LLVM 全局槽（t73，M6）：CGVar.slot 改型 Value*（全使用点仅 load/store 零风险），create_var_slot 统一建槽入口——顶层（!in_function_ && 深度 1）建零初始化 GlobalVariable（InternalLinkage + collie.g. 前缀），初始值仍在 @main 按源序 store，块内声明维持 alloca；visitFunction/gen_method_body 以顶层层拷贝为作用域链底（Tup 剔除，跨函数引用走既有 identifier 拒编），lookup_var 零改动，形参/局部天然遮蔽；顺序安全：语义层函数声明处分析 + 前向调用报错 ⇒ 零初始化值不可观察；新差分用例 s26_globals + 顶层 tuple 跨函数拒编实证，ctest -C Release 差分 25/25 逐字节一致，Debug 门禁 6/6（M6 t73）
 - 2026-07-28 `feat(compiler)`: codegen 类实例作类字段（t72，M6）：CGField 加 cls 伴随，register_class_layout 加 IDENTIFIER 前置分支（类名须已注册声明在前，前向引用语义层更早拦截，classes_ 查询防御性双保险）；coerce_for_slot 加 slot_cls 参数，相等分支 Obj 严格同类校验（向上转型拒编不错编，一处覆盖字段赋值/字段初始化两入口，其余调用点 Obj 均有前置分支零回归）；visitProperty/visitPropertyAssign 字段读写带 cls，属性链/单态化方法调用/深链写/继承/跨签名全走 t61 既有 Obj 路径；新差分用例 s25_object_field + 两拒编实证，ctest -C Release 差分 24/24 逐字节一致，Debug 门禁 6/6（M6 t72）
 - 2026-07-28 `feat(compiler)`: codegen 数组作类字段（t71，M6）：register_class_layout 放行 array 字段（字段槽即 opaque ptr，struct 建型/malloc 上界零改动）；CGField 无元素类型伴随，字段读出即动态域——visitProperty/visitPropertyAssign 置 elem=Num 哨兵，下游索引读写/print/传参/返回全走 t70 动态路径零新 rt 接口；写入守卫下沉 coerce_for_slot 相等分支（右值 elem 限 {Int,Double,Num}，bool/str 数组拒编，一处覆盖字段赋值/字段初始化两入口，变量/tuple 槽另有前置分支零回归）维持动态域 kind ∈ {0,1}；Num/Obj 字段、嵌套/异质数组维持拒编；新差分用例 s24_array_field + 两拒编实证，ctest -C Release 差分 23/23 逐字节一致，Debug 门禁 6/6（M6 t71）

@@ -1,0 +1,109 @@
+// t74 S27 差分用例：number 作类字段（16 字节 tagged 槽进类布局）
+// 字段槽即 {i64,i64}，struct 建型/GEP 读写零特判；malloc 上界按字段类型累计
+
+class Meter {
+    public number value = 10;
+    public number ratio = 2.5;
+    public integer id = 1;
+
+    public function total() number {
+        return this.value * this.ratio;
+    }
+
+    public function add(v number) none {
+        this.value = this.value + v;
+    }
+
+    public function flip() none {
+        this.value = 0.5;
+    }
+}
+
+Meter m = new Meter();
+// 字段初始值两态：integer 初值按整数打、decimal 初值按小数打
+print("init:", m.value, m.ratio, m.id);
+
+// 方法内 this 读（混合算术）与写（原地加/表示切换）
+print("total:", m.total());
+m.add(5);
+m.add(0.25);
+print("added:", m.value);
+m.flip();
+print("flip:", m.value);
+
+// 外部字段写：integer/decimal → number 加宽 + number 直通
+m.value = 42;
+print("write-int:", m.value);
+m.value = 3.5;
+print("write-dec:", m.value);
+number nv = 7;
+m.value = nv;
+print("write-num:", m.value);
+
+// 字段参与算术/除法/floor 取模/比较（一元负号/相等经 number 局部变量，
+// 语义层对属性访问的既有限制，非 codegen 范围）
+number cur = m.value;
+print("arith:", m.value + 1, m.value * 2, m.value - 0.5);
+print("div-mod:", m.value / 2, m.value % 4, -cur % 4);
+print("cmp:", cur == 7, m.value < m.ratio, m.value > 2, cur != 7.5);
+
+// number 内建方法在字段上调用
+m.value = -6.25;
+print("methods:", m.value.abs(), m.value.isInteger(), m.value.integerPart(), m.value.toString());
+
+// 字段跨函数签名：作实参 + 返回值写回字段
+function twice(x number) number {
+    return x + x;
+}
+m.value = twice(m.ratio);
+print("fn:", m.value, twice(m.value));
+
+// 构造器接 number 形参存字段（integer/decimal 实参加宽）
+class Gauge {
+    public number level = 0;
+    public string name = "g";
+
+    public Gauge(v number) {
+        this.level = v;
+    }
+
+    public function halve() number {
+        return this.level / 2;
+    }
+}
+
+Gauge gi = new Gauge(9);
+Gauge gd = new Gauge(1.5);
+print("ctor:", gi.level, gd.level, gi.halve(), gd.halve());
+
+// 混合布局：Num 字段夹在 8 字节字段之间（GEP 偏移/malloc 上界正确性）
+class Mixed {
+    public integer a = 1;
+    public number mid = 2.5;
+    public string tag = "x";
+    public number tail = 4;
+}
+
+Mixed x = new Mixed();
+print("layout:", x.a, x.mid, x.tag, x.tail);
+x.mid = 100;
+x.tail = 0.125;
+print("layout2:", x.mid, x.tail, @"m={x.mid}");
+
+// 继承：父类 number 字段在子类布局/方法中可用
+class Fine extends Gauge {
+    public number step = 0.5;
+
+    public Fine(v number) : base(v) {
+    }
+
+    public function next() number {
+        return this.level + this.step;
+    }
+}
+
+Fine f = new Fine(3);
+print("inherit:", f.level, f.step, f.next(), f.halve());
+
+// 字段插值与三元
+print("mixed:", @"lv={f.level}", f.level > 2 ? f.step : f.level);

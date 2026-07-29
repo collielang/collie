@@ -37,6 +37,7 @@
 | S24 | 数组作类字段：字段声明/初始值/读写放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用） | 字段数组初始值/索引读写/引用语义/跨签名边界程序编译执行，输出与解释器一致 **✅ t71** |
 | S25 | 类实例作类字段：CGField 加 cls 伴随，字段声明识 IDENTIFIER 类名，读写严格同类（属性链/引用语义/整体替换/继承） | 字段实例属性链读写/深链写/跨签名/继承程序编译执行，输出与解释器一致 **✅ t72** |
 | S26 | 顶层变量提升全局槽：CGVar.slot 改型 Value*，顶层声明建零初始化 GlobalVariable（初始值仍在 @main 按源序 store），函数/方法体以顶层层拷贝为作用域链底（Tup 剔除） | 函数/方法读写全局、全局数组/实例引用语义、遮蔽程序编译执行，输出与解释器一致 **✅ t73** |
+| S27 | number 作类字段：删 t62 拒编守卫（StructType 按 llvm_type_of 拼装，{i64,i64} 自动占位），malloc 上界按字段类型累计（Num 16、其余 8） | 字段两态初始值/读写/混合布局/跨签名/继承程序编译执行，输出与解释器一致 **✅ t74** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
@@ -181,7 +182,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `obj.m(args)` / `this.m(args)` | 类方法表优先命中 → `call @collie.C.m(ptr this, args...)`；未命中且 `toString()` 无参 → 固定串 `"<object>"` 兜底（分派顺序对齐解释器）；否则拒编 |
 | `print(obj)` / `toString(obj)` | 固定输出 `"<object>"`（对齐 Value::to_string Instance 分支） |
 | 赋值/三元中的实例 | 指针拷贝即引用语义；两侧类名不一致拒编 |
-| 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、number/tribool/tuple/array 字段、实例相等比较、实例进数组/元组、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁） |
+| 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、tuple 字段、实例相等比较、实例进数组/元组、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁；array 字段 S24 t71、实例字段 S25 t72、number 字段 S27 t74 陆续解锁；tribool 字段随 S18 tribool 支持自然放行，t74 实测确认） |
 
 **S14 降级补充（t61 实现）：class 二期——继承/base/实例作函数参数返回值**：
 
@@ -205,7 +206,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `print(n)` / `toString(n)` | `collie_rt_print_num(i64 tag, i64 bits)` / `collie_rt_num_to_str(i64, i64)`：整数态按整数打、小数态走 f64 四步格式（与 print_f64 共享，对齐 Value::to_string） |
 | integer/decimal → number 加宽 | 声明/赋值/实参/return 四路径 to_num：保持原表示打 tag（对齐解释器 coerce_to_declared 的 KW_NUMBER 分支）；反向 number→integer/decimal 窄化拒编（静态无法判定 tag） |
 | 三元分支混型 | 任一分支 Num → 两分支块尾统一 to_num，merge 处 PHI 用 struct 类型 |
-| 范围外拒编 | number 类字段/数组元素（维持 S12/S13）、任意精度自动扩容（BigInt 运行时化留远期，超 i64 整数运算陷阱退出）（toNumber 内建已于 S16 t63 解锁） |
+| 范围外拒编 | number 数组元素表示不变（S12 同质 kind 拍板，动态域见 S23）、任意精度自动扩容（BigInt 运行时化留远期，超 i64 整数运算陷阱退出）（toNumber 内建已于 S16 t63、number 类字段已于 S27 t74 解锁） |
 
 **S16 降级补充（t63 实现）：toNumber 内建**：
 
@@ -305,7 +306,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 字段读 `obj.f` | CGField 无元素类型伴随，读出即动态域：visitProperty 置 CGValue.elem = Num 哨兵（同 t70 形参机制），下游索引读写/print/传参/返回全走 t70 动态路径，零新 rt 接口 |
 | 字段写 `obj.f = v` / 字段初始值 | 守卫下沉 coerce_for_slot 相等分支（一处覆盖 visitPropertyAssign + visitNew 两入口）：右值 elem 限 {Int, Double, Num}，bool/str 数组拒编（kind 2/3 无 number 对应），维持动态域 kind ∈ {0,1} 不变量；变量/tuple 槽的 Arr 另有前置分支，下沉零回归 |
 | 引用语义 | 字段槽存指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr） |
-| 范围外 | Num 字段（16 字节 tagged 装不进 8 字节槽，t62 拍板不变）、嵌套/异质数组（Obj 字段已于 t72 解锁，见 S25） |
+| 范围外 | 嵌套/异质数组（Obj 字段已于 t72 解锁见 S25，Num 字段已于 t74 解锁见 S27） |
 
 **S25 降级补充（t72 实现）：类实例作类字段**：
 
@@ -315,7 +316,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 字段读 `obj.e` | visitProperty 读出带 CGField.cls，下游属性链/方法调用（单态化分派）/传参/返回全走 t61 既有 Obj 路径 |
 | 字段写 `obj.e = v` / 字段初始值 | coerce_for_slot 加 slot_cls 参数（默认空串），相等分支 Obj 严格同类校验（t61 拍板：静态 cls 即动态类是单态化分派前提，向上转型拒编不错编）；变量/tuple 槽的 Obj 另有前置分支，加参零回归 |
 | 引用语义 | 字段槽存实例指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr）；深层属性链写（`g.car.engine.power = v`）沿 cls 伴随逐级定位布局 |
-| 范围外 | 向上转型字段（同 t61）、相互/自引用类字段（声明序不可达，语义层已拦）、Num/Tup 字段（既有拒编不变） |
+| 范围外 | 向上转型字段（同 t61）、相互/自引用类字段（声明序不可达，语义层已拦）、Tup 字段（既有拒编不变；Num 字段已于 t74 解锁见 S27） |
 
 **S26 降级补充（t73 实现）：顶层变量提升全局槽**：
 
@@ -326,6 +327,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 顺序安全 | 语义层在函数声明处分析函数体（只见此前声明的顶层变量）+ 前向调用为语义/运行期错误 ⇒ 变量 store 必先于任何函数内读，零初始化值不可被观察 |
 | CGVar.slot 改型 | `AllocaInst*` → `Value*`（全部使用点仅 CreateLoad/CreateStore，纯声明面改动零风险），GlobalVariable/alloca 同型共用 |
 | 范围外 | 顶层 tuple 跨函数（解构槽组是 @main 的 alloca，链底拷贝时剔除 Tup 条目，函数内引用走既有 identifier 拒编；解释器可容） |
+
+**S27 降级补充（t74 实现）：number 作类字段**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `public number v = 10;` | register_class_layout 删 t62 拒编守卫即放行：StructType 按 llvm_type_of 逐字段拼装，Num 自动占位 {i64,i64}（复评推翻 t62「8 字节槽装不下」理由——类布局本非固定 8 字节槽）；GEP 字段读写由字段类型驱动，零特判 |
+| `new` 字段块分配 | visitNew malloc 上界从 `8 × 字段数` 改为按字段类型累计（Num 记 16、其余 8）；对齐 ≤ 8 前提下累计值即精确尺寸；rt_obj_new 零改动 |
+| 字段初始值 / 字段写 | coerce_for_slot 既有 Num 槽分支：integer/decimal 来源 to_num 加宽（保持原表示打 tag，对齐解释器 coerce_to_declared KW_NUMBER 原样通过）、number 来源相等直通，零新增转换 |
+| 字段参与运算/方法/跨签名 | 字段读出即 CGValue{Num}，算术/比较/print/插值/abs 等内建方法/函数传参返回全走 t62 既有 Num 路径（16 字节按值流转先例：变量/全局槽、tuple 解构槽、签名传参） |
+| 范围外 | Tup 字段（既有拒编不变）、number 字段读出赋窄化静态槽（走既有 Num→静态槽拒编）、字段上直接一元负号/相等比较（语义层对属性访问的既有限制，经 number 局部变量可用） |
 
 ## 五、构建与链接方案（关键决策）
 

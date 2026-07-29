@@ -65,7 +65,8 @@
  *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
- *     size 由 codegen 按 8 字节 × 字段数上界给定，字段初始值紧随 new 写入
+ *     size 由 codegen 按字段类型累计上界给定（Num 16、其余 8，t74），
+ *     字段初始值紧随 new 写入
  *
  * number 双表示运行时（t62，缺口 CG5 收窄）：值 = tag + 8 字节位模式
  *   （tag 0=整数 i64 / 1=小数 double 位模式），算术/比较/转串集中在运行时
