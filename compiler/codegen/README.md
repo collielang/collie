@@ -43,6 +43,7 @@
 | S30 | print 求值序修复（CG8）：gen_print 两阶段化——先求值全部实参再统一输出，实参副作用输出次序对齐解释器 | 副作用实参（函数/方法体内 print）程序编译执行，输出次序与解释器一致 **✅ t77** |
 | S31 | ==?/switch 的 tuple 候选：gen_match_eq 加 Tup 分支单点复用 gen_tuple_eq（静态展开深比较），Tup×非 Tup 恒 false | tuple 目标/候选命中/归组/默认/嵌套/命名程序编译执行，输出与解释器一致 **✅ t78** |
 | S32 | 数组相等比较：新接口 collie_rt_arr_eq C 层深比较（先比 len 再逐元素按运行时 kind，数值系混合 double 视图、string strcmp），==/!=、tuple 含数组元素、==?/switch 数组候选三触点同时解锁 | 数组 ==/!=、tuple 含数组元素、==?/switch 数组候选、跨签名动态域数组比较程序编译执行，输出与解释器一致 **✅ t79** |
+| S33 | 小数取模：decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）FRem + floor 修正（符号随除数，select 无分支），除零 FRem 天然 NaN | 小数取模程序（四象限符号/混合类型/除零/Infinity/%=/跨签名/数组元素）编译执行，输出与解释器一致 **✅ t80** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
@@ -87,7 +88,7 @@ Lexer → Parser → SemanticAnalyzer → CodeGenVisitor → llvm::Module
 | 整数字面量 `42` / `0xFF` | `i64` 常量（超出 i64 范围在 codegen 期报错，缺口 CG1） |
 | `a + b` / `a - b` / `a * b`（整数） | `add` / `sub` / `mul` `i64`（无 nsw：溢出回绕暂容忍，登记缺口 CG1） |
 | `a / b` | **恒小数除法**（SPEC §4）：`sitofp` 两侧 → `fdiv double`；除零自然得 ±Inf/NaN（IEEE 754，t33 语义） |
-| `a % b`（整数） | **floor 取模**（SPEC §4，Python 风格）：`r = srem a, b`；`if (r != 0 && (r < 0) != (b < 0)) r += b`（select 实现，无分支） |
+| `a % b`（整数） | **floor 取模**（SPEC §4，Python 风格）：`r = srem a, b`；`if (r != 0 && (r < 0) != (b < 0)) r += b`（select 实现，无分支）；decimal 参与已于 S33 t80 解锁（FRem 路径，见 S33 补充节） |
 | 一元 `-a` | `sub i64 0, %a`（整数）/ `fneg`（小数） |
 | 顶层语句序列 | 依序生成进 `@main` entry 起始的基本块链 |
 
@@ -390,6 +391,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | tuple 含数组元素 | gen_tuple_eq 元素分支：双 Arr 下沉 rt_arr_eq（替换 t75 既有拒编）、Arr × 非 Arr 元素恒 false（kind 不等） |
 | `==?`/switch 数组候选 | gen_match_eq 加 Arr 分支：双 Arr 下沉 rt_arr_eq、Arr × 非 Arr 恒 false（语义层通常更早拦截，防御性双保险）；两调用点同时解锁 |
 | 范围外 | 数组关系比较 < <= > >=（语义层两端一致拦截 "Invalid operands for comparison"）；Arr × 非 Arr 整体 ==（语义层两端一致拦截 "Incomparable operand types"）；嵌套数组元素（字面量层已拒编不存在）；接口面新增 1 个 collie_rt 接口（arr_eq） |
+
+**S33 降级补充（t80 实现）：小数取模**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `a % b`（decimal 参与） | visitBinary OP_MODULO 加 Double 分支（Num 路径之后、Int×Int 之前）：两侧 to_double 后 `frem double`（语义即 fmod 截断取余），floor 修正——`r 非零且与 b 异号时 r += b`（FCmp ONE/OLT + select 无分支，仿 Int 路径既有写法），结果 Double |
+| 除零与特殊值 | `x % 0.0` FRem 天然 NaN，且 NaN 使 ONE 比较为 false 不触发修正（与解释器 b==0.0 提前返 NaN 殊途同归）；`-0.0 == 0.0` 使 nonzero 为 false，同解释器 `r != 0.0` 判定；`-7.5 % Infinity` 修正为 +Infinity 两端一致 |
+| 覆盖类型组合 | Double×Double / Int×Double / Double×Int；`%=` 复合赋值天然复用（parser 脱糖）；数组 double 元素索引读出参与 |
+| 范围外 | number 参与的 `%`（S15 t62 已下沉 rt_num_arith op 4，路径不动）；BigInt 超 i64 整数取模（既有 CG1 陷阱域）；非数值参与（语义层两端一致拦截 "Numeric operands expected for arithmetic operation"）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

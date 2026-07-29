@@ -359,6 +359,30 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                 last_value_ = {call_num_arith(4, to_num(lhs), to_num(rhs)), CGType::Num};
                 return;
             }
+            if (lhs.type == CGType::Double || rhs.type == CGType::Double) {
+                // decimal 参与（t80）：FRem 语义即 fmod（截断取余），floor 修正
+                // 对齐解释器 eval_arithmetic——r 非零且与除数异号时 r += b；
+                // 除零 FRem 天然 NaN，且 NaN 使 ONE 比较为 false 不触发修正
+                // （与解释器 b==0.0 提前返 NaN 殊途同归）；-0.0 == 0.0 使
+                // nonzero 为 false 同解释器 r != 0.0 判定
+                require_numeric(lhs);
+                require_numeric(rhs);
+                llvm::Value* l = to_double(lhs);
+                llvm::Value* r = to_double(rhs);
+                llvm::Value* rem = builder_.CreateFRem(l, r, "fremtmp");
+                llvm::Value* fzero =
+                    llvm::ConstantFP::get(builder_.getDoubleTy(), 0.0);
+                llvm::Value* nonzero = builder_.CreateFCmpONE(rem, fzero);
+                llvm::Value* rem_neg = builder_.CreateFCmpOLT(rem, fzero);
+                llvm::Value* rhs_neg = builder_.CreateFCmpOLT(r, fzero);
+                llvm::Value* sign_diff = builder_.CreateICmpNE(rem_neg, rhs_neg);
+                llvm::Value* need_fix = builder_.CreateAnd(nonzero, sign_diff);
+                llvm::Value* fixed = builder_.CreateFAdd(rem, r, "fremfix");
+                last_value_ = {builder_.CreateSelect(need_fix, fixed, rem,
+                                                     "floorfmod"),
+                               CGType::Double};
+                return;
+            }
             if (lhs.type != CGType::Int || rhs.type != CGType::Int) {
                 unsupported("'%' on non-integer operands", op.line(), op.column());
             }

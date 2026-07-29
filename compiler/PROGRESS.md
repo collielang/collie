@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t79 完成：codegen 数组相等比较——新接口 collie_rt_arr_eq C 层深比较（先比 len 再逐元素按运行时 kind），==/!=、tuple 含数组元素、==?/switch 数组候选三触点同时解锁，差分 31/31）
+最后更新：2026-07-28（t80 完成：codegen 小数取模——decimal 参与的 `%` FRem + floor 修正（符号随除数，select 无分支），除零 FRem 天然 NaN 对齐解释器，零新增 rt 接口，差分 32/32）
 
 ---
 
@@ -473,6 +473,12 @@
     - 实现：collie_rt.c 新增 arr_eq + codegen 三分支（visitBinary Arr×Arr、gen_tuple_eq 双 Arr 下沉/Arr×非Arr 元素恒 false、gen_match_eq 双 Arr 下沉/Arr×非Arr 恒 false 双保险）
     - 验证：新差分用例 s32_array_eq（==/!= 命中/不命中/长度不等、int×double 数组 double 视图、string/bool 数组、bool×int 数组 kind 不等恒 false、空数组、tuple 含数组元素三态、==? 命中/字面量候选/默认、switch 命中/归组/default、跨签名动态域数组、全局数组函数内比较、比较结果进逻辑运算）；实证——数组关系比较 a < b 语义层两端一致拦截 "Invalid operands for comparison"；ctest -C Release 差分 31/31 逐字节一致（s32 首跑即过），Debug 门禁 6/6
     - 范围外：数组关系比较 < <= > >=（语义层拦截）；嵌套数组元素（字面量层已拒编不存在）；Arr×非Arr 整体比较（语义层拦截）
+- [x] codegen 小数取模（t80）
+    - 选型：拒编面盘点（130+ 处 unsupported 归类）后选定唯一"解释器支持、机制就绪、单触点"的活跃解锁面——decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）；预检实证：解释器 10 行全支持（floor 符号随除数 -7.5%2.0=0.5、7.5%-2.0=-0.5、除零 7.5%0.0=NaN、混合 7%2.5=2），colliec 拒编 "'%' on non-integer operands"；其余候选均排除——bool/str 数组跨签名需新动态值表示（规模大）、实例相等解释器 values_equal default 恒 false（语义存疑）、函数重载解释器实为后定义覆盖（非解锁面）
+    - 范围拍板：visitBinary OP_MODULO 单触点——Int×Int 与 Num 路径不动，Double 参与时 FRem（语义即 fmod）+ floor 修正（r 非零且与 b 异号时 r += b，select 无分支，仿 Int 路径既有写法）；除零 FRem 天然 NaN 且 NaN 下 FCmp ONE 为 false 不触发修正（对齐解释器 b==0.0 提前返 NaN）；零新增 rt 接口
+    - 实现：visitBinary OP_MODULO 加 Double 分支（Num 路径之后、Int×Int 之前）单处改动；-0.0 == 0.0 使 nonzero 为 false 同解释器 r != 0.0 判定
+    - 验证：新差分用例 s33_decimal_mod（四象限符号、混合 Int×Double/Double×Int、精确整除 -0.0 归一格式化、除零 NaN、Infinity 边界（-7.5%Infinity 修正为 +Infinity）、NaN 传播、%= 复合赋值、表达式嵌套与比较参与、跨函数签名含浮点残差 8.88178e-16 两端一致、循环累积、数组 double 元素参与、number 路径回归保护）；实证——true % 2.0 语义层两端一致拦截 "Numeric operands expected for arithmetic operation"；ctest -C Release 差分 32/32 逐字节一致（s33 首跑即过），Debug 门禁 6/6
+    - 范围外：number 参与的 `%`（t62 已下沉 rt_num_arith op 4）；BigInt 超 i64 整数取模（既有 CG1 陷阱域）
 
 ---
 
@@ -527,6 +533,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen 小数取模（t80，M6）：visitBinary OP_MODULO 加 Double 分支（Num 路径之后、Int×Int 之前）——decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）两侧 to_double 后 FRem（语义即 fmod 截断取余）+ floor 修正（r 非零且与除数异号时 r += b，FCmp ONE/OLT + select 无分支，仿 Int 路径既有写法），对齐解释器 eval_arithmetic；除零 FRem 天然 NaN 且 NaN 使 ONE 比较为 false 不触发修正（与解释器 b==0.0 提前返 NaN 殊途同归），-0.0 == 0.0 同解释器 r != 0.0 判定；零新增 collie_rt 接口；选型来自拒编面盘点（130+ 处 unsupported 归类，唯一"解释器支持、机制就绪、单触点"活跃解锁面）；新差分用例 s33_decimal_mod + true % 2.0 语义层两端一致拦截实证，ctest -C Release 差分 32/32 逐字节一致，Debug 门禁 6/6（M6 t80）
 - 2026-07-28 `feat(compiler)`: codegen 数组相等比较（t79，M6）：新增 rt 接口 collie_rt_arr_eq(l, r) C 层深比较——先比 len 再逐元素按两侧运行时 kind（同 kind integer/bool i64 直比、decimal double 值比较（NaN != NaN 与解释器一致）、string strcmp；kind {0,1} 混合按 double 视图对齐解释器混合表示 `[1,2,3] == [1.0,2.0,3.0]` 为 true；bool/string 与其它 kind 配对恒不等；len==0 天然相等；运行时 kind 判定天然覆盖 t70 动态域数组），对齐解释器 values_equal Array 分支；codegen 三触点同时解锁并单点复用：visitBinary ==/!=（Arr×Arr 前置分支）、gen_tuple_eq Arr 元素（替换 t75 既有拒编 "tuple equality with array element"）、gen_match_eq Arr 候选（==?/switch 两调用点，Arr×非Arr 恒 false 双保险）；新差分用例 s32_array_eq + 数组关系比较语义层两端一致拦截实证，ctest -C Release 差分 31/31 逐字节一致，Debug 门禁 6/6（M6 t79）
 - 2026-07-28 `feat(compiler)`: codegen ==?/switch 的 tuple 候选（t78，M6）：gen_match_eq 末尾 unsupported 前加 Tup 分支——双 Tup 走 gen_tuple_eq（t75 静态展开深比较单点复用：形状不一致编译期常量 false、逐元素四路降级 And 链、嵌套递归），Tup×非 Tup 恒 false（对齐解释器 values_equal kind 不等，实测语义层更早拦截 "Incomparable candidate value type"，codegen 为防御性双保险）；==?（级联比较块链）与 switch 两调用点同时解锁，含 Arr 元素 tuple 由 gen_tuple_eq 既有拒编覆盖，零新增 collie_rt 接口；新差分用例 s31_match_tuple + 含数组元素候选拒编/Tup×非Tup 两端语义层一致两实证，ctest -C Release 差分 30/30 逐字节一致，Debug 门禁 6/6（M6 t78）
 - 2026-07-28 `fix(compiler)`: codegen 修复 CG8 print 求值序（t77，M6）：gen_print 两阶段化——第一循环 emit 全部实参按值收集（副作用调用按源序发生），第二循环统一打印 sep+值+换行，对齐解释器 call_builtin_print 先求值全部实参再打印；此前逐参求值边打边走，实参含副作用输出（函数/方法体内 print）时产物输出次序与解释器不同且静默错编（t76 发现登记 CG8）；打印阶段转串调用无输出副作用、Tup 注册表只追加下标跨阶段有效、零新增 collie_rt 接口；新差分用例 s30_print_order（单/多副作用实参、方法体副作用、多类型混排、运算嵌套、无副作用回归保护），s29 历史注更新、README 缺口表 CG8 标记已消除，ctest -C Release 差分 29/29 逐字节一致，Debug 门禁 6/6（M6 t77）
