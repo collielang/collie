@@ -249,8 +249,8 @@ private:
     /// @brief tuple 相等比较（t75）：静态展开逐元素深比较出 i1（对齐解释器
     /// values_equal Tuple 分支：先比元素数再比名字表，形状不一致编译期即
     /// 常量 false）；元素同域标量复用四路降级 And 链合并、嵌套 tuple 递归、
-    /// 异型配对/Obj 恒 false（kind 不等/无 Instance 分支）；含 Arr 元素拒编
-    /// 不错编（解释器对数组是深比较，恒 false 会错值）
+    /// 异型配对/Obj 恒 false（kind 不等/无 Instance 分支）；双 Arr 元素
+    /// 下沉 rt_arr_eq 深比较（t79，动态长度静态展开不可达）
     llvm::Value* gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
                               const Token& op);
 
@@ -402,6 +402,7 @@ private:
     llvm::FunctionCallee rt_arr_to_str_; // ptr(ptr)，[1, 2, 3] 格式对齐 Value::to_string
     llvm::FunctionCallee rt_arr_kind_;   // i64(ptr)，动态域索引读拼 number 用（t70）
     llvm::FunctionCallee rt_arr_set_num_; // void(ptr, i64, i64 tag, i64 bits)，动态域索引写（t70，含 CG7 陷阱）
+    llvm::FunctionCallee rt_arr_eq_;     // i64(ptr, ptr)，数组深比较返 1/0（t79）
     /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧
     llvm::FunctionCallee rt_obj_new_;    // ptr(i64 size)
     /// collie_rt number 运行时（t62，CG5 收窄）：tagged 双表示，语义单点对齐解释器

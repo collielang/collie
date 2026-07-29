@@ -1,0 +1,81 @@
+// t79 S32 差分用例：数组相等比较（rt_arr_eq 深比较——==/!=、tuple 含数组
+// 元素、==?/switch 数组候选、跨签名动态域数组、全局数组）
+
+// 基本 ==/!=：命中/不命中/长度不等
+array a = [1, 2, 3];
+array b = [1, 2, 3];
+array c = [1, 2, 4];
+array shorter = [1, 2];
+print("eq:", a == b);
+print("ne-val:", a == c);
+print("neq:", a != c);
+print("len:", a == shorter);
+
+// int 数组 × double 数组：double 视图（对齐解释器混合表示 5 == 5.0）
+array d = [1.0, 2.0, 3.0];
+array d2 = [1.0, 2.5, 3.0];
+print("dblview:", a == d);
+print("dbl-ne:", a == d2);
+print("dbl-dbl:", d == d);
+
+// string / bool 数组
+array s1 = ["x", "yy", "z"];
+array s2 = ["x", "yy", "z"];
+array s3 = ["x", "yy", "w"];
+print("str-eq:", s1 == s2);
+print("str-ne:", s1 == s3);
+array f1 = [true, false];
+array f2 = [true, false];
+array f3 = [true, true];
+print("bool-eq:", f1 == f2);
+print("bool-ne:", f1 == f3);
+
+// 元素 kind 不等：bool 数组 × int 数组恒 false（空数组则天然相等）
+array ones = [1, 0];
+print("kind-ne:", f1 == ones);
+array e1 = [];
+array e2 = [];
+print("empty:", e1 == e2);
+
+// tuple 含数组元素：深比较（t75/t78 遗留拒编面解锁）
+Tuple t1 = (1, [7, 8]);
+Tuple t2 = (1, [7, 8]);
+Tuple t3 = (1, [7, 9]);
+print("tup-arr-eq:", t1 == t2);
+print("tup-arr-ne:", t1 == t3);
+print("tup-arr-neq:", t1 != t3);
+
+// ==? 数组候选：命中/次候选命中/默认兜底
+print("m1:", a ==? b: "hit", c: "second", "def");
+print("m2:", c ==? b: "first", [1, 2, 4]: "literal-hit", "def");
+print("m3:", shorter ==? b: "no1", c: "no2", "fallback");
+
+// switch 数组目标：命中/归组/default
+switch (c) {
+    [1, 2, 3] { print("sw:", "abc"); }
+    [9, 9], [1, 2, 4] { print("sw:", "grouped-hit"); }
+    default { print("sw:", "def"); }
+}
+switch (shorter) {
+    [1, 2, 3] { print("sw2:", "no"); }
+    default { print("sw2:", "default"); }
+}
+
+// 跨签名动态域数组（t70 elem=Num）：运行时 kind 驱动的深比较
+function same(x array, y array) bool {
+    return x == y;
+}
+print("fn-eq:", same(a, b));
+print("fn-ne:", same(a, c));
+print("fn-mix:", same(a, d));
+
+// 全局数组在函数内比较（结合 t73）
+function checkGlobal() bool {
+    return a == b;
+}
+print("glob:", checkGlobal());
+
+// 比较结果参与逻辑运算与条件
+if (a == b && s1 != s3) {
+    print("cond:", "both");
+}

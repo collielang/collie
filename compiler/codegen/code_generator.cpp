@@ -139,6 +139,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
             void_ty,
             {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty()},
             false));
+    // 数组深比较（t79）：C 层先比 len 再逐元素按运行时 kind（数值系混合
+    // double 视图、string strcmp），对齐解释器 values_equal Array 分支，返 1/0
+    rt_arr_eq_ = module_->getOrInsertFunction(
+        "collie_rt_arr_eq",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, ptr_ty}, false));
 
     // collie_rt 类实例分配声明（t60）：字段块 malloc，struct 布局读写全在 codegen 侧
     rt_obj_new_ = module_->getOrInsertFunction(
@@ -444,6 +449,22 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                 llvm::Value* eq = lhs.type == CGType::Tup && rhs.type == CGType::Tup
                                       ? gen_tuple_eq(lhs, rhs, op)
                                       : builder_.getInt1(false);
+                last_value_ = {t == TokenType::OP_EQUAL
+                                   ? eq
+                                   : builder_.CreateNot(eq, "cmptmp"),
+                               CGType::Bool};
+                return;
+            }
+            // 数组相等（t79）：Arr × Arr 下沉 rt_arr_eq 深比较（先比 len 再逐
+            // 元素按运行时 kind，对齐解释器 values_equal Array 分支）；
+            // Arr × 非 Arr 整体比较语义层已拦截（"Incomparable operand types"），
+            // 关系比较落下方 require_numeric 拒编（解释器同样不支持）
+            if (lhs.type == CGType::Arr && rhs.type == CGType::Arr &&
+                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                llvm::Value* c = builder_.CreateCall(
+                    rt_arr_eq_, {lhs.value, rhs.value}, "arreqtmp");
+                llvm::Value* eq =
+                    builder_.CreateICmpNE(c, builder_.getInt64(0), "cmptmp");
                 last_value_ = {t == TokenType::OP_EQUAL
                                    ? eq
                                    : builder_.CreateNot(eq, "cmptmp"),
@@ -2510,14 +2531,24 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
         return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
     }
     // tuple 目标/候选（t78）：双 Tup 走 t75 静态展开深比较（含 Arr 元素
-    // 由其递归内既有拒编覆盖）；Tup × 非 Tup 恒 false（对齐解释器
+    // 已于 t79 下沉 rt_arr_eq 深比较）；Tup × 非 Tup 恒 false（对齐解释器
     // values_equal kind 不等，语义层通常更早拦截，此为防御性双保险）
     if (target.type == CGType::Tup || cand.type == CGType::Tup) {
         return target.type == CGType::Tup && cand.type == CGType::Tup
                    ? gen_tuple_eq(target, cand, op)
                    : builder_.getInt1(false);
     }
-    // object/数组等候选比较范围外，拒编不错编
+    // 数组目标/候选（t79）：双 Arr 下沉 rt_arr_eq 深比较；Arr × 非 Arr 恒
+    // false（对齐解释器 values_equal kind 不等，语义层通常更早拦截，双保险）
+    if (target.type == CGType::Arr || cand.type == CGType::Arr) {
+        if (target.type == CGType::Arr && cand.type == CGType::Arr) {
+            llvm::Value* c = builder_.CreateCall(
+                rt_arr_eq_, {target.value, cand.value}, "arreqtmp");
+            return builder_.CreateICmpNE(c, builder_.getInt64(0), "matcheq");
+        }
+        return builder_.getInt1(false);
+    }
+    // object 等候选比较范围外，拒编不错编
     unsupported("'==?' comparison of these value types", op.line(), op.column());
 }
 
@@ -2535,14 +2566,17 @@ llvm::Value* CodeGenerator::gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
     for (size_t i = 0; i < lt.elems.size(); ++i) {
         const CGValue& a = lt.elems[i];
         const CGValue& b = rt.elems[i];
-        // 数组元素拒编不错编：解释器对 Array 是逐元素深比较，
-        // 恒 false 会产出错值（数组动态长度，静态展开不可达）
-        if (a.type == CGType::Arr || b.type == CGType::Arr) {
-            unsupported("tuple equality with array element",
-                        op.line(), op.column());
-        }
         llvm::Value* e = nullptr;
-        if (a.type == CGType::Tup && b.type == CGType::Tup) {
+        if (a.type == CGType::Arr && b.type == CGType::Arr) {
+            // 数组元素深比较（t79）：下沉 rt_arr_eq（数组动态长度静态展开
+            // 不可达，C 层先比 len 再逐元素按运行时 kind 对齐解释器）
+            llvm::Value* c =
+                builder_.CreateCall(rt_arr_eq_, {a.value, b.value}, "arreqtmp");
+            e = builder_.CreateICmpNE(c, builder_.getInt64(0), "tupeq");
+        } else if (a.type == CGType::Arr || b.type == CGType::Arr) {
+            // Arr × 非 Arr 元素（kind 不等）恒 false
+            e = builder_.getInt1(false);
+        } else if (a.type == CGType::Tup && b.type == CGType::Tup) {
             // 嵌套 tuple 递归
             e = gen_tuple_eq(a, b, op);
         } else if (a.type == CGType::Tup || b.type == CGType::Tup ||

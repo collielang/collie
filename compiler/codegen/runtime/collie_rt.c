@@ -62,6 +62,8 @@
  *     // 动态域索引写（t70）：tag==kind 直存；integer 写 decimal 数组提升 double 位模式；
  *     // decimal 写 integer 数组陷阱退出（解释器动态异质可容、编译产物同质表示
  *     // 不可，拒错编从陷阱，缺口 CG7）
+ *   long long collie_rt_arr_eq(void* lhs, void* rhs);         // 数组深比较（t79）：先比
+ *     // len 再逐元素按运行时 kind（数值系混合 double 视图、string strcmp），返 1/0
  *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
@@ -393,6 +395,47 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
     fprintf(stderr, "runtime error: decimal element in integer array "
                     "(compiled arrays are homogeneous, gap CG7)\n");
     exit(1);
+}
+
+/* 数组深比较（t79）：对齐解释器 values_equal Array 分支——先比 len 再逐元素。
+ * 同 kind：integer/bool i64 直比、decimal 位模式还原 double 后按值比较
+ * （NaN != NaN 与解释器 as_number() == 一致）、string strcmp 内容比较；
+ * kind {0,1} 混合按 double 视图（对齐解释器 Number 混合表示 5 == 5.0）；
+ * bool/string 与其它 kind 配对元素 kind 不等恒不等；len==0 天然相等。返 1/0 */
+long long collie_rt_arr_eq(void* lhs, void* rhs) {
+    const collie_rt_array* l = (const collie_rt_array*)lhs;
+    const collie_rt_array* r = (const collie_rt_array*)rhs;
+    if (l->len != r->len) {
+        return 0;
+    }
+    long long i;
+    for (i = 0; i < l->len; ++i) {
+        long long lb = l->slots[i];
+        long long rb = r->slots[i];
+        if (l->kind == r->kind) {
+            if (l->kind == 1) { /* decimal：按 double 值比较 */
+                double x, y;
+                memcpy(&x, &lb, sizeof x);
+                memcpy(&y, &rb, sizeof y);
+                if (!(x == y)) return 0;
+            } else if (l->kind == 3) { /* string：指针位模式还原后内容比较 */
+                if (strcmp((const char*)(intptr_t)lb,
+                           (const char*)(intptr_t)rb) != 0) return 0;
+            } else { /* integer / bool：位模式即值 */
+                if (lb != rb) return 0;
+            }
+        } else if ((l->kind == 0 || l->kind == 1) &&
+                   (r->kind == 0 || r->kind == 1)) {
+            /* integer × decimal 混合 kind：double 视图比较 */
+            double x, y;
+            if (l->kind == 0) { x = (double)lb; } else { memcpy(&x, &lb, sizeof x); }
+            if (r->kind == 0) { y = (double)rb; } else { memcpy(&y, &rb, sizeof y); }
+            if (!(x == y)) return 0;
+        } else {
+            return 0; /* bool/string 与其它 kind 配对：元素 kind 不等恒 false */
+        }
+    }
+    return 1;
 }
 
 /* 追加一段字节到增长缓冲（arr_to_str 专用；旧块不 free，缺口 CG6 同其它 malloc 串） */

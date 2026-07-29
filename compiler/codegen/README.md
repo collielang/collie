@@ -42,6 +42,7 @@
 | S29 | 顶层 tuple 全局化：create_tuple_var 建槽经 create_var_slot（顶层解构槽组升 GlobalVariable），链底拷贝取消 Tup 剔除（tuple_vars_ 注册表本为成员跨函数存活） | 函数/方法读写全局 tuple、嵌套/重赋值可见性/遮蔽程序编译执行，输出与解释器一致 **✅ t76** |
 | S30 | print 求值序修复（CG8）：gen_print 两阶段化——先求值全部实参再统一输出，实参副作用输出次序对齐解释器 | 副作用实参（函数/方法体内 print）程序编译执行，输出次序与解释器一致 **✅ t77** |
 | S31 | ==?/switch 的 tuple 候选：gen_match_eq 加 Tup 分支单点复用 gen_tuple_eq（静态展开深比较），Tup×非 Tup 恒 false | tuple 目标/候选命中/归组/默认/嵌套/命名程序编译执行，输出与解释器一致 **✅ t78** |
+| S32 | 数组相等比较：新接口 collie_rt_arr_eq C 层深比较（先比 len 再逐元素按运行时 kind，数值系混合 double 视图、string strcmp），==/!=、tuple 含数组元素、==?/switch 数组候选三触点同时解锁 | 数组 ==/!=、tuple 含数组元素、==?/switch 数组候选、跨签名动态域数组比较程序编译执行，输出与解释器一致 **✅ t79** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
@@ -229,7 +230,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `target ==? v1, v2: r1, v3: r2, default` | 级联比较块链：目标只求值一次，按分支序/候选序生成「比较→命中跳分支结果块/未中顺延下一候选」，链末端即默认块；块链天然对齐解释器首命中 + 惰性求值（未命中分支的候选/结果不求值）；各分支结果块尾对齐统一类型后跳 merge 块，N+1 入口 PHI 收拢 |
 | 候选相等比较 | 复用 == 四路降级出 i1（gen_match_eq）：Str×Str `collie_rt_strcmp`==0、任一 Num 走 `collie_rt_num_cmp` op 0（双整数精确/混合 double 视图）、Bool×Bool icmp、Int/Double icmp/fcmp 含混型提升（5 == 5.0，对齐解释器 values_equal）；零新增 collie_rt 接口 |
 | 结果混型统一 | 沿用 gen_ternary 规则扩展到 N+1 支：同型直用（含 Arr elem/Obj cls 一致性校验）；数值混型任一 Num 统一 Num 否则 Double |
-| 范围外拒编 | 无默认分支形式（tribool 穷尽三态省默认已于 S18 t65 解锁，其余目标类型仍要求默认分支）；object 动态比较；数组/元组深比较候选 |
+| 范围外拒编 | 无默认分支形式（tribool 穷尽三态省默认已于 S18 t65 解锁，其余目标类型仍要求默认分支）；object 动态比较；数组/元组深比较候选（元组已于 S31 t78、数组已于 S32 t79 解锁） |
 
 **S18 降级补充（t65 实现）：tribool 三态布尔**：
 
@@ -256,7 +257,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | default 分支 | 位置无关最后兜底：非 default 分支优先比较，链尾跳 switch.default（无 default 或其 body 为空则直接跳 switch.end） |
 | 候选相等比较 | 复用 gen_match_eq（Str×Str strcmp==0、任一 Num 走 num_cmp op 0、Bool/Tri icmp、Int/Double 含混型提升），零新增 collie_rt 接口 |
 | body 内 break/continue | 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动） |
-| 范围外拒编 | object 动态比较目标/候选；数组/元组深比较候选（同 `==?` 拒编面，gen_match_eq 内自然拒编） |
+| 范围外拒编 | object 动态比较目标/候选；数组/元组深比较候选（同 `==?` 拒编面，元组已于 S31 t78、数组已于 S32 t79 解锁） |
 
 **S20 降级补充（t67 实现）：number 专属方法**：
 
@@ -350,8 +351,8 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 逐元素比较 | 复用四路标量降级出 i1 后 And 链合并：Str×Str→rt_strcmp==0、任一 Tri（另一侧限 tribool/bool）→to_tri 后 icmp、任一 Num→rt_num_cmp op 0（双整数精确、混合 double 视图）、Int/Double→icmp/fcmp OEQ（5 == 5.0 混型提升） |
 | 嵌套 tuple 元素 | gen_tuple_eq 递归（注册表按值拷贝不留引用，防 register_tuple 扩容失效） |
 | 恒 false 配对 | Tup × 非 Tup 整体/元素（kind 不等）、任一元素 Obj（解释器 values_equal 无 Instance 分支，同一实例也 false）、异型标量配对（Str×Int 等）——均编译期常量 false，对齐解释器 |
-| 防错编守卫 | 元素含 Arr 拒编不错编（"tuple equality with array element"——解释器对数组是逐元素深比较，恒 false 会错值）；Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 分支是防御性双保险 |
-| 范围外 | `==?`/switch 的 tuple 候选（gen_match_eq 另一路径，已于 S31 t78 解锁）、tuple 关系比较 < <= > >=（解释器同样不支持）、数组深比较（Arr×Arr 独立任务）；接口面零新增 collie_rt 接口 |
+| 防错编守卫 | 元素含 Arr 曾拒编不错编（"tuple equality with array element"，已于 S32 t79 下沉 rt_arr_eq 深比较解锁）；Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 分支是防御性双保险 |
+| 范围外 | `==?`/switch 的 tuple 候选（gen_match_eq 另一路径，已于 S31 t78 解锁）、tuple 关系比较 < <= > >=（解释器同样不支持）、数组深比较（已于 S32 t79 解锁）；接口面零新增 collie_rt 接口 |
 
 **S29 降级补充（t76 实现）：顶层 tuple 全局化**：
 
@@ -377,8 +378,18 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 |------------|--------------|
 | `t ==? (1, "x"): a, def` / `switch (t) { (1, "x") {...} }` | gen_match_eq 末尾 unsupported 前加 Tup 分支：双 Tup 走 gen_tuple_eq（t75 静态展开深比较单点复用——形状不一致编译期常量 false、逐元素四路降级 And 链、嵌套递归）；`==?`（级联比较块链）与 switch 两调用点同时解锁，零新增接口 |
 | Tup × 非 Tup 候选 | 恒 false（对齐解释器 values_equal kind 不等）；实测语义层更早拦截（"Incomparable candidate value type in '==?'"），codegen 分支是防御性双保险 |
-| 防错编守卫 | 候选/目标 tuple 含 Arr 元素由 gen_tuple_eq 递归内既有拒编覆盖（"tuple equality with array element"——解释器深比较可容，恒 false 会错值） |
-| 范围外 | 数组目标/候选（Arr×Arr 深比较独立任务）维持拒编；tuple 关系比较不涉及 |
+| 防错编守卫 | 候选/目标 tuple 含 Arr 元素曾由 gen_tuple_eq 递归内拒编覆盖（"tuple equality with array element"，已于 S32 t79 下沉 rt_arr_eq 深比较解锁） |
+| 范围外 | 数组目标/候选（已于 S32 t79 解锁）；tuple 关系比较不涉及 |
+
+**S32 降级补充（t79 实现）：数组相等比较**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `a1 == a2` / `a1 != a2` | visitBinary ==/!= 前置 Arr×Arr 分支：call 新接口 `collie_rt_arr_eq(ptr, ptr) -> i64`，与 0 icmp ne 出 i1，`!=` CreateNot 取反；数组动态长度静态展开不可达，深比较单点下沉 C 层 |
+| rt_arr_eq 语义 | 对齐解释器 values_equal Array 分支：先比 len 再逐元素按运行时 kind——同 kind integer/bool i64 直比、decimal 位模式还原 double 按值比较（NaN != NaN 一致）、string strcmp 内容比较；kind {0,1} 混合按 double 视图（`[1,2,3] == [1.0,2.0,3.0]` 为 true）；bool/string 与其它 kind 配对恒不等；len==0 天然相等；运行时 kind 判定天然覆盖 t70 动态域（elem=Num）数组 |
+| tuple 含数组元素 | gen_tuple_eq 元素分支：双 Arr 下沉 rt_arr_eq（替换 t75 既有拒编）、Arr × 非 Arr 元素恒 false（kind 不等） |
+| `==?`/switch 数组候选 | gen_match_eq 加 Arr 分支：双 Arr 下沉 rt_arr_eq、Arr × 非 Arr 恒 false（语义层通常更早拦截，防御性双保险）；两调用点同时解锁 |
+| 范围外 | 数组关系比较 < <= > >=（语义层两端一致拦截 "Invalid operands for comparison"）；Arr × 非 Arr 整体 ==（语义层两端一致拦截 "Incomparable operand types"）；嵌套数组元素（字面量层已拒编不存在）；接口面新增 1 个 collie_rt 接口（arr_eq） |
 
 ## 五、构建与链接方案（关键决策）
 
