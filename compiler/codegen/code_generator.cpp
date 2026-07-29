@@ -1067,21 +1067,62 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
     CGValue object = emit(expr.object());
     if (object.type == CGType::Tup) {
         // tuple 常量索引（t68）：编译期解析（含负索引归一化；越界解释器
-        // 为运行期报错，codegen 静态可判，拒编不错编）；动态索引无法
-        // 静态选型，拒编
-        long long idx = 0;
-        if (!const_int_of(expr.index(), idx)) {
-            unsupported("non-constant tuple index",
-                        expr.bracket().line(), expr.bracket().column());
-        }
-        const CGTuple& t = tuple_values_[object.tup];
+        // 为运行期报错，codegen 静态可判，拒编不错编）
+        // 按值拷贝不留引用：非常量路径下方 emit(index) 可能触发 register_tuple
+        // 扩容 tuple_values_，持引用会悬垂（与 gen_tuple_eq 同一防护）
+        const CGTuple t = tuple_values_[object.tup];
         const long long n = static_cast<long long>(t.elems.size());
-        if (idx < 0) idx += n; // 负索引归一化（对齐解释器 normalize_index）
-        if (idx < 0 || idx >= n) {
-            unsupported("tuple index out of range",
+        long long idx = 0;
+        if (const_int_of(expr.index(), idx)) {
+            if (idx < 0) idx += n; // 负索引归一化（对齐解释器 normalize_index）
+            if (idx < 0 || idx >= n) {
+                unsupported("tuple index out of range",
+                            expr.bracket().line(), expr.bracket().column());
+            }
+            last_value_ = t.elems[static_cast<size_t>(idx)];
+            return;
+        }
+        // 非常量索引（t83）：限同质 tuple（所有元素同 CGType 且 ∈
+        // {Int/Double/Bool/Str}）——物化为运行时数组后 rt_arr_get(动态 idx) 取值，
+        // 复用负索引归一化 + 越界陷阱（消息 "Index N out of range (size M)"
+        // 与解释器 normalize_index 一致）；结果类型即元素类型，静态可定。
+        // 异质 tuple、Num/嵌套(Tup/Arr/Obj)元素、空 tuple 保持拒编——结果类型
+        // 静态不可定或数组槽无法承载（elem_to_bits 仅 4 类），拒编不错编
+        if (t.elems.empty()) {
+            unsupported("non-constant index on empty tuple",
                         expr.bracket().line(), expr.bracket().column());
         }
-        last_value_ = t.elems[static_cast<size_t>(idx)];
+        const CGType elem = t.elems.front().type;
+        if (elem != CGType::Int && elem != CGType::Double &&
+            elem != CGType::Bool && elem != CGType::Str) {
+            unsupported("non-constant tuple index on this element type",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        for (const auto& e : t.elems) {
+            if (e.type != elem) {
+                unsupported("non-constant index on heterogeneous tuple",
+                            expr.bracket().line(), expr.bracket().column());
+            }
+        }
+        CGValue index = emit(expr.index());
+        if (index.type != CGType::Int) {
+            unsupported("non-integer index",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        llvm::Value* arr = builder_.CreateCall(
+            rt_arr_new_,
+            {builder_.getInt64(static_cast<uint64_t>(n)),
+             builder_.getInt64(static_cast<uint64_t>(arr_kind_of(elem)))},
+            "tuparr");
+        for (long long i = 0; i < n; ++i) {
+            builder_.CreateCall(
+                rt_arr_set_,
+                {arr, builder_.getInt64(static_cast<uint64_t>(i)),
+                 elem_to_bits(t.elems[static_cast<size_t>(i)])});
+        }
+        llvm::Value* bits =
+            builder_.CreateCall(rt_arr_get_, {arr, index.value}, "tupget");
+        last_value_ = {bits_to_elem(bits, elem), elem};
         return;
     }
     if (object.type != CGType::Str && object.type != CGType::Arr) {

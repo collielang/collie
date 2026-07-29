@@ -1,0 +1,59 @@
+// t83 S36 差分用例：非常量 tuple 索引 t[i]（i 为变量/表达式）
+// 同质 tuple 物化为运行时数组后 rt_arr_get(动态 idx) 取值，
+// 复用负索引归一化 + 越界陷阱（对齐解释器 normalize_index）
+
+// 同质 integer tuple：变量索引 / 表达式索引 / 负索引变量
+Tuple t = (10, 20, 30);
+integer i = 1;
+print("a1:", t[i]);          // 20
+print("a2:", t[i + 1]);      // 30
+print("a3:", t[i - 1]);      // 10
+integer j = -1;
+print("a4:", t[j]);          // 30（负索引归一化 -1 -> 2）
+print("a5:", t[j - 1]);      // 20（-2 -> 1）
+
+// 同质 string tuple
+Tuple s = ("x", "y", "z");
+integer k = 2;
+print("b1:", s[k]);          // z
+print("b2:", s[k - 2]);      // x
+print("b3:", s[-1]);         // z（字面量负索引仍走常量路径，回归保护）
+
+// 同质 bool tuple
+Tuple b = (true, false, true);
+print("c1:", b[i]);          // false
+print("c2:", b[i - 1]);      // true
+
+// 同质 decimal tuple
+Tuple d = (1.5, 2.5, 3.5);
+print("d1:", d[i]);          // 2.5
+print("d2:", d[i + 1]);      // 3.5
+
+// 命名同质 tuple：名字不影响索引
+Tuple p = (a: 100, b: 200, c: 300);
+print("e1:", p[i]);          // 200
+print("e2:", p[i + 1]);      // 300
+
+// 索引结果参与算术/比较（同为动态 tuple 元素，语义层可比）
+print("f1:", t[i] + t[i + 1]);        // 50
+print("f2:", t[i] > t[i - 1]);        // true
+
+// 循环中动态索引遍历
+integer sum = 0;
+for (integer x = 0; x < 3; x = x + 1) {
+    sum = sum + t[x];
+}
+print("g1:", sum);           // 60
+
+// 索引变量来自另一个 tuple 元素（常量路径产出的值作动态索引）
+Tuple idxs = (0, 2);
+print("h1:", t[idxs[0]]);    // 10（idxs[0] 常量路径得 0，作 t 的动态索引）
+print("h2:", t[idxs[1]]);    // 30
+
+// 函数内部同质 tuple 动态索引（局部 tuple）
+function third() integer {
+    Tuple loc = (7, 8, 9);
+    integer m = 2;
+    return loc[m];
+}
+print("i1:", third());       // 9

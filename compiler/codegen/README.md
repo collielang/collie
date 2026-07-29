@@ -46,9 +46,10 @@
 | S33 | 小数取模：decimal 参与的 `%`（Double×Double / Int×Double / Double×Int）FRem + floor 修正（符号随除数，select 无分支），除零 FRem 天然 NaN | 小数取模程序（四象限符号/混合类型/除零/Infinity/%=/跨签名/数组元素）编译执行，输出与解释器一致 **✅ t80** |
 | S34 | none 值（CG2 缺口收敛）：gen_print Void 打常量串 "none"、to_str Void 返 "none"（覆盖 toString/插值）、visitBinary ==/!= 双 Void 恒 true/false，零新增 rt 接口 | none 函数调用结果 print/toString/插值/相等比较/逻辑运算/条件/方法体内程序编译执行，输出与解释器一致 **✅ t81** |
 | S35 | 实例（Obj）相等：visitBinary ==/!= 与 gen_match_eq（==?/switch）对任一侧 Obj 恒 false 常量折叠（对齐解释器 values_equal 无 Instance 分支落 default，含同一实例），零新增 rt 接口 | 实例 ==/!=（不同/同一实例/引用别名）、==? / switch 目标为实例、函数内实例相等、结果进逻辑/条件程序编译执行，输出与解释器一致 **✅ t82** |
+| S36 | 非常量 tuple 索引：同质 tuple（元素同 CGType 且 ∈ {Int/Double/Bool/Str}）的 `t[i]`（i 变量/表达式）物化运行时数组后 rt_arr_get(动态 idx) 取值，复用负索引归一化 + 越界陷阱（消息与解释器一致），零新增 rt 接口 | 同质 tuple 变量/表达式/负索引变量、命名同质 tuple、for 循环遍历、嵌套索引、函数内局部 tuple 程序编译执行，输出与解释器一致 **✅ t83** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -419,6 +420,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a == b` / `a != b`（任一侧实例） | visitBinary 比较分支在 Arr 分支之后加 Obj 分支：任一侧 Obj 且 ==/!= 时 eq = `i1 false` 常量，!= 取反（`CreateNot`）；对齐解释器 values_equal 无 Instance 分支落 default 恒 false——不同实例、同一实例 `a == a`、引用别名 `Box c = a; a == c` 全 false（值相等语义即引用恒不等价） |
 | `a ==? cand: r, default` / `switch (a) {…}`（实例目标） | gen_match_eq 末尾拒编前加 Obj 分支：任一侧 Obj → `i1 false`；==? 全部候选不命中走默认结果、switch 全部 case 不命中走 default（无 default 静默跳过）；与 gen_tuple_eq 早有"任一 Obj 元素恒 false"先例一致 |
 | 范围外 | 实例关系比较 `<`/`<=`/`>`/`>=`（落 require_numeric 拒编 "non-numeric operand of '<'"，解释器 runtime 亦报 "Comparison operands must be both numbers or both strings"）；tribool 混型相等（语义层两端一致拦截 "Incomparable operand types"）；实例作 tuple/数组元素相等（gen_tuple_eq/rt_arr_eq 早已恒 false）；零新增 collie_rt 接口、零结构改动 |
+
+**S36 降级补充（t83 实现）：非常量 tuple 索引**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `t[i]`（i 变量/表达式，t 同质 tuple） | visitIndex Tup 分支：`const_int_of` 失败进非常量路径——三重守卫（空 tuple / 元素非 {Int/Double/Bool/Str} / 异质分别拒编），过守卫后 rt_arr_new(n, kind) + 逐元素 elem_to_bits/rt_arr_set 物化为运行时数组、rt_arr_get(动态 idx) 取 i64 bits、bits_to_elem 还原为元素类型；负索引归一化 + 越界陷阱（消息 "Index N out of range (size M)"）由 collie_rt_arr_norm_index 复用，与解释器 normalize_index 完全一致 |
+| 常量索引 `t[0]` / `t[-1]`（回归） | 保持编译期解析（`const_int_of` 成功路径内联不变），负索引归一化 + 静态越界拒编不错编 |
+| 关键修复 | `const CGTuple& t` 改按值拷贝 `const CGTuple t`——非常量路径 `emit(index)` 可能触发 register_tuple 扩容 tuple_values_ 使引用悬垂（`t[idxs[0]]` 嵌套索引实测 0xC0000005），与 gen_tuple_eq 同一防护 |
+| 范围外 | 异质 tuple 非常量索引（结果类型静态不可定，拒编 "non-constant index on heterogeneous tuple"，解释器动态可求值）；Num/嵌套(Tup/Arr/Obj)元素同质 tuple（数组槽 elem_to_bits 仅 4 类，拒编 "non-constant tuple index on this element type"）；空 tuple 非常量索引；`(t[i]==literal)`/`&&` 混逻辑（语义层不追踪 tuple 元素类型，两端一致 "Incomparable operand types"）；tuple 作函数形参/实参（"tuple in function signature"）；tuple `get()` 动态键（留作 t84）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 
