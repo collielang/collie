@@ -246,6 +246,14 @@ private:
     llvm::Value* gen_match_eq(const CGValue& target, const CGValue& cand,
                               const Token& op);
 
+    /// @brief tuple 相等比较（t75）：静态展开逐元素深比较出 i1（对齐解释器
+    /// values_equal Tuple 分支：先比元素数再比名字表，形状不一致编译期即
+    /// 常量 false）；元素同域标量复用四路降级 And 链合并、嵌套 tuple 递归、
+    /// 异型配对/Obj 恒 false（kind 不等/无 Instance 分支）；含 Arr 元素拒编
+    /// 不错编（解释器对数组是深比较，恒 false 会错值）
+    llvm::Value* gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
+                              const Token& op);
+
     /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void
     void declare_function(const FunctionStmt& stmt);
 

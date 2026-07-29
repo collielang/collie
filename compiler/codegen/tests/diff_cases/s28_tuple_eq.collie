@@ -1,0 +1,67 @@
+// t75 S28 差分用例：tuple 相等比较（==/!= 静态展开逐元素深比较）
+
+// 无名元组：相同值 / 不同值 / != 取反
+Tuple a = (1, 2.5, "x");
+Tuple b = (1, 2.5, "x");
+Tuple c = (1, 2, "x");
+print("eq:", a == b);
+print("ne:", a != b);
+print("diff:", a == c, a != c);
+
+// 长度不一致：恒 false（对齐解释器先比元素数）
+Tuple s2 = (1, 2);
+Tuple s3 = (1, 2, 3);
+print("len:", s2 == s3, s2 != s3);
+
+// 名字表不一致：恒 false（对齐解释器再比名字表）
+Tuple n1 = (name: "A", age: 3);
+Tuple n2 = (name: "A", age: 3);
+Tuple n3 = (id: "A", age: 3);
+print("named:", n1 == n2, n1 == n3);
+
+// 命名值不同：形状同但元素值不等
+Tuple n4 = (name: "B", age: 3);
+print("nameval:", n1 == n4);
+
+// 嵌套元组递归 + 混型 5 == 5.0（double 视图相等）
+Tuple m1 = (5, (1, 2));
+Tuple m2 = (5.0, (1, 2));
+Tuple m3 = (5, (1, 9));
+print("nested:", m1 == m2, m1 == m3);
+
+// 异型标量配对：kind 不等恒 false（长度/名字表相同）
+Tuple x1 = (1, "x");
+Tuple x2 = ("x", 1);
+print("kind:", x1 == x2, x1 != x2);
+
+// bool / tribool 元素（三态判等）
+Tuple t1 = (true, unset);
+Tuple t2 = (true, unset);
+Tuple t3 = (true, false);
+print("tri:", t1 == t2, t1 == t3);
+
+// 字面量直接比较 + 变量与字面量比较
+print("lit:", (3, "y") == (3, "y"), a == (1, 2.5, "x"), a == (1, 2.5, "z"));
+
+// 空元组
+Tuple e1 = ();
+Tuple e2 = ();
+print("empty:", e1 == e2, e1 != e2);
+
+// if 条件中使用 + 三元
+if (a == b) {
+    print("branch: same");
+} else {
+    print("branch: diff");
+}
+print("ternary:", n1 == n3 ? "hit" : "miss");
+
+// number 元素参与（tagged 表示，rt_num_cmp 精确比较）
+number v = 7;
+Tuple k1 = (v, "k");
+Tuple k2 = (7.0, "k");
+print("num:", k1 == k2);
+
+// 重赋值后再比较（逐槽写入后的新值）
+a = (9, 8.5, "w");
+print("reassign:", a == b, a == (9, 8.5, "w"));

@@ -436,6 +436,20 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             // 比较运算（S3 t50）：bool 仅支持 ==/!=；数值混型提升为 double 后 fcmp，
             // 纯整数走 icmp；!= 用 UNE（NaN != NaN 为 true，IEEE 语义与解释器一致）
             const TokenType t = op.type();
+            // tuple 相等（t75）：任一侧 Tup 且 ==/!= 时静态展开深比较；
+            // Tup × 非 Tup 恒 false（对齐解释器 values_equal kind 不等）；
+            // tuple 关系比较落下方 require_numeric 拒编（解释器同样不支持）
+            if ((lhs.type == CGType::Tup || rhs.type == CGType::Tup) &&
+                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                llvm::Value* eq = lhs.type == CGType::Tup && rhs.type == CGType::Tup
+                                      ? gen_tuple_eq(lhs, rhs, op)
+                                      : builder_.getInt1(false);
+                last_value_ = {t == TokenType::OP_EQUAL
+                                   ? eq
+                                   : builder_.CreateNot(eq, "cmptmp"),
+                               CGType::Bool};
+                return;
+            }
             // string × string（S7 t55）：call collie_rt_strcmp 后与 0 做对应 icmp；
             // 逐字节字典序与解释器 std::string 比较一致（eval_comparison/values_equal）；
             // 混型（Str × 非 Str）落入下方 require_numeric 拒编，解释器运行期也报错
@@ -2497,6 +2511,79 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
     }
     // object/数组/元组等候选比较范围外，拒编不错编
     unsupported("'==?' comparison of these value types", op.line(), op.column());
+}
+
+llvm::Value* CodeGenerator::gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
+                                         const Token& op) {
+    // 静态展开深比较（t75，对齐解释器 values_equal Tuple 分支）：
+    // 元素数/名字表编译期全可知，形状不一致直接常量 false；
+    // 按值拷贝不留引用（嵌套递归中 register_tuple 可能扩容 tuple_values_）
+    const CGTuple lt = tuple_values_[lhs.tup];
+    const CGTuple rt = tuple_values_[rhs.tup];
+    if (lt.elems.size() != rt.elems.size() || lt.names != rt.names) {
+        return builder_.getInt1(false);
+    }
+    llvm::Value* all = builder_.getInt1(true);
+    for (size_t i = 0; i < lt.elems.size(); ++i) {
+        const CGValue& a = lt.elems[i];
+        const CGValue& b = rt.elems[i];
+        // 数组元素拒编不错编：解释器对 Array 是逐元素深比较，
+        // 恒 false 会产出错值（数组动态长度，静态展开不可达）
+        if (a.type == CGType::Arr || b.type == CGType::Arr) {
+            unsupported("tuple equality with array element",
+                        op.line(), op.column());
+        }
+        llvm::Value* e = nullptr;
+        if (a.type == CGType::Tup && b.type == CGType::Tup) {
+            // 嵌套 tuple 递归
+            e = gen_tuple_eq(a, b, op);
+        } else if (a.type == CGType::Tup || b.type == CGType::Tup ||
+                   a.type == CGType::Obj || b.type == CGType::Obj) {
+            // Tup × 非 Tup（kind 不等）/ 任一 Obj（解释器 values_equal
+            // 无 Instance 分支）恒 false
+            e = builder_.getInt1(false);
+        } else if (a.type == CGType::Str && b.type == CGType::Str) {
+            llvm::Value* c =
+                builder_.CreateCall(rt_strcmp_, {a.value, b.value}, "strcmptmp");
+            e = builder_.CreateICmpEQ(c, builder_.getInt32(0), "tupeq");
+        } else if (a.type == CGType::Tri || b.type == CGType::Tri) {
+            // tribool 三态判等：另一侧限 tribool/bool（bool 加宽三态），
+            // 与非布尔配对即 kind 不等恒 false
+            const CGValue& other = a.type == CGType::Tri ? b : a;
+            if (other.type != CGType::Tri && other.type != CGType::Bool) {
+                e = builder_.getInt1(false);
+            } else {
+                e = builder_.CreateICmpEQ(to_tri(a), to_tri(b), "tupeq");
+            }
+        } else if (a.type == CGType::Bool && b.type == CGType::Bool) {
+            e = builder_.CreateICmpEQ(a.value, b.value, "tupeq");
+        } else {
+            auto is_numeric = [](CGType t) {
+                return t == CGType::Int || t == CGType::Double || t == CGType::Num;
+            };
+            if (!is_numeric(a.type) || !is_numeric(b.type)) {
+                // 剩余异型标量配对（Str×Int、Bool×Str 等）kind 不等恒 false
+                e = builder_.getInt1(false);
+            } else if (a.type == CGType::Num || b.type == CGType::Num) {
+                // number 相等（t62）：rt_num_cmp op 0（双整数精确、混合 double 视图）
+                llvm::Value* x = to_num(a);
+                llvm::Value* y = to_num(b);
+                llvm::Value* c = builder_.CreateCall(
+                    rt_num_cmp_,
+                    {builder_.getInt64(0), num_tag(x), num_bits(x),
+                     num_tag(y), num_bits(y)},
+                    "numcmp");
+                e = builder_.CreateICmpNE(c, builder_.getInt32(0), "tupeq");
+            } else if (a.type == CGType::Double || b.type == CGType::Double) {
+                // 混合表示按 double 视图相等（5 == 5.0，对齐解释器 values_equal）
+                e = builder_.CreateFCmpOEQ(to_double(a), to_double(b), "tupeq");
+            } else {
+                e = builder_.CreateICmpEQ(a.value, b.value, "tupeq");
+            }
+        }
+        all = builder_.CreateAnd(all, e, "tupeqall");
+    }
+    return all;
 }
 
 void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {

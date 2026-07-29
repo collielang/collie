@@ -38,9 +38,10 @@
 | S25 | 类实例作类字段：CGField 加 cls 伴随，字段声明识 IDENTIFIER 类名，读写严格同类（属性链/引用语义/整体替换/继承） | 字段实例属性链读写/深链写/跨签名/继承程序编译执行，输出与解释器一致 **✅ t72** |
 | S26 | 顶层变量提升全局槽：CGVar.slot 改型 Value*，顶层声明建零初始化 GlobalVariable（初始值仍在 @main 按源序 store），函数/方法体以顶层层拷贝为作用域链底（Tup 剔除） | 函数/方法读写全局、全局数组/实例引用语义、遮蔽程序编译执行，输出与解释器一致 **✅ t73** |
 | S27 | number 作类字段：删 t62 拒编守卫（StructType 按 llvm_type_of 拼装，{i64,i64} 自动占位），malloc 上界按字段类型累计（Num 16、其余 8） | 字段两态初始值/读写/混合布局/跨签名/继承程序编译执行，输出与解释器一致 **✅ t74** |
+| S28 | tuple 相等比较：==/!= 静态展开逐元素深比较（形状不一致编译期常量 false，标量四路降级 And 链合并，嵌套递归） | 无名/命名/嵌套/混型/空元组比较程序编译执行，输出与解释器一致 **✅ t75** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁，动态索引/动态键/进函数签名/进数组/相等比较仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -272,7 +273,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `t[常量 i]` | 编译期解析成对应元素：`const_int_of` AST 层模式匹配（整数字面量或一元负号包字面量，避开 emit 的溢出检查产非常量指令）；负索引归一化对齐解释器 normalize_index；越界/动态索引拒编 |
 | `t.length` / `t.name` / `t.get("键")` | length 常量折叠 `i64 n`（优先于同名字段，对齐解释器分支顺序）；命名字段线性扫名字表（不排除空名）、get 限字符串字面量键（排除空名）——两处匹配规则分别对齐解释器 visitProperty/get；未命中/动态键拒编 |
 | print / toString / 插值 | `tuple_to_str` 静态展开："("、", "、"name: "、")" 常量段编译期合并，元素经 `to_str` 降级（嵌套 Tup 递归），`collie_rt_concat` 链拼接；格式对齐 Value::to_string Tuple 分支（string 元素不加引号，空元组 `()`） |
-| 防错编守卫 | 三元/`==?` 分支产 tuple 显式拒编（虚值 nullptr 进 PHI 会静默错编）；`llvm_type_of(Tup)` 拒编（类字段等位置）；`declared_signature_type` 对 KW_TUPLE 拒编（形状跨函数边界不可知）；比较/算术/len/进数组等其余触点经既有 default/else 分支自然拒编 |
+| 防错编守卫 | 三元/`==?` 分支产 tuple 显式拒编（虚值 nullptr 进 PHI 会静默错编）；`llvm_type_of(Tup)` 拒编（类字段等位置）；`declared_signature_type` 对 KW_TUPLE 拒编（形状跨函数边界不可知）；算术/len/进数组等其余触点经既有 default/else 分支自然拒编（相等比较已于 S28 t75 解锁） |
 | 接口面 | 零新增 collie_rt 接口（仅复用 `collie_rt_concat`） |
 
 **S22 降级补充（t69 实现）：char/byte/word + 位运算**：
@@ -337,6 +338,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 字段初始值 / 字段写 | coerce_for_slot 既有 Num 槽分支：integer/decimal 来源 to_num 加宽（保持原表示打 tag，对齐解释器 coerce_to_declared KW_NUMBER 原样通过）、number 来源相等直通，零新增转换 |
 | 字段参与运算/方法/跨签名 | 字段读出即 CGValue{Num}，算术/比较/print/插值/abs 等内建方法/函数传参返回全走 t62 既有 Num 路径（16 字节按值流转先例：变量/全局槽、tuple 解构槽、签名传参） |
 | 范围外 | Tup 字段（既有拒编不变）、number 字段读出赋窄化静态槽（走既有 Num→静态槽拒编）、字段上直接一元负号/相等比较（语义层对属性访问的既有限制，经 number 局部变量可用） |
+
+**S28 降级补充（t75 实现）：tuple 相等比较**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `t1 == t2` / `t1 != t2` | visitBinary ==/!= 前置分支 `gen_tuple_eq` 静态展开（先于 require_numeric）：元素数/名字表编译期全可知，形状不一致直接常量 `i1 false`（对齐解释器 values_equal 先比 size 再比 names）；`!=` 对结果 CreateNot 取反 |
+| 逐元素比较 | 复用四路标量降级出 i1 后 And 链合并：Str×Str→rt_strcmp==0、任一 Tri（另一侧限 tribool/bool）→to_tri 后 icmp、任一 Num→rt_num_cmp op 0（双整数精确、混合 double 视图）、Int/Double→icmp/fcmp OEQ（5 == 5.0 混型提升） |
+| 嵌套 tuple 元素 | gen_tuple_eq 递归（注册表按值拷贝不留引用，防 register_tuple 扩容失效） |
+| 恒 false 配对 | Tup × 非 Tup 整体/元素（kind 不等）、任一元素 Obj（解释器 values_equal 无 Instance 分支，同一实例也 false）、异型标量配对（Str×Int 等）——均编译期常量 false，对齐解释器 |
+| 防错编守卫 | 元素含 Arr 拒编不错编（"tuple equality with array element"——解释器对数组是逐元素深比较，恒 false 会错值）；Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 分支是防御性双保险 |
+| 范围外 | `==?`/switch 的 tuple 候选（gen_match_eq 另一路径）、tuple 关系比较 < <= > >=（解释器同样不支持）、数组深比较（Arr×Arr 独立任务）；接口面零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

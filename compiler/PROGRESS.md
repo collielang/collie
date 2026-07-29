@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t74 完成：codegen number 作类字段——推翻 t62「8 字节槽」拒编理由，删守卫 + visitNew malloc 上界按字段类型累计（Num 16），struct 建型/GEP 读写/coerce_for_slot 加宽全零新增，差分 26/26）
+最后更新：2026-07-28（t75 完成：codegen tuple 相等比较——visitBinary ==/!= 前置分支 gen_tuple_eq 静态展开逐元素深比较，形状不一致编译期常量 false、标量四路降级 And 链合并、嵌套递归、含 Arr 元素拒编不错编，差分 27/27）
 
 ---
 
@@ -443,6 +443,12 @@
     - 实现：register_class_layout 守卫删除（放行注释登记）+ visitNew size 累计循环（空字段类保底 8）；collie_rt.c rt_obj_new 注释同步；调研修正：tribool 字段实测早已随 S18 tribool 支持自然放行（此前文档「tribool 字段拒编」记录有偏差，README 已更正），实际拒编面仅 Num（本次解锁）/Tup
     - 验证：新差分用例 s27_number_field（字段两态初始值/方法内 this 读写混合算术/外部写三态加宽直通/字段参与算术除法取模比较/abs・isInteger・integerPart・toString 字段上调用/跨签名传参返回写回/构造器接 number 形参存字段/Num 夹 8 字节字段混合布局 GEP 偏移/继承父类 Num 字段/插值三元），先解释器跑通（17 行）再进差分门禁；拒编实证两项：Tuple 字段报 "tuple value in this position"、number 字段读出赋 decimal 槽报 "implicit conversion"（解释器均可容）；ctest -C Release 差分 26/26 逐字节一致（s27 首跑即过）；Debug 门禁 6/6 不受影响
     - 范围外：Tup 字段（既有拒编不变）、number 字段读出赋窄化静态槽（既有拒编）、字段上直接一元负号/相等比较（语义层对属性访问的既有限制，非 codegen 范围）、数组元素 Num 表示（t70 拆 kind+payload 路线不变）
+- [x] codegen tuple 相等比较（t75）
+    - 选型：候选盘点（实例相等——解释器 values_equal 无 Instance 分支恒 false、tuple 相等——解释器深比较、顶层 tuple 全局化——横跨 t68/t73 两机制回归面大）中 tuple 相等差分价值最高且预检确认语义层放行（is_comparable_type 可比）、解释器深比较正确（长度/名字表/嵌套/5==5.0 混型全通）、codegen 现拒编 "non-numeric operand of '=='"
+    - 范围拍板：visitBinary ==/!= 加 Tup×Tup 前置分支（先于 require_numeric），纯编译期静态展开递归：长度或名字表不一致 → 常量 i1（对齐解释器先比 size 再比 names）；逐元素按既有标量降级复用（Str→rt_strcmp、Tri/Bool→三态 icmp、Num/混型→rt_num_cmp/fcmp、Int→icmp），And 链合并，嵌套 tuple 递归；元素含 Arr/Obj 或与异型标量配对时贡献恒 false（对齐解释器 kind 不等/无 Instance 分支恒 false，Arr 深比较例外——含 Arr 元素拒编不错编，避免错值）；Tup × 非 Tup 恒 false（kind 不等）；!= 整体取反
+    - 实现：gen_tuple_eq 递归辅助函数（tuple_values_ 按值拷贝不留引用，防 register_tuple 扩容失效）+ visitBinary 前置分支（!= 对结果 CreateNot）；零新增 collie_rt 接口；实测修正：Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 恒 false 分支是防御性双保险
+    - 验证：新差分用例 s28_tuple_eq（无名/命名相等与不等、长度不一致、名字表不一致、嵌套递归 + 5==5.0 混型、异型标量配对恒 false、bool/tribool 三态元素、字面量直比、空元组、if 条件/三元中使用、number 元素 rt_num_cmp、重赋值后再比较），先解释器跑通（15 行）再进差分门禁；实证两项：含数组元素 tuple 相等拒编 "tuple equality with array element"（解释器深比较可容输出 true）、Obj 元素两端恒 false 一致（同一实例也 false）；ctest -C Release 差分 27/27 逐字节一致（s28 首跑即过）；Debug 门禁 6/6 不受影响
+    - 范围外：==? / switch 的 tuple 候选（gen_match_eq 另一路径，可留后续）、关系比较 < <= > >=（解释器也不支持 tuple 关系比较）、数组深比较（Arr×Arr 独立任务）
 
 ---
 
@@ -497,6 +503,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen tuple 相等比较（t75，M6）：visitBinary ==/!= 加 Tup×Tup 前置分支（先于 require_numeric），gen_tuple_eq 纯编译期静态展开递归深比较——长度或名字表不一致编译期常量 false（对齐解释器 values_equal 先比 size 再比 names），逐元素复用四路标量降级（Str→rt_strcmp、Tri/Bool→三态 icmp、Num/混型→rt_num_cmp op 0、Int/Double→icmp/fcmp）And 链合并，嵌套递归（注册表按值拷贝防扩容失效）；Obj 元素/异型标量配对恒 false 对齐解释器，含 Arr 元素拒编不错编（深比较恒 false 会错值），!= 整体取反；零新增 collie_rt 接口；新差分用例 s28_tuple_eq + 含数组元素拒编/Obj 元素两端恒 false 两实证，ctest -C Release 差分 27/27 逐字节一致，Debug 门禁 6/6（M6 t75）
 - 2026-07-28 `feat(compiler)`: codegen number 作类字段（t74，M6）：复评推翻 t62「字段块 8 字节槽装不下 16 字节 tagged」拒编理由——StructType 按 llvm_type_of 逐字段拼装，Num 自动占位 {i64,i64}；改动两处：删 register_class_layout 拒编守卫 + visitNew malloc 上界改按字段类型累计（Num 16、其余 8，空字段类保底 8）；字段 GEP 读写/coerce_for_slot 加宽（Int/Double→to_num、Num 直通）全零新增，对齐解释器 coerce_to_declared KW_NUMBER；调研修正：tribool 字段实已随 S18 自然放行，实际拒编面仅 Num/Tup；新差分用例 s27_number_field + Tuple 字段/Num 读出赋 decimal 槽两拒编实证，ctest -C Release 差分 26/26 逐字节一致，Debug 门禁 6/6（M6 t74）
 - 2026-07-28 `feat(compiler)`: codegen 顶层变量提升 LLVM 全局槽（t73，M6）：CGVar.slot 改型 Value*（全使用点仅 load/store 零风险），create_var_slot 统一建槽入口——顶层（!in_function_ && 深度 1）建零初始化 GlobalVariable（InternalLinkage + collie.g. 前缀），初始值仍在 @main 按源序 store，块内声明维持 alloca；visitFunction/gen_method_body 以顶层层拷贝为作用域链底（Tup 剔除，跨函数引用走既有 identifier 拒编），lookup_var 零改动，形参/局部天然遮蔽；顺序安全：语义层函数声明处分析 + 前向调用报错 ⇒ 零初始化值不可观察；新差分用例 s26_globals + 顶层 tuple 跨函数拒编实证，ctest -C Release 差分 25/25 逐字节一致，Debug 门禁 6/6（M6 t73）
 - 2026-07-28 `feat(compiler)`: codegen 类实例作类字段（t72，M6）：CGField 加 cls 伴随，register_class_layout 加 IDENTIFIER 前置分支（类名须已注册声明在前，前向引用语义层更早拦截，classes_ 查询防御性双保险）；coerce_for_slot 加 slot_cls 参数，相等分支 Obj 严格同类校验（向上转型拒编不错编，一处覆盖字段赋值/字段初始化两入口，其余调用点 Obj 均有前置分支零回归）；visitProperty/visitPropertyAssign 字段读写带 cls，属性链/单态化方法调用/深链写/继承/跨签名全走 t61 既有 Obj 路径；新差分用例 s25_object_field + 两拒编实证，ctest -C Release 差分 24/24 逐字节一致，Debug 门禁 6/6（M6 t72）
