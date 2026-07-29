@@ -187,9 +187,10 @@ private:
     struct CGClass {
         const ClassStmt* stmt = nullptr;
         std::string super;                  // 父类名，空即无继承（t61）
-        llvm::StructType* type = nullptr;
+        uint64_t id = 0;                    // 类 id（注册序，t86）：对象头部存储，动态分派 switch 用
+        llvm::StructType* type = nullptr;   // 头部 i64 类 id + 字段（字段 GEP 下标 = 逻辑下标 + 1，t86）
         std::vector<CGField> fields;                          // 父链 base-first 合并后顺序 = 字段下标
-        std::unordered_map<std::string, unsigned> field_index; // 字段名 → struct 下标
+        std::unordered_map<std::string, unsigned> field_index; // 字段名 → 逻辑下标（GEP 需 +1 跳头部）
         std::unordered_map<std::string, std::string> dispatch; // 方法名 → 实例键 "D.m"（覆写解析后，含构造器）
         std::unordered_map<std::string, CGMethod> instances;   // "D.m" → 本类分派上下文的单态化实例
     };
@@ -280,6 +281,10 @@ private:
     /// base 解析用，对齐解释器 find_method 的自子向父查找）；未找到返空串
     std::string find_defining_class(const std::string& start,
                                     const std::string& mname);
+
+    /// @brief sub 是否为 ancestor 的（真）后代类（t86，向上转型判定）：
+    /// 沿 CGClass.super 链自 sub 向上查找；sub == ancestor 时返回 false
+    bool is_subclass_of(const std::string& sub, const std::string& ancestor);
 
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);

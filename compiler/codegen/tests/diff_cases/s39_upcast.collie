@@ -1,0 +1,117 @@
+// t86 S39 差分用例：类继承向上转型（upcast）——子类实例进父类形参/返回值/
+// 变量槽/类字段，方法调用按对象头类 id 动态分派（覆写沿动态类生效）
+
+// 三级继承链：Animal <- Dog <- Puppy（覆写 sound；describe 为模板方法）
+class Animal {
+    public string name = "?";
+    public integer legs = 4;
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function sound() string {
+        return "...";
+    }
+
+    public function describe() string {
+        // 模板方法：this.sound() 按实例实际类分派
+        return this.name + " says " + this.sound();
+    }
+
+    public function info() string {
+        return "animal " + this.name;
+    }
+}
+
+class Dog extends Animal {
+    public string breed = "collie";
+
+    public Dog(n string, b string) : base(n) {
+        this.breed = b;
+    }
+
+    @override
+    public function sound() string {
+        return "woof";
+    }
+
+    @override
+    public function info() string {
+        // base.info() 静态绑定 Animal.info（upcast 不影响 base 语义）
+        return base.info() + " / dog " + this.breed;
+    }
+}
+
+class Puppy extends Dog {
+    public integer age = 0;
+
+    public Puppy(n string, a integer) : base(n, "collie") {
+        this.age = a;
+    }
+
+    @override
+    public function sound() string {
+        return "yip";
+    }
+}
+
+// 1) 子类实例传父类形参：覆写方法沿动态类分派
+function intro(a Animal) string {
+    return a.describe();
+}
+
+Dog d = new Dog("rex", "husky");
+Puppy p = new Puppy("mini", 1);
+print(intro(d));            // rex says woof
+print(intro(p));            // mini says yip
+print(intro(new Animal("generic"))); // generic says ...
+
+// 2) 中层静态类形参：Puppy 经 Dog 槽分派
+function bark(x Dog) string {
+    return x.sound();
+}
+print(bark(p));             // yip
+
+// 3) 返回父类装子类
+function make(kind integer) Animal {
+    if (kind == 1) {
+        return new Dog("bolt", "border");
+    }
+    if (kind == 2) {
+        return new Puppy("dot", 2);
+    }
+    return new Animal("plain");
+}
+Animal m1 = make(1);
+Animal m2 = make(2);
+Animal m0 = make(0);
+print(m1.sound(), m2.sound(), m0.sound()); // woof yip ...
+
+// 4) 父类变量槽赋值 upcast + 覆写与未覆写方法混调
+Animal slot = m0;
+slot = d;
+print(slot.info());         // animal rex / dog husky（Dog 覆写 info）
+slot = p;
+print(slot.info());         // animal mini / dog collie（Puppy 继承 Dog.info）
+print(slot.legs, slot.name); // 4 mini（父类字段经前缀布局读取）
+
+// 5) 类字段 upcast：父类类型字段存子类实例
+class Kennel {
+    public Animal resident = new Animal("empty");
+
+    public Kennel(a Animal) {
+        this.resident = a;
+    }
+
+    public function who() string {
+        return this.resident.describe();
+    }
+}
+Kennel k = new Kennel(p);
+print(k.who());             // mini says yip
+k.resident = d;
+print(k.who());             // rex says woof
+
+// 6) 静态类无后代：直调路径不受影响
+print(p.age, d.breed);      // 1 husky

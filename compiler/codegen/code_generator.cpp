@@ -6,6 +6,7 @@
  */
 #include "code_generator.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <set>
@@ -975,8 +976,10 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     }
     if (var->type == CGType::Obj) {
         // 实例赋值即指针拷贝（引用语义对齐解释器 shared_ptr，t60）；
-        // 跨类赋值拒编不错编（字段布局不同，错类会错值）
-        if (v.type != CGType::Obj || v.cls != var->cls) {
+        // 子类实例可赋父类变量（t86 upcast，槽静态 cls 不变）；其余
+        // 跨类拒编不错编（字段布局不同，错类会错值）
+        if (v.type != CGType::Obj ||
+            (v.cls != var->cls && !is_subclass_of(v.cls, var->cls))) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
@@ -1243,9 +1246,11 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     CGValue object = emit(expr.object());
 
     if (object.type == CGType::Obj) {
-        // 类实例方法（t60/t61）：查分派表（覆写解析已在注册遍完成，静态 cls
-        // 即动态类——向上转型拒编所保）调本类单态化实例；未命中时 toString
-        // 内建兜底返 "<object>"（对齐解释器分派顺序：find_method 优先）
+        // 类实例方法（t60/t61/t86）：查分派表后，静态 cls 无后代类 → 直调
+        // 本类单态化实例（现状零开销）；有后代类（upcast 后动态类可能为任一
+        // 后代）→ 读对象头类 id switch 到动态类的单态化实例（模板方法 this
+        // 分派天然正确）；未命中时 toString 内建兜底返 "<object>"（对齐解释
+        // 器分派顺序：find_method 优先）
         const CGClass& cls = classes_.at(object.cls);
         auto dit = cls.dispatch.find(name);
         if (dit != cls.dispatch.end()) {
@@ -1261,11 +1266,76 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                 args.push_back(coerce_call_arg(a, info.param_types[i],
                                                info.param_cls[i], line, column));
             }
-            llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+            // 后代类收集（t86）：任一后代都可能是动态类（upcast 放行后）；
+            // 按类 id 排序保证 case 生成顺序确定（classes_ 无序表）
+            std::vector<const CGClass*> subs;
+            for (const auto& entry : classes_) {
+                if (is_subclass_of(entry.first, object.cls)) {
+                    subs.push_back(&entry.second);
+                }
+            }
+            std::sort(subs.begin(), subs.end(),
+                      [](const CGClass* a, const CGClass* b) {
+                          return a->id < b->id;
+                      });
+            llvm::Value* result = nullptr;
+            if (subs.empty()) {
+                result = builder_.CreateCall(info.fn, args);
+            } else {
+                // 各后代副本签名须与静态类一致（覆写同签名，语义层校验的
+                // 防御；不一致则统一 PHI 不可行，拒编不错编）
+                for (const CGClass* sub : subs) {
+                    const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+                    if (m.ret_type != info.ret_type || m.ret_cls != info.ret_cls ||
+                        m.param_types != info.param_types ||
+                        m.param_cls != info.param_cls) {
+                        unsupported("overriding method '" + name +
+                                        "' with a different signature",
+                                    line, column);
+                    }
+                }
+                // 读头部类 id（struct 元素 0，偏移 0 即对象指针本身）后
+                // switch：default = 静态类，case = 各后代类
+                llvm::Value* clsid = builder_.CreateLoad(
+                    builder_.getInt64Ty(), object.value, "clsid");
+                llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+                auto* static_bb =
+                    llvm::BasicBlock::Create(context_, "dispatch.static", fn);
+                auto* merge_bb =
+                    llvm::BasicBlock::Create(context_, "dispatch.end", fn);
+                llvm::SwitchInst* sw = builder_.CreateSwitch(
+                    clsid, static_bb, static_cast<unsigned>(subs.size()));
+                std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+                auto emit_arm = [&](const CGClass& c, llvm::BasicBlock* bb) {
+                    builder_.SetInsertPoint(bb);
+                    const CGMethod& m = c.instances.at(c.dispatch.at(name));
+                    llvm::Value* call = builder_.CreateCall(m.fn, args);
+                    incoming.emplace_back(builder_.GetInsertBlock(), call);
+                    builder_.CreateBr(merge_bb);
+                };
+                emit_arm(cls, static_bb);
+                for (const CGClass* sub : subs) {
+                    auto* bb = llvm::BasicBlock::Create(
+                        context_,
+                        "dispatch." + std::string(sub->stmt->name().lexeme()), fn);
+                    sw->addCase(builder_.getInt64(sub->id), bb);
+                    emit_arm(*sub, bb);
+                }
+                builder_.SetInsertPoint(merge_bb);
+                if (info.ret_type != CGType::Void) {
+                    llvm::PHINode* phi = builder_.CreatePHI(
+                        llvm_type_of(info.ret_type),
+                        static_cast<unsigned>(incoming.size()), "dispatchtmp");
+                    for (const auto& in : incoming) {
+                        phi->addIncoming(in.second, in.first);
+                    }
+                    result = phi;
+                }
+            }
             // Arr 返回值 elem 记 Num 哨兵（t70，同 visitCall）
             last_value_ = (info.ret_type == CGType::Void)
                               ? CGValue{nullptr, CGType::Void}
-                              : CGValue{call, info.ret_type,
+                              : CGValue{result, info.ret_type,
                                         info.ret_type == CGType::Arr ? CGType::Num
                                                                      : CGType::Int,
                                         info.ret_cls};
@@ -1464,7 +1534,7 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         }
         const CGField& field = cls.fields[it->second];
         llvm::Value* slot =
-            builder_.CreateStructGEP(cls.type, object.value, it->second, name);
+            builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name);
         // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
         // 即动态域，同 t70 形参机制）；Obj 字段带类名（t72）
         last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
@@ -1513,7 +1583,7 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     const CGField& field = cls.fields[it->second];
     llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
     builder_.CreateStore(
-        stored, builder_.CreateStructGEP(cls.type, object.value, it->second, name));
+        stored, builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name));
     // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
     // Obj 字段带类名（t72）
     last_value_ = {stored, field.type,
@@ -1533,13 +1603,15 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
-    uint64_t size = 0;
+    uint64_t size = 8; // i64 类 id 头部（t86）
     for (const CGField& field : cls.fields) {
         size += field.type == CGType::Num ? 16 : 8;
     }
-    if (size == 0) size = 8;  // 空字段类给最小分配（rt_obj_new 非零入参）
     llvm::Value* obj =
         builder_.CreateCall(rt_obj_new_, {builder_.getInt64(size)}, "objnew");
+    // 写类 id 头部（struct 元素 0，t86）：upcast 后方法调用点按 id 动态分派
+    builder_.CreateStore(builder_.getInt64(cls.id),
+                         builder_.CreateStructGEP(cls.type, obj, 0, "clsid"));
     for (unsigned i = 0; i < cls.fields.size(); ++i) {
         const CGField& field = cls.fields[i];
         CGValue v = emit(field.decl->initializer());
@@ -1547,7 +1619,7 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name(),
                                               field.cls);
         builder_.CreateStore(stored,
-                             builder_.CreateStructGEP(cls.type, obj, i, field.name));
+                             builder_.CreateStructGEP(cls.type, obj, i + 1, field.name));
     }
     // 构造器实参在字段初始化之后求值（对齐解释器顺序）
     std::vector<CGValue> args;
@@ -1685,7 +1757,10 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
                         stmt.type().line(), stmt.type().column());
         }
         CGValue init = emit(stmt.initializer());
-        if (init.type != CGType::Obj || init.cls != cls_name) {
+        // 子类实例可初始化父类变量（t86 upcast，静态 cls 记声明类）；
+        // 其余跨类拒编不错编
+        if (init.type != CGType::Obj ||
+            (init.cls != cls_name && !is_subclass_of(init.cls, cls_name))) {
             unsupported("initializing '" + cls_name + "' variable with incompatible value",
                         stmt.name().line(), stmt.name().column());
         }
@@ -2048,7 +2123,9 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
             }
-        } else if (v.type == CGType::Obj && v.cls != current_ret_cls_) {
+        } else if (v.type == CGType::Obj && v.cls != current_ret_cls_ &&
+                   !is_subclass_of(v.cls, current_ret_cls_)) {
+            // 子类→父类向上转型放行（t86）；其余跨类拒编不错编
             unsupported("returning instance of class '" + v.cls +
                             "' where '" + current_ret_cls_ + "' is declared",
                         stmt.keyword().line(), stmt.keyword().column());
@@ -2168,10 +2245,12 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
 llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
                                             const std::string& want_cls,
                                             size_t line, size_t column) {
-    // 实参对齐形参类型：仅 integer→decimal 提升；Obj 严格同类（t61，向上
-    // 转型拒编不错编——静态 cls 即动态类是单态化分派正确性的前提）
+    // 实参对齐形参类型：仅 integer→decimal 提升；Obj 允许子类→父类向上
+    // 转型（t86，指针原样传递，调用点按对象头类 id 动态分派保覆写语义），
+    // 其余跨类拒编不错编
     if (a.type == want) {
-        if (want == CGType::Obj && a.cls != want_cls) {
+        if (want == CGType::Obj && a.cls != want_cls &&
+            !is_subclass_of(a.cls, want_cls)) {
             unsupported("passing instance of class '" + a.cls +
                             "' where '" + want_cls + "' is expected",
                         line, column);
@@ -2215,6 +2294,18 @@ std::string CodeGenerator::find_defining_class(const std::string& start,
         cname = c.super;
     }
     return {};
+}
+
+bool CodeGenerator::is_subclass_of(const std::string& sub,
+                                   const std::string& ancestor) {
+    // 真后代判定（t86，upcast 放行用）：自 sub 的父类起沿 super 链向上比对
+    auto it = classes_.find(sub);
+    if (it == classes_.end()) return false;
+    for (std::string cname = it->second.super; !cname.empty();
+         cname = classes_.at(cname).super) {
+        if (cname == ancestor) return true;
+    }
+    return false;
 }
 
 llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
@@ -2274,10 +2365,10 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
                             std::string(where.lexeme()) + "'",
                         where.line(), where.column());
         }
-        if (slot_type == CGType::Obj && v.cls != slot_cls) {
-            // 字段严格同类（t72，同 t61 变量/传参/返回拍板：静态 cls 即
-            // 动态类是单态化分派正确性的前提，向上转型拒编不错编）
-            //（Obj 目标同样仅字段路径可达）
+        if (slot_type == CGType::Obj && v.cls != slot_cls &&
+            !is_subclass_of(v.cls, slot_cls)) {
+            // 字段允许子类→父类向上转型（t86，调用点按头部类 id 动态分派）；
+            // 其余跨类拒编不错编（Obj 目标同样仅字段路径可达）
             unsupported("storing instance of class '" + v.cls +
                             "' where '" + slot_cls + "' is declared",
                         where.line(), where.column());
@@ -2355,10 +2446,15 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
     }
     CGClass cls;
     cls.stmt = &stmt;
+    // 类 id（t86）：注册序分配，存对象头部（struct 元素 0），upcast 后
+    // 方法调用点按 id switch 到动态类的单态化实例
+    cls.id = classes_.size();
 
     // 继承布局（t61）：直接复用父类已合并好的字段列表作前缀（base-first，
-    // 父类字段的 GEP 索引在子类 struct 中不变，父类方法副本可直接复用）
+    // 父类字段的 GEP 索引在子类 struct 中不变，父类方法副本可直接复用）；
+    // struct 元素 0 恒为 i64 类 id 头部（t86），字段 GEP 下标 = 逻辑下标 + 1
     std::vector<llvm::Type*> field_types;
+    field_types.push_back(builder_.getInt64Ty()); // 类 id 头部
     if (stmt.has_superclass()) {
         cls.super = std::string(stmt.superclass().lexeme());
         auto sit = classes_.find(cls.super);
