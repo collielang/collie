@@ -36,9 +36,10 @@
 | S23 | 数组进函数签名：参数/返回值放行（顶层函数 + 类方法），elem 动态化为 Num 哨兵（运行时 kind 驱动） | 排序/累加/跨边界引用语义程序编译执行，输出与解释器一致 **✅ t70** |
 | S24 | 数组作类字段：字段声明/初始值/读写放行，字段读出即动态域（elem 恒 Num 哨兵，t70 机制全套复用） | 字段数组初始值/索引读写/引用语义/跨签名边界程序编译执行，输出与解释器一致 **✅ t71** |
 | S25 | 类实例作类字段：CGField 加 cls 伴随，字段声明识 IDENTIFIER 类名，读写严格同类（属性链/引用语义/整体替换/继承） | 字段实例属性链读写/深链写/跨签名/继承程序编译执行，输出与解释器一致 **✅ t72** |
-| S26 | 顶层变量提升全局槽：CGVar.slot 改型 Value*，顶层声明建零初始化 GlobalVariable（初始值仍在 @main 按源序 store），函数/方法体以顶层层拷贝为作用域链底（Tup 剔除） | 函数/方法读写全局、全局数组/实例引用语义、遮蔽程序编译执行，输出与解释器一致 **✅ t73** |
+| S26 | 顶层变量提升全局槽：CGVar.slot 改型 Value*，顶层声明建零初始化 GlobalVariable（初始值仍在 @main 按源序 store），函数/方法体以顶层层拷贝为作用域链底（Tup 剔除，t76 已放行见 S29） | 函数/方法读写全局、全局数组/实例引用语义、遮蔽程序编译执行，输出与解释器一致 **✅ t73** |
 | S27 | number 作类字段：删 t62 拒编守卫（StructType 按 llvm_type_of 拼装，{i64,i64} 自动占位），malloc 上界按字段类型累计（Num 16、其余 8） | 字段两态初始值/读写/混合布局/跨签名/继承程序编译执行，输出与解释器一致 **✅ t74** |
 | S28 | tuple 相等比较：==/!= 静态展开逐元素深比较（形状不一致编译期常量 false，标量四路降级 And 链合并，嵌套递归） | 无名/命名/嵌套/混型/空元组比较程序编译执行，输出与解释器一致 **✅ t75** |
+| S29 | 顶层 tuple 全局化：create_tuple_var 建槽经 create_var_slot（顶层解构槽组升 GlobalVariable），链底拷贝取消 Tup 剔除（tuple_vars_ 注册表本为成员跨函数存活） | 函数/方法读写全局 tuple、嵌套/重赋值可见性/遮蔽程序编译执行，输出与解释器一致 **✅ t76** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
@@ -327,7 +328,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 函数/方法体读写全局 | visitFunction/gen_method_body 重建作用域栈时以顶层层（saved_scopes.front()）拷贝为链底，再压参数层；lookup_var 零改动，形参/局部声明天然遮蔽全局 |
 | 顺序安全 | 语义层在函数声明处分析函数体（只见此前声明的顶层变量）+ 前向调用为语义/运行期错误 ⇒ 变量 store 必先于任何函数内读，零初始化值不可被观察 |
 | CGVar.slot 改型 | `AllocaInst*` → `Value*`（全部使用点仅 CreateLoad/CreateStore，纯声明面改动零风险），GlobalVariable/alloca 同型共用 |
-| 范围外 | 顶层 tuple 跨函数（解构槽组是 @main 的 alloca，链底拷贝时剔除 Tup 条目，函数内引用走既有 identifier 拒编；解释器可容） |
+| 范围外 | 顶层 tuple 跨函数（原剔除 Tup 条目函数内拒编，已于 S29 t76 解锁：解构槽组升全局槽 + 链底一并拷贝） |
 
 **S27 降级补充（t74 实现）：number 作类字段**：
 
@@ -349,6 +350,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 恒 false 配对 | Tup × 非 Tup 整体/元素（kind 不等）、任一元素 Obj（解释器 values_equal 无 Instance 分支，同一实例也 false）、异型标量配对（Str×Int 等）——均编译期常量 false，对齐解释器 |
 | 防错编守卫 | 元素含 Arr 拒编不错编（"tuple equality with array element"——解释器对数组是逐元素深比较，恒 false 会错值）；Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 分支是防御性双保险 |
 | 范围外 | `==?`/switch 的 tuple 候选（gen_match_eq 另一路径）、tuple 关系比较 < <= > >=（解释器同样不支持）、数组深比较（Arr×Arr 独立任务）；接口面零新增 collie_rt 接口 |
+
+**S29 降级补充（t76 实现）：顶层 tuple 全局化**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 顶层 `Tuple t = (10, 20.5, "x");` | create_tuple_var 建槽从 create_entry_alloca 换 create_var_slot：顶层（`!in_function_ && scopes_.size()==1`）逐元素解构槽升零初始化 GlobalVariable（`collie.g.` 前缀，t73 机制复用），初始值仍当前位置 store；嵌套子槽组递归同条件天然覆盖；块内/函数内声明维持 entry alloca |
+| 函数/方法体读写全局 tuple | visitFunction/gen_method_body 链底拷贝取消 Tup 条目剔除（剔除循环换整层拷贝）；tuple_vars_ 注册表本为成员跨函数存活，lookup_var/load_tuple_var/store_tuple_var 零改动 |
+| 重赋值可见性 | 函数内同形状整体重赋值逐槽 store 全局槽，跨函数可见（对齐解释器）；换形状重赋值走既有拒编（"assigning tuple of different shape"） |
+| 遮蔽 | 函数内声明同名局部 tuple 压新层天然遮蔽全局，函数结束弹层不影响全局 |
+| 范围外 | tuple 进函数签名（形状跨边界不可知，既有拒编不变）、顶层块内声明 tuple（非顶层层，维持 alloca 不入链底，与 t73 标量一致） |
 
 ## 五、构建与链接方案（关键决策）
 
@@ -386,6 +397,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 | CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |
 | CG7 | 动态域（数组经函数签名边界）decimal 写 integer 数组陷阱退出（t70：解释器数组动态异质可容，编译产物同质 8 字节槽无法承载，拒错编从陷阱不静默错值） | 异质数组降级支持（元素 tagged 表示）时一并消除 |
+| CG8 | print 逐参求值边打边走，解释器先求值全部实参再统一打印——实参含副作用输出（如方法体内 print）时两端次序不同（t76 发现，s29 用例经局部变量中转回避） | print 降级改为先求值全部实参再统一输出 |
 
 ## 八、构建方式速查
 

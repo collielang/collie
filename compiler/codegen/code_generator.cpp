@@ -1731,19 +1731,15 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
 
     // 保存 @main（或外层）生成现场，函数体用独立的变量环境/循环栈；
     // 顶层作用域拷贝为链底（t73）：全局槽（GlobalVariable）跨函数可见；
-    // Tup 条目剔除（tuple 解构槽组是 @main 的 alloca，跨函数引用非法，
-    // 剔除后函数内引用走既有 identifier 拒编）
+    // Tup 条目一并拷贝（t76：顶层 tuple 解构槽组已升全局槽，tuple_vars_
+    // 注册表为成员跨函数存活，函数内读/重赋值合法）
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
     scopes_.clear();
     scopes_.emplace_back();
     if (!saved_scopes.empty()) {
-        for (const auto& [gname, gvar] : saved_scopes.front()) {
-            if (gvar.type != CGType::Tup) {
-                scopes_.back()[gname] = gvar;
-            }
-        }
+        scopes_.back() = saved_scopes.front();
     }
     scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
@@ -2268,18 +2264,14 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     const std::string name(stmt.name().lexeme());
 
     // 保存生成现场（同 visitFunction）：方法体用独立的变量环境/循环栈；
-    // 顶层作用域拷贝为链底（t73，Tup 条目剔除，同 visitFunction）
+    // 顶层作用域拷贝为链底（t73；Tup 条目一并拷贝 t76，同 visitFunction）
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
     scopes_.clear();
     scopes_.emplace_back();
     if (!saved_scopes.empty()) {
-        for (const auto& [gname, gvar] : saved_scopes.front()) {
-            if (gvar.type != CGType::Tup) {
-                scopes_.back()[gname] = gvar;
-            }
-        }
+        scopes_.back() = saved_scopes.front();
     }
     scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
@@ -3073,7 +3065,8 @@ int CodeGenerator::register_tuple(CGTuple t) {
 }
 
 int CodeGenerator::create_tuple_var(CGTuple t, const std::string& name) {
-    // 逐元素独立 entry alloca 槽 + store 初始值；嵌套 tuple 元素递归建
+    // 逐元素独立槽（经 create_var_slot：顶层升 GlobalVariable，t76；
+    // 否则 entry alloca）+ store 初始值；嵌套 tuple 元素递归建
     // 子槽组（本层槽仅记子条目下标）；参数按值：递归 push 注册表防引用失效
     CGTupleVar tv;
     tv.names = t.names;
@@ -3088,7 +3081,7 @@ int CodeGenerator::create_tuple_var(CGTuple t, const std::string& name) {
         if (v.type == CGType::Tup) {
             var.tup = create_tuple_var(tuple_values_[v.tup], slot_name);
         } else {
-            var.slot = create_entry_alloca(llvm_type_of(v.type), slot_name);
+            var.slot = create_var_slot(llvm_type_of(v.type), slot_name);
             builder_.CreateStore(v.value, var.slot);
         }
         tv.slots.push_back(std::move(var));

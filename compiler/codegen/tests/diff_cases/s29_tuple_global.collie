@@ -1,0 +1,83 @@
+// t76 S29 差分用例：顶层 tuple 全局化（函数/方法内读写、嵌套、重赋值可见性）
+
+// 顶层无名 tuple：函数内整体打印/索引/length/元素运算
+Tuple t = (10, 20.5, "x");
+function readT() none {
+    print("readT:", t, t[0], t[-1], t.length);
+    print("calc:", t[0] * 2 + 1, t[1] > 20);
+}
+readT();
+
+// 顶层命名 tuple：函数内 .name / .get / 插值
+Tuple p = (name: "collie", age: 3);
+function readP() none {
+    print("readP:", p.name, p.get("age"));
+    print(@"interp: {p}");
+}
+readP();
+
+// 函数内整体重赋值（同形状），跨函数可见
+function writeT() none {
+    t = (100, 200.5, "y");
+}
+writeT();
+readT();
+print("main sees:", t[2]);
+
+// 嵌套 tuple 全局：函数内逐级读 + 重赋值
+Tuple nested = ((1, 2), tag: "n");
+function readNested() none {
+    print("nested:", nested, nested[0][1], nested.tag);
+}
+readNested();
+function writeNested() none {
+    nested = ((7, 8), tag: "m");
+}
+writeNested();
+readNested();
+
+// 全局 tuple 相等比较（t75 静态展开）在函数内使用
+function cmpT() bool {
+    return t == (100, 200.5, "y");
+}
+print("cmp:", cmpT(), t != (100, 200.5, "y"));
+
+// 方法体内读写全局 tuple
+class Box {
+    public integer id = 1;
+
+    public Box() {
+    }
+
+    public function peek() integer {
+        print("method reads:", p.name, t[0]);
+        return t[0];
+    }
+
+    public function poke() none {
+        p = (name: "dog", age: 5);
+    }
+}
+Box b = new Box();
+// 注意：peek() 体内含 print 副作用，须先单独求值再打印——codegen print
+// 为逐参交错打印（缺口 CG8），实参副作用输出次序与解释器不同
+integer got = b.peek();
+print("peek:", got);
+b.poke();
+print("after poke:", p.name, p.age);
+
+// 函数内声明同名局部 tuple：遮蔽全局（函数结束不影响全局）
+function shadow() none {
+    Tuple p = (name: "local", age: 9);
+    print("shadow:", p.name);
+}
+shadow();
+print("global intact:", p.name);
+
+// bool / number 元素的全局 tuple
+number v = 7;
+Tuple mix = (true, v, 3);
+function readMix() none {
+    print("mix:", mix, mix[1] + 1);
+}
+readMix();

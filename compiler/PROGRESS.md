@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-28（t75 完成：codegen tuple 相等比较——visitBinary ==/!= 前置分支 gen_tuple_eq 静态展开逐元素深比较，形状不一致编译期常量 false、标量四路降级 And 链合并、嵌套递归、含 Arr 元素拒编不错编，差分 27/27）
+最后更新：2026-07-28（t76 完成：codegen 顶层 tuple 全局化——create_tuple_var 建槽经 create_var_slot 顶层解构槽组升 GlobalVariable，visitFunction/gen_method_body 链底拷贝取消 Tup 剔除，函数/方法内读写全局 tuple 跨函数可见，差分 28/28；发现并登记 CG8 print 逐参求值次序缺口）
 
 ---
 
@@ -449,6 +449,12 @@
     - 实现：gen_tuple_eq 递归辅助函数（tuple_values_ 按值拷贝不留引用，防 register_tuple 扩容失效）+ visitBinary 前置分支（!= 对结果 CreateNot）；零新增 collie_rt 接口；实测修正：Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 恒 false 分支是防御性双保险
     - 验证：新差分用例 s28_tuple_eq（无名/命名相等与不等、长度不一致、名字表不一致、嵌套递归 + 5==5.0 混型、异型标量配对恒 false、bool/tribool 三态元素、字面量直比、空元组、if 条件/三元中使用、number 元素 rt_num_cmp、重赋值后再比较），先解释器跑通（15 行）再进差分门禁；实证两项：含数组元素 tuple 相等拒编 "tuple equality with array element"（解释器深比较可容输出 true）、Obj 元素两端恒 false 一致（同一实例也 false）；ctest -C Release 差分 27/27 逐字节一致（s28 首跑即过）；Debug 门禁 6/6 不受影响
     - 范围外：==? / switch 的 tuple 候选（gen_match_eq 另一路径，可留后续）、关系比较 < <= > >=（解释器也不支持 tuple 关系比较）、数组深比较（Arr×Arr 独立任务）
+- [x] codegen 顶层 tuple 全局化（t76）
+    - 选型：t73 顶层变量全局化时 tuple 解构槽组维持 @main alloca（跨函数引用拒编），t75 后 tuple 机制唯一大缺口；预检确认解释器全支持（函数内读元素/整体重赋值跨函数可见）、colliec 现拒编 "identifier 't'"
+    - 范围拍板：①create_tuple_var 建槽从 create_entry_alloca 换 create_var_slot（顶层判定单点复用 t73 入口——顶层建零初始化 GlobalVariable 名 collie.g.t.0 式、初始值仍当前位置 store，块内/函数内维持 alloca；嵌套子槽组递归同条件天然覆盖）；②visitFunction/gen_method_body 链底拷贝取消 Tup 条目剔除（顶层层 Tup 槽组改后必为全局槽，函数内引用合法；tuple_vars_ 注册表本为成员跨函数可用，lookup_var/load_tuple_var/store_tuple_var 零改动）
+    - 实现：三处——create_tuple_var 换 create_var_slot、visitFunction/gen_method_body 剔除循环换整层拷贝 `scopes_.back() = saved_scopes.front();`
+    - 验证：新差分用例 s29_tuple_global（函数内读/索引/length/运算、命名 .name/.get/插值、整体重赋值跨函数可见、嵌套读写、全局 tuple 相等（结合 t75）、方法体读写、局部遮蔽、bool/number 元素）；两实证——函数内换形状重赋值拒编 "assigning tuple of different shape"、tuple 形参既有拒编 "tuple in function signature"；ctest -C Release 差分 28/28 逐字节一致（s29 首跑即过），Debug 门禁 6/6；期间发现既有缺口 CG8（print 逐参求值边打边走，实参含副作用输出时次序与解释器不同，s29 经局部变量中转回避，已登记 codegen/README 缺口表）
+    - 范围外：tuple 进函数签名（形状跨边界不可知，既有拒编不变）、顶层块内声明 tuple（非顶层层，维持 alloca 不入链底，与 t73 标量一致）
 
 ---
 
@@ -503,6 +509,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-28 `feat(compiler)`: codegen 顶层 tuple 全局化（t76，M6）：create_tuple_var 建槽从 create_entry_alloca 换 create_var_slot——顶层 tuple 逐元素解构槽升零初始化 GlobalVariable（collie.g. 前缀，t73 机制单点复用，初始值仍当前位置 store，嵌套子槽组递归天然覆盖，块内/函数内维持 alloca）；visitFunction/gen_method_body 链底拷贝取消 Tup 条目剔除（换整层拷贝），tuple_vars_ 注册表本为成员跨函数存活，lookup/load/store 零改动；函数/方法内读全局 tuple、同形状整体重赋值跨函数可见、局部同名遮蔽均对齐解释器；tuple 进签名/换形状重赋值既有拒编不变；期间发现并登记缺口 CG8（print 逐参求值边打边走，实参含副作用输出时次序与解释器不同）；新差分用例 s29_tuple_global + 换形状重赋值/tuple 形参两拒编实证，ctest -C Release 差分 28/28 逐字节一致，Debug 门禁 6/6（M6 t76）
 - 2026-07-28 `feat(compiler)`: codegen tuple 相等比较（t75，M6）：visitBinary ==/!= 加 Tup×Tup 前置分支（先于 require_numeric），gen_tuple_eq 纯编译期静态展开递归深比较——长度或名字表不一致编译期常量 false（对齐解释器 values_equal 先比 size 再比 names），逐元素复用四路标量降级（Str→rt_strcmp、Tri/Bool→三态 icmp、Num/混型→rt_num_cmp op 0、Int/Double→icmp/fcmp）And 链合并，嵌套递归（注册表按值拷贝防扩容失效）；Obj 元素/异型标量配对恒 false 对齐解释器，含 Arr 元素拒编不错编（深比较恒 false 会错值），!= 整体取反；零新增 collie_rt 接口；新差分用例 s28_tuple_eq + 含数组元素拒编/Obj 元素两端恒 false 两实证，ctest -C Release 差分 27/27 逐字节一致，Debug 门禁 6/6（M6 t75）
 - 2026-07-28 `feat(compiler)`: codegen number 作类字段（t74，M6）：复评推翻 t62「字段块 8 字节槽装不下 16 字节 tagged」拒编理由——StructType 按 llvm_type_of 逐字段拼装，Num 自动占位 {i64,i64}；改动两处：删 register_class_layout 拒编守卫 + visitNew malloc 上界改按字段类型累计（Num 16、其余 8，空字段类保底 8）；字段 GEP 读写/coerce_for_slot 加宽（Int/Double→to_num、Num 直通）全零新增，对齐解释器 coerce_to_declared KW_NUMBER；调研修正：tribool 字段实已随 S18 自然放行，实际拒编面仅 Num/Tup；新差分用例 s27_number_field + Tuple 字段/Num 读出赋 decimal 槽两拒编实证，ctest -C Release 差分 26/26 逐字节一致，Debug 门禁 6/6（M6 t74）
 - 2026-07-28 `feat(compiler)`: codegen 顶层变量提升 LLVM 全局槽（t73，M6）：CGVar.slot 改型 Value*（全使用点仅 load/store 零风险），create_var_slot 统一建槽入口——顶层（!in_function_ && 深度 1）建零初始化 GlobalVariable（InternalLinkage + collie.g. 前缀），初始值仍在 @main 按源序 store，块内声明维持 alloca；visitFunction/gen_method_body 以顶层层拷贝为作用域链底（Tup 剔除，跨函数引用走既有 identifier 拒编），lookup_var 零改动，形参/局部天然遮蔽；顺序安全：语义层函数声明处分析 + 前向调用报错 ⇒ 零初始化值不可观察；新差分用例 s26_globals + 顶层 tuple 跨函数拒编实证，ctest -C Release 差分 25/25 逐字节一致，Debug 门禁 6/6（M6 t73）
