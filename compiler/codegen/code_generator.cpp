@@ -2509,7 +2509,15 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
         }
         return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
     }
-    // object/数组/元组等候选比较范围外，拒编不错编
+    // tuple 目标/候选（t78）：双 Tup 走 t75 静态展开深比较（含 Arr 元素
+    // 由其递归内既有拒编覆盖）；Tup × 非 Tup 恒 false（对齐解释器
+    // values_equal kind 不等，语义层通常更早拦截，此为防御性双保险）
+    if (target.type == CGType::Tup || cand.type == CGType::Tup) {
+        return target.type == CGType::Tup && cand.type == CGType::Tup
+                   ? gen_tuple_eq(target, cand, op)
+                   : builder_.getInt1(false);
+    }
+    // object/数组等候选比较范围外，拒编不错编
     unsupported("'==?' comparison of these value types", op.line(), op.column());
 }
 

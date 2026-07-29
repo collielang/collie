@@ -1,0 +1,60 @@
+// t78 S31 差分用例：==? / switch 的 tuple 目标与候选（gen_tuple_eq 单点复用）
+
+// ==? tuple 目标：候选命中/不命中/默认分支
+Tuple t = (1, "x");
+print("m1:", t ==? (1, "x"): "hit", "miss");
+print("m2:", t ==? (2, "y"): "first", (1, "x"): "second", "def");
+print("m3:", t ==? (9, "z"): "no1", (8, "w"): "no2", "fallthrough");
+
+// 命名 tuple 候选：名字表一致才可命中，不一致恒 false
+Tuple named = (a: 1, b: 2);
+print("m4:", named ==? (a: 1, b: 2): "named-hit", "named-miss");
+print("m5:", named ==? (a: 1, c: 2): "wrong-names", "name-mismatch");
+
+// 嵌套 tuple 候选 + 混型元素（5 == 5.0 double 视图）
+Tuple nest = ((1, 2), 5);
+print("m6:", nest ==? ((1, 2), 5.0): "nest-dblview", "nest-miss");
+
+// 长度不一致候选：编译期恒 false 直落默认
+print("m7:", t ==? (1, "x", 3): "len3", "len-mismatch");
+
+// bool / tribool 元素 tuple 候选
+Tuple flags = (true, unset);
+print("m8:", flags ==? (true, unset): "tri-hit", "tri-miss");
+
+// 空元组
+Tuple empty = ();
+print("m9:", empty ==? (): "empty-hit", "empty-miss");
+
+// 首命中优先：重复 tuple 候选取第一个
+print("m10:", t ==? (1, "x"): "first-wins", (1, "x"): "second", "def");
+
+// switch tuple 目标：命中/归组/default/静默跳过
+switch (t) {
+    (2, "y") { print("sw: two-y"); }
+    (1, "x") { print("sw: one-x"); }
+    default { print("sw: def"); }
+}
+switch (named) {
+    (a: 0, b: 0), (a: 1, b: 2) { print("sw-group: hit"); }
+    default { print("sw-group: def"); }
+}
+switch (t) {
+    (7, "q") { print("sw-miss: q"); }
+    default { print("sw-miss: def"); }
+}
+Tuple lone = (42, 43);
+switch (lone) {
+    (41, 43) { print("sw-silent: no"); }
+}
+print("after-silent");
+
+// 全局 tuple 目标在函数内 ==?（结合 t76）
+function pick() string {
+    return t ==? (1, "x"): "global-hit", "global-miss";
+}
+print("fn:", pick());
+
+// tuple 候选为变量（非字面量）
+Tuple probe = (1, "x");
+print("m11:", t ==? probe: "var-hit", "var-miss");

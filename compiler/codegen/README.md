@@ -41,6 +41,7 @@
 | S28 | tuple 相等比较：==/!= 静态展开逐元素深比较（形状不一致编译期常量 false，标量四路降级 And 链合并，嵌套递归） | 无名/命名/嵌套/混型/空元组比较程序编译执行，输出与解释器一致 **✅ t75** |
 | S29 | 顶层 tuple 全局化：create_tuple_var 建槽经 create_var_slot（顶层解构槽组升 GlobalVariable），链底拷贝取消 Tup 剔除（tuple_vars_ 注册表本为成员跨函数存活） | 函数/方法读写全局 tuple、嵌套/重赋值可见性/遮蔽程序编译执行，输出与解释器一致 **✅ t76** |
 | S30 | print 求值序修复（CG8）：gen_print 两阶段化——先求值全部实参再统一输出，实参副作用输出次序对齐解释器 | 副作用实参（函数/方法体内 print）程序编译执行，输出次序与解释器一致 **✅ t77** |
+| S31 | ==?/switch 的 tuple 候选：gen_match_eq 加 Tup 分支单点复用 gen_tuple_eq（静态展开深比较），Tup×非 Tup 恒 false | tuple 目标/候选命中/归组/默认/嵌套/命名程序编译执行，输出与解释器一致 **✅ t78** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁，动态索引/动态键/进函数签名/进数组仍拒编）。
@@ -350,7 +351,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 嵌套 tuple 元素 | gen_tuple_eq 递归（注册表按值拷贝不留引用，防 register_tuple 扩容失效） |
 | 恒 false 配对 | Tup × 非 Tup 整体/元素（kind 不等）、任一元素 Obj（解释器 values_equal 无 Instance 分支，同一实例也 false）、异型标量配对（Str×Int 等）——均编译期常量 false，对齐解释器 |
 | 防错编守卫 | 元素含 Arr 拒编不错编（"tuple equality with array element"——解释器对数组是逐元素深比较，恒 false 会错值）；Tup × 非 Tup 整体比较实为语义层更早拦截（"Incomparable operand types"），codegen 分支是防御性双保险 |
-| 范围外 | `==?`/switch 的 tuple 候选（gen_match_eq 另一路径）、tuple 关系比较 < <= > >=（解释器同样不支持）、数组深比较（Arr×Arr 独立任务）；接口面零新增 collie_rt 接口 |
+| 范围外 | `==?`/switch 的 tuple 候选（gen_match_eq 另一路径，已于 S31 t78 解锁）、tuple 关系比较 < <= > >=（解释器同样不支持）、数组深比较（Arr×Arr 独立任务）；接口面零新增 collie_rt 接口 |
 
 **S29 降级补充（t76 实现）：顶层 tuple 全局化**：
 
@@ -369,6 +370,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `print(a, f(), b)` 实参含副作用输出 | gen_print 两阶段化：第一循环 emit 全部实参按值收集 vector\<CGValue\>（副作用调用按源序发生），第二循环统一打印 sep+值+换行——对齐解释器 call_builtin_print 先求值全部实参再打印的次序 |
 | 打印阶段安全性 | to_str/tuple_to_str/arr_to_str 仅做转串无输出副作用；Tup 注册表只追加不重排，按值收集的 CGValue 下标跨阶段有效；零新增 collie_rt 接口 |
 | 范围外 | CG2（none 等复合值打印格式）不动；toString/插值拼接链单实参无交错问题不涉及 |
+
+**S31 降级补充（t78 实现）：==?/switch 的 tuple 候选**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `t ==? (1, "x"): a, def` / `switch (t) { (1, "x") {...} }` | gen_match_eq 末尾 unsupported 前加 Tup 分支：双 Tup 走 gen_tuple_eq（t75 静态展开深比较单点复用——形状不一致编译期常量 false、逐元素四路降级 And 链、嵌套递归）；`==?`（级联比较块链）与 switch 两调用点同时解锁，零新增接口 |
+| Tup × 非 Tup 候选 | 恒 false（对齐解释器 values_equal kind 不等）；实测语义层更早拦截（"Incomparable candidate value type in '==?'"），codegen 分支是防御性双保险 |
+| 防错编守卫 | 候选/目标 tuple 含 Arr 元素由 gen_tuple_eq 递归内既有拒编覆盖（"tuple equality with array element"——解释器深比较可容，恒 false 会错值） |
+| 范围外 | 数组目标/候选（Arr×Arr 深比较独立任务）维持拒编；tuple 关系比较不涉及 |
 
 ## 五、构建与链接方案（关键决策）
 
