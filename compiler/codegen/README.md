@@ -47,9 +47,10 @@
 | S34 | none 值（CG2 缺口收敛）：gen_print Void 打常量串 "none"、to_str Void 返 "none"（覆盖 toString/插值）、visitBinary ==/!= 双 Void 恒 true/false，零新增 rt 接口 | none 函数调用结果 print/toString/插值/相等比较/逻辑运算/条件/方法体内程序编译执行，输出与解释器一致 **✅ t81** |
 | S35 | 实例（Obj）相等：visitBinary ==/!= 与 gen_match_eq（==?/switch）对任一侧 Obj 恒 false 常量折叠（对齐解释器 values_equal 无 Instance 分支落 default，含同一实例），零新增 rt 接口 | 实例 ==/!=（不同/同一实例/引用别名）、==? / switch 目标为实例、函数内实例相等、结果进逻辑/条件程序编译执行，输出与解释器一致 **✅ t82** |
 | S36 | 非常量 tuple 索引：同质 tuple（元素同 CGType 且 ∈ {Int/Double/Bool/Str}）的 `t[i]`（i 变量/表达式）物化运行时数组后 rt_arr_get(动态 idx) 取值，复用负索引归一化 + 越界陷阱（消息与解释器一致），零新增 rt 接口 | 同质 tuple 变量/表达式/负索引变量、命名同质 tuple、for 循环遍历、嵌套索引、函数内局部 tuple 程序编译执行，输出与解释器一致 **✅ t83** |
+| S37 | 非常量 tuple get() 动态键：同质命名 tuple（≥1 非空名）的 `t.get(k)`（k 运行期字符串）物化 names+values 数组后新接口 collie_rt_tuple_get 按非空名 strcmp 查找，未命中陷阱消息与解释器核心消息一致 | 四类同质命名 tuple 变量键/常量键回归/混合命名+无名/拼接键/循环动态键/函数内局部 tuple 程序编译执行，输出与解释器一致 **✅ t84** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -428,7 +429,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `t[i]`（i 变量/表达式，t 同质 tuple） | visitIndex Tup 分支：`const_int_of` 失败进非常量路径——三重守卫（空 tuple / 元素非 {Int/Double/Bool/Str} / 异质分别拒编），过守卫后 rt_arr_new(n, kind) + 逐元素 elem_to_bits/rt_arr_set 物化为运行时数组、rt_arr_get(动态 idx) 取 i64 bits、bits_to_elem 还原为元素类型；负索引归一化 + 越界陷阱（消息 "Index N out of range (size M)"）由 collie_rt_arr_norm_index 复用，与解释器 normalize_index 完全一致 |
 | 常量索引 `t[0]` / `t[-1]`（回归） | 保持编译期解析（`const_int_of` 成功路径内联不变），负索引归一化 + 静态越界拒编不错编 |
 | 关键修复 | `const CGTuple& t` 改按值拷贝 `const CGTuple t`——非常量路径 `emit(index)` 可能触发 register_tuple 扩容 tuple_values_ 使引用悬垂（`t[idxs[0]]` 嵌套索引实测 0xC0000005），与 gen_tuple_eq 同一防护 |
-| 范围外 | 异质 tuple 非常量索引（结果类型静态不可定，拒编 "non-constant index on heterogeneous tuple"，解释器动态可求值）；Num/嵌套(Tup/Arr/Obj)元素同质 tuple（数组槽 elem_to_bits 仅 4 类，拒编 "non-constant tuple index on this element type"）；空 tuple 非常量索引；`(t[i]==literal)`/`&&` 混逻辑（语义层不追踪 tuple 元素类型，两端一致 "Incomparable operand types"）；tuple 作函数形参/实参（"tuple in function signature"）；tuple `get()` 动态键（留作 t84）；零新增 collie_rt 接口 |
+| 范围外 | 异质 tuple 非常量索引（结果类型静态不可定，拒编 "non-constant index on heterogeneous tuple"，解释器动态可求值）；Num/嵌套(Tup/Arr/Obj)元素同质 tuple（数组槽 elem_to_bits 仅 4 类，拒编 "non-constant tuple index on this element type"）；空 tuple 非常量索引；`(t[i]==literal)`/`&&` 混逻辑（语义层不追踪 tuple 元素类型，两端一致 "Incomparable operand types"）；tuple 作函数形参/实参（"tuple in function signature"）；tuple `get()` 动态键（已于 S37 t84 解锁）；零新增 collie_rt 接口 |
+
+**S37 降级补充（t84 实现）：非常量 tuple get() 动态键**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `t.get(k)`（k 运行期字符串，t 同质命名 tuple） | visitMethodCall Tup+get 分支：键非字符串字面量进动态键路径——四守卫（空 tuple / 元素非 {Int/Double/Bool/Str} / 异质 / 无命名字段分别拒编）后 emit(key) 校验 Str，rt_arr_new 物化 names 数组（kind 3 string，无名元素存空串 ""）+ values 数组（elem kind，逐元素 elem_to_bits），新接口 `collie_rt_tuple_get(names, vals, key)` 按非空名 strcmp 扫描：命中返对应 values 槽 i64 bits（bits_to_elem 还原元素类型），未命中打 "Undefined tuple field '<key>'" + exit(1)（核心消息对齐解释器 RuntimeError，位置前缀缺失同 S36 越界陷阱既定分歧）；空名槽 rt 侧 `name[0] != '\0'` 天然跳过（对齐解释器非空名匹配） |
+| 常量字符串键 `t.get("a")`（回归） | 保持编译期解析（t68 路径不变），未命中静态拒编 "undefined tuple field 'X'" 不错编 |
+| 悬垂防护 | `const CGTuple t` 按值拷贝——动态键路径 `emit(key)` 可能触发 register_tuple 扩容 tuple_values_ 使引用悬垂，与 S36 visitIndex/gen_tuple_eq 同一防护 |
+| 范围外 | 异质 tuple 动态键（拒编 "non-constant get() on heterogeneous tuple"）；无命名字段 tuple（"non-constant get() on tuple with no named fields"）；空 tuple（"non-constant get() on empty tuple"）；Num/嵌套(Tup/Arr/Obj)元素（"non-constant tuple get() on this element type"）；非 string 键（"non-string tuple get() key"，解释器亦运行期报错）；新增 1 个 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

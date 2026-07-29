@@ -144,6 +144,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_arr_eq_ = module_->getOrInsertFunction(
         "collie_rt_arr_eq",
         llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, ptr_ty}, false));
+    // collie_rt tuple 动态键 get 声明（t84）：names(kind 3)+values 数组按非空名
+    // strcmp 查找，命中返 i64 位模式、未命中报错退出
+    rt_tuple_get_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_get",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, ptr_ty, ptr_ty}, false));
 
     // collie_rt 类实例分配声明（t60）：字段块 malloc，struct 布局读写全在 codegen 侧
     rt_obj_new_ = module_->getOrInsertFunction(
@@ -1246,24 +1251,85 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     }
 
     if (object.type == CGType::Tup && name == "get") {
-        // tuple.get("常量键")（t68）：键限字符串字面量，编译期扫名字表解析
-        //（对齐解释器 get 的非空名匹配；动态键/未命中静态可判，拒编不错编）
+        // tuple.get(key)：编译期扫名字表（对齐解释器 get 的非空名匹配）。
+        // 按值拷贝不留引用：动态键路径下方 emit(key) 可能触发 register_tuple
+        // 扩容 tuple_values_，持引用会悬垂（与 visitIndex/gen_tuple_eq 同一防护）
         if (expr.arguments().size() != 1) {
             unsupported("get() with this arity", line, column);
         }
+        const CGTuple t = tuple_values_[object.tup];
+        // 常量字符串键（t68）：编译期解析（未命中静态可判，拒编不错编）
         const auto* key = dynamic_cast<const LiteralExpr*>(expr.arguments()[0].get());
-        if (!key || key->token().type() != TokenType::LITERAL_STRING) {
-            unsupported("non-constant tuple get() key", line, column);
+        if (key && key->token().type() == TokenType::LITERAL_STRING) {
+            const std::string key_str(key->token().lexeme());
+            for (size_t i = 0; i < t.names.size(); ++i) {
+                if (!t.names[i].empty() && t.names[i] == key_str) {
+                    last_value_ = t.elems[i];
+                    return;
+                }
+            }
+            unsupported("undefined tuple field '" + key_str + "'", line, column);
         }
-        const std::string key_str(key->token().lexeme());
-        const CGTuple& t = tuple_values_[object.tup];
-        for (size_t i = 0; i < t.names.size(); ++i) {
-            if (!t.names[i].empty() && t.names[i] == key_str) {
-                last_value_ = t.elems[i];
-                return;
+        // 动态键（t84）：限同质命名 tuple（元素同 CGType 且 ∈ {Int/Double/Bool/Str}、
+        // ≥1 非空名，结果类型静态可定）——物化 names(kind 3)+values 数组后
+        // rt_tuple_get 按非空名 strcmp 扫描取 i64 bits、bits_to_elem 还原；未命中打
+        // "Undefined tuple field '<key>'" + exit(1)（核心消息与解释器 RuntimeError
+        // 一致，位置前缀缺失同 t83 越界陷阱既定分歧）。异质/非 4 类元素/空 tuple/
+        // 无命名字段/非 Str 键保持拒编——结果类型静态不可定或数组槽无法承载
+        const long long n = static_cast<long long>(t.elems.size());
+        if (n == 0) {
+            unsupported("non-constant get() on empty tuple", line, column);
+        }
+        const CGType elem = t.elems.front().type;
+        if (elem != CGType::Int && elem != CGType::Double &&
+            elem != CGType::Bool && elem != CGType::Str) {
+            unsupported("non-constant tuple get() on this element type", line, column);
+        }
+        for (const auto& e : t.elems) {
+            if (e.type != elem) {
+                unsupported("non-constant get() on heterogeneous tuple", line, column);
             }
         }
-        unsupported("undefined tuple field '" + key_str + "'", line, column);
+        bool has_named = false;
+        for (const auto& nm : t.names) {
+            if (!nm.empty()) { has_named = true; break; }
+        }
+        if (!has_named) {
+            unsupported("non-constant get() on tuple with no named fields", line, column);
+        }
+        CGValue key_val = emit(expr.arguments()[0].get());
+        if (key_val.type != CGType::Str) {
+            unsupported("non-string tuple get() key", line, column);
+        }
+        // names 数组（kind 3 string）：无名元素存空串 ""（rt 侧非空名匹配天然跳过）
+        llvm::Value* names = builder_.CreateCall(
+            rt_arr_new_,
+            {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(3)},
+            "tupnames");
+        for (long long i = 0; i < n; ++i) {
+            llvm::Value* nm_ptr =
+                builder_.CreateGlobalString(t.names[static_cast<size_t>(i)]);
+            builder_.CreateCall(
+                rt_arr_set_,
+                {names, builder_.getInt64(static_cast<uint64_t>(i)),
+                 builder_.CreatePtrToInt(nm_ptr, builder_.getInt64Ty(), "nmbits")});
+        }
+        // values 数组（元素 kind）：逐元素 elem_to_bits 物化
+        llvm::Value* vals = builder_.CreateCall(
+            rt_arr_new_,
+            {builder_.getInt64(static_cast<uint64_t>(n)),
+             builder_.getInt64(static_cast<uint64_t>(arr_kind_of(elem)))},
+            "tupvals");
+        for (long long i = 0; i < n; ++i) {
+            builder_.CreateCall(
+                rt_arr_set_,
+                {vals, builder_.getInt64(static_cast<uint64_t>(i)),
+                 elem_to_bits(t.elems[static_cast<size_t>(i)])});
+        }
+        llvm::Value* bits =
+            builder_.CreateCall(rt_tuple_get_, {names, vals, key_val.value}, "tupget");
+        last_value_ = {bits_to_elem(bits, elem), elem};
+        return;
     }
 
     if (name == "toNumber" && expr.arguments().empty()) {

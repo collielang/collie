@@ -64,6 +64,10 @@
  *     // 不可，拒错编从陷阱，缺口 CG7）
  *   long long collie_rt_arr_eq(void* lhs, void* rhs);         // 数组深比较（t79）：先比
  *     // len 再逐元素按运行时 kind（数值系混合 double 视图、string strcmp），返 1/0
+ *   long long collie_rt_tuple_get(void* names, void* vals, const char* key); // tuple
+ *     // 动态键 get（t84）：同质命名 tuple 物化的 names(kind 3)+values 数组按非空名
+ *     // strcmp 查找，命中返对应槽 i64 位模式、未命中打 "Undefined tuple field '<key>'"
+ *     // + exit(1)（核心消息对齐解释器，位置前缀缺失同越界陷阱）
  *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
@@ -436,6 +440,25 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
         }
     }
     return 1;
+}
+
+/* tuple 动态键 get（t84）：同质命名 tuple 物化的 names 数组（kind 3 string）+
+ * values 数组（元素 kind）按名字查找——非空名 strcmp 命中即返对应 values 槽 i64
+ * 位模式（调用侧 bits_to_elem 还原），未命中打 "Undefined tuple field '<key>'"
+ * 后 exit(1)（核心消息对齐解释器 RuntimeError，位置前缀缺失同数组越界陷阱既定
+ * 分歧）。names/values 等长逐位对应；空名槽跳过（对齐解释器非空名匹配） */
+long long collie_rt_tuple_get(void* names, void* vals, const char* key) {
+    const collie_rt_array* nm = (const collie_rt_array*)names;
+    const collie_rt_array* vl = (const collie_rt_array*)vals;
+    long long i;
+    for (i = 0; i < nm->len; ++i) {
+        const char* name = (const char*)(intptr_t)nm->slots[i];
+        if (name && name[0] != '\0' && strcmp(name, key) == 0) {
+            return vl->slots[i];
+        }
+    }
+    fprintf(stderr, "Undefined tuple field '%s'\n", key);
+    exit(1);
 }
 
 /* 追加一段字节到增长缓冲（arr_to_str 专用；旧块不 free，缺口 CG6 同其它 malloc 串） */

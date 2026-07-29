@@ -1,0 +1,57 @@
+// t84 S37 差分用例：tuple get() 动态键（同质命名 tuple，运行期字符串键）
+// 物化 names+values 数组后 rt_tuple_get 按非空名 strcmp 取值（对齐解释器 get 非空名匹配）
+
+// 同质 integer 命名 tuple：变量键 / 常量键回归 / 变量键
+Tuple ti = (a: 10, b: 20, c: 30);
+string k = "b";
+print("a1:", ti.get(k));            // 20
+print("a2:", ti.get("a"));          // 10（常量键回归编译期路径）
+string kc = "c";
+print("a3:", ti.get(kc));           // 30
+
+// 同质 string 命名 tuple
+Tuple ts = (first: "hi", second: "bye");
+string sk = "second";
+print("b1:", ts.get(sk));           // bye
+print("b2:", ts.get("first"));      // hi（常量键回归）
+
+// 同质 bool 命名 tuple
+Tuple tb = (yes: true, no: false);
+string bk = "no";
+print("c1:", tb.get(bk));           // false
+
+// 同质 decimal 命名 tuple
+Tuple td = (x: 1.5, y: 2.5);
+string dk = "y";
+print("d1:", td.get(dk));           // 2.5
+
+// 混合命名+无名同质 integer：get 只匹配非空名
+Tuple tm = (7, tag: 99);
+string mk = "tag";
+print("e1:", tm.get(mk));           // 99
+
+// 键由运行期字符串拼接产生
+Tuple tp = (alpha: 100, beta: 200);
+string pre = "al";
+print("f1:", tp.get(pre + "pha"));  // 100
+
+// 键由 toString 拼接（循环遍历）
+Tuple tv = (m0: 11, m1: 22, m2: 33);
+integer idx = 0;
+while (idx < 3) {
+    print("g:", tv.get("m" + toString(idx)));
+    idx = idx + 1;
+}
+
+// get 结果参与算术（两个动态 get 结果相加）
+Tuple tc = (lo: 5, hi: 8);
+string ck = "hi";
+print("h1:", tc.get(ck) + tc.get("lo"));   // 13
+
+// 函数内局部 tuple 动态 get（object -> integer 返回）
+function pick(key string) integer {
+    Tuple loc = (p: 1, q: 2, r: 3);
+    return loc.get(key);
+}
+print("i1:", pick("q"));            // 2
+print("i2:", pick("r"));            // 3
