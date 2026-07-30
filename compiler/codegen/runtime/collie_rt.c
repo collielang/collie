@@ -60,9 +60,12 @@
  *   long long collie_rt_arr_kind(void* arr);                 // 元素 kind（t70 动态域索引读：
  *     kind 0/1 与 number tag 0/1 编码重合，bits+kind 直接拼 number 零转换）
  *   void collie_rt_arr_set_num(void* arr, long long i, long long tag, long long bits);
- *     // 动态域索引写（t70）：tag==kind 直存；integer 写 decimal 数组提升 double 位模式；
- *     // decimal 写 integer 数组陷阱退出（解释器动态异质可容、编译产物同质表示
- *     // 不可，拒错编从陷阱，缺口 CG7）
+ *     // 动态域索引写（t70/t88）：tag==kind 直存（数值系与 bool/str 同规则）；
+ *     // integer 写 decimal 数组提升 double 位模式；其余 tag/kind 失配陷阱退出
+ *     // （解释器动态异质可容、编译产物同质表示不可，拒错编从陷阱，缺口 CG7）
+ *   void collie_rt_trap_arr_kind(long long kind);             // 动态域索引读 kind>=2
+ *     // 陷阱（t88）：bool/str/嵌套数组经透传后元素静态类型不可定，报错退出
+ *     // 不错值（缺口 CG9，解释器动态类型可行）
  *   long long collie_rt_arr_eq(void* lhs, void* rhs);         // 数组深比较（t79）：先比
  *     // len 再逐元素按运行时 kind（数值系混合 double 视图、string strcmp），返 1/0
  *   long long collie_rt_tuple_get(void* names, void* vals, const char* key); // tuple
@@ -380,10 +383,10 @@ long long collie_rt_arr_kind(void* arr) {
     return ((collie_rt_array*)arr)->kind;
 }
 
-/* 动态域索引写（t70）：写入值为 number 表示（tag+bits），按数组实际 kind 对齐——
- * tag==kind 直存；integer 写 decimal 数组提升（对齐静态路径的 Int→Double 提升）；
- * decimal 写 integer 数组无法同质承载（解释器动态异质可容，编译产物陷阱退出
- * 不静默错值，缺口 CG7） */
+/* 动态域索引写（t70/t88）：写入值带 kind tag（0/1=number 两态，2=bool，3=string），
+ * 按数组实际 kind 对齐——tag==kind 直存（数值系与 bool/str 同规则）；integer 写
+ * decimal 数组提升（对齐静态路径的 Int→Double 提升）；其余 tag/kind 失配无法
+ * 同质承载（解释器动态异质可容，编译产物陷阱退出不静默错值，缺口 CG7） */
 void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long bits) {
     collie_rt_array* a = (collie_rt_array*)arr;
     long long i = collie_rt_arr_norm_index(a, index);
@@ -398,8 +401,18 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
         a->slots[i] = out;
         return;
     }
-    fprintf(stderr, "runtime error: decimal element in integer array "
+    fprintf(stderr, "runtime error: array element type mismatch "
                     "(compiled arrays are homogeneous, gap CG7)\n");
+    exit(1);
+}
+
+/* 动态域索引读 kind>=2 陷阱（t88）：bool/str/嵌套数组经透传（签名/字段/返回值）
+ * 后元素静态类型不可定，codegen 读出无法承载——报错退出不错值（缺口 CG9，
+ * 解释器动态类型可行；print/len/== 不经此路径，全 kind 天然工作） */
+void collie_rt_trap_arr_kind(long long kind) {
+    const char* what = kind == 2 ? "bool" : kind == 3 ? "string" : "nested";
+    fprintf(stderr, "runtime error: reading %s array element in dynamic "
+                    "context (element type not statically known, gap CG9)\n", what);
     exit(1);
 }
 

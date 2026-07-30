@@ -1,0 +1,67 @@
+// t88 S41 差分用例：bool/string 数组动态域透传——作实参/返回值/类字段/
+// 动态槽赋值 + print/length/len/==（rt 全 kind 覆盖）+ 动态域 bool/str 值写
+//（索引读出 bool/str 元素属 CG9 陷阱面，不在差分范围）
+
+function show(a array) none {
+    print(a, a.length, len(a));
+}
+
+function pick(a array) array {
+    return a;
+}
+
+function sumFirst(a array) number {
+    return a[0] + a[-1];
+}
+
+class Bag {
+    public array items = [1];
+
+    public Bag(a array) {
+        this.items = a;
+    }
+
+    public function swap(a array) array {
+        array old = this.items;
+        this.items = a;
+        return old;
+    }
+}
+
+array flags = [true, false, true];
+array names = ["dog", "cat"];
+
+// 1) bool/str 数组作实参：print/length/len
+show(flags);                            // [true, false, true] 3 3
+show(names);                            // [dog, cat] 2 2
+
+// 2) 返回值透传 + == 深比较（同内容/异内容/kind 2×3 恒不等）
+array f2 = pick(flags);
+print(f2 == flags);                     // true
+print(pick(names) == ["dog", "cat"]);   // true
+print(pick(names) == ["dog", "fox"]);   // false
+print(pick(flags) == pick(names));      // false
+
+// 3) 类字段：构造器存 str 数组、方法内字段读出/换存 bool 数组
+Bag b = new Bag(names);
+print(b.items, b.items.length);         // [dog, cat] 2
+array old = b.swap(flags);
+print(old, b.items);                    // [dog, cat] [true, false, true]
+
+// 4) 动态域写：bool/str 值写同 kind 数组（引用语义联动 + 负索引）
+f2[0] = false;
+print(flags);                           // [false, false, true]
+array n2 = pick(names);
+n2[1] = "wolf";
+print(names);                           // [dog, wolf]
+n2[-1] = "fox";
+print(names);                           // [dog, fox]
+
+// 5) 数值数组动态域回归：索引读 kind 0/1 照常（CG9 守卫恒通过）
+print(sumFirst([10, 20, 30]));          // 40
+print(sumFirst([1.5, 2.25]));           // 3.75
+
+// 6) 嵌套数组透传：作实参/返回值 print/len/==（索引读属 CG9 陷阱面）
+array m = [[1, 2], [3, 4]];
+show(m);                                // [[1, 2], [3, 4]] 2 2
+print(pick(m) == [[1, 2], [3, 4]]);     // true

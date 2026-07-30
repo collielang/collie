@@ -111,6 +111,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_shift_count_ = module_->getOrInsertFunction(
         "collie_rt_trap_shift_count",
         llvm::FunctionType::get(builder_.getVoidTy(), false));
+    // collie_rt 动态域元素 kind 陷阱声明（t88，缺口 CG9）：bool/str/嵌套数组
+    // 经透传后索引读出元素静态类型不可定，陷阱退出不错值
+    rt_trap_arr_kind_ = module_->getOrInsertFunction(
+        "collie_rt_trap_arr_kind",
+        llvm::FunctionType::get(builder_.getVoidTy(), {builder_.getInt64Ty()}, false));
 
     // collie_rt 数组运行时声明（t59）：不透明 ptr 数组对象，8 字节槽存位模式；
     // 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）
@@ -959,12 +964,8 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                         expr.name().line(), expr.name().column());
         }
         if (var->elem == CGType::Num) {
-            // 动态 elem 槽（t70）：来源限数值系（不变量 kind ∈ {0,1}）
-            if (v.elem != CGType::Int && v.elem != CGType::Double &&
-                v.elem != CGType::Num) {
-                unsupported("assigning bool/string array to '" + name + "'",
-                            expr.name().line(), expr.name().column());
-            }
+            // 动态 elem 槽（t70/t88）：任意元素数组透传（kind 随数组对象自带，
+            // print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
         } else if (v.elem != var->elem) {
             // 含 Num 来源写静态槽：元素类型静态不可知，拒编
             unsupported("assigning array with different element type to '" + name + "'",
@@ -1167,10 +1168,21 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
             return;
         }
         if (object.elem == CGType::Num) {
-            // 动态域读（t70）：运行时 kind（恒 0/1，入口守卫所保）即 number
-            // tag，bits+kind 直接拼 Num 零转换
+            // 动态域读（t70/t88）：运行时 kind 0/1 即 number tag，bits+kind
+            // 直接拼 Num 零转换；kind ≥ 2（bool/str/嵌套数组经透传，t88）
+            // 元素静态类型不可定，陷阱退出不错值（缺口 CG9，解释器可行）
             llvm::Value* kind = builder_.CreateCall(
                 rt_arr_kind_, {object.value}, "arrkind");
+            llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+            auto* trap_bb = llvm::BasicBlock::Create(context_, "dynkind.trap", fn);
+            auto* cont_bb = llvm::BasicBlock::Create(context_, "dynkind.cont", fn);
+            llvm::Value* bad = builder_.CreateICmpUGT(
+                kind, builder_.getInt64(1), "dynkind.bad");
+            builder_.CreateCondBr(bad, trap_bb, cont_bb);
+            builder_.SetInsertPoint(trap_bb);
+            builder_.CreateCall(rt_trap_arr_kind_, {kind});
+            builder_.CreateUnreachable();
+            builder_.SetInsertPoint(cont_bb);
             last_value_ = {make_num(kind, bits), CGType::Num};
             return;
         }
@@ -1211,8 +1223,18 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         return;
     }
     if (object.elem == CGType::Num) {
-        // 动态域写（t70）：值限数值系，转 Num 表示下沉 rt 按运行时 kind 对齐
-        //（tag==kind 直存 / int→double 提升 / decimal 写 int 数组 CG7 陷阱）
+        // 动态域写（t70/t88）：数值系值转 Num 表示下沉 rt 按运行时 kind 对齐
+        //（tag==kind 直存 / int→double 提升 / mismatch 陷阱 CG7）；bool/str
+        // 值打对应 kind tag 直写（t88，rt 侧 tag==kind 直存、mismatch 同陷阱）
+        if (v.type == CGType::Bool || v.type == CGType::Str) {
+            builder_.CreateCall(
+                rt_arr_set_num_,
+                {object.value, index.value,
+                 builder_.getInt64(static_cast<uint64_t>(arr_kind_of(v.type))),
+                 elem_to_bits(v)});
+            last_value_ = v;
+            return;
+        }
         if (v.type != CGType::Int && v.type != CGType::Double &&
             v.type != CGType::Num) {
             unsupported("array element type mismatch in index assignment",
@@ -2139,12 +2161,9 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
             unsupported("returning instance of class '" + v.cls +
                             "' where '" + current_ret_cls_ + "' is declared",
                         stmt.keyword().line(), stmt.keyword().column());
-        } else if (v.type == CGType::Arr && v.elem != CGType::Int &&
-                   v.elem != CGType::Double && v.elem != CGType::Num) {
-            // 动态域不变量（t70）：bool/str 数组 kind 2/3 无 number 对应，拒编
-            unsupported("returning bool/string array",
-                        stmt.keyword().line(), stmt.keyword().column());
         }
+        // Arr 返回值任意元素透传（t88 解除 t70 数值系守卫：kind 随数组对象
+        // 自带，print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
         builder_.CreateRet(v.value);
     }
     // return 后同块死代码仍需插入点（与 break/continue 同机制）
@@ -2265,11 +2284,8 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
                             "' where '" + want_cls + "' is expected",
                         line, column);
         }
-        if (want == CGType::Arr && a.elem != CGType::Int &&
-            a.elem != CGType::Double && a.elem != CGType::Num) {
-            // 动态域不变量（t70）：bool/str 数组 kind 2/3 无 number 对应，拒编
-            unsupported("passing bool/string array as argument", line, column);
-        }
+        // Arr 实参任意元素透传（t88 解除 t70 数值系守卫：kind 随数组对象
+        // 自带，print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
         return a.value;
     }
     if (want == CGType::Double && a.type == CGType::Int) {
@@ -2366,15 +2382,9 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
                                             const Token& where,
                                             const std::string& slot_cls) {
     if (v.type == slot_type) {
-        if (slot_type == CGType::Arr && v.elem != CGType::Int &&
-            v.elem != CGType::Double && v.elem != CGType::Num) {
-            // 动态域不变量（t71，同 t70 实参/返回值守卫）：字段槽 elem
-            // 恒 Num 哨兵，bool/str 数组 kind 2/3 无 number 对应，拒编
-            //（Arr 目标仅字段路径可达：变量/tuple 槽的 Arr 另有前置分支）
-            unsupported("storing bool/string array in '" +
-                            std::string(where.lexeme()) + "'",
-                        where.line(), where.column());
-        }
+        // Arr 字段槽任意元素透传（t88 解除 t71 数值系守卫：字段槽 elem 恒
+        // Num 哨兵，kind 随数组对象自带——print/len/== rt 侧全 kind 覆盖，
+        // 索引读 kind ≥ 2 落 CG9 陷阱；Arr 目标仅字段路径可达）
         if (slot_type == CGType::Obj && v.cls != slot_cls &&
             !is_subclass_of(v.cls, slot_cls)) {
             // 字段允许子类→父类向上转型（t86，调用点按头部类 id 动态分派）；

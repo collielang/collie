@@ -51,9 +51,10 @@
 | S38 | 嵌套数组：新增数组 kind 4（槽存内层数组 ptr 位模式），限两层且内层数值系（elem ∈ {Int/Double/Num}）——内层读出记 Num 动态域哨兵复用 t70 机制，rt_arr_to_str/rt_arr_eq kind 4 递归，零新增 rt 接口 | 嵌套字面量/print/逐层索引读写/负索引/别名联动/整槽替换/内层混合提升/深比较/length/len/toString 程序编译执行，输出与解释器一致 **✅ t85** |
 | S39 | 类继承向上转型（upcast）：对象 struct 头部加 i64 类 id（注册序），字段 GEP 下标+1；实参/返回值/变量与字段槽/赋值五触点放行子类实例进父类静态类型（is_subclass_of 真后代判定）；方法调用点动态分派——静态类无后代直调零开销，有后代读头部 id 后 switch（default=静态类，case=各后代类按 id 排序），各 case 调既有单态化实例，PHI 合流，零新增 rt 接口 | 三级继承链子类传父类形参/中层静态类/返回父类装子类/父类槽覆写与继承方法混调/类字段 upcast/无后代直调程序编译执行，输出与解释器一致 **✅ t86** |
 | S40 | byte/word 类字段：CGField 加 bit_max（255/65535），register_class_layout 前置分支 i64 槽承载；visitNew 字段初始化与 visitPropertyAssign 赋值两触点 coerce_for_slot 后插 check_bit_range 范围陷阱（t69 机制复用，对齐解释器 coerce_to_declared），读出恒 Int 表达式域无截断，零新增 rt 接口 | byte/word 字段初始化/读取/赋值/边界值 255与65535/表达式域无截断/构造器与方法体内 this.field 赋值/继承字段范围保持程序编译执行，输出与解释器一致 **✅ t87** |
+| S41 | bool/string 数组动态域透传：解除 t70/t71 四守卫（实参/返回值/字段槽/动态槽赋值）——任意元素数组（含嵌套 kind 4）指针透传，kind 随对象自带；print/len/==/toString rt 侧全 kind 覆盖零改动；动态域索引读插 kind>1 运行时陷阱（新缺口 CG9，拒错编从陷阱）；动态域索引写 Bool/Str 值打对应 kind tag 直写（rt_arr_set_num 天然覆盖，mismatch 落 CG7 消息泛化） | bool/str 数组作实参/返回值透传/类字段存取/==（同内容/异内容/跨 kind）/动态域写 bool-str 值引用联动与负索引/数值域读写回归/嵌套数组透传 print-len-== 程序编译执行，输出与解释器一致 **✅ t88** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 仍拒编；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 仍拒编；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -304,7 +305,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | Collie 构造 | LLVM IR 降级 |
 |------------|--------------|
 | `function f(a array) …` / `… f(…) array` | 签名承载零成本（`llvm_type_of(Arr)` 本就是不透明 ptr）；卡点纯在元素类型跨不过边界——**elem 动态化为 Num 哨兵**（关键洞察：collie_rt 数组 kind 0=int/1=double 与 t62 Num tag 0/1 编码完全重合）；形参落槽/调用返回点 CGValue.elem 记 Num（顶层函数 + 类方法 + base 调用共 5 处） |
-| 动态域不变量 | 进动态域的数组 elem 限 {Int, Double, Num}：bool/str 数组（kind 2/3 无 number 对应）作实参（coerce_call_arg）/返回值（visitReturn）静态拒编，保证动态域运行期 kind ∈ {0,1} |
+| 动态域不变量 | ~~进动态域的数组 elem 限 {Int, Double, Num}：bool/str 数组（kind 2/3 无 number 对应）作实参（coerce_call_arg）/返回值（visitReturn）静态拒编~~（t88 解除：任意 kind 透传进动态域，索引读 kind≥2 运行期 CG9 陷阱，见 S41） |
 | `a[i]` 读（elem==Num） | `rt_arr_get` bits + 新接口 `collie_rt_arr_kind` 直接拼 Num（kind 即 tag，零转换）；后续算术/比较/打印走既有 Num 路径 |
 | `a[i] = v` 写（elem==Num） | v 限数值系转 Num 表示，下沉新接口 `collie_rt_arr_set_num(arr,i,tag,bits)`：tag==kind 直存 / int 写 double 数组提升（对齐静态路径 Int→Double）/ decimal 写 int 数组陷阱退出（解释器动态异质可容、同质表示不可，拒错编从陷阱，新缺口 CG7） |
 | 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持（Num vs 静态自然拒编） |
@@ -317,7 +318,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 |------------|--------------|
 | `public array f = […];` | register_class_layout 放行（删 t59 时代拒编）；字段槽即 opaque ptr（llvm_type_of(Arr)），struct 建型/8 字节 × 字段数 malloc 上界零改动 |
 | 字段读 `obj.f` | CGField 无元素类型伴随，读出即动态域：visitProperty 置 CGValue.elem = Num 哨兵（同 t70 形参机制），下游索引读写/print/传参/返回全走 t70 动态路径，零新 rt 接口 |
-| 字段写 `obj.f = v` / 字段初始值 | 守卫下沉 coerce_for_slot 相等分支（一处覆盖 visitPropertyAssign + visitNew 两入口）：右值 elem 限 {Int, Double, Num}，bool/str 数组拒编（kind 2/3 无 number 对应），维持动态域 kind ∈ {0,1} 不变量；变量/tuple 槽的 Arr 另有前置分支，下沉零回归 |
+| 字段写 `obj.f = v` / 字段初始值 | 守卫下沉 coerce_for_slot 相等分支（一处覆盖 visitPropertyAssign + visitNew 两入口）：~~右值 elem 限 {Int, Double, Num}，bool/str 数组拒编~~（t88 解除：任意元素数组透传，见 S41）；变量/tuple 槽的 Arr 另有前置分支，下沉零回归 |
 | 引用语义 | 字段槽存指针，读出/写入均指针拷贝共享底层存储（对齐解释器 shared_ptr） |
 | 范围外 | 嵌套/异质数组（Obj 字段已于 t72 解锁见 S25，Num 字段已于 t74 解锁见 S27） |
 
@@ -451,7 +452,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `m[i]` 内层读 / `m[i][j]` 逐层读写 | visitIndex object.elem==Arr 分支：rt_arr_get 取 bits 后 IntToPtr 还原内层数组 ptr，elem 记 **Num 动态域哨兵**——内层索引读写/print/len 全走 t70 既有动态域机制（rt_arr_kind + make_num 读、rt_arr_set_num 写）零新码；`m[0].length` 链式天然可用 |
 | `m[i] = [5, 6]` 整槽替换 | visitIndexAssign object.elem==Arr 分支：值限数值系内层数组（v.type==Arr 且 v.elem ∈ {Int/Double/Num}），elem_to_bits PtrToInt 写 rt_arr_set；其余拒编 "array element type mismatch in index assignment" |
 | print / toString / == | rt_arr_to_str 加 case 4（指针位模式还原后递归转串，string 改显式 case 3）；rt_arr_eq 同 kind 分支加 kind 4 递归深比较（kind 4 × 其它 kind 落既有恒不等） |
-| 范围外 | ≥3 层嵌套与内层 bool/str 数组（拒编不错编）；嵌套数组进函数签名/类字段/返回值（t70/t71 既有守卫 elem 限数值系天然拒编，消息沿用 "passing/returning bool/string array" 措辞）；嵌套数组元素进 tuple（物化/gen_tuple_eq 既有拒编）；零新增 collie_rt 接口 |
+| 范围外 | ≥3 层嵌套与内层 bool/str 数组（拒编不错编）；~~嵌套数组进函数签名/类字段/返回值（t70/t71 既有守卫 elem 限数值系天然拒编）~~（t88 透传解锁，索引读落 CG9 陷阱，见 S41）；嵌套数组元素进 tuple（物化/gen_tuple_eq 既有拒编）；零新增 collie_rt 接口 |
 
 **S39 降级补充（t86 实现）：类继承向上转型（upcast）**：
 
@@ -473,6 +474,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `p.level = v` / `this.level = v` 字段赋值 | visitPropertyAssign：coerce_for_slot 后同插 check_bit_range（构造器/方法体内 this.field 赋值同路径） |
 | `p.level` 字段读出 | visitProperty 恒 Int 无需改——表达式域无截断（`p.level + 100` 可越过声明范围），对齐 t69 变量语义 |
 | 范围外 | byte/word 进函数签名（语义层 "No matching overload" 拦截，两端一致非差分面）；非 integer 初始值/赋值（语义层双端同拦）；零新增 collie_rt 接口 |
+
+**S41 降级补充（t88 实现）：bool/string 数组动态域透传**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `f(flags)` / `return flags` / `obj.f = flags` / 动态槽赋值 | t70/t71 四守卫全部解除（coerce_call_arg / visitReturn / coerce_for_slot / visitAssign 动态槽来源限制）：任意元素数组（bool kind 2 / str kind 3 / 嵌套 kind 4）指针透传，kind 随数组对象自带（对齐解释器 coerce_to_declared KW_ARRAY 只查"是数组"不查元素类型） |
+| print / length / len / == / toString | 零改动天然安全：rt_arr_to_str（case 2/3/4 已覆盖）、rt_arr_eq（kind 2/3/4 已覆盖，跨 kind 恒不等）、rt_arr_len（kind 无关） |
+| `a[i]` 动态域读（elem==Num） | kind 0/1 即 number tag 直拼 Num 零转换（t70 路径不变）；kind ≥ 2 元素静态类型不可定——`icmp ugt kind, 1` → dynkind.trap 调新接口 `collie_rt_trap_arr_kind(kind)` + unreachable（**新缺口 CG9**：解释器动态类型可行、编译产物陷阱退出不错值，消息 "reading bool/string/nested array element in dynamic context"） |
+| `a[i] = v` 动态域写（elem==Num） | v 为 Bool/Str 直写放行：打对应 kind tag（arr_kind_of 2/3）+ elem_to_bits 下沉 rt_arr_set_num——tag==kind 直存天然覆盖、0→1 提升保留、其余 mismatch 落 CG7 陷阱（消息泛化为 "array element type mismatch"，原 "decimal element in integer array" 是其子集） |
+| 范围外 | 嵌套数组字面量内层 bool/str（visitArrayLiteral 守卫不动，拒编）；动态域索引读出 bool/str/嵌套元素（CG9 陷阱面，候选后续任务）；collie_rt 新增 1 个陷阱接口 `collie_rt_trap_arr_kind` |
 
 ## 五、构建与链接方案（关键决策）
 
