@@ -2906,6 +2906,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     };
     CGType result_type = arms.front().value.type;
     std::string result_cls = arms.front().value.cls;
+    CGType result_elem = arms.front().value.elem;
     if (result_type == CGType::Void) {
         unsupported("ternary branch has no value",
                     expr.question_token().line(), expr.question_token().column());
@@ -2918,10 +2919,12 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
         if (v.type == result_type) {
-            if (v.type == CGType::Arr && v.elem != arms.front().value.elem) {
-                // 同为数组但元素类型不同：合并后无法单一解码，拒编不错编（t59）
-                unsupported("ternary branches yield arrays of different element types",
-                            expr.question_token().line(), expr.question_token().column());
+            if (v.type == CGType::Arr && v.elem != result_elem) {
+                // 同为数组但元素类型不同：统一 elem=Num 动态域哨兵（t94）——
+                // 数组值同为不透明 ptr，PHI 无关 elem；kind 随数组对象运行期
+                // 自带，print/len/== rt 侧全 kind 覆盖，索引读 kind ≥ 2 落
+                // 既有 CG9 陷阱不错值
+                result_elem = CGType::Num;
             }
             if (v.type == CGType::Obj && v.cls != result_cls) {
                 // 类不同：统一到最近公共祖先（t93）——Obj 的 LLVM 表示同为
@@ -2968,8 +2971,8 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     for (const auto& arm : arms) {
         phi->addIncoming(arm.aligned, arm.end);
     }
-    // elem 仅 Arr 有意义（各支已校验一致，取首支）；cls 为各支最近公共祖先（t93）
-    last_value_ = {phi, result_type, arms.front().value.elem, result_cls};
+    // elem 仅 Arr 有意义——各支不同时统一 Num 动态域（t94）；cls 为各支最近公共祖先（t93）
+    last_value_ = {phi, result_type, result_elem, result_cls};
 }
 
 llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& cand,
@@ -3171,6 +3174,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     };
     CGType result_type = arms.front().value.type;
     std::string result_cls = arms.front().value.cls;
+    CGType result_elem = arms.front().value.elem;
     if (result_type == CGType::Void) {
         unsupported("'==?' branch result has no value", op.line(), op.column());
     }
@@ -3181,9 +3185,9 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
         if (v.type == result_type) {
-            if (v.type == CGType::Arr && v.elem != arms.front().value.elem) {
-                unsupported("'==?' branches yield arrays of different element types",
-                            op.line(), op.column());
+            if (v.type == CGType::Arr && v.elem != result_elem) {
+                // elem 不同：统一 Num 动态域哨兵（t94，同 gen_ternary）
+                result_elem = CGType::Num;
             }
             if (v.type == CGType::Obj && v.cls != result_cls) {
                 // 类不同：统一到最近公共祖先（t93，同 gen_ternary），
@@ -3228,8 +3232,8 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     for (const auto& arm : arms) {
         phi->addIncoming(arm.aligned, arm.end);
     }
-    // elem 仅 Arr 有意义（各支已校验一致，取首支）；cls 为各支最近公共祖先（t93）
-    last_value_ = {phi, result_type, arms.front().value.elem, result_cls};
+    // elem 仅 Arr 有意义——各支不同时统一 Num 动态域（t94）；cls 为各支最近公共祖先（t93）
+    last_value_ = {phi, result_type, result_elem, result_cls};
 }
 
 llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,

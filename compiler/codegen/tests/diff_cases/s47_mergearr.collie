@@ -1,0 +1,35 @@
+// t94 S47 差分用例：三元/==? 分支数组元素类型合流统一动态域（elem=Num 哨兵）
+
+array ints = [1, 2, 3];
+array decs = [1.5, 2.5];
+array strs = ["a", "b"];
+bool flag = true;
+
+// 三元合流 Int/Double：数值系元素动态域索引读（两向）
+print((flag ? ints : decs)[0]);
+print((flag ? decs : ints)[1]);
+
+// 合流值存动态 elem 槽后整组 print / len（rt 侧全 kind 覆盖）
+array m = flag ? ints : decs;
+print(m);
+print(len(m));
+
+// 合流 Str/Int：整组 print 与 len（str 元素索引读为 CG9 陷阱面，不在此测）
+array n = flag ? strs : ints;
+print(n);
+print(len(n));
+
+// 合流值参与相等比较（rt_arr_eq 全 kind：同指针/跨 kind 恒不等）
+print(m == ints);
+print(n == strs);
+print(m == n);
+
+// ==? 三支不同 elem 合流
+integer k = 2;
+array p = k ==? 1: ints, 2: decs, strs;
+print(p);
+print(p[0]);
+
+// 动态域值再进三元（Num 与静态 Int 仍不等，继续统一动态域）
+array q = flag ? m : ints;
+print(q[2]);

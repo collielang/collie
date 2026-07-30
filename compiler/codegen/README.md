@@ -57,9 +57,10 @@
 | S44 | 嵌套函数声明：受限雷姆达提升——declare_function 加 prefix 改编键（outer.inner，符号 collie.outer.inner），尾部 declare_nested_in 递归下探 Block/If/While/For/DoWhile/Switch 建原型进 nested_fns_ 注册表；visitFunction 嵌套路径声明处向 scopes_ 登记 fn_key 绑定（对齐解释器"执行到声明处 env_.define"——声明前不可见/块退出失效），嵌套体链底拷入外层链函数绑定（自身递归/前置兄弟可见），生成现场 in_function_/返回类型保存恢复；visitCall 作用域链函数绑定优先于顶层 functions_；函数名作值/被赋值拒编；零新增 rt 接口 | 基本嵌套/嵌套读全局/自身递归 fac(5)/前置兄弟嵌套/带参字符串嵌套程序编译执行，输出与解释器一致 **✅ t91** |
 | S45 | 无初始化变量声明：四静态类型 {integer,decimal,bool,string} 放行——槽照常创建（顶层零初始化全局槽/函数内 alloca 不预存），CGVar 加 uninit + decl_depth；读 uninit 槽拒编（语义层流不敏感放行的分支/循环内赋值后读，解释器运行期仍 none，零初始化槽会错值——拒编不错编）；同块（scopes_ 同深度）赋值清 uninit 放行后续读，深层块赋值存值不清标记；零新增 rt 接口 | 顶层声明后隔句赋值再读/四静态类型/函数内局部/顶层全局函数体内读/循环体内声明+同块赋值程序编译执行，输出与解释器一致 **✅ t92** |
 | S46 | 三元/==? 分支实例类型统一到最近公共祖先：新增 nearest_common_ancestor 沿 super 链求 NCA（含自身端点），gen_ternary 与 match 合流两触点 Obj cls 不等改求 NCA——有则 result cls 取祖先（Obj 的 LLVM 表示统一指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值按运行期真实类解析方法、字段走父类前缀布局），无公共祖先维持拒编不错编；零新增 rt 接口 | 子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先字段读，==? 三支合流，合流值直调方法与进函数形参程序编译执行，输出与解释器一致 **✅ t93** |
+| S47 | 三元/==? 分支数组元素类型合流统一动态域：gen_ternary 与 match 合流两触点 Arr elem 不等改统一 elem=Num 动态域哨兵（t70/t88 既有机制）——数组值不透明 ptr，PHI 无关 elem；合流值为新鲜值元数据自诞生即动态无程序序失配，kind 随数组对象运行期自带（print/len/== rt 侧全 kind 覆盖，索引读数值系正常、kind ≥ 2 落既有 CG9 陷阱不错值）；两触点 result_elem 逐支累计（同 t93 result_cls 模式）；零新增 rt 接口 | Int/Double 三元合流索引读（两向）、合流值存动态槽整组 print/len、Str/Int 合流、合流值相等比较、==? 三支合流、动态域值再进三元程序编译执行，输出与解释器一致 **✅ t94** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -188,7 +189,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a[i]` 读 / `a[i] = v` 写 | `collie_rt_arr_get/set(ptr, i64[, i64 bits])`：负索引归一化（-1 为最后一个元素），越界 stderr 报错后 exit(1)（消息格式同 str_index）；读结果 `bits_to_elem` 按 elem 还原；写入仅允许 Int→Double 提升否则拒编；求值顺序 object→index→value 对齐解释器 |
 | `a.length` / `len(a)` | `call i64 @collie_rt_arr_len(ptr)`（len 内建同时支持 string 走 str_len） |
 | `print(a)` / `toString(a)` / 拼接 | `call ptr @collie_rt_arr_to_str(ptr)` 整体转 `[1, 2, 3]` 格式串（对齐 Value::to_string：元素递归格式化、字符串不加引号）后走 print_str/Str 路径 |
-| 赋值/三元中的数组 | 指针拷贝即引用语义；两侧 elem 不一致拒编（解释器动态异质无此限制，同质表示无法承载 → 拒编不错编） |
+| 赋值/三元中的数组 | 指针拷贝即引用语义；~~两侧 elem 不一致拒编~~（三元/==? 合流已于 S47 t94 统一 elem=Num 动态域；数组变量再赋不同 elem 仍拒编——程序序提升 var->elem 在循环回边/函数全局快照下会错编） |
 | array 函数参数/返回值 | 拒编（`array` 声明无元素类型标注，跨函数签名无法定 elem；待带元素类型的声明语法或动态 kind 方案） |
 
 **S13 降级补充（t60 实现）：class 最小闭环**：
@@ -313,7 +314,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 动态域不变量 | ~~进动态域的数组 elem 限 {Int, Double, Num}：bool/str 数组（kind 2/3 无 number 对应）作实参（coerce_call_arg）/返回值（visitReturn）静态拒编~~（t88 解除：任意 kind 透传进动态域，索引读 kind≥2 运行期 CG9 陷阱，见 S41） |
 | `a[i]` 读（elem==Num） | `rt_arr_get` bits + 新接口 `collie_rt_arr_kind` 直接拼 Num（kind 即 tag，零转换）；后续算术/比较/打印走既有 Num 路径 |
 | `a[i] = v` 写（elem==Num） | v 限数值系转 Num 表示，下沉新接口 `collie_rt_arr_set_num(arr,i,tag,bits)`：tag==kind 直存 / int 写 double 数组提升（对齐静态路径 Int→Double）/ decimal 写 int 数组陷阱退出（解释器动态异质可容、同质表示不可，拒错编从陷阱，新缺口 CG7） |
-| 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持（Num vs 静态自然拒编） |
+| 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；~~三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持~~（三元/==? 合流已于 S47 t94 统一动态域，tuple 槽与变量再赋维持拒编） |
 | length/len/print/toString | 运行时 kind 驱动（rt_arr_len/rt_arr_to_str），零改动天然支持动态域 |
 | 接口面 | collie_rt 新增 2 个：`collie_rt_arr_kind`（读 kind）/ `collie_rt_arr_set_num`（kind 感知写，含 CG7 陷阱）；范围外：嵌套/异质数组（数组类字段已于 t71 解锁，见 S24） |
 
@@ -537,7 +538,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `k ==? 1: new B(), new A()` 多支合流 | match 合流同规则扩展到 N+1 支（result_cls 逐支累计 NCA，兄弟类→公共父、孙类/兄弟类→更高祖先） |
 | 合流值方法调用/字段读 | t86 机制天然正确：对象头类 id + visitMethodCall 动态分派按运行期真实类解析覆写方法；字段走父类前缀布局，祖先静态类型读偏移一致 |
 | 无公共祖先两类合流 | 维持拒编 "ternary/'==?' branches yield instances of different classes"（解释器动态类型同签名方法可行，实证：解释器 X vs 拒编——拒编不错编） |
-| 范围外 | Arr elem 不同维持拒编；其余混型统一规则（数值系/Tri-Bool）不动；零新增 collie_rt 接口 |
+| 范围外 | ~~Arr elem 不同维持拒编~~（S47 t94 统一动态域）；其余混型统一规则（数值系/Tri-Bool）不动；零新增 collie_rt 接口 |
+
+**S47 降级补充（t94 实现）：三元/==? 分支数组元素类型合流统一动态域**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `c ? ints : decs`（elem 不同数组） | gen_ternary 分支类型统一：Arr elem 不等改统一 elem=Num 动态域哨兵（t70/t88 既有机制）——数组值同为不透明 ptr，PHI 无关 elem，值本身零转换；result_elem 逐支累计（同 t93 result_cls 模式） |
+| `k ==? 1: a, 2: b, c` 多支合流 | match 合流同规则扩展到 N+1 支（任一支 elem 不等即降 Num 动态域） |
+| 合流值消费 | 动态域机制天然正确：kind 随数组对象运行期自带——print/toString/len/== rt 侧全 kind 覆盖（rt_arr_to_str/rt_arr_len/rt_arr_eq）；索引读数值系拼 Num 正常、kind ≥ 2（str/bool/嵌套）落既有 CG9 陷阱不错值（实证：Str/Int 合流索引读解释器 a vs 产物陷阱退出）；合流值为新鲜值，元数据自诞生即动态，无程序序失配 |
+| 数组变量再赋不同 elem | 维持拒编 "assigning array with different element type"（活跃差分面但后置：程序序提升 var->elem 在循环回边——先读后赋再回读——与函数全局快照静态解码下会错编，需循环深度守卫+捕获跟踪） |
+| 范围外 | 数组变量/类字段/tuple 槽再赋不同 elem 维持拒编；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 
