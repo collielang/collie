@@ -135,6 +135,8 @@ private:
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_vars_ 下标（slot 恒 nullptr，t68）
         long long bit_max = 0;     // byte/word 声明的范围上限 255/65535，0 即非位类型（t69）
         std::string fn_key;        // 非空即嵌套函数绑定（t91）：functions_ 改编键，slot 恒 nullptr
+        bool uninit = false;       // 无初始化声明（t92）：读拒编，同块赋值后清
+        size_t decl_depth = 0;     // 仅 uninit 有意义：声明时 scopes_.size()（t92）
     };
 
     /// @brief tuple 静态展开值（t68）：元素值 + 平行名字表（无运行时对象，

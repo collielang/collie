@@ -960,6 +960,12 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
         unsupported("function '" + name + "' used as a value",
                     expr.name().line(), expr.name().column());
     }
+    if (var->uninit) {
+        // 无初始化声明未经同块赋值（t92）：解释器此值为 none（分支/循环内
+        // 赋值流不敏感放行但运行期可能未执行），槽值静态不可知，拒编不错编
+        unsupported("use of uninitialized variable '" + name + "'",
+                    expr.name().line(), expr.name().column());
+    }
     if (var->type == CGType::Tup) {
         // tuple 变量（t68）：无单一 slot，逐解构槽 load 重组展开值
         last_value_ = load_tuple_var(var->tup, name);
@@ -1027,6 +1033,12 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                                  var->bit_max == 255 ? "byte" : "word");
     }
     builder_.CreateStore(stored, var->slot);
+    if (var->uninit && scopes_.size() == var->decl_depth) {
+        // 同块直线区域赋值（t92）：块内顺序执行，后续读运行期必已过此存储，
+        // 清 uninit 放行；深层块（分支/循环体）赋值不清——运行期可能未执行，
+        // 后续读维持拒编保守安全
+        var->uninit = false;
+    }
     // 赋值表达式的值 = 存入后的值（与解释器一致）
     last_value_ = {stored, var->type};
 }
@@ -1810,8 +1822,25 @@ void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
 }
 
 void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
-    // 无初始化时解释器绑 none（动态哨兵值），静态降级无对应表示，明确拒编
+    // 无初始化时解释器绑 none（动态哨兵值）；四静态类型放行（t92）：槽照常
+    // 创建（顶层零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit +
+    // 声明深度——uninit 期间读拒编（语义层流不敏感放行的分支内赋值后读，
+    // 解释器运行期仍是 none，零初始化槽会错值，拒编不错编），同块赋值后清；
+    // 其余类型（byte/word/number/tribool/array/Tuple/类）维持拒编
     if (!stmt.initializer()) {
+        const TokenType tt = stmt.type().type();
+        if (tt == TokenType::KW_INTEGER || tt == TokenType::KW_DECIMAL ||
+            tt == TokenType::KW_BOOL || tt == TokenType::KW_STRING) {
+            CGType type = declared_cgtype(stmt.type());
+            const std::string name(stmt.name().lexeme());
+            CGVar var;
+            var.slot = create_var_slot(llvm_type_of(type), name);
+            var.type = type;
+            var.uninit = true;
+            var.decl_depth = scopes_.size();
+            scopes_.back()[name] = var;
+            return;
+        }
         unsupported("variable declaration without initializer",
                     stmt.name().line(), stmt.name().column());
     }

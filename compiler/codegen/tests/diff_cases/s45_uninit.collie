@@ -1,0 +1,45 @@
+// s45: 无初始化变量声明（t92）——四静态类型同块赋值后读
+// （注：未赋值先读被语义层 "used before initialization" 双端拦截；
+//  分支/循环块内赋值后读 codegen 保守拒编不错编——解释器为 none）
+
+// 顶层：声明与赋值间隔其它语句
+integer x;
+print("declared");
+x = 42;
+print(x);
+x = x + 1;
+print(x);
+
+// 其余三静态类型
+decimal d;
+d = 1.5;
+print(d);
+bool b;
+b = x > 40;
+print(b);
+string s;
+s = "hi" + "!";
+print(s);
+
+// 函数内局部无初始化
+function calc() integer {
+    integer t;
+    t = 7;
+    return t * 2;
+}
+print(calc());
+
+// 顶层无初始化全局：函数声明前已同块赋值，函数体内可读
+integer g;
+g = 5;
+function readG() integer {
+    return g + 1;
+}
+print(readG());
+
+// 循环体内声明 + 同块赋值
+for (integer i = 0; i < 3; i = i + 1) {
+    integer k;
+    k = i * 10;
+    print(k);
+}
