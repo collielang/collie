@@ -2198,10 +2198,16 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
             create_entry_alloca(llvm_type_of(info.param_types[i]), pname);
         builder_.CreateStore(&arg, slot);
         // Arr 形参 elem 记 Num 哨兵（t70：签名处元素类型不可知，动态域路径）
-        scopes_.back()[pname] = {slot, info.param_types[i],
-                                 info.param_types[i] == CGType::Arr ? CGType::Num
-                                                                    : CGType::Int,
-                                 info.param_cls[i]};
+        CGVar binding{slot, info.param_types[i],
+                      info.param_types[i] == CGType::Arr ? CGType::Num
+                                                         : CGType::Int,
+                      info.param_cls[i]};
+        // byte/word 形参（t98）：置 bit_max，体内重赋走既有赋值点 check_bit_range
+        const TokenType ptt = param.type.type();
+        if (ptt == TokenType::KW_BYTE || ptt == TokenType::KW_WORD) {
+            binding.bit_max = ptt == TokenType::KW_BYTE ? 255 : 65535;
+        }
+        scopes_.back()[pname] = binding;
         ++i;
     }
 
@@ -2579,8 +2585,8 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt,
     if (rtt == TokenType::KW_BYTE || rtt == TokenType::KW_WORD) {
         // byte/word 返回类型（t97）：i64 承载，ret_bit_max 记范围上限——返回值
         // 在 visitReturn 插 check_bit_range，越界陷阱对齐解释器 coerce_to_declared
-        // 返回值校验（参数位解析器不接受 byte/word，仅返回位可达；类方法返回
-        // 走 declared_signature_type 维持拒编，不静默丢范围校验）
+        // 返回值校验（byte/word 形参见下方参数循环 t98；类方法返回走
+        // declared_signature_type 维持拒编，不静默丢范围校验）
         ret = CGType::Int;
         ret_bit_max = rtt == TokenType::KW_BYTE ? 255 : 65535;
     } else if (rtt != TokenType::KW_NONE) {
@@ -2594,7 +2600,17 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt,
     for (const auto& param : stmt.parameters()) {
         CGType t = CGType::Void;
         std::string t_cls;
-        declared_signature_type(param.type, t, t_cls);
+        const TokenType ptt = param.type.type();
+        if (ptt == TokenType::KW_BYTE || ptt == TokenType::KW_WORD) {
+            // byte/word 形参（t98）：i64 承载（绕过 declared_signature_type 的
+            // "variable type" 拒编）；形参落槽时置 CGVar.bit_max，体内重赋走
+            // 既有赋值点 check_bit_range 陷阱。实参恒为 byte/word 类型（重载
+            // 解析拒整数字面量/算术表达式），已在其来源处校验范围，调用点
+            // 无需补陷阱；类方法/构造器参数走 declared_signature_type 维持拒编
+            t = CGType::Int;
+        } else {
+            declared_signature_type(param.type, t, t_cls);
+        }
         param_types.push_back(t);
         param_cls.push_back(t_cls);
         llvm_params.push_back(llvm_type_of(t));

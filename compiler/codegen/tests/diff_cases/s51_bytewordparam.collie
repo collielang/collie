@@ -1,0 +1,51 @@
+// s51: byte/word 作函数参数（t98）
+// byte/word 形参 i64 承载 + CGVar.bit_max，体内重赋走赋值点范围陷阱；
+// 实参恒为 byte/word 类型（变量/函数返回，来源处已校验），调用点无陷阱
+
+function inc(b byte) byte {
+    return b + 1;
+}
+
+function clamp(n byte) byte {
+    if (n > 200) {
+        return 200;
+    }
+    return n;
+}
+
+function addw(w word) word {
+    return w + 1;
+}
+
+function chain(b byte) byte {
+    return inc(b);
+}
+
+function makeByte() byte {
+    return 100;
+}
+
+byte x = 50;
+print(inc(x));              // 51
+print(clamp(x));            // 50
+byte big = 250;
+print(clamp(big));          // 200
+word m = 60000;
+print(addw(m));             // 60001
+print(chain(x));            // 51
+print(inc(makeByte()));     // 101
+
+// 形参体内重赋（范围内）+ 循环内反复以 byte 变量为实参
+byte acc = 0;
+for (integer i = 0; i < 3; i = i + 1) {
+    acc = inc(acc);
+}
+print(acc);                 // 3
+
+// word 形参返回值参与比较
+byte y = 200;
+if (inc(y) == 201) {
+    print("ok");            // ok
+}
+word w2 = 100;
+print(addw(w2) + 5);        // 106
