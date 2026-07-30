@@ -1,0 +1,87 @@
+// s52: 类方法/构造器 byte/word 参数与返回（t99）
+// 方法/构造器 byte/word 形参 i64 承载 + 绑定点 check_bit_range 范围陷阱
+// （实参可为整数字面量，无顶层重载拦截）+ CGVar.bit_max；
+// 方法 byte/word 返回 ret_bit_max + visitReturn t97 陷阱。
+// 注：解释器语义边界——方法调用结果静态类型为 object，
+//   不能直接参与 == / != 比较（走有序比较 >= 绕过），
+//   且 word 值不能 return 给 byte 返回类型（各返回类型自洽）。
+
+class Meter {
+    public byte level = 0;
+    public word total = 0;
+
+    public Meter(start byte) {
+        this.level = start;
+    }
+
+    public function bump(delta byte) none {
+        this.level = this.level + delta;
+    }
+
+    public function getLevel() byte {
+        return this.level;
+    }
+
+    // byte 参数 + byte 返回多路径（整数字面量返回，各路径自洽）
+    public function pickByte(flag byte) byte {
+        if (flag > 0) {
+            return 200;
+        }
+        return 0;
+    }
+
+    // word 参数 + word 返回多路径
+    public function clampWord(n word) word {
+        if (n > 255) {
+            return 255;
+        }
+        return n;
+    }
+
+    public function addTotal(amount word) word {
+        this.total = this.total + amount;
+        return this.total;
+    }
+}
+
+// 构造器 byte 参数：整数字面量实参（绑定点范围校验通过）
+Meter m = new Meter(10);
+print(m.level);                 // 10
+
+// 方法 byte 参数：字面量实参 + byte 变量实参
+m.bump(5);
+print(m.level);                 // 15
+byte d = 20;
+m.bump(d);
+print(m.level);                 // 35
+
+// 方法 byte 返回：print 直出 + 参与算术 + 存 byte 变量
+print(m.getLevel());            // 35
+print(m.getLevel() + 100);      // 135
+byte snap = m.getLevel();
+print(snap);                    // 35
+
+// 方法 byte 参数 + byte 返回多路径
+print(m.pickByte(1));           // 200
+print(m.pickByte(0));           // 0
+
+// 方法 word 参数 + word 返回多路径
+print(m.clampWord(300));        // 255
+word w = 200;
+print(m.clampWord(w));          // 200
+
+// 方法 word 参数 + word 返回：循环内反复调用累计
+for (integer i = 0; i < 3; i = i + 1) {
+    m.addTotal(20000);
+}
+print(m.total);                 // 60000
+
+// 方法返回值作方法实参（byte 返回进 byte 形参）
+Meter m2 = new Meter(1);
+m2.bump(m.getLevel());
+print(m2.level);                // 36
+
+// 方法 byte 返回值参与有序比较（object 动态放行）
+if (m.getLevel() >= 35) {
+    print("ok");                // ok
+}

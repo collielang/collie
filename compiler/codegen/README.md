@@ -61,10 +61,11 @@
 | S48 | 三元/==? 分支 tuple 合流静态展开：新增 merge_tuple_arms 三阶段——元数据递归校验形状（元素数+名字表+嵌套位置）并合并各叶位类型（复用标量合流规则：数值提升/Tri 加宽/Arr elem 降 Num 哨兵/Obj cls 求 NCA），逐支叶值对齐指令落各支末块（DFS 序展平），merge 块逐叶 PHI 自底向上重建新鲜 CGTuple；形状/名字不一致维持拒编不错编；零新增 rt 接口 | 无名/命名/字面量支/元素数值混型/嵌套 tuple 三元合流，==? 三支合流，合流值索引/字段/get/length/相等比较/再进三元，tribool 三分支形式，数组元素两支 elem 不同程序编译执行，输出与解释器一致 **✅ t95** |
 | S49 | 无初始化变量声明放行面扩展：visitVarDecl 从四静态类型（t92）扩展 number/tribool/char/character/byte/word——Num（struct{i64,i64}）/Tri（i8）/Str（ptr）零初始化槽合法，byte/word 沿用 i64 承载 + bit_max（赋值走 visitAssign 通用路径，既有赋值点 check_bit_range 陷阱自动生效）；uninit/decl_depth/同块清除机制复用；array/Tuple/类维持拒编；零新增 rt 接口 | number 整/小数态、tribool 三态、byte/word 范围内赋值、char/character、函数内局部、顶层全局函数体内读、循环体内声明+同块赋值程序编译执行，输出与解释器一致 **✅ t96** |
 | S50 | byte/word 函数返回类型：declare_function 顶层函数返回类型 KW_BYTE/KW_WORD 前置识别为 CGType::Int 承载 + CGFunction.ret_bit_max（255/65535），visitFunction 保存/设置/恢复 current_ret_bit_max_，visitReturn 值对齐 Int 后插 check_bit_range（复用 t69 陷阱，越界调 rt_trap_bit_range，对齐解释器 coerce_to_declared 返回值校验）；返回值作普通 Int 表达式域消费；~~byte/word 参数~~（S51 t98 已放行）/类方法返回维持拒编；零新增 rt 接口 | byte/word 返回值 print/参与算术/存 byte-word 变量（声明与赋值点范围陷阱）/多返回路径 clamp/循环内反复调用/word 返回值比较程序编译执行，输出与解释器一致 **✅ t97** |
-| S51 | byte/word 函数参数：declare_function 参数循环 KW_BYTE/KW_WORD 前置识别为 CGType::Int 承载（llvm 形参 i64），visitFunction 形参绑定置 CGVar.bit_max（255/65535）——体内重赋走既有赋值点 check_bit_range 陷阱、返回越界走 visitReturn t97 陷阱；调用点零改动——重载解析要求实参类型即 byte/word（整数字面量/算术实参双端语义错非差分面），实参恒为来源处已校验值；类方法/构造器参数维持拒编；零新增 rt 接口 | byte 形参 identity/clamp 多返回/word 形参/嵌套调用/byte 函数返回作实参/循环内反复调用/形参返回值比较程序编译执行，输出与解释器一致 **✅ t98** |
+| S51 | byte/word 函数参数：declare_function 参数循环 KW_BYTE/KW_WORD 前置识别为 CGType::Int 承载（llvm 形参 i64），visitFunction 形参绑定置 CGVar.bit_max（255/65535）——体内重赋走既有赋值点 check_bit_range 陷阱、返回越界走 visitReturn t97 陷阱；调用点零改动——重载解析要求实参类型即 byte/word（整数字面量/算术实参双端语义错非差分面），实参恒为来源处已校验值；~~类方法/构造器参数维持拒编~~（S52 t99 已放行）；零新增 rt 接口 | byte 形参 identity/clamp 多返回/word 形参/嵌套调用/byte 函数返回作实参/循环内反复调用/形参返回值比较程序编译执行，输出与解释器一致 **✅ t98** |
+| S52 | byte/word 类方法/构造器参数与返回：方法注册循环返回类型/参数 KW_BYTE/KW_WORD 前置识别为 CGType::Int 承载（返回位复用 CGMethod 继承的 ret_bit_max），gen_method_body 设/复位 current_ret_bit_max_（返回走 t97 陷阱）+ 形参绑定点读 AST 形参类型插 check_bit_range 范围陷阱（方法单签名按名解析、实参可为整数字面量、覆盖方法/构造器/base 全路径）+ 置 CGVar.bit_max；coerce_call_arg 零改动；零新增 rt 接口 | 构造器 byte 参数字面量实参/方法 byte 参数字面量+变量实参/方法 byte 返回 print-算术-存变量/byte 参数+byte 返回多路径/word 参数+word 返回多路径与循环累计/方法返回值作方法实参/byte 返回值有序比较程序编译执行，输出与解释器一致 **✅ t99** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），类方法/构造器 byte/word 参数仍拒编（活跃差分面，后置）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/Tuple/类无初始化仍拒编）；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），byte/word 类方法/构造器参数与返回已于 S52 t99 解锁——方法单签名按名解析，形参绑定点插 check_bit_range 范围陷阱（实参可为整数字面量，覆盖方法/构造器/base 全路径），返回走 t97 陷阱（方法调用结果参与 ==/!= 比较、word→byte 返回属解释器语义边界非 codegen 拒编面）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/Tuple/类无初始化仍拒编）；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -582,7 +583,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `function makeWord() word { return 40000; }` | declare_function 顶层函数返回类型识别 KW_BYTE/KW_WORD → CGType::Int 承载（i64） + CGFunction.ret_bit_max（255/65535，缺省 0 保兼容非位返回）；LLVM 函数返回 i64，值层面与 integer 返回同构 |
 | 返回值范围校验 | visitFunction 保存/设置/恢复 current_ret_bit_max_（同 current_ret_type_ 保存恢复模式，嵌套函数上下文安全）；visitReturn 值对齐 Int 后 `ret_bit_max > 0` 时插 check_bit_range——越界调 rt_trap_bit_range 报 "Value out of range for 'byte/word' (expected 0-max, got N)" + unreachable（复用 t69 机制，对齐解释器 coerce_to_declared 返回值校验，核心消息一致，位置前缀缺失同既定 CG 陷阱分歧）；多返回路径逐 return 各插一次 |
 | 返回值消费 | 结果为普通 Int 表达式域（无 bit_max）：参与算术/比较照常；存 byte/word 变量再走声明点或赋值点 check_bit_range；print 直接整数输出 |
-| 范围外 | ~~byte/word 作函数参数维持拒编~~（S51 t98 已放行——预检证伪原"调用点范围陷阱"假设：重载解析保证实参恒为已校验 byte/word 值，coerce_call_arg 零改动）；类方法返回 byte/word 走 declared_signature_type 维持拒编；零新增 collie_rt 接口 |
+| 范围外 | ~~byte/word 作函数参数维持拒编~~（S51 t98 已放行——预检证伪原"调用点范围陷阱"假设：重载解析保证实参恒为已校验 byte/word 值，coerce_call_arg 零改动）；~~类方法返回 byte/word 走 declared_signature_type 维持拒编~~（S52 t99 已放行）；零新增 collie_rt 接口 |
 
 **S51 降级补充（t98 实现）：byte/word 函数参数**：
 
@@ -591,7 +592,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `function inc(b byte) byte { ... }` | declare_function 参数循环识别 KW_BYTE/KW_WORD → CGType::Int 承载（绕过 declared_signature_type 的 "variable type 'byte/word'" 拒编）；LLVM 形参 i64，签名层面与 integer 形参同构 |
 | 形参绑定 | visitFunction 落槽绑定改用具名 CGVar binding，byte/word 形参置 bit_max=255/65535——体内重赋 `b = b + 100` 越界走既有 visitAssign 赋值点 check_bit_range 陷阱（实证：实参 200 时 codegen 产物运行期 trap "Value out of range for 'byte' (expected 0-255, got 300)" 核心消息对齐解释器），返回 `b + 1` 越界走 visitReturn t97 陷阱 |
 | 调用点实参 | coerce_call_arg 零改动——重载解析要求实参类型即 byte/word（整数字面量 `addb(200)`/byte 算术 `addb(x+100)` 双端语义错 "No matching overload"，非差分面），实参只能是 byte/word 变量（声明/赋值点已校验）或 byte/word 函数返回（visitReturn t97 已校验），恒在范围内无需调用点陷阱（类型系统天然保证，t97 遗留"调用点范围陷阱"假设经预检证伪） |
-| 范围外 | 类方法/构造器 byte/word 参数走 declared_signature_type 维持拒编（活跃差分面，后置）；零新增 collie_rt 接口 |
+| 范围外 | ~~类方法/构造器 byte/word 参数走 declared_signature_type 维持拒编~~（S52 t99 已放行）；零新增 collie_rt 接口 |
+
+**S52 降级补充（t99 实现）：byte/word 类方法/构造器参数与返回**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `function getLevel() byte { ... }`（类方法返回位） | 方法注册循环返回类型识别 KW_BYTE/KW_WORD → CGType::Int 承载 + info.ret_bit_max=255/65535（复用 CGMethod 继承自 CGFunction 的 t97 ret_bit_max 字段，绕过 declared_signature_type）；gen_method_body 现场保存/复位 current_ret_bit_max_（设 method.ret_bit_max、复位 0），visitReturn t97 陷阱自动生效覆盖方法/构造器返回越界 |
+| `function bump(delta byte) none { ... }` / `Meter(start byte) { ... }`（参数位） | 方法注册循环参数识别 KW_BYTE/KW_WORD → CGType::Int（llvm 形参 i64）；gen_method_body 形参落槽绑定处读 AST 形参声明类型（stmt.parameters()[i-1].type），byte/word 时先 check_bit_range 再 store 并置 CGVar.bit_max（体内重赋走赋值点陷阱） |
+| 绑定点范围陷阱（对照 t98 顶层函数） | 方法/构造器为单签名按名解析无重载拦截，整数字面量实参（`c.setb(300)`/`new C(300)`）可达绑定点——解释器绑定时 coerce_to_declared 校验、越界运行期 trap，故形参必须在绑定点插 check_bit_range（统一覆盖方法/构造器/base 全调用路径）；实证：越界字面量实参 codegen 产物运行期 trap "Value out of range for 'byte' (expected 0-255, got 300)" 核心消息对齐解释器 |
+| 调用点实参 | coerce_call_arg 零改动（实参 Int 直传，范围校验在被调方绑定点） |
+| 范围外 | 方法调用结果静态类型为 object（is_comparable_type 无 object 放行）不能直接参与 ==/!= 比较、word 值不能 return 给 byte 返回类型——属解释器语义边界（非 codegen 拒编面）；异质数组字面量/实例进数组/tuple 进函数签名维持拒编（活跃差分面后置候选）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

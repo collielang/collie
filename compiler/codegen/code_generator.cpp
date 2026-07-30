@@ -2792,7 +2792,13 @@ void CodeGenerator::register_class_methods(const ClassStmt& stmt) {
         CGMethod info;
         info.defining = name;
         info.stmt = method;
-        if (method->return_type().type() != TokenType::KW_NONE) {
+        const TokenType mrt = method->return_type().type();
+        if (mrt == TokenType::KW_BYTE || mrt == TokenType::KW_WORD) {
+            // byte/word 方法返回（t99）：i64 承载 + ret_bit_max（t97 字段），
+            // gen_method_body 设置 current_ret_bit_max_ 后 visitReturn 陷阱生效
+            info.ret_type = CGType::Int;
+            info.ret_bit_max = mrt == TokenType::KW_BYTE ? 255 : 65535;
+        } else if (mrt != TokenType::KW_NONE) {
             declared_signature_type(method->return_type(), info.ret_type,
                                     info.ret_cls);
         }
@@ -2802,7 +2808,15 @@ void CodeGenerator::register_class_methods(const ClassStmt& stmt) {
         for (const auto& param : method->parameters()) {
             CGType t = CGType::Void;
             std::string t_cls;
-            declared_signature_type(param.type, t, t_cls);
+            const TokenType ptt = param.type.type();
+            if (ptt == TokenType::KW_BYTE || ptt == TokenType::KW_WORD) {
+                // byte/word 方法/构造器形参（t99）：i64 承载；方法为单签名
+                // 按名解析（无顶层重载拦截），实参可为整数字面量，范围校验
+                // 在 gen_method_body 绑定点插 check_bit_range
+                t = CGType::Int;
+            } else {
+                declared_signature_type(param.type, t, t_cls);
+            }
             info.param_types.push_back(t);
             info.param_cls.push_back(t_cls);
             llvm_params.push_back(llvm_type_of(t));
@@ -2836,6 +2850,7 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     in_function_ = true;
     current_ret_type_ = method.ret_type;
     current_ret_cls_ = method.ret_cls;
+    current_ret_bit_max_ = method.ret_bit_max; // byte/word 方法返回（t99）
     // 分派上下文 = 分派类（this 的静态类）；base 解析上下文 = 定义类
     // （继承副本两者不同，与解释器 call_class_method 的 defining_class 同义，t61）
     current_class_name_ = std::string(cls.stmt->name().lexeme());
@@ -2855,13 +2870,25 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
             arg.setName(pname);
             llvm::AllocaInst* slot =
                 create_entry_alloca(llvm_type_of(method.param_types[i - 1]), pname);
-            builder_.CreateStore(&arg, slot);
+            llvm::Value* stored = &arg;
             // Arr 形参 elem 记 Num 哨兵（t70，同 visitFunction）
-            scopes_.back()[pname] = {slot, method.param_types[i - 1],
-                                     method.param_types[i - 1] == CGType::Arr
-                                         ? CGType::Num
-                                         : CGType::Int,
-                                     method.param_cls[i - 1]};
+            CGVar binding{slot, method.param_types[i - 1],
+                          method.param_types[i - 1] == CGType::Arr
+                              ? CGType::Num
+                              : CGType::Int,
+                          method.param_cls[i - 1]};
+            // byte/word 形参（t99）：绑定点插范围陷阱——方法/构造器实参可为
+            // 整数字面量（单签名按名解析，无顶层重载拦截），对齐解释器绑定时
+            // coerce_to_declared 校验；置 bit_max 使体内重赋走赋值点陷阱
+            const TokenType ptt = param.type.type();
+            if (ptt == TokenType::KW_BYTE || ptt == TokenType::KW_WORD) {
+                const bool is_byte = ptt == TokenType::KW_BYTE;
+                stored = check_bit_range(stored, is_byte ? 255 : 65535,
+                                         is_byte ? "byte" : "word");
+                binding.bit_max = is_byte ? 255 : 65535;
+            }
+            builder_.CreateStore(stored, slot);
+            scopes_.back()[pname] = binding;
         }
         ++i;
     }
@@ -2888,6 +2915,7 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     in_function_ = false;
     current_ret_type_ = CGType::Void;
     current_ret_cls_.clear();
+    current_ret_bit_max_ = 0;
     current_this_ = nullptr;
     current_class_name_.clear();
     current_defining_class_.clear();
