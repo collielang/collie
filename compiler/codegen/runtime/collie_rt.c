@@ -51,7 +51,7 @@
  * 数组运行时（t59，同质数组降级用）：
  *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
  *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
- *     4=array(内层数组指针位模式，嵌套数组 t85)
+ *     4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100)
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -333,7 +333,7 @@ void collie_rt_trap_shift_count(void) {
 /* 数组对象：单块 malloc 的 len + kind + 8 字节槽；codegen 以不透明 ptr 持有，
  * 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）。
  * kind：0=integer(i64 直存) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
- * 4=array(内层数组指针位模式，嵌套数组 t85) */
+ * 4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100) */
 typedef struct {
     long long len;
     long long kind;
@@ -410,7 +410,8 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
  * 后元素静态类型不可定，codegen 读出无法承载——报错退出不错值（缺口 CG9，
  * 解释器动态类型可行；print/len/== 不经此路径，全 kind 天然工作） */
 void collie_rt_trap_arr_kind(long long kind) {
-    const char* what = kind == 2 ? "bool" : kind == 3 ? "string" : "nested";
+    const char* what = kind == 2 ? "bool" : kind == 3 ? "string"
+                     : kind == 5 ? "object" : "nested";
     fprintf(stderr, "runtime error: reading %s array element in dynamic "
                     "context (element type not statically known, gap CG9)\n", what);
     exit(1);
@@ -444,6 +445,8 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
             } else if (l->kind == 4) { /* array：递归深比较（嵌套数组，t85） */
                 if (!collie_rt_arr_eq((void*)(intptr_t)lb,
                                       (void*)(intptr_t)rb)) return 0;
+            } else if (l->kind == 5) { /* object：实例恒不等（对齐解释器 values_equal 无 Instance 分支，t100） */
+                return 0;
             } else { /* integer / bool：位模式即值 */
                 if (lb != rb) return 0;
             }
@@ -527,6 +530,9 @@ const char* collie_rt_arr_to_str(void* arr) {
                 break;
             case 3: /* string：指针位模式还原 */
                 collie_rt_sb_append(&out, &n, &cap, (const char*)(intptr_t)a->slots[i]);
+                break;
+            case 5: /* object：实例转串固定 <object>（对齐解释器 Value::to_string Instance 分支，t100） */
+                collie_rt_sb_append(&out, &n, &cap, "<object>");
                 break;
             default: /* 4 = array：指针位模式还原后递归转串（嵌套数组，t85） */
                 collie_rt_sb_append(&out, &n, &cap,

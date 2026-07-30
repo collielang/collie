@@ -1003,9 +1003,14 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
             // 含 Num 来源写静态槽：元素类型静态不可知，拒编
             unsupported("assigning array with different element type to '" + name + "'",
                         expr.name().line(), expr.name().column());
+        } else if (var->elem == CGType::Obj && v.cls != var->cls) {
+            // 实例数组同类约束（t100）：元素类不同则后续 arr[i].field/method()
+            // 按旧类解码会错值，拒编不错编
+            unsupported("assigning array with different element class to '" + name + "'",
+                        expr.name().line(), expr.name().column());
         }
         builder_.CreateStore(v.value, var->slot);
-        last_value_ = {v.value, CGType::Arr, var->elem};
+        last_value_ = {v.value, CGType::Arr, var->elem, var->cls};
         return;
     }
     if (var->type == CGType::Obj) {
@@ -1075,6 +1080,7 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     std::vector<CGValue> elements;
     elements.reserve(expr.elements().size());
     CGType elem = CGType::Int;
+    std::string elem_cls; // 仅 elem==Obj 有意义：元素类名（t100 实例数组，复用 CGValue.cls）
     for (const auto& element : expr.elements()) {
         CGValue v = emit(element.get());
         if (v.type == CGType::Void) {
@@ -1082,6 +1088,7 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         }
         if (elements.empty()) {
             elem = v.type;
+            elem_cls = v.cls;
         } else if (v.type != elem) {
             // 数值系互混（t90 扩展含 Num）：统一提升 Double 视图——Num 运行期
             // tag 静态不可判，double 槽承载（rt format_f64 整数值省 .0，
@@ -1096,6 +1103,11 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                 unsupported("heterogeneous array literal",
                             bracket.line(), bracket.column());
             }
+        } else if (elem == CGType::Obj && v.cls != elem_cls) {
+            // 实例数组同类约束（t100）：kind 5 单一元素类布局，混合类
+            // 实例数组拒编不错编（异类维持后置）
+            unsupported("heterogeneous array literal (mixed classes)",
+                        bracket.line(), bracket.column());
         }
         elements.push_back(v);
     }
@@ -1116,7 +1128,7 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         builder_.CreateCall(rt_arr_set_,
                             {arr, builder_.getInt64(i), elem_to_bits(v)});
     }
-    last_value_ = {arr, CGType::Arr, elem};
+    last_value_ = {arr, CGType::Arr, elem, elem_cls}; // Arr 复用 cls 记元素类名（t100）
 }
 void CodeGenerator::visitIndex(const IndexExpr& expr) {
     // string 索引（S8 t56）/数组索引（t59）：负索引与越界报错在 collie_rt
@@ -1225,7 +1237,8 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
             last_value_ = {make_num(kind, bits), CGType::Num};
             return;
         }
-        last_value_ = {bits_to_elem(bits, object.elem), object.elem};
+        last_value_ = {bits_to_elem(bits, object.elem), object.elem,
+                       CGType::Int, object.cls}; // Obj 元素传播元素类名（t100，支持 arr[i].field/method()）
         return;
     }
     last_value_ = {builder_.CreateCall(rt_str_index_, {object.value, index.value}, "idxtmp"),
@@ -1301,6 +1314,13 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
         }
+    }
+    if (object.elem == CGType::Obj && v.type == CGType::Obj &&
+        v.cls != object.cls && !is_subclass_of(v.cls, object.cls)) {
+        // 实例数组整槽写（t100）：同类或子类 upcast 放行（同 coerce_call_arg 语义），
+        // 异类写入后按元素类解码会错值，拒编不错编
+        unsupported("array element class mismatch in index assignment",
+                    expr.bracket().line(), expr.bracket().column());
     }
     builder_.CreateCall(rt_arr_set_, {object.value, index.value, elem_to_bits(v)});
     last_value_ = v; // 赋值表达式的值为右侧值（与解释器一致，支持链式赋值）
@@ -1909,6 +1929,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     CGType type = declared_cgtype(stmt.type());
     CGValue init = emit(stmt.initializer());
     CGType elem = CGType::Int;
+    std::string elem_cls; // 仅 type==Arr && elem==Obj 有意义：元素类名（t100）
     llvm::Value* stored = nullptr;
     if (type == CGType::Tup) {
         // Tuple 变量（t68）：解构为逐元素独立槽（无单一 slot，形状入
@@ -1931,13 +1952,14 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         }
         stored = init.value;
         elem = init.elem;
+        elem_cls = init.cls; // Obj 元素数组：拷贝元素类名（t100）
     } else {
         stored = coerce_for_slot(init, type, stmt.name());
     }
     const std::string name(stmt.name().lexeme());
     llvm::Value* slot = create_var_slot(llvm_type_of(type), name);
     builder_.CreateStore(stored, slot);
-    scopes_.back()[name] = {slot, type, elem}; // 同名直接遮蔽（重复声明由语义层拦截）
+    scopes_.back()[name] = {slot, type, elem, elem_cls}; // 同名直接遮蔽（重复声明由语义层拦截）
 }
 
 void CodeGenerator::visitBlock(const BlockStmt& stmt) {
@@ -3845,6 +3867,7 @@ llvm::Value* CodeGenerator::elem_to_bits(const CGValue& v) {
         case CGType::Bool:   return builder_.CreateZExt(v.value, builder_.getInt64Ty(), "bits");
         case CGType::Str:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
         case CGType::Arr:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
+        case CGType::Obj:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits"); // 实例数组：槽存实例 ptr 位模式（t100）
         default:             unsupported("array element type", 0, 0);
     }
 }
@@ -3856,6 +3879,7 @@ llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
         case CGType::Bool:   return builder_.CreateTrunc(bits, builder_.getInt1Ty(), "elemtmp");
         case CGType::Str:
         case CGType::Arr:
+        case CGType::Obj:    // 实例数组读出（t100）：位模式还原实例 ptr，cls 由调用点传播
             return builder_.CreateIntToPtr(bits, llvm::PointerType::getUnqual(context_), "elemtmp");
         default:             unsupported("array element type", 0, 0);
     }
@@ -3869,6 +3893,7 @@ int CodeGenerator::arr_kind_of(CGType elem) {
         case CGType::Bool:   return 2;
         case CGType::Str:    return 3;
         case CGType::Arr:    return 4; // 嵌套数组：槽存内层数组 ptr 位模式（t85）
+        case CGType::Obj:    return 5; // 实例数组：槽存实例 ptr 位模式（t100）
         default:             unsupported("array element type", 0, 0);
     }
 }

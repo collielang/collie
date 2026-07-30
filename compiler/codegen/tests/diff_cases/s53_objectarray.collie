@@ -1,0 +1,87 @@
+// s53: 类实例进数组（同类，kind 5）（t100）
+// 数组槽存实例 ptr 位模式（kind 5）；build/len/print/toString/==/整槽写/
+// 本地静态读出（arr[i].field / arr[i].method()）全解锁。
+// 语义要点：实例恒不等（对齐解释器 values_equal 无 Instance 分支，
+//   即便同一实例、同一数组对象比较也返回 false）；
+//   子类实例 upcast 写入父类元素数组放行（同 coerce_call_arg 语义），
+//   经数组读出的方法调用按对象头类 id 动态分派（覆写沿动态类生效）。
+
+class Animal {
+    public string name = "?";
+    public integer legs = 4;
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function sound() string {
+        return "...";
+    }
+
+    public function describe() string {
+        // 模板方法：this.sound() 按实例实际类分派
+        return this.name + " says " + this.sound();
+    }
+}
+
+class Dog extends Animal {
+    public Dog(n string) : base(n) {
+    }
+
+    @override
+    public function sound() string {
+        return "woof";
+    }
+}
+
+// 构建同类实例数组
+Animal a1 = new Animal("cat");
+Animal a2 = new Animal("cow");
+array zoo = [a1, a2];
+
+// len
+print(len(zoo));                    // 2
+
+// print(数组) / toString：实例元素固定 <object>
+print(zoo);                         // [<object>, <object>]
+print(toString(zoo));               // [<object>, <object>]
+
+// 本地静态读出：字段读 + 方法调用
+print(zoo[0].name);                 // cat
+print(zoo[1].name);                 // cow
+print(zoo[0].describe());           // cat says ...
+print(zoo[0].sound());              // ...
+
+// 负索引读出
+print(zoo[-1].name);                // cow
+
+// 整槽写：同类实例
+Animal a3 = new Animal("bull");
+zoo[0] = a3;
+print(zoo[0].name);                 // bull
+
+// 整槽写：子类 upcast（元素类 Animal，写 Dog 放行；读出方法动态分派）
+Dog d1 = new Dog("rex");
+zoo[1] = d1;
+print(zoo[1].name);                 // rex
+print(zoo[1].describe());           // rex says woof
+print(zoo[1].sound());              // woof
+
+// == 比较：实例恒不等
+array za = [a1];
+array zb = [a1];
+if (za == zb) {
+    print("eq");
+} else {
+    print("neq");                   // neq（实例元素恒不等）
+}
+if (za != zb) {
+    print("ne-true");               // ne-true
+}
+
+// 同一数组对象自比较仍不等（元素为实例，恒 false）
+if (za == za) {
+    print("self-eq");
+} else {
+    print("self-neq");              // self-neq
+}
