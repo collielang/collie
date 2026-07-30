@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
+#include <functional>
 #include <set>
 
 #include <llvm/IR/CFG.h>
@@ -2912,9 +2913,28 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
                     expr.question_token().line(), expr.question_token().column());
     }
     if (result_type == CGType::Tup) {
-        // tuple 虚值（value=nullptr）无法进 PHI，拒编不错编（t68）
-        unsupported("ternary branch yields a tuple",
-                    expr.question_token().line(), expr.question_token().column());
+        // tuple 虚值（value=nullptr）不进标量 PHI：全支同为 tuple 且形状一致
+        // 时静态展开逐元素 PHI 合流（t95），否则拒编不错编
+        for (const auto& arm : arms) {
+            if (arm.value.type != CGType::Tup) {
+                unsupported("ternary branches have incompatible types",
+                            expr.question_token().line(),
+                            expr.question_token().column());
+            }
+        }
+        auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "tern.end", fn);
+        std::vector<int> tups;
+        std::vector<llvm::BasicBlock*> arm_ends;
+        for (const auto& arm : arms) {
+            tups.push_back(arm.value.tup);
+            arm_ends.push_back(arm.end);
+        }
+        const int idx = merge_tuple_arms(tups, arm_ends, tup_merge_bb,
+                                         "ternary branches",
+                                         expr.question_token().line(),
+                                         expr.question_token().column());
+        last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
+        return;
     }
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
@@ -3119,6 +3139,169 @@ llvm::Value* CodeGenerator::gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
     return all;
 }
 
+int CodeGenerator::merge_tuple_arms(const std::vector<int>& tups,
+                                    const std::vector<llvm::BasicBlock*>& ends,
+                                    llvm::BasicBlock* merge_bb, const char* what,
+                                    size_t line, size_t column) {
+    // t95：tuple 合流静态展开，三阶段——阶段一纯元数据递归校验形状（元素数+
+    // 名字表+嵌套位置全支同为 tuple）并合并各叶位类型（复用标量合流规则）；
+    // 阶段二逐支把叶值对齐指令落在该支末块内（DFS 序展平）并补 Br；阶段三
+    // 在 merge 块按同一 DFS 序逐叶 PHI，自底向上 register_tuple 重建新鲜值
+    auto is_numeric = [](CGType t) {
+        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
+    };
+
+    // 阶段一：合并类型树（局部 arena，叶位记合并后 type/elem/cls，嵌套位记子树）
+    struct MergedElem {
+        CGType type = CGType::Int;
+        CGType elem = CGType::Int;
+        std::string cls;
+        int sub = -1; // 嵌套 tuple：shapes 局部下标
+    };
+    struct MergedShape {
+        std::vector<MergedElem> elems;
+        std::vector<std::string> names;
+    };
+    std::vector<MergedShape> shapes;
+    std::function<int(const std::vector<CGTuple>&)> build =
+        [&](const std::vector<CGTuple>& tuple_arms) -> int {
+        const CGTuple& first = tuple_arms.front();
+        for (size_t k = 1; k < tuple_arms.size(); ++k) {
+            if (tuple_arms[k].elems.size() != first.elems.size() ||
+                tuple_arms[k].names != first.names) {
+                unsupported(std::string(what) + " yield tuples of different shapes",
+                            line, column);
+            }
+        }
+        MergedShape shape;
+        shape.names = first.names;
+        for (size_t j = 0; j < first.elems.size(); ++j) {
+            MergedElem m;
+            m.type = first.elems[j].type;
+            m.elem = first.elems[j].elem;
+            m.cls = first.elems[j].cls;
+            if (m.type == CGType::Tup) {
+                // 嵌套位置须全支同为 tuple，递归合流（按值拷贝不留引用）
+                std::vector<CGTuple> subs;
+                subs.reserve(tuple_arms.size());
+                for (const auto& a : tuple_arms) {
+                    if (a.elems[j].type != CGType::Tup) {
+                        unsupported(std::string(what) +
+                                        " yield tuples of different shapes",
+                                    line, column);
+                    }
+                    subs.push_back(tuple_values_[a.elems[j].tup]);
+                }
+                m.sub = build(subs);
+                shape.elems.push_back(std::move(m));
+                continue;
+            }
+            for (size_t k = 1; k < tuple_arms.size(); ++k) {
+                const CGValue& v = tuple_arms[k].elems[j];
+                if (v.type == CGType::Tup) {
+                    unsupported(std::string(what) +
+                                    " yield tuples of different shapes",
+                                line, column);
+                }
+                if (v.type == m.type) {
+                    if (v.type == CGType::Arr && v.elem != m.elem) {
+                        m.elem = CGType::Num; // elem 不等降动态域哨兵（t94 同规则）
+                    }
+                    if (v.type == CGType::Obj && v.cls != m.cls) {
+                        const std::string nca = nearest_common_ancestor(m.cls, v.cls);
+                        if (nca.empty()) {
+                            unsupported(std::string(what) +
+                                            " yield tuples with incompatible elements",
+                                        line, column);
+                        }
+                        m.cls = nca; // 最近公共祖先（t93 同规则）
+                    }
+                    continue;
+                }
+                if (is_numeric(m.type) && is_numeric(v.type)) {
+                    m.type = (m.type == CGType::Num || v.type == CGType::Num)
+                                 ? CGType::Num
+                                 : CGType::Double;
+                    continue;
+                }
+                if ((m.type == CGType::Tri && v.type == CGType::Bool) ||
+                    (m.type == CGType::Bool && v.type == CGType::Tri)) {
+                    m.type = CGType::Tri;
+                    continue;
+                }
+                unsupported(std::string(what) +
+                                " yield tuples with incompatible elements",
+                            line, column);
+            }
+            shape.elems.push_back(std::move(m));
+        }
+        shapes.push_back(std::move(shape));
+        return static_cast<int>(shapes.size()) - 1;
+    };
+    // 根 tuple 按值拷贝不留引用（阶段三 register_tuple 会扩容 tuple_values_）
+    std::vector<CGTuple> roots;
+    roots.reserve(tups.size());
+    for (int t : tups) {
+        roots.push_back(tuple_values_[t]);
+    }
+    const int root = build(roots);
+
+    // 阶段二：逐支叶值对齐（转换指令须落在该支末块内）+ Br 至 merge 块
+    std::vector<std::vector<llvm::Value*>> flat(ends.size());
+    for (size_t k = 0; k < ends.size(); ++k) {
+        builder_.SetInsertPoint(ends[k]);
+        std::function<void(int, const CGTuple&)> walk = [&](int si,
+                                                            const CGTuple& arm) {
+            const MergedShape& shape = shapes[si];
+            for (size_t j = 0; j < shape.elems.size(); ++j) {
+                const MergedElem& m = shape.elems[j];
+                const CGValue& v = arm.elems[j];
+                if (m.sub >= 0) {
+                    walk(m.sub, tuple_values_[v.tup]);
+                    continue;
+                }
+                flat[k].push_back(m.type == CGType::Double ? to_double(v)
+                                  : m.type == CGType::Num  ? to_num(v)
+                                  : m.type == CGType::Tri  ? to_tri(v)
+                                                           : v.value);
+            }
+        };
+        walk(root, roots[k]);
+        builder_.CreateBr(merge_bb);
+    }
+
+    // 阶段三：merge 块逐叶 PHI（DFS 序与阶段二一致），自底向上重建新鲜 CGTuple
+    builder_.SetInsertPoint(merge_bb);
+    size_t leaf = 0;
+    std::function<int(int)> rebuild = [&](int si) -> int {
+        CGTuple out;
+        out.names = shapes[si].names;
+        for (const MergedElem& m : shapes[si].elems) {
+            if (m.sub >= 0) {
+                CGValue v;
+                v.type = CGType::Tup;
+                v.tup = rebuild(m.sub);
+                out.elems.push_back(std::move(v));
+                continue;
+            }
+            llvm::PHINode* phi = builder_.CreatePHI(
+                llvm_type_of(m.type), static_cast<unsigned>(ends.size()), "tupmerge");
+            for (size_t k = 0; k < ends.size(); ++k) {
+                phi->addIncoming(flat[k][leaf], ends[k]);
+            }
+            ++leaf;
+            CGValue v;
+            v.value = phi;
+            v.type = m.type;
+            v.elem = m.elem;
+            v.cls = m.cls;
+            out.elems.push_back(std::move(v));
+        }
+        return register_tuple(std::move(out));
+    };
+    return rebuild(root);
+}
+
 void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     const Token& op = expr.op();
     // 目标只求值一次；级联块链按分支序/候选序比较，命中跳分支结果块、
@@ -3179,8 +3362,25 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         unsupported("'==?' branch result has no value", op.line(), op.column());
     }
     if (result_type == CGType::Tup) {
-        // tuple 虚值（value=nullptr）无法进 PHI，拒编不错编（t68）
-        unsupported("'==?' branch yields a tuple", op.line(), op.column());
+        // tuple 虚值（value=nullptr）不进标量 PHI：全支同为 tuple 且形状一致
+        // 时静态展开逐元素 PHI 合流（t95，同 gen_ternary），否则拒编不错编
+        for (const auto& arm : arms) {
+            if (arm.value.type != CGType::Tup) {
+                unsupported("'==?' branches have incompatible types",
+                            op.line(), op.column());
+            }
+        }
+        auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "match.end", fn);
+        std::vector<int> tups;
+        std::vector<llvm::BasicBlock*> arm_ends;
+        for (const auto& arm : arms) {
+            tups.push_back(arm.value.tup);
+            arm_ends.push_back(arm.end);
+        }
+        const int idx = merge_tuple_arms(tups, arm_ends, tup_merge_bb,
+                                         "'==?' branches", op.line(), op.column());
+        last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
+        return;
     }
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;

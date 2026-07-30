@@ -259,6 +259,17 @@ private:
     llvm::Value* gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
                               const Token& op);
 
+    /// @brief tuple 合流静态展开（t95）：三元/==? 各支同为 tuple 且形状一致
+    /// （元素数+名字表递归一致）时逐元素 PHI 合流为新鲜 CGTuple，返回
+    /// tuple_values_ 下标；元素类型合并复用标量合流规则（数值提升 Num/Double、
+    /// Tri/Bool 加宽、Arr elem 不等降 Num 哨兵 t94、Obj cls 求 NCA t93），
+    /// 嵌套 tuple 递归；形状/名字不一致或元素不可合并拒编不错编。各支末块
+    /// 由本函数补对齐指令与 Br 至 merge_bb，返回时插入点已在 merge_bb
+    int merge_tuple_arms(const std::vector<int>& tups,
+                         const std::vector<llvm::BasicBlock*>& ends,
+                         llvm::BasicBlock* merge_bb, const char* what,
+                         size_t line, size_t column);
+
     /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void；
     /// prefix 非空即嵌套函数（t91）：注册键/符号名改编为 prefix.name（用户
     /// 标识符无 '.'，与顶层名天然不冲突），并递归下探函数体登记更深嵌套

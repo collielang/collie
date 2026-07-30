@@ -1,0 +1,58 @@
+// t95 S48 差分用例：三元/==? 分支 tuple 合流静态展开（同形状逐元素 PHI）
+
+bool flag = true;
+
+// 无名元组合流：整体打印 + 常量索引（含负索引）+ length
+Tuple a = (1, 2, 3);
+Tuple b = (10, 20, 30);
+Tuple t = flag ? a : b;
+print(t);
+print(t[0], t[-1]);
+print(t.length);
+
+// 字面量支合流：decimal/string 混型元素
+Tuple u = flag ? (1.5, "x") : (2.5, "y");
+print(u);
+print(u[1]);
+
+// 命名元组合流：字段访问 + get("常量键")
+Tuple p1 = (name: "collie", age: 3);
+Tuple p2 = (name: "dog", age: 5);
+Tuple p = flag ? p2 : p1;
+print(p.name, p.age);
+print(p.get("age"));
+
+// 元素数值混型：同位 Int/Double 双向提升
+Tuple mixed = flag ? (1, 2.5) : (3.5, 4);
+print(mixed[0], mixed[1]);
+
+// 嵌套 tuple 合流：逐级索引
+Tuple n = flag ? ((1, 2), "in") : ((7, 8), "out");
+print(n);
+print(n[0][1], n[1]);
+
+// ==? 多支合流
+Tuple q1 = (1, 1);
+Tuple q2 = (2, 4);
+Tuple q0 = (0, 0);
+integer k = 2;
+Tuple q = k ==? 1: q1, 2: q2, q0;
+print(q);
+print(q[1]);
+
+// 合流值再进三元 + 相等比较（gen_tuple_eq）
+Tuple r = flag ? q : (9, 9);
+print(r == q);
+print(r == q1);
+
+// 三分支 tribool 形式：unset 走第三支
+tribool tb = unset;
+Tuple w = tb ? (1, 1) : (2, 2) : (3, 3);
+print(w);
+
+// 元素为数组且两支 elem 不同：元素位降动态域（t94 同规则）
+array ai = [1, 2];
+array ad = [0.5];
+Tuple ta = flag ? (ai, 1) : (ad, 2);
+print(ta);
+print(len(ta[0]));

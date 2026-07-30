@@ -58,9 +58,10 @@
 | S45 | 无初始化变量声明：四静态类型 {integer,decimal,bool,string} 放行——槽照常创建（顶层零初始化全局槽/函数内 alloca 不预存），CGVar 加 uninit + decl_depth；读 uninit 槽拒编（语义层流不敏感放行的分支/循环内赋值后读，解释器运行期仍 none，零初始化槽会错值——拒编不错编）；同块（scopes_ 同深度）赋值清 uninit 放行后续读，深层块赋值存值不清标记；零新增 rt 接口 | 顶层声明后隔句赋值再读/四静态类型/函数内局部/顶层全局函数体内读/循环体内声明+同块赋值程序编译执行，输出与解释器一致 **✅ t92** |
 | S46 | 三元/==? 分支实例类型统一到最近公共祖先：新增 nearest_common_ancestor 沿 super 链求 NCA（含自身端点），gen_ternary 与 match 合流两触点 Obj cls 不等改求 NCA——有则 result cls 取祖先（Obj 的 LLVM 表示统一指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值按运行期真实类解析方法、字段走父类前缀布局），无公共祖先维持拒编不错编；零新增 rt 接口 | 子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先字段读，==? 三支合流，合流值直调方法与进函数形参程序编译执行，输出与解释器一致 **✅ t93** |
 | S47 | 三元/==? 分支数组元素类型合流统一动态域：gen_ternary 与 match 合流两触点 Arr elem 不等改统一 elem=Num 动态域哨兵（t70/t88 既有机制）——数组值不透明 ptr，PHI 无关 elem；合流值为新鲜值元数据自诞生即动态无程序序失配，kind 随数组对象运行期自带（print/len/== rt 侧全 kind 覆盖，索引读数值系正常、kind ≥ 2 落既有 CG9 陷阱不错值）；两触点 result_elem 逐支累计（同 t93 result_cls 模式）；零新增 rt 接口 | Int/Double 三元合流索引读（两向）、合流值存动态槽整组 print/len、Str/Int 合流、合流值相等比较、==? 三支合流、动态域值再进三元程序编译执行，输出与解释器一致 **✅ t94** |
+| S48 | 三元/==? 分支 tuple 合流静态展开：新增 merge_tuple_arms 三阶段——元数据递归校验形状（元素数+名字表+嵌套位置）并合并各叶位类型（复用标量合流规则：数值提升/Tri 加宽/Arr elem 降 Num 哨兵/Obj cls 求 NCA），逐支叶值对齐指令落各支末块（DFS 序展平），merge 块逐叶 PHI 自底向上重建新鲜 CGTuple；形状/名字不一致维持拒编不错编；零新增 rt 接口 | 无名/命名/字面量支/元素数值混型/嵌套 tuple 三元合流，==? 三支合流，合流值索引/字段/get/length/相等比较/再进三元，tribool 三分支形式，数组元素两支 elem 不同程序编译执行，输出与解释器一致 **✅ t95** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -292,7 +293,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `t[常量 i]` | 编译期解析成对应元素：`const_int_of` AST 层模式匹配（整数字面量或一元负号包字面量，避开 emit 的溢出检查产非常量指令）；负索引归一化对齐解释器 normalize_index；越界/动态索引拒编 |
 | `t.length` / `t.name` / `t.get("键")` | length 常量折叠 `i64 n`（优先于同名字段，对齐解释器分支顺序）；命名字段线性扫名字表（不排除空名）、get 限字符串字面量键（排除空名）——两处匹配规则分别对齐解释器 visitProperty/get；未命中/动态键拒编 |
 | print / toString / 插值 | `tuple_to_str` 静态展开："("、", "、"name: "、")" 常量段编译期合并，元素经 `to_str` 降级（嵌套 Tup 递归），`collie_rt_concat` 链拼接；格式对齐 Value::to_string Tuple 分支（string 元素不加引号，空元组 `()`） |
-| 防错编守卫 | 三元/`==?` 分支产 tuple 显式拒编（虚值 nullptr 进 PHI 会静默错编）；`llvm_type_of(Tup)` 拒编（类字段等位置）；`declared_signature_type` 对 KW_TUPLE 拒编（形状跨函数边界不可知）；算术/len/进数组等其余触点经既有 default/else 分支自然拒编（相等比较已于 S28 t75 解锁） |
+| 防错编守卫 | ~~三元/`==?` 分支产 tuple 显式拒编（虚值 nullptr 进 PHI 会静默错编）~~（同形状 tuple 合流已于 S48 t95 静态展开解锁，形状/名字不一致仍拒编）；`llvm_type_of(Tup)` 拒编（类字段等位置）；`declared_signature_type` 对 KW_TUPLE 拒编（形状跨函数边界不可知）；算术/len/进数组等其余触点经既有 default/else 分支自然拒编（相等比较已于 S28 t75 解锁） |
 | 接口面 | 零新增 collie_rt 接口（仅复用 `collie_rt_concat`） |
 
 **S22 降级补充（t69 实现）：char/byte/word + 位运算**：
@@ -549,6 +550,17 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 合流值消费 | 动态域机制天然正确：kind 随数组对象运行期自带——print/toString/len/== rt 侧全 kind 覆盖（rt_arr_to_str/rt_arr_len/rt_arr_eq）；索引读数值系拼 Num 正常、kind ≥ 2（str/bool/嵌套）落既有 CG9 陷阱不错值（实证：Str/Int 合流索引读解释器 a vs 产物陷阱退出）；合流值为新鲜值，元数据自诞生即动态，无程序序失配 |
 | 数组变量再赋不同 elem | 维持拒编 "assigning array with different element type"（活跃差分面但后置：程序序提升 var->elem 在循环回边——先读后赋再回读——与函数全局快照静态解码下会错编，需循环深度守卫+捕获跟踪） |
 | 范围外 | 数组变量/类字段/tuple 槽再赋不同 elem 维持拒编；零新增 collie_rt 接口 |
+
+**S48 降级补充（t95 实现）：三元/==? 分支 tuple 合流静态展开**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `c ? t1 : t2`（同形状 tuple） | gen_ternary Tup 路径改走 merge_tuple_arms 三阶段：①元数据递归校验形状（元素数+名字表+嵌套位置全支同为 tuple）并合并各叶位类型（复用标量合流规则——数值提升 Num/Double、Tri/Bool 加宽、Arr elem 不等降 Num 哨兵 t94、Obj cls 求 NCA t93）；②逐支把叶值对齐指令落该支末块内（DFS 序展平）+ Br；③merge 块按同一 DFS 序逐叶 PHI，自底向上 register_tuple 重建新鲜 CGTuple |
+| `k ==? 1: t1, 2: t2, t0` 多支合流 | match 合流同规则扩展到 N+1 支（tribool 三分支三元同路径） |
+| 合流值消费 | 新鲜 CGTuple 与字面量产物同构——常量索引/命名字段/get/length/print/相等比较/存 Tuple 槽/再合流全部复用既有静态展开链路，零新增消费面 |
+| 嵌套 tuple 合流 | 嵌套位递归合流（子 tuple 先 PHI 重建，父元素指向新子条目）；任一支嵌套位非 tuple 即形状不一致拒编 |
+| 形状/名字不一致 | 维持拒编 "ternary/'==?' branches yield tuples of different shapes"（实证：元素数 2 vs 3、名字 name vs age——解释器可跑 vs 拒编不错编）；元素不可合并（如 Str×Int 同位）拒编 "yield tuples with incompatible elements" |
+| 范围外 | tuple 进函数签名/进数组维持拒编（形状跨调用点不定，需按形状特化）；异质数组字面量、实例进数组维持拒编（预检活跃差分面，后置候选）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 
