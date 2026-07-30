@@ -54,9 +54,10 @@
 | S41 | bool/string 数组动态域透传：解除 t70/t71 四守卫（实参/返回值/字段槽/动态槽赋值）——任意元素数组（含嵌套 kind 4）指针透传，kind 随对象自带；print/len/==/toString rt 侧全 kind 覆盖零改动；动态域索引读插 kind>1 运行时陷阱（新缺口 CG9，拒错编从陷阱）；动态域索引写 Bool/Str 值打对应 kind tag 直写（rt_arr_set_num 天然覆盖，mismatch 落 CG7 消息泛化） | bool/str 数组作实参/返回值透传/类字段存取/==（同内容/异内容/跨 kind）/动态域写 bool-str 值引用联动与负索引/数值域读写回归/嵌套数组透传 print-len-== 程序编译执行，输出与解释器一致 **✅ t88** |
 | S42 | 嵌套数组放宽：visitArrayLiteral 两守卫解除（≥3 层/内层 bool-str），任意 elem 内层数组进 kind 4 槽；visitIndexAssign 整槽替换放宽为任意元素内层数组（非数组值仍拒编）；rt 侧零改动（elem_to_bits/rt_arr_to_str/rt_arr_eq 全 kind 递归已就绪）；内层经动态域索引读出 kind ≥ 2 落 t88 既有 CG9 陷阱 | 内层 bool/str 字面量/print/length/len/整槽替换/深比较（同异内容与跨 kind）/三层嵌套 print-==-整槽替换/混合内层 kind/别名联动/数值内层逐层读写回归程序编译执行，输出与解释器一致 **✅ t89** |
 | S43 | Num 元素数组字面量：visitArrayLiteral 数值系同质判定扩展含 Num（互混或全 Num 统一提升 Double 视图，rt format_f64 整数值省 .0 与解释器混合表示输出对齐）；to_double 加 Num 分支（tag select 免分支）；visitIndexAssign 静态数值槽收 Num 值下沉既有 rt_arr_set_num（tag==kind 直存/0→1 提升/1→0 落 CG7 陷阱）；零新增 rt 接口 | Num（整/小数态）与 Int/Double 混合字面量/全 Num 字面量/print/索引读（含负索引）/length/len/Num 值写 int-double 槽/深比较/函数内局部 Num 数组循环遍历程序编译执行，输出与解释器一致 **✅ t90** |
+| S44 | 嵌套函数声明：受限雷姆达提升——declare_function 加 prefix 改编键（outer.inner，符号 collie.outer.inner），尾部 declare_nested_in 递归下探 Block/If/While/For/DoWhile/Switch 建原型进 nested_fns_ 注册表；visitFunction 嵌套路径声明处向 scopes_ 登记 fn_key 绑定（对齐解释器"执行到声明处 env_.define"——声明前不可见/块退出失效），嵌套体链底拷入外层链函数绑定（自身递归/前置兄弟可见），生成现场 in_function_/返回类型保存恢复；visitCall 作用域链函数绑定优先于顶层 functions_；函数名作值/被赋值拒编；零新增 rt 接口 | 基本嵌套/嵌套读全局/自身递归 fac(5)/前置兄弟嵌套/带参字符串嵌套程序编译执行，输出与解释器一致 **✅ t91** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -505,6 +506,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | Num → double 转换 | to_double 加 Num 分支：tag==0 ? SIToFP(bits) : BitCast(bits)，两分支无副作用 select 免分支 |
 | `a[i] = n`（n 为 Num，a 槽 Int/Double） | visitIndexAssign 静态数值槽收 Num 值：tag 运行期定，下沉既有 rt_arr_set_num 按槽 kind 对齐——tag==kind 直存、0→1 提升、1→0 失配落 CG7 陷阱（小数态 Num 写 int 槽解释器动态异质可容 vs 产物陷阱退出不错值，陷阱实证面） |
 | 范围外 | 超大整数 Num 进数组 double 视图丢精度（Int→Double 混合提升既有同域先例，CG1 缺口范畴）；无初始化变量绑 none（候选 D 后置）；位运算 Num 整数态非差分面（语义层 "Bit operands expected" 两端一致拦截，预检实证排除）；零新增 collie_rt 接口 |
+
+**S44 降级补充（t91 实现）：嵌套函数声明（受限雷姆达提升）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `function outer() { function inner() {...} ... }` | 雷姆达提升为模块级函数：declare_function 加 prefix 缺省参，注册键改编 `outer.inner`（用户标识符无 '.' 天然防冲突），符号名 `collie.outer.inner`；尾部 declare_nested_in 递归下探 Block/If/While/For/DoWhile/Switch 全语句子树，命中 FunctionStmt 建原型并登记 nested_fns_（FunctionStmt* → 改编键） |
+| 声明处可见性 | visitFunction 嵌套路径：nested_fns_ 查表命中即在声明处向 scopes_.back() 登记 CGVar{fn_key=改编键}（对齐解释器"执行到声明处 env_.define"——声明前调用不可见、所在块退出即失效）；生成现场 in_function_/current_ret_type_/current_ret_cls_ 保存恢复（嵌套生成完还原外层函数上下文） |
+| 嵌套体内可见集 | 链底 = 全局层拷贝 + 外层链上全部 fn_key 绑定拷入（自身递归/前置兄弟嵌套可见，对齐动态作用域"声明先于调用即可见"）；变量槽不拷——引用外层局部即标识符不可见拒编（捕获面范围外，实证：解释器 42 vs 拒编 "identifier 'captured'"） |
+| `inner()` 调用解析 | visitCall 三级顺序：内建 → 作用域链函数绑定（lookup_var fn_key 非空 → functions_[fn_key]）→ 顶层 functions_[fname]（嵌套绑定遮蔽顶层同名，对齐解释器 env 由内向外解析） |
+| 范围外 | 嵌套体引用外层局部（捕获，拒编不错编）；类方法体内嵌套函数（declare-pass 不下探方法体，维持 "nested function declaration" 拒编）；函数名作值/被赋值（"function 'f' used as a value" / "assignment to function"，非一等公民）；同外层同名嵌套（语义层 "already defined" 双端拦截非差分面）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

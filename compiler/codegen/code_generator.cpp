@@ -188,6 +188,7 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 第一遍（S5 t52 / t60）：顶层函数建原型、类注册 struct 布局与方法原型，
     // 递归与前向引用天然可用
     functions_.clear();
+    nested_fns_.clear();
     classes_.clear();
     in_function_ = false;
     current_this_ = nullptr;
@@ -775,13 +776,27 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
                        CGType::Num};
         return;
     }
-    // 用户自定义顶层函数（S5 t52）：查第一遍建好的原型表
+    // 用户自定义函数（S5 t52）：查第一遍建好的原型表；作用域链上的嵌套
+    // 函数绑定优先（t91，遮蔽顶层同名，对齐解释器 env 由内向外解析）
     if (callee) {
-        auto it = functions_.find(std::string(callee->name().lexeme()));
-        if (it != functions_.end()) {
-            const CGFunction& info = it->second;
+        const std::string fname(callee->name().lexeme());
+        const CGFunction* info = nullptr;
+        CGVar* bound = lookup_var(fname);
+        if (bound != nullptr && !bound->fn_key.empty()) {
+            auto fit = functions_.find(bound->fn_key);
+            if (fit != functions_.end()) {
+                info = &fit->second;
+            }
+        }
+        if (info == nullptr) {
+            auto it = functions_.find(fname);
+            if (it != functions_.end()) {
+                info = &it->second;
+            }
+        }
+        if (info != nullptr) {
             const auto& arguments = expr.arguments();
-            if (arguments.size() != info.param_types.size()) {
+            if (arguments.size() != info->param_types.size()) {
                 // 元数不匹配属重载选择（语义层支持但 codegen 仅单签名）
                 unsupported("call arity mismatch (overloads not supported)",
                             expr.paren().line(), expr.paren().column());
@@ -790,19 +805,20 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
             for (size_t i = 0; i < arguments.size(); ++i) {
                 CGValue a = emit(arguments[i].get());
                 // 实参按形参类型对齐：仅 integer→decimal 提升；Obj 严格同类（t61）
-                args.push_back(coerce_call_arg(a, info.param_types[i],
-                                               info.param_cls[i],
+                args.push_back(coerce_call_arg(a, info->param_types[i],
+                                               info->param_cls[i],
                                                expr.paren().line(),
                                                expr.paren().column()));
             }
-            llvm::CallInst* call = builder_.CreateCall(info.fn, args);
+            llvm::CallInst* call = builder_.CreateCall(info->fn, args);
             // Arr 返回值 elem 记 Num 哨兵（t70：跨签名边界元素类型动态化）
-            last_value_ = (info.ret_type == CGType::Void)
+            last_value_ = (info->ret_type == CGType::Void)
                               ? CGValue{nullptr, CGType::Void}
-                              : CGValue{call, info.ret_type,
-                                        info.ret_type == CGType::Arr ? CGType::Num
-                                                                     : CGType::Int,
-                                        info.ret_cls};
+                              : CGValue{call, info->ret_type,
+                                        info->ret_type == CGType::Arr
+                                            ? CGType::Num
+                                            : CGType::Int,
+                                        info->ret_cls};
             return;
         }
     }
@@ -939,6 +955,11 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
         unsupported("identifier '" + name + "'",
                     expr.name().line(), expr.name().column());
     }
+    if (!var->fn_key.empty()) {
+        // 嵌套函数绑定（t91）：函数值非一等公民，作值使用拒编不错编
+        unsupported("function '" + name + "' used as a value",
+                    expr.name().line(), expr.name().column());
+    }
     if (var->type == CGType::Tup) {
         // tuple 变量（t68）：无单一 slot，逐解构槽 load 重组展开值
         last_value_ = load_tuple_var(var->tup, name);
@@ -953,6 +974,11 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     CGVar* var = lookup_var(name);
     if (!var) {
         unsupported("assignment to undeclared '" + name + "'",
+                    expr.name().line(), expr.name().column());
+    }
+    if (!var->fn_key.empty()) {
+        // 嵌套函数绑定（t91）：函数绑定不可被赋值覆盖，拒编不错编
+        unsupported("assignment to function '" + name + "'",
                     expr.name().line(), expr.name().column());
     }
     CGValue v = emit(expr.value());
@@ -2052,31 +2078,58 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
 }
 
 void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
-    // 函数体生成（第二遍，S5 t52）：原型已在第一遍建好
+    // 函数体生成（第二遍，S5 t52）：原型已在第一遍建好；
+    // 嵌套函数（t91）按改编键查表，未登记的嵌套位置（类方法体内）维持拒编
     const std::string name(stmt.name().lexeme());
-    if (in_function_) {
+    auto nested_it = nested_fns_.find(&stmt);
+    const bool is_nested = nested_it != nested_fns_.end();
+    if (!is_nested && in_function_) {
         unsupported("nested function declaration",
                     stmt.name().line(), stmt.name().column());
     }
-    auto it = functions_.find(name);
+    const std::string& key = is_nested ? nested_it->second : name;
+    auto it = functions_.find(key);
     if (it == functions_.end()) {
-        // 非顶层位置的函数声明（块内等）未进原型表
+        // 非顶层位置的函数声明（顶层块内等）未进原型表
         unsupported("function declaration outside top level",
                     stmt.name().line(), stmt.name().column());
     }
     const CGFunction& info = it->second;
 
-    // 保存 @main（或外层）生成现场，函数体用独立的变量环境/循环栈；
+    if (is_nested) {
+        // 声明处登记可见性绑定（t91，对齐解释器"执行到声明处 env_.define"：
+        // 声明前调用不可见、遮蔽顶层同名、所在块退出即失效）
+        CGVar binding;
+        binding.fn_key = key;
+        scopes_.back()[name] = binding;
+    }
+
+    // 保存 @main（或外层函数）生成现场，函数体用独立的变量环境/循环栈；
     // 顶层作用域拷贝为链底（t73）：全局槽（GlobalVariable）跨函数可见；
     // Tup 条目一并拷贝（t76：顶层 tuple 解构槽组已升全局槽，tuple_vars_
-    // 注册表为成员跨函数存活，函数内读/重赋值合法）
+    // 注册表为成员跨函数存活，函数内读/重赋值合法）；
+    // 嵌套生成现场（t91）：in_function_/返回类型改为保存恢复（嵌套声明处
+    // 生成完毕须还原外层函数上下文，而非复位顶层）
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
+    const bool saved_in_function = in_function_;
+    const CGType saved_ret_type = current_ret_type_;
+    const std::string saved_ret_cls = current_ret_cls_;
     scopes_.clear();
     scopes_.emplace_back();
     if (!saved_scopes.empty()) {
         scopes_.back() = saved_scopes.front();
+        // 外层链上的函数绑定拷入链底（t91）：解释器动态作用域下"声明先于
+        // 调用"即可见（含自身递归/前置兄弟嵌套）；变量槽不拷——嵌套体内
+        // 引用外层局部即标识符不可见，拒编不错编（捕获面范围外）
+        for (size_t si = 1; si < saved_scopes.size(); ++si) {
+            for (const auto& entry : saved_scopes[si]) {
+                if (!entry.second.fn_key.empty()) {
+                    scopes_.back()[entry.first] = entry.second;
+                }
+            }
+        }
     }
     scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
@@ -2122,9 +2175,9 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         }
     }
 
-    in_function_ = false;
-    current_ret_type_ = CGType::Void;
-    current_ret_cls_.clear();
+    in_function_ = saved_in_function;
+    current_ret_type_ = saved_ret_type;
+    current_ret_cls_ = saved_ret_cls;
     scopes_ = std::move(saved_scopes);
     loops_ = std::move(saved_loops);
     builder_.SetInsertPoint(saved_bb);
@@ -2431,11 +2484,15 @@ CodeGenerator::CGVar* CodeGenerator::lookup_var(const std::string& name) {
     return nullptr;
 }
 
-void CodeGenerator::declare_function(const FunctionStmt& stmt) {
+void CodeGenerator::declare_function(const FunctionStmt& stmt,
+                                     const std::string& prefix) {
     const std::string name(stmt.name().lexeme());
-    if (functions_.count(name) != 0) {
-        // 语义层支持同名重载，codegen 第一期仅单签名
-        unsupported("function overloading for '" + name + "'",
+    // 嵌套函数注册键改编为 prefix.name（t91）：用户标识符无 '.'，
+    // 与顶层名/其他外层的同名嵌套天然不冲突
+    const std::string key = prefix.empty() ? name : prefix + "." + name;
+    if (functions_.count(key) != 0) {
+        // 语义层支持同名重载，codegen 第一期仅单签名（同外层同名嵌套同此拒编）
+        unsupported("function overloading for '" + key + "'",
                     stmt.name().line(), stmt.name().column());
     }
     // none 返回降级 void；其余返回/参数类型限 declared_signature_type 支持面
@@ -2462,9 +2519,56 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt) {
                                             /*isVarArg=*/false);
     // 符号名加 "collie." 前缀：用户标识符无 '.'，天然不与 main/printf 等 C 符号冲突
     auto* fn = llvm::Function::Create(fn_type, llvm::Function::InternalLinkage,
-                                      "collie." + name, module_.get());
-    functions_[name] = {fn, std::move(param_types), std::move(param_cls), ret,
-                        std::move(ret_cls)};
+                                      "collie." + key, module_.get());
+    functions_[key] = {fn, std::move(param_types), std::move(param_cls), ret,
+                       std::move(ret_cls)};
+    // 递归下探函数体登记嵌套函数原型（t91）：可见性到 visitFunction
+    // 声明处才登记（对齐解释器"执行到声明处 env_.define"）
+    for (const auto& body_stmt : stmt.body()->statements()) {
+        declare_nested_in(body_stmt.get(), key);
+    }
+}
+
+void CodeGenerator::declare_nested_in(const Stmt* s, const std::string& prefix) {
+    if (s == nullptr) {
+        return;
+    }
+    if (const auto* fn_stmt = dynamic_cast<const FunctionStmt*>(s)) {
+        declare_function(*fn_stmt, prefix);
+        nested_fns_[fn_stmt] =
+            prefix + "." + std::string(fn_stmt->name().lexeme());
+        return;
+    }
+    if (const auto* block = dynamic_cast<const BlockStmt*>(s)) {
+        for (const auto& inner : block->statements()) {
+            declare_nested_in(inner.get(), prefix);
+        }
+        return;
+    }
+    if (const auto* if_stmt = dynamic_cast<const IfStmt*>(s)) {
+        declare_nested_in(if_stmt->then_branch(), prefix);
+        declare_nested_in(if_stmt->else_branch(), prefix);
+        return;
+    }
+    if (const auto* while_stmt = dynamic_cast<const WhileStmt*>(s)) {
+        declare_nested_in(while_stmt->body(), prefix);
+        return;
+    }
+    if (const auto* for_stmt = dynamic_cast<const ForStmt*>(s)) {
+        declare_nested_in(for_stmt->body(), prefix);
+        return;
+    }
+    if (const auto* do_stmt = dynamic_cast<const DoWhileStmt*>(s)) {
+        declare_nested_in(do_stmt->body(), prefix);
+        return;
+    }
+    if (const auto* switch_stmt = dynamic_cast<const SwitchStmt*>(s)) {
+        for (const auto& sc : switch_stmt->cases()) {
+            declare_nested_in(sc.body.get(), prefix);
+        }
+        return;
+    }
+    // 其余语句（表达式/变量声明/return 等）不含语句子树，无嵌套函数可登记
 }
 
 void CodeGenerator::register_class_layout(const ClassStmt& stmt) {

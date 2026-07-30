@@ -134,6 +134,7 @@ private:
         std::string cls;           // 仅 type == Obj 时有意义：类名（t60）
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_vars_ 下标（slot 恒 nullptr，t68）
         long long bit_max = 0;     // byte/word 声明的范围上限 255/65535，0 即非位类型（t69）
+        std::string fn_key;        // 非空即嵌套函数绑定（t91）：functions_ 改编键，slot 恒 nullptr
     };
 
     /// @brief tuple 静态展开值（t68）：元素值 + 平行名字表（无运行时对象，
@@ -256,8 +257,15 @@ private:
     llvm::Value* gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
                               const Token& op);
 
-    /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void
-    void declare_function(const FunctionStmt& stmt);
+    /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void；
+    /// prefix 非空即嵌套函数（t91）：注册键/符号名改编为 prefix.name（用户
+    /// 标识符无 '.'，与顶层名天然不冲突），并递归下探函数体登记更深嵌套
+    void declare_function(const FunctionStmt& stmt, const std::string& prefix = "");
+
+    /// @brief 递归下探语句子树登记嵌套函数原型（t91，第一遍）：Block/If/
+    /// While/For/DoWhile/Switch 各分支体全覆盖；命中 FunctionStmt 即以
+    /// prefix 改编名 declare_function 并进 nested_fns_ 注册表
+    void declare_nested_in(const Stmt* s, const std::string& prefix);
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
     /// 自身追加建 struct；同名字段遮蔽/无初值字段/范围外字段类型拒编；
@@ -432,6 +440,9 @@ private:
     std::vector<LoopContext> loops_;
     /// 顶层函数表（S5 t52）：名字 → 原型；第一遍填充，递归/前向调用天然可用
     std::unordered_map<std::string, CGFunction> functions_;
+    /// 嵌套函数注册表（t91）：声明节点 → functions_ 改编键（outer.inner）；
+    /// 第一遍递归下探填充，visitFunction 据此区分嵌套/顶层路径
+    std::unordered_map<const FunctionStmt*, std::string> nested_fns_;
     /// 类表（t60）：类名 → struct 布局 + 方法原型；第一遍注册，前向 new 可用
     std::unordered_map<std::string, CGClass> classes_;
     /// 当前方法的 this 实参与所属类名（t60）：仅方法体生成期非空

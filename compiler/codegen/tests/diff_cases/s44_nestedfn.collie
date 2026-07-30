@@ -1,0 +1,55 @@
+// s44: 嵌套函数声明（t91）——受限雷姆达提升：基本嵌套/读全局/
+// 自身递归/前置兄弟嵌套/带参字符串嵌套
+// （注：嵌套遮蔽顶层同名被语义层 "already defined" 双端拦截，非差分面）
+
+// 基本嵌套调用
+function outer() integer {
+    function inner() integer {
+        return 5;
+    }
+    return inner() + 1;
+}
+print(outer());
+
+// 嵌套函数读全局变量
+integer g = 10;
+function useGlobal() integer {
+    function readG() integer {
+        return g + 1;
+    }
+    return readG() * 2;
+}
+print(useGlobal());
+
+// 嵌套函数自身递归
+function facHost(n integer) integer {
+    function fac(k integer) integer {
+        if (k <= 1) {
+            return 1;
+        }
+        return k * fac(k - 1);
+    }
+    return fac(n);
+}
+print(facHost(5));
+
+// 前置兄弟嵌套可见
+function sibling() integer {
+    function a() integer {
+        return 7;
+    }
+    function b() integer {
+        return a() + 1;
+    }
+    return b();
+}
+print(sibling());
+
+// 带参数的字符串嵌套函数
+function greet(name string) string {
+    function decorate(s string) string {
+        return "[" + s + "]";
+    }
+    return decorate(name);
+}
+print(greet("collie"));
