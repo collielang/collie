@@ -1029,26 +1029,15 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     // 做同质推断——Int/Double 混合整体提升 Double（提升后输出与解释器一致：整值
     // double 按整数打印），其余混合拒编不错编；空字面量元素类型记
     // Int（print 得 []，索引必越界报错，行为与解释器一致）。
-    // 嵌套数组（t85）：全 Arr 元素放行为 kind 4（槽存内层数组 ptr 位模式），
-    // 限两层且内层数值系（elem ∈ {Int/Double/Num}，保动态域不变量 kind∈{0,1}；
-    // ≥3 层与内层 bool/str 拒编不错编）
+    // 嵌套数组（t85/t89）：全 Arr 元素放行为 kind 4（槽存内层数组 ptr 位模式），
+    // 内层元素任意（bool/str/更深嵌套均可，t89 放宽）——print/==/整槽替换
+    // rt 侧全 kind 递归覆盖；内层经动态域索引读出 kind ≥ 2 落 CG9 陷阱（t88）
     const Token& bracket = expr.bracket();
     std::vector<CGValue> elements;
     elements.reserve(expr.elements().size());
     CGType elem = CGType::Int;
     for (const auto& element : expr.elements()) {
         CGValue v = emit(element.get());
-        if (v.type == CGType::Arr) {
-            if (v.elem == CGType::Arr) {
-                unsupported("array nesting deeper than two levels",
-                            bracket.line(), bracket.column());
-            }
-            if (v.elem != CGType::Int && v.elem != CGType::Double &&
-                v.elem != CGType::Num) {
-                unsupported("nested array with non-numeric inner elements",
-                            bracket.line(), bracket.column());
-            }
-        }
         if (v.type == CGType::Void) {
             unsupported("array element without value", bracket.line(), bracket.column());
         }
@@ -1159,9 +1148,10 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         llvm::Value* bits = builder_.CreateCall(
             rt_arr_get_, {object.value, index.value}, "arrget");
         if (object.elem == CGType::Arr) {
-            // 嵌套数组内层读（t85）：槽存内层数组 ptr 位模式，还原后 elem 记
-            // Num 动态域哨兵（内层实际 kind 恒 0/1，字面量入口守卫所保），
-            // 内层索引读写/print/len 全走 t70 既有动态域机制零新码
+            // 嵌套数组内层读（t85/t89）：槽存内层数组 ptr 位模式，还原后
+            // elem 记 Num 动态域哨兵——内层 kind 可为任意（t89 放宽），
+            // 数值系内层索引读写照常，kind ≥ 2 内层索引读落 CG9 陷阱（t88）；
+            // print/len/== 全 kind 天然工作
             llvm::Value* inner = builder_.CreateIntToPtr(
                 bits, llvm::PointerType::getUnqual(context_), "inner");
             last_value_ = {inner, CGType::Arr, CGType::Num};
@@ -1209,11 +1199,10 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     }
     CGValue v = emit(expr.value());
     if (object.elem == CGType::Arr) {
-        // 嵌套数组整槽替换（t85）：外层槽写入新内层数组 ptr 位模式；值限
-        // 数值系内层数组（保动态域不变量 kind∈{0,1}），其余拒编不错编
-        if (v.type != CGType::Arr ||
-            (v.elem != CGType::Int && v.elem != CGType::Double &&
-             v.elem != CGType::Num)) {
+        // 嵌套数组整槽替换（t85/t89）：外层槽写入新内层数组 ptr 位模式；
+        // 值须为数组（任意元素，t89 放宽——kind 随内层对象自带），
+        // 非数组值写 kind 4 槽拒编不错编
+        if (v.type != CGType::Arr) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
         }

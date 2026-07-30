@@ -1,0 +1,46 @@
+// s42: 嵌套数组放宽（t89）——内层 bool/str 字面量、三层嵌套、
+// 整槽替换任意内层、深比较、别名联动、数值内层逐层读写回归
+
+// 内层 bool/str 字面量
+array bs = [[true, false], ["a", "b"]];
+print(bs);
+print(bs.length);
+print(len(bs));
+print(bs[0]);
+print(bs[0].length);
+
+// 整槽替换 str 内层
+bs[0] = ["x", "y", "z"];
+print(bs);
+print(bs[0].length);
+
+// 深比较（含 bool/str 内层）
+print(bs == [["x", "y", "z"], ["a", "b"]]);
+print(bs == [["x", "y", "z"], ["a", "c"]]);
+print([[true], [false]] == [[true], [false]]);
+
+// 三层嵌套
+array deep = [[[1, 2], [3]], [[4]]];
+print(deep);
+print(deep.length);
+print(deep == [[[1, 2], [3]], [[4]]]);
+deep[1] = [[9, 8], [7]];
+print(deep);
+print(deep == [[[1, 2], [3]], [[9, 8], [7]]]);
+
+// 混合内层 kind
+array mix = [[1, 2], ["s"], [true]];
+print(mix);
+print(mix == [[1, 2], ["s"], [true]]);
+print(mix == [[1, 2], ["s"], [false]]);
+
+// 别名引用联动
+array alias = deep;
+alias[0] = [[0]];
+print(deep);
+
+// 数值内层逐层读写回归
+array m = [[10, 20], [30]];
+m[0][1] = 25;
+print(m[0][1]);
+print(m);
