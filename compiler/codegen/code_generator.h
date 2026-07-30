@@ -168,6 +168,7 @@ private:
         std::vector<std::string> param_cls; // 与 param_types 平行；仅 Obj 位有意义（t61）
         CGType ret_type = CGType::Void; // Void 即 none 返回
         std::string ret_cls;            // 仅 ret_type == Obj 有意义（t61）
+        long long ret_bit_max = 0;      // byte/word 返回类型范围上限 255/65535，0 即非位类型（t97）
     };
 
     /// @brief 单态化方法实例（t61）：分派类 C 视角下 (定义类 D, 方法 m) 的
@@ -474,6 +475,9 @@ private:
     CGType current_ret_type_ = CGType::Void;
     /// 返回类型为 Obj 时的类名（t61）：visitReturn 严格同类校验用
     std::string current_ret_cls_;
+    /// 返回类型为 byte/word 时的范围上限 255/65535（t97）：visitReturn 插
+    /// check_bit_range 陷阱用；0 即非位类型返回
+    long long current_ret_bit_max_ = 0;
 };
 
 } // namespace collie

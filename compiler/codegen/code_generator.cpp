@@ -2164,6 +2164,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     const bool saved_in_function = in_function_;
     const CGType saved_ret_type = current_ret_type_;
     const std::string saved_ret_cls = current_ret_cls_;
+    const long long saved_ret_bit_max = current_ret_bit_max_;
     scopes_.clear();
     scopes_.emplace_back();
     if (!saved_scopes.empty()) {
@@ -2184,6 +2185,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     in_function_ = true;
     current_ret_type_ = info.ret_type;
     current_ret_cls_ = info.ret_cls;
+    current_ret_bit_max_ = info.ret_bit_max;
 
     builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "entry", info.fn));
     // 形参落栈槽（与局部变量同机制，可被赋值/遮蔽）
@@ -2226,6 +2228,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     in_function_ = saved_in_function;
     current_ret_type_ = saved_ret_type;
     current_ret_cls_ = saved_ret_cls;
+    current_ret_bit_max_ = saved_ret_bit_max;
     scopes_ = std::move(saved_scopes);
     loops_ = std::move(saved_loops);
     builder_.SetInsertPoint(saved_bb);
@@ -2274,6 +2277,14 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
         }
         // Arr 返回值任意元素透传（t88 解除 t70 数值系守卫：kind 随数组对象
         // 自带，print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
+        if (current_ret_bit_max_ > 0) {
+            // byte/word 返回类型（t97）：值已对齐 Int，赋值点式插 check_bit_range
+            // ——越界调 rt_trap_bit_range 报错退出，对齐解释器 coerce_to_declared
+            // 返回值范围校验（核心消息一致，位置前缀缺失同既定 CG 陷阱分歧）
+            v = {check_bit_range(v.value, current_ret_bit_max_,
+                                 current_ret_bit_max_ == 255 ? "byte" : "word"),
+                 CGType::Int};
+        }
         builder_.CreateRet(v.value);
     }
     // return 后同块死代码仍需插入点（与 break/continue 同机制）
@@ -2563,7 +2574,16 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt,
     // （含类实例 IDENTIFIER → Obj+cls，t61）
     CGType ret = CGType::Void;
     std::string ret_cls;
-    if (stmt.return_type().type() != TokenType::KW_NONE) {
+    long long ret_bit_max = 0;
+    const TokenType rtt = stmt.return_type().type();
+    if (rtt == TokenType::KW_BYTE || rtt == TokenType::KW_WORD) {
+        // byte/word 返回类型（t97）：i64 承载，ret_bit_max 记范围上限——返回值
+        // 在 visitReturn 插 check_bit_range，越界陷阱对齐解释器 coerce_to_declared
+        // 返回值校验（参数位解析器不接受 byte/word，仅返回位可达；类方法返回
+        // 走 declared_signature_type 维持拒编，不静默丢范围校验）
+        ret = CGType::Int;
+        ret_bit_max = rtt == TokenType::KW_BYTE ? 255 : 65535;
+    } else if (rtt != TokenType::KW_NONE) {
         declared_signature_type(stmt.return_type(), ret, ret_cls);
     }
     // Arr 返回/形参放行（t70）：签名处无元素类型标注，elem 动态化为 Num 哨兵
@@ -2585,7 +2605,7 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt,
     auto* fn = llvm::Function::Create(fn_type, llvm::Function::InternalLinkage,
                                       "collie." + key, module_.get());
     functions_[key] = {fn, std::move(param_types), std::move(param_cls), ret,
-                       std::move(ret_cls)};
+                       std::move(ret_cls), ret_bit_max};
     // 递归下探函数体登记嵌套函数原型（t91）：可见性到 visitFunction
     // 声明处才登记（对齐解释器"执行到声明处 env_.define"）
     for (const auto& body_stmt : stmt.body()->statements()) {

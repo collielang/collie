@@ -1,0 +1,44 @@
+// t97 差分用例：byte/word 作函数返回类型
+// 返回值经 check_bit_range 对齐解释器 coerce_to_declared 范围校验，
+// 返回后作普通整数表达式域消费（算术/存 byte-word 变量/比较/循环）
+
+function makeByte() byte {
+    return 200;
+}
+
+function makeWord() word {
+    return 60000;
+}
+
+// 多返回路径，各路径返回值均插范围陷阱
+function clampToByte(n integer) byte {
+    if (n > 255) {
+        return 255;
+    }
+    return n;
+}
+
+print(makeByte());          // 200
+print(makeWord());          // 60000
+print(makeByte() + 10);     // 210（返回值作整数参与算术）
+
+byte b = makeByte();        // 返回值存 byte 变量（声明点范围陷阱在范围内）
+print(b);                   // 200
+b = makeByte() + 55;        // 255，赋值点范围陷阱在范围内
+print(b);                   // 255
+
+print(clampToByte(300));    // 255
+print(clampToByte(42));     // 42
+
+word total = makeWord() + 100;  // 60100，存 word 变量
+print(total);               // 60100
+
+// 循环内反复调用 byte 返回函数
+for (integer i = 0; i < 3; i = i + 1) {
+    print(makeByte() + i);  // 200 / 201 / 202
+}
+
+// word 返回值参与比较
+if (makeWord() == 60000) {
+    print("wordok");        // wordok
+}
