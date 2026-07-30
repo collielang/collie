@@ -1,0 +1,59 @@
+// s49: 无初始化变量声明扩展（t96）——number/tribool/byte/word/char/character
+// 同块赋值后读（S45 t92 uninit 机制自然延伸：byte/word 沿用赋值点范围陷阱，
+// Num/Tri/Str 零初始化槽合法且 uninit 期读拒编保证零值不可达）
+
+// number：整数态与小数态两次赋值
+number n;
+print("declared");
+n = 42;
+print(n);
+n = 2.5;
+print(n);
+
+// tribool：三态各值
+tribool tb;
+tb = true;
+print(tb);
+tb = unset;
+print(tb);
+
+// byte / word：赋值点范围陷阱沿用
+byte by;
+by = 200;
+print(by);
+by = by + 10;
+print(by);
+word wd;
+wd = 60000;
+print(wd);
+
+// char / character：Str 承载
+character c;
+c = 'x';
+print(c);
+char d;
+d = 'y';
+print(d);
+
+// 函数内局部无初始化 number
+function calc() number {
+    number t;
+    t = 7;
+    return t + 1;
+}
+print(calc());
+
+// 顶层无初始化全局 tribool：函数声明前已同块赋值，函数体内可读
+tribool g;
+g = false;
+function readG() tribool {
+    return g;
+}
+print(readG());
+
+// 循环体内声明 + 同块赋值 number
+for (integer i = 0; i < 3; i = i + 1) {
+    number k;
+    k = i * 10;
+    print(k);
+}

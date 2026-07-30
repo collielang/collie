@@ -59,9 +59,10 @@
 | S46 | 三元/==? 分支实例类型统一到最近公共祖先：新增 nearest_common_ancestor 沿 super 链求 NCA（含自身端点），gen_ternary 与 match 合流两触点 Obj cls 不等改求 NCA——有则 result cls 取祖先（Obj 的 LLVM 表示统一指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值按运行期真实类解析方法、字段走父类前缀布局），无公共祖先维持拒编不错编；零新增 rt 接口 | 子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先字段读，==? 三支合流，合流值直调方法与进函数形参程序编译执行，输出与解释器一致 **✅ t93** |
 | S47 | 三元/==? 分支数组元素类型合流统一动态域：gen_ternary 与 match 合流两触点 Arr elem 不等改统一 elem=Num 动态域哨兵（t70/t88 既有机制）——数组值不透明 ptr，PHI 无关 elem；合流值为新鲜值元数据自诞生即动态无程序序失配，kind 随数组对象运行期自带（print/len/== rt 侧全 kind 覆盖，索引读数值系正常、kind ≥ 2 落既有 CG9 陷阱不错值）；两触点 result_elem 逐支累计（同 t93 result_cls 模式）；零新增 rt 接口 | Int/Double 三元合流索引读（两向）、合流值存动态槽整组 print/len、Str/Int 合流、合流值相等比较、==? 三支合流、动态域值再进三元程序编译执行，输出与解释器一致 **✅ t94** |
 | S48 | 三元/==? 分支 tuple 合流静态展开：新增 merge_tuple_arms 三阶段——元数据递归校验形状（元素数+名字表+嵌套位置）并合并各叶位类型（复用标量合流规则：数值提升/Tri 加宽/Arr elem 降 Num 哨兵/Obj cls 求 NCA），逐支叶值对齐指令落各支末块（DFS 序展平），merge 块逐叶 PHI 自底向上重建新鲜 CGTuple；形状/名字不一致维持拒编不错编；零新增 rt 接口 | 无名/命名/字面量支/元素数值混型/嵌套 tuple 三元合流，==? 三支合流，合流值索引/字段/get/length/相等比较/再进三元，tribool 三分支形式，数组元素两支 elem 不同程序编译执行，输出与解释器一致 **✅ t95** |
+| S49 | 无初始化变量声明放行面扩展：visitVarDecl 从四静态类型（t92）扩展 number/tribool/char/character/byte/word——Num（struct{i64,i64}）/Tri（i8）/Str（ptr）零初始化槽合法，byte/word 沿用 i64 承载 + bit_max（赋值走 visitAssign 通用路径，既有赋值点 check_bit_range 陷阱自动生效）；uninit/decl_depth/同块清除机制复用；array/Tuple/类维持拒编；零新增 rt 接口 | number 整/小数态、tribool 三态、byte/word 范围内赋值、char/character、函数内局部、顶层全局函数体内读、循环体内声明+同块赋值程序编译执行，输出与解释器一致 **✅ t96** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/Tuple/类无初始化仍拒编）；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -529,7 +530,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 读 uninit 变量 | visitIdentifier 拒编 "use of uninitialized variable"——语义层 use-before-init 检查流不敏感（分支/循环内赋值后读会放行），解释器该场景运行期输出 none，零初始化槽会错出 0——拒编不错编 |
 | `x = v` 后续读 | visitAssign 通用路径 store 后仅当 `scopes_.size() == decl_depth`（同块直线区域，块内顺序执行保证运行期先于后续读）清 uninit 放行；深层块（分支/循环体）赋值存值但不清标记 |
 | 全局无初始化 + 函数体内读 | 函数体链底快照拷贝全局层时 uninit 状态随 CGVar 拷贝：声明后已同块赋值的全局在函数内可读，未赋值的保守拒编 |
-| 范围外 | byte/word/number/tribool/数组/Tuple/类类型无初始化维持拒编；分支/循环块内赋值后读拒编不错编（实证：if(false)/while(false) 内赋值后读解释器 none vs 拒编）；零新增 collie_rt 接口 |
+| 范围外 | ~~byte/word/number/tribool~~（S49 t96 一并放行）/数组/Tuple/类类型无初始化维持拒编；分支/循环块内赋值后读拒编不错编（实证：if(false)/while(false) 内赋值后读解释器 none vs 拒编）；零新增 collie_rt 接口 |
 
 **S46 降级补充（t93 实现）：三元/==? 分支实例类型统一到最近公共祖先**：
 
@@ -561,6 +562,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 嵌套 tuple 合流 | 嵌套位递归合流（子 tuple 先 PHI 重建，父元素指向新子条目）；任一支嵌套位非 tuple 即形状不一致拒编 |
 | 形状/名字不一致 | 维持拒编 "ternary/'==?' branches yield tuples of different shapes"（实证：元素数 2 vs 3、名字 name vs age——解释器可跑 vs 拒编不错编）；元素不可合并（如 Str×Int 同位）拒编 "yield tuples with incompatible elements" |
 | 范围外 | tuple 进函数签名/进数组维持拒编（形状跨调用点不定，需按形状特化）；异质数组字面量、实例进数组维持拒编（预检活跃差分面，后置候选）；零新增 collie_rt 接口 |
+
+**S49 降级补充（t96 实现）：无初始化变量声明放行面扩展**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `number n;` | 槽照常创建（Num 承载 struct{i64,i64}），零初始化 GlobalVariable/alloca 合法常量；CGVar 记 uninit + decl_depth，读拒编保证零值不可观测——沿用 S45 t92 机制 |
+| `tribool tb;` / `char c;` / `character d;` | Tri（i8）/Str（ptr）同理零初始化槽合法；char/character 经 declared_cgtype 映射 Str 承载 |
+| `byte by;` / `word wd;` | i64 承载零初始化 + CGVar.bit_max（255/65535）；赋值走 visitAssign 通用路径——既有赋值点 check_bit_range 陷阱自动生效，不丢范围校验（实证：范围内赋值两端一致） |
+| 赋值后读 / 全局函数体内读 / 循环体内声明 | 复用 S45 t92 的 uninit/decl_depth/同块清除与链底快照机制，六新类型零新增控制流 |
+| 范围外 | array（elem 无从推断）/Tuple（形状无从推断）/类类型无初始化维持拒编；分支/循环块内赋值后读维持拒编不错编（实证：if 块内赋值 byte 后读——解释器输出值 vs 拒编 "use of uninitialized variable"）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

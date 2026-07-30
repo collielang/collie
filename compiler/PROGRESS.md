@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-31（t95 完成：codegen 三元/==? 分支 tuple 合流静态展开——merge_tuple_arms 同形状逐元素 PHI 重建新鲜 CGTuple，形状/名字不一致维持拒编，差分 47/47）
+最后更新：2026-08-01（t96 完成：codegen 无初始化变量声明放行面扩展 number/tribool/byte/word/char/character——复用 S45 t92 uninit 机制，byte/word 沿用赋值点范围陷阱，array/Tuple/类仍拒编，差分 48/48）
 
 ---
 
@@ -569,6 +569,12 @@
     - 实现：code_generator.h 声明 merge_tuple_arms；code_generator.cpp 三处——merge_tuple_arms 三阶段实现（元数据递归校验形状+合并叶位类型、逐支叶值对齐 DFS 序展平落各支末块+Br、merge 块逐叶 PHI 自底向上 register_tuple 重建）、gen_ternary 与 match 合流两触点 Tup 拒编分支改走合流路径（全支同 Tup 校验后调 helper）
     - 验证：新差分用例 s48_mergetup（无名/字面量支/命名/元素数值混型/嵌套 tuple 三元合流、==? 三支合流、合流值索引/字段/get/length/相等比较/再进三元、tribool 三分支形式、数组元素两支 elem 不同，17 行输出）双端逐字节一致；两实证——元素数不同（解释器 `(1, 2)` vs 拒编 "yield tuples of different shapes"）、名字表不同（解释器 `(name: 1)` vs 拒编同消息）；ctest -C Release 差分 47/47，Debug 门禁 6/6
     - 范围外：tuple 进函数签名/进数组维持拒编（形状跨调用点不定）；异质数组字面量、实例进数组维持拒编（预检活跃差分面，后置候选）；零新增 collie_rt 接口
+- [x] codegen 无初始化变量声明扩展 number/tribool/byte/word/char/character（t96）
+    - 选型：剩余拒编面盘点——预检 A（`number n; n = 42;` 后读 + tribool/byte/word 同形）解释器 `42/2.5/unset/200/60000` vs 拒编 "variable declaration without initializer"，活跃差分面（S45 t92 uninit 机制的自然延伸，纯静态零错编风险），胜出；预检 B（char/character 无初始化）解释器 `x/y` vs 同消息拒编，一并纳入；异质数组字面量/实例进数组/tuple 进签名维持后置（t95a 已实证记录）
+    - 范围拍板：visitVarDecl 无初始化放行面从四静态类型扩展到 {number,tribool,byte,word,char,character}——Num（struct{i64,i64}）/Tri（i8）/Str（ptr）零初始化槽合法且 uninit 期读拒编不触及零值；byte/word 沿用 i64 承载 + CGVar.bit_max，既有 visitAssign 赋值点 check_bit_range 陷阱自动生效；uninit/decl_depth/同块清除机制不动；范围外：array（elem 无从推断）/Tuple（形状无从推断）/类类型维持拒编，分支/循环块内赋值后读维持拒编（同 t92）；零新增 collie_rt 接口
+    - 实现：code_generator.cpp visitVarDecl 无初始化分支——byte/word 前置分支（i64 槽 + bit_max + uninit）；四静态类型放行条件扩展 KW_NUMBER/KW_TRIBOOL/KW_CHAR/KW_CHARACTER（复用 declared_cgtype + llvm_type_of 零初始化槽）
+    - 验证：新差分用例 s49_uninitmore（number 整/小数态、tribool 三态、byte/word 范围内赋值、char/character、函数内局部 number、顶层全局 tribool 函数体内读、循环体内声明+同块赋值 number，16 行输出）双端逐字节一致；两实证——array 无初始化维持拒编（解释器 `1` vs 拒编 "variable declaration without initializer"）、byte 分支块内赋值后读维持拒编（解释器 `5` vs 拒编 "use of uninitialized variable"）；ctest -C Release 差分 48/48，Debug 门禁 6/6
+    - 范围外：array/Tuple/类类型无初始化维持拒编；分支/循环块内赋值后读维持拒编不错编；零新增 collie_rt 接口
 
 ---
 
@@ -623,6 +629,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-08-01 `feat(compiler)`: codegen 无初始化变量声明放行面扩展（t96，M6）：visitVarDecl 无初始化分支从四静态类型 {integer,decimal,bool,string}（t92）扩展到 {number,tribool,byte,word,char,character}——byte/word 前置分支创建 i64 槽 + CGVar.bit_max（255/65535）+ uninit（赋值走 visitAssign 通用路径，既有赋值点 check_bit_range 范围陷阱自动生效，不丢范围校验），number/tribool/char/character 并入静态类型放行条件（Num struct{i64,i64} / Tri i8 / Str ptr 零初始化 GlobalVariable/alloca 均合法常量，uninit 期读拒编保证零值不可观测）；uninit/decl_depth/同块清除/链底快照机制全部复用 S45 t92 无新增控制流；选型排除记录：异质数组字面量/实例进数组/tuple 进函数签名三活跃差分面维持后置（t95a 已实证）；范围外：array（elem 无从推断）/Tuple（形状无从推断）/类类型无初始化维持拒编，分支/循环块内赋值后读维持拒编不错编；零新增 collie_rt 接口；新差分用例 s49_uninitmore（number 整/小数态、tribool 三态、byte/word 范围内赋值、char/character、函数内局部 number、顶层全局 tribool 函数体内读、循环体内声明+同块赋值 number，16 行输出）+ 两实证（array 无初始化维持拒编、byte 分支块内赋值后读维持拒编——解释器可跑 vs 拒编 "use of uninitialized variable"），ctest -C Release 差分 48/48 逐字节一致，Debug 门禁 6/6（M6 t96）
 - 2026-07-31 `feat(compiler)`: codegen 三元/==? 分支 tuple 合流静态展开（t95，M6）：新增 merge_tuple_arms 三阶段——阶段一纯元数据递归校验形状（元素数+名字表+嵌套位置全支同为 tuple）并合并各叶位类型（复用标量合流规则：数值提升 Num/Double、Tri/Bool 加宽、Arr elem 不等降 Num 动态域哨兵 t94、Obj cls 求最近公共祖先 t93），阶段二逐支把叶值对齐指令落该支末块内（DFS 序展平）并补 Br，阶段三 merge 块按同一 DFS 序逐叶 PHI 自底向上 register_tuple 重建新鲜 CGTuple；gen_ternary 与 match 合流两触点 Tup 拒编分支改走合流路径（全支同 Tup 校验，tribool 三分支三元同路径）；合流值与字面量产物同构，索引/字段/get/length/print/相等比较/存槽/再合流零新增消费面；形状/名字不一致维持拒编不错编；选型排除记录：异质数组字面量（需 boxed 逐元素 kind 全套 rt 改造）、实例进数组（需元素对象 kind+cls 跟踪）、tuple 进函数签名（形状跨调用点不定需特化）三活跃差分面后置；零新增 collie_rt 接口；新差分用例 s48_mergetup（无名/字面量支/命名/元素数值混型/嵌套 tuple 三元合流、==? 三支合流、合流值全消费面、tribool 三分支、数组元素两支 elem 不同，17 行输出）+ 两实证（元素数不同/名字表不同——解释器可跑 vs 拒编 "yield tuples of different shapes"），ctest -C Release 差分 47/47 逐字节一致，Debug 门禁 6/6（M6 t95）
 - 2026-07-31 `feat(compiler)`: codegen 三元/==? 分支数组元素类型合流统一动态域（t94，M6）：gen_ternary 与 match 合流两触点 Arr elem 不等时改统一 elem=Num 动态域哨兵（t70/t88 既有机制）——引入 result_elem 逐支累计（同 t93 result_cls 模式），数组值同为不透明 ptr，PHI 无关 elem 值零转换；合流值为新鲜值，元数据自诞生即动态无程序序失配，kind 随数组对象运行期自带：print/toString/len/== rt 侧全 kind 覆盖（rt_arr_to_str/rt_arr_len/rt_arr_eq），索引读数值系拼 Num 正常、kind ≥ 2 落既有 CG9 陷阱不错值；选型排除记录：数组变量再赋不同 elem（预检活跃差分面）后置——程序序提升 var->elem 在循环回边（先读后赋再回读）与函数全局快照静态解码下会错编，需循环深度守卫+捕获跟踪；零新增 collie_rt 接口；新差分用例 s47_mergearr（Int/Double 三元合流索引读两向、合流值存动态槽整组 print/len、Str/Int 合流、合流值相等比较、==? 三支合流、动态域值再进三元，12 行输出）+ 陷阱实证（Str/Int 合流索引读解释器 a vs 产物 CG9 陷阱显式报错）+ 后置面实证（数组变量再赋不同 elem 维持拒编），ctest -C Release 差分 46/46 逐字节一致，Debug 门禁 6/6（M6 t94）
 - 2026-07-31 `feat(compiler)`: codegen 三元/==? 分支实例类型统一到最近公共祖先（t93，M6）：新增 nearest_common_ancestor(a,b)——含自身端点（a 即 b 祖先返 a、反之返 b），否则自 a 的父类起沿 super 链找首个同为 b 祖先的类，无则空串；gen_ternary 与 match 合流两触点 Obj cls 不等时改求 NCA——result_cls 逐支累计（兄弟类→公共父、孙类/兄弟类→更高祖先），有则放行（Obj 的 LLVM 表示统一指针，PHI 无关 cls 值零转换；t86 对象头类 id + visitMethodCall 动态分派保证合流值按运行期真实类解析覆写方法、字段走父类前缀布局祖先静态读偏移一致），无公共祖先维持拒编不错编（解释器动态类型无关类同签名方法可行，实证：解释器 X vs 拒编）；选型排除记录：类字段无初始化——字段读写运行期动作跨实例静态不可跟踪 uninit，语义层不拦截未赋值读（解释器 none），零初始化会错编且无法保守守卫；零新增 collie_rt 接口；新差分用例 s46_mergecls（子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先 Square 字段读，==? 三支合流统一 Shape，合流值直调方法与进函数形参，10 行输出）+ 拒编实证（无公共祖先 X/Y 三元合流），ctest -C Release 差分 45/45 逐字节一致，Debug 门禁 6/6（M6 t93）

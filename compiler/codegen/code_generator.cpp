@@ -1823,15 +1823,33 @@ void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
 }
 
 void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
-    // 无初始化时解释器绑 none（动态哨兵值）；四静态类型放行（t92）：槽照常
-    // 创建（顶层零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit +
-    // 声明深度——uninit 期间读拒编（语义层流不敏感放行的分支内赋值后读，
-    // 解释器运行期仍是 none，零初始化槽会错值，拒编不错编），同块赋值后清；
-    // 其余类型（byte/word/number/tribool/array/Tuple/类）维持拒编
+    // 无初始化时解释器绑 none（动态哨兵值）；静态类型放行（t92 四类型，
+    // t96 扩展 number/tribool/byte/word/char/character）：槽照常创建（顶层
+    // 零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit + 声明深度——
+    // uninit 期间读拒编（语义层流不敏感放行的分支内赋值后读，解释器运行期
+    // 仍是 none，零初始化槽会错值，拒编不错编），同块赋值后清；
+    // 其余类型（array/Tuple/类）维持拒编
     if (!stmt.initializer()) {
         const TokenType tt = stmt.type().type();
+        if (tt == TokenType::KW_BYTE || tt == TokenType::KW_WORD) {
+            // byte/word（t96）：i64 承载 + bit_max，赋值走 visitAssign 通用
+            // 路径——既有赋值点 check_bit_range 陷阱自动生效，不丢范围校验
+            const std::string name(stmt.name().lexeme());
+            CGVar var;
+            var.slot = create_var_slot(builder_.getInt64Ty(), name);
+            var.type = CGType::Int;
+            var.bit_max = tt == TokenType::KW_BYTE ? 255 : 65535;
+            var.uninit = true;
+            var.decl_depth = scopes_.size();
+            scopes_.back()[name] = var;
+            return;
+        }
         if (tt == TokenType::KW_INTEGER || tt == TokenType::KW_DECIMAL ||
-            tt == TokenType::KW_BOOL || tt == TokenType::KW_STRING) {
+            tt == TokenType::KW_BOOL || tt == TokenType::KW_STRING ||
+            tt == TokenType::KW_NUMBER || tt == TokenType::KW_TRIBOOL ||
+            tt == TokenType::KW_CHAR || tt == TokenType::KW_CHARACTER) {
+            // Num（struct{i64,i64}）/Tri（i8）/Str（ptr）零初始化全局槽均
+            // 合法常量，uninit 期读拒编保证零值不可达（t96）
             CGType type = declared_cgtype(stmt.type());
             const std::string name(stmt.name().lexeme());
             CGVar var;
