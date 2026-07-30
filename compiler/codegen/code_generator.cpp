@@ -1044,8 +1044,14 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         if (elements.empty()) {
             elem = v.type;
         } else if (v.type != elem) {
-            if ((elem == CGType::Int || elem == CGType::Double) &&
-                (v.type == CGType::Int || v.type == CGType::Double)) {
+            // 数值系互混（t90 扩展含 Num）：统一提升 Double 视图——Num 运行期
+            // tag 静态不可判，double 槽承载（rt format_f64 整数值省 .0，
+            // print 输出与解释器混合表示一致）
+            const auto numlike = [](CGType t) {
+                return t == CGType::Int || t == CGType::Double ||
+                       t == CGType::Num;
+            };
+            if (numlike(elem) && numlike(v.type)) {
                 elem = CGType::Double;
             } else {
                 unsupported("heterogeneous array literal",
@@ -1054,6 +1060,9 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         }
         elements.push_back(v);
     }
+    if (elem == CGType::Num) {
+        elem = CGType::Double; // 全 Num 字面量（t90）：同上落 double 视图
+    }
     llvm::Value* arr = builder_.CreateCall(
         rt_arr_new_,
         {builder_.getInt64(static_cast<uint64_t>(elements.size())),
@@ -1061,8 +1070,9 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         "arrnew");
     for (size_t i = 0; i < elements.size(); ++i) {
         CGValue v = elements[i];
-        if (elem == CGType::Double && v.type == CGType::Int) {
-            v = {to_double(v), CGType::Double}; // 同质提升：整数元素升 double
+        if (elem == CGType::Double &&
+            (v.type == CGType::Int || v.type == CGType::Num)) {
+            v = {to_double(v), CGType::Double}; // 同质提升：Int/Num 元素升 double
         }
         builder_.CreateCall(rt_arr_set_,
                             {arr, builder_.getInt64(i), elem_to_bits(v)});
@@ -1238,6 +1248,16 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     if (v.type != object.elem) {
         if (object.elem == CGType::Double && v.type == CGType::Int) {
             v = {to_double(v), CGType::Double};
+        } else if (v.type == CGType::Num &&
+                   (object.elem == CGType::Int ||
+                    object.elem == CGType::Double)) {
+            // Num 值写静态数值槽（t90）：tag 运行期定，下沉 rt_arr_set_num
+            // 按槽 kind 对齐（tag==kind 直存 / 0→1 提升 / 1→0 陷阱 CG7）
+            builder_.CreateCall(
+                rt_arr_set_num_,
+                {object.value, index.value, num_tag(v.value), num_bits(v.value)});
+            last_value_ = v;
+            return;
         } else {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
@@ -3091,6 +3111,19 @@ llvm::Value* CodeGenerator::to_double(const CGValue& v) {
         case CGType::Double: return v.value;
         case CGType::Int:    return builder_.CreateSIToFP(v.value, builder_.getDoubleTy());
         case CGType::Bool:   return builder_.CreateUIToFP(v.value, builder_.getDoubleTy());
+        case CGType::Num: {
+            // Num → double 视图（t90）：tag 0 整数 SIToFP、tag 1 位模式还原，
+            // 两分支均无副作用，select 免分支
+            llvm::Value* tag = num_tag(v.value);
+            llvm::Value* bits = num_bits(v.value);
+            llvm::Value* as_int =
+                builder_.CreateSIToFP(bits, builder_.getDoubleTy());
+            llvm::Value* as_dbl =
+                builder_.CreateBitCast(bits, builder_.getDoubleTy());
+            llvm::Value* is_int =
+                builder_.CreateICmpEQ(tag, builder_.getInt64(0), "numisint");
+            return builder_.CreateSelect(is_int, as_int, as_dbl, "numdbl");
+        }
         default:             unsupported("numeric conversion of non-numeric value", 0, 0);
     }
 }

@@ -1,0 +1,49 @@
+// s43: Num 元素数组字面量（t90）——数值系互混/全 Num 落 double 视图，
+// Num 值写静态数值槽下沉 rt_arr_set_num，print/索引/深比较/循环遍历
+
+// Num（tag 0/1）与 Int/Double 混合字面量
+number x = 7;
+number y = 2.5;
+array a = [x, y, 3];
+print(a);
+print(a[0]);
+print(a[1]);
+print(a[-1]);
+print(a.length);
+print(len(a));
+
+// 全 Num 字面量（整数态）
+number p = 10;
+number q = 20;
+array b = [p, q];
+print(b);
+print(b[0] + b[1]);
+
+// Num 值写静态数值槽：tag 0 写 double 槽提升、tag 1 直存
+a[0] = p;
+print(a);
+number r = 4.75;
+a[2] = r;
+print(a);
+
+// Num 值写 int 槽（tag 0 直存）
+array ints = [100, 200];
+ints[1] = p;
+print(ints);
+
+// 深比较：Num 提升数组 vs 纯数值字面量（数值系混合 double 视图）
+print(a == [10, 2.5, 4.75]);
+print(b == [10, 20]);
+print(b == [10, 21]);
+
+// 函数内局部 Num 数组 + 循环遍历
+function total(n number, m number) number {
+    array t = [n, m, 1];
+    number s = 0;
+    for (integer i = 0; i < len(t); i = i + 1) {
+        s = s + t[i];
+    }
+    return s;
+}
+print(total(2, 3.5));
+print(total(10, 20));
