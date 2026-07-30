@@ -1,0 +1,58 @@
+// s46: 三元/==? 分支实例类型统一到最近公共祖先（t93）
+// （注：无公共祖先的两类分支合流维持拒编不错编——解释器动态类型可行）
+
+class Shape {
+    public integer sides = 0;
+    public function name() string {
+        return "shape";
+    }
+}
+class Circle extends Shape {
+    public function name() string {
+        return "circle";
+    }
+}
+class Square extends Shape {
+    public integer corners = 4;
+    public function name() string {
+        return "square";
+    }
+}
+class SmallSquare extends Square {
+    public function name() string {
+        return "small-square";
+    }
+}
+
+// 三元：子类 vs 父类 → 统一父类，动态分派按真实类
+bool pick = true;
+Shape a = pick ? new Circle() : new Shape();
+print(a.name());
+Shape b = false ? new Circle() : new Shape();
+print(b.name());
+
+// 三元：兄弟类 → 统一到公共父 Shape
+Shape c = pick ? new Circle() : new Square();
+print(c.name());
+
+// 三元：孙类 vs 兄弟类 → 最近公共祖先 Shape；父类字段前缀读取
+Shape d = false ? new Circle() : new SmallSquare();
+print(d.name());
+print(d.sides);
+
+// 孙类 vs 父类 → 统一 Square（最近者非根），字段偏移一致
+Square e = pick ? new SmallSquare() : new Square();
+print(e.name());
+print(e.corners);
+
+// ==? 多支合流：三支不同类统一 Shape
+integer k = 2;
+Shape f = k ==? 1: new Circle(), 2: new SmallSquare(), new Shape();
+print(f.name());
+
+// 合流值直接调方法（不落槽）+ 进函数形参
+function label(s Shape) string {
+    return "got " + s.name();
+}
+print((k ==? 2: new Square(), new Circle()).name());
+print(label(pick ? new SmallSquare() : new Circle()));

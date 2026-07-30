@@ -297,6 +297,10 @@ private:
     /// 沿 CGClass.super 链自 sub 向上查找；sub == ancestor 时返回 false
     bool is_subclass_of(const std::string& sub, const std::string& ancestor);
 
+    /// @brief 求 a 与 b 的最近公共祖先类（t93，分支实例合流用）：含自身
+    /// 端点（a 即 b 祖先返 a、反之返 b）；无公共祖先返回空串由调用方拒编
+    std::string nearest_common_ancestor(const std::string& a, const std::string& b);
+
     /// @brief 把 Int/Bool 值提升为 double（算术混型时用）
     llvm::Value* to_double(const CGValue& v);
 

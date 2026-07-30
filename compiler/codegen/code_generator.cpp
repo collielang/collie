@@ -2425,6 +2425,22 @@ bool CodeGenerator::is_subclass_of(const std::string& sub,
     return false;
 }
 
+std::string CodeGenerator::nearest_common_ancestor(const std::string& a,
+                                                   const std::string& b) {
+    // 最近公共祖先（t93，分支实例合流用）：含自身端点——a 即 b 的祖先
+    // 返 a、反之返 b；否则自 a 的父类起沿 super 链向上找首个同为 b 祖先
+    // 的类；无公共祖先返回空串由调用方拒编
+    if (a == b || is_subclass_of(b, a)) return a;
+    if (is_subclass_of(a, b)) return b;
+    auto it = classes_.find(a);
+    if (it == classes_.end()) return {};
+    for (std::string cname = it->second.super; !cname.empty();
+         cname = classes_.at(cname).super) {
+        if (is_subclass_of(b, cname)) return cname;
+    }
+    return {};
+}
+
 llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
     switch (type) {
         case CGType::Int:    return builder_.getInt64Ty();
@@ -2889,6 +2905,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         return t == CGType::Int || t == CGType::Double || t == CGType::Num;
     };
     CGType result_type = arms.front().value.type;
+    std::string result_cls = arms.front().value.cls;
     if (result_type == CGType::Void) {
         unsupported("ternary branch has no value",
                     expr.question_token().line(), expr.question_token().column());
@@ -2906,10 +2923,17 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
                 unsupported("ternary branches yield arrays of different element types",
                             expr.question_token().line(), expr.question_token().column());
             }
-            if (v.type == CGType::Obj && v.cls != arms.front().value.cls) {
-                // 同为实例但类不同：静态无公共类型可表，拒编不错编（t60）
-                unsupported("ternary branches yield instances of different classes",
-                            expr.question_token().line(), expr.question_token().column());
+            if (v.type == CGType::Obj && v.cls != result_cls) {
+                // 类不同：统一到最近公共祖先（t93）——Obj 的 LLVM 表示同为
+                // 指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值
+                // 按运行期真实类解析方法；无公共祖先维持拒编不错编
+                const std::string nca = nearest_common_ancestor(result_cls, v.cls);
+                if (nca.empty()) {
+                    unsupported("ternary branches yield instances of different classes",
+                                expr.question_token().line(),
+                                expr.question_token().column());
+                }
+                result_cls = nca;
             }
             continue;
         }
@@ -2944,8 +2968,8 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     for (const auto& arm : arms) {
         phi->addIncoming(arm.aligned, arm.end);
     }
-    // elem/cls 仅 Arr/Obj 有意义（各支已校验一致，取首支）
-    last_value_ = {phi, result_type, arms.front().value.elem, arms.front().value.cls};
+    // elem 仅 Arr 有意义（各支已校验一致，取首支）；cls 为各支最近公共祖先（t93）
+    last_value_ = {phi, result_type, arms.front().value.elem, result_cls};
 }
 
 llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& cand,
@@ -3146,6 +3170,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         return t == CGType::Int || t == CGType::Double || t == CGType::Num;
     };
     CGType result_type = arms.front().value.type;
+    std::string result_cls = arms.front().value.cls;
     if (result_type == CGType::Void) {
         unsupported("'==?' branch result has no value", op.line(), op.column());
     }
@@ -3160,9 +3185,15 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
                 unsupported("'==?' branches yield arrays of different element types",
                             op.line(), op.column());
             }
-            if (v.type == CGType::Obj && v.cls != arms.front().value.cls) {
-                unsupported("'==?' branches yield instances of different classes",
-                            op.line(), op.column());
+            if (v.type == CGType::Obj && v.cls != result_cls) {
+                // 类不同：统一到最近公共祖先（t93，同 gen_ternary），
+                // 无公共祖先维持拒编不错编
+                const std::string nca = nearest_common_ancestor(result_cls, v.cls);
+                if (nca.empty()) {
+                    unsupported("'==?' branches yield instances of different classes",
+                                op.line(), op.column());
+                }
+                result_cls = nca;
             }
             continue;
         }
@@ -3197,8 +3228,8 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     for (const auto& arm : arms) {
         phi->addIncoming(arm.aligned, arm.end);
     }
-    // elem/cls 仅 Arr/Obj 有意义（各支已校验一致，取首支）
-    last_value_ = {phi, result_type, arms.front().value.elem, arms.front().value.cls};
+    // elem 仅 Arr 有意义（各支已校验一致，取首支）；cls 为各支最近公共祖先（t93）
+    last_value_ = {phi, result_type, arms.front().value.elem, result_cls};
 }
 
 llvm::Value* CodeGenerator::checked_int_arith(llvm::Intrinsic::ID id, llvm::Value* lhs,

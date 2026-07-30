@@ -56,9 +56,10 @@
 | S43 | Num 元素数组字面量：visitArrayLiteral 数值系同质判定扩展含 Num（互混或全 Num 统一提升 Double 视图，rt format_f64 整数值省 .0 与解释器混合表示输出对齐）；to_double 加 Num 分支（tag select 免分支）；visitIndexAssign 静态数值槽收 Num 值下沉既有 rt_arr_set_num（tag==kind 直存/0→1 提升/1→0 落 CG7 陷阱）；零新增 rt 接口 | Num（整/小数态）与 Int/Double 混合字面量/全 Num 字面量/print/索引读（含负索引）/length/len/Num 值写 int-double 槽/深比较/函数内局部 Num 数组循环遍历程序编译执行，输出与解释器一致 **✅ t90** |
 | S44 | 嵌套函数声明：受限雷姆达提升——declare_function 加 prefix 改编键（outer.inner，符号 collie.outer.inner），尾部 declare_nested_in 递归下探 Block/If/While/For/DoWhile/Switch 建原型进 nested_fns_ 注册表；visitFunction 嵌套路径声明处向 scopes_ 登记 fn_key 绑定（对齐解释器"执行到声明处 env_.define"——声明前不可见/块退出失效），嵌套体链底拷入外层链函数绑定（自身递归/前置兄弟可见），生成现场 in_function_/返回类型保存恢复；visitCall 作用域链函数绑定优先于顶层 functions_；函数名作值/被赋值拒编；零新增 rt 接口 | 基本嵌套/嵌套读全局/自身递归 fac(5)/前置兄弟嵌套/带参字符串嵌套程序编译执行，输出与解释器一致 **✅ t91** |
 | S45 | 无初始化变量声明：四静态类型 {integer,decimal,bool,string} 放行——槽照常创建（顶层零初始化全局槽/函数内 alloca 不预存），CGVar 加 uninit + decl_depth；读 uninit 槽拒编（语义层流不敏感放行的分支/循环内赋值后读，解释器运行期仍 none，零初始化槽会错值——拒编不错编）；同块（scopes_ 同深度）赋值清 uninit 放行后续读，深层块赋值存值不清标记；零新增 rt 接口 | 顶层声明后隔句赋值再读/四静态类型/函数内局部/顶层全局函数体内读/循环体内声明+同块赋值程序编译执行，输出与解释器一致 **✅ t92** |
+| S46 | 三元/==? 分支实例类型统一到最近公共祖先：新增 nearest_common_ancestor 沿 super 链求 NCA（含自身端点），gen_ternary 与 match 合流两触点 Obj cls 不等改求 NCA——有则 result cls 取祖先（Obj 的 LLVM 表示统一指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值按运行期真实类解析方法、字段走父类前缀布局），无公共祖先维持拒编不错编；零新增 rt 接口 | 子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先字段读，==? 三支合流，合流值直调方法与进函数形参程序编译执行，输出与解释器一致 **✅ t93** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 进函数签名语义层即拦截、两端一致；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -199,7 +200,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `obj.field` 读 / `obj.field = v` 写 | `CreateStructGEP` + load/store；写入仅允许 Int→Double 提升否则拒编；求值顺序 object→value 对齐解释器 |
 | `obj.m(args)` / `this.m(args)` | 类方法表优先命中 → `call @collie.C.m(ptr this, args...)`；未命中且 `toString()` 无参 → 固定串 `"<object>"` 兜底（分派顺序对齐解释器）；否则拒编 |
 | `print(obj)` / `toString(obj)` | 固定输出 `"<object>"`（对齐 Value::to_string Instance 分支） |
-| 赋值/三元中的实例 | 指针拷贝即引用语义；两侧类名不一致拒编 |
+| 赋值/三元中的实例 | 指针拷贝即引用语义；~~两侧类名不一致拒编~~（赋值收后代类 S39 t86、三元/==? 分支统一最近公共祖先 S46 t93 陆续放宽，无继承关系仍拒编） |
 | 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、tuple 字段、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁；array 字段 S24 t71、实例字段 S25 t72、number 字段 S27 t74 陆续解锁；tribool 字段随 S18 tribool 支持自然放行，t74 实测确认；实例相等比较已于 S35 t82 解锁恒 false、实例进数组/元组仍拒编） |
 
 **S14 降级补充（t61 实现）：class 二期——继承/base/实例作函数参数返回值**：
@@ -527,6 +528,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `x = v` 后续读 | visitAssign 通用路径 store 后仅当 `scopes_.size() == decl_depth`（同块直线区域，块内顺序执行保证运行期先于后续读）清 uninit 放行；深层块（分支/循环体）赋值存值但不清标记 |
 | 全局无初始化 + 函数体内读 | 函数体链底快照拷贝全局层时 uninit 状态随 CGVar 拷贝：声明后已同块赋值的全局在函数内可读，未赋值的保守拒编 |
 | 范围外 | byte/word/number/tribool/数组/Tuple/类类型无初始化维持拒编；分支/循环块内赋值后读拒编不错编（实证：if(false)/while(false) 内赋值后读解释器 none vs 拒编）；零新增 collie_rt 接口 |
+
+**S46 降级补充（t93 实现）：三元/==? 分支实例类型统一到最近公共祖先**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `c ? new B() : new A()`（B extends A） | gen_ternary 分支类型统一：Obj cls 不等改求 nearest_common_ancestor（沿 super 链，含自身端点——a 即 b 祖先返 a、反之返 b、否则自 a 父链找首个 b 的祖先），result cls 累计取 NCA；Obj 的 LLVM 表示统一指针，PHI 无关 cls，值本身零转换 |
+| `k ==? 1: new B(), new A()` 多支合流 | match 合流同规则扩展到 N+1 支（result_cls 逐支累计 NCA，兄弟类→公共父、孙类/兄弟类→更高祖先） |
+| 合流值方法调用/字段读 | t86 机制天然正确：对象头类 id + visitMethodCall 动态分派按运行期真实类解析覆写方法；字段走父类前缀布局，祖先静态类型读偏移一致 |
+| 无公共祖先两类合流 | 维持拒编 "ternary/'==?' branches yield instances of different classes"（解释器动态类型同签名方法可行，实证：解释器 X vs 拒编——拒编不错编） |
+| 范围外 | Arr elem 不同维持拒编；其余混型统一规则（数值系/Tri-Bool）不动；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

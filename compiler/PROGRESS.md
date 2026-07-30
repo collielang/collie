@@ -4,7 +4,7 @@
 >
 > **更新约定**：每完成或修复一块工作，就在对应里程碑打勾，并在文末「变更日志」追加一条（与 git 提交一一对应）。
 
-最后更新：2026-07-31（t92 完成：codegen 无初始化变量声明——四静态类型放行 + CGVar uninit/decl_depth 保守守卫（读 uninit 拒编、同块赋值清标记），分支/循环内赋值后读拒编不错编，差分 44/44）
+最后更新：2026-07-31（t93 完成：codegen 三元/==? 分支实例类型统一到最近公共祖先——nearest_common_ancestor + 两触点 result_cls 累计 NCA，无公共祖先维持拒编不错编，差分 45/45）
 
 ---
 
@@ -551,6 +551,12 @@
     - 实现：code_generator.h CGVar 尾部加 `uninit`/`decl_depth` 两成员（缺省 false/0 保聚合初始化兼容）；code_generator.cpp 三触点——visitVarDecl 无初始化分支四静态类型放行（create_var_slot + uninit=true + decl_depth 登记）、visitIdentifier fn_key 守卫后加 uninit 守卫拒编 "use of uninitialized variable"、visitAssign 通用路径 CreateStore 后同深度清 uninit
     - 验证：新差分用例 s45_uninit（顶层隔句赋值再读+自增重赋/decimal-bool-string/函数内局部/顶层全局函数体内读/for 循环体内声明+同块赋值，11 行输出）双端逐字节一致；三实证——if(false) 分支内赋值后读（解释器 none vs 拒编）、while(false) 体内赋值后读（解释器 none vs 拒编）、number 无初始化（解释器 3 vs 维持拒编）；ctest -C Release 差分 44/44，Debug 门禁 6/6
     - 范围外：byte/word/number/tribool/数组/Tuple/类类型无初始化维持拒编；分支/循环块内赋值后读拒编不错编；零新增 collie_rt 接口
+- [x] codegen 三元/==? 分支实例类型统一到公共祖先（t93）
+    - 选型：剩余拒编面盘点——预检 A（三元 `c ? new B() : new A()` 赋 A 槽调 who()）解释器 B vs 拒编 "ternary branches yield instances of different classes"、预检 D（`k ==? 1: new B(), new A()`）解释器 B vs 拒编 "'==?' branches yield instances of different classes"，两活跃差分面；候选 B 类字段无初始化排除——字段读写运行期动作跨实例静态不可跟踪 uninit，语义层不拦截未赋值读（解释器 none），零初始化会错编且无法保守守卫；预检 C `==?` 花括号写法双端 parse error 排除
+    - 范围拍板：新增 nearest_common_ancestor(a,b) 沿 super 链求最近公共祖先（含自身端点，无则空）；gen_ternary 与 visitMatch 合流两触点 Obj cls 不等时改求公共祖先——有则 result cls 取祖先（Obj 的 LLVM 表示统一指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值按运行期真实类解析方法、字段走父类前缀布局偏移一致），无公共祖先维持拒编不错编（解释器动态类型无关类同签名方法可行，实证面）；范围外：Arr elem 不同维持拒编、其余混型规则不动；零新增 collie_rt 接口
+    - 实现：code_generator.h is_subclass_of 后声明 nearest_common_ancestor；code_generator.cpp 三处——nearest_common_ancestor 实现（含自身端点判定 + 沿 a 父链找首个 b 的祖先）、gen_ternary 引入 result_cls 逐支累计 NCA（无则拒编）并用于 last_value_、match 合流同规则改造
+    - 验证：新差分用例 s46_mergecls（子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先 Square 字段读，==? 三支合流，合流值直调方法与进函数形参，10 行输出）双端逐字节一致；拒编实证——无公共祖先两类三元合流（解释器 X vs 维持拒编）；ctest -C Release 差分 45/45，Debug 门禁 6/6
+    - 范围外：无公共祖先两类合流维持拒编；Arr elem 不同维持拒编；零新增 collie_rt 接口
 
 ---
 
@@ -605,6 +611,7 @@
 
 > 与 git 提交一一对应，最新在上。
 
+- 2026-07-31 `feat(compiler)`: codegen 三元/==? 分支实例类型统一到最近公共祖先（t93，M6）：新增 nearest_common_ancestor(a,b)——含自身端点（a 即 b 祖先返 a、反之返 b），否则自 a 的父类起沿 super 链找首个同为 b 祖先的类，无则空串；gen_ternary 与 match 合流两触点 Obj cls 不等时改求 NCA——result_cls 逐支累计（兄弟类→公共父、孙类/兄弟类→更高祖先），有则放行（Obj 的 LLVM 表示统一指针，PHI 无关 cls 值零转换；t86 对象头类 id + visitMethodCall 动态分派保证合流值按运行期真实类解析覆写方法、字段走父类前缀布局祖先静态读偏移一致），无公共祖先维持拒编不错编（解释器动态类型无关类同签名方法可行，实证：解释器 X vs 拒编）；选型排除记录：类字段无初始化——字段读写运行期动作跨实例静态不可跟踪 uninit，语义层不拦截未赋值读（解释器 none），零初始化会错编且无法保守守卫；零新增 collie_rt 接口；新差分用例 s46_mergecls（子类/父类、兄弟类、孙类/兄弟类三元合流，孙类/父类统一非根祖先 Square 字段读，==? 三支合流统一 Shape，合流值直调方法与进函数形参，10 行输出）+ 拒编实证（无公共祖先 X/Y 三元合流），ctest -C Release 差分 45/45 逐字节一致，Debug 门禁 6/6（M6 t93）
 - 2026-07-31 `feat(compiler)`: codegen 无初始化变量声明（t92，M6）：候选 D（两轮后置）解锁——visitVarDecl 无初始化分支限四静态类型 {integer,decimal,bool,string} 放行：槽照常创建（顶层零初始化 GlobalVariable / 函数内 alloca 不预存），CGVar 加 `uninit` 标记 + `decl_depth`（声明时 scopes_.size()，缺省 false/0 保聚合初始化兼容）；visitIdentifier fn_key 守卫后加 uninit 守卫拒编 "use of uninitialized variable"——关键预检实证：语义层 use-before-init 检查流不敏感（分支/循环内赋值后读放行），解释器该场景运行期输出 none，codegen 零初始化槽会错出 0，须保守守卫拒编不错编；visitAssign 通用路径 CreateStore 后仅当 scopes_.size()==decl_depth（同块直线区域，块内顺序执行保证运行期先于后续读；同深度即同块——块弹出则变量记录消亡）清 uninit 放行后续读，深层块赋值存值不清标记；函数体链底快照拷贝全局层时 uninit 状态随 CGVar 拷贝（声明后已同块赋值的全局在函数内可读，未赋值的保守拒编）；范围外：byte/word/number/tribool/数组/Tuple/类类型无初始化维持拒编；零新增 collie_rt 接口；新差分用例 s45_uninit（顶层隔句赋值再读+自增重赋/decimal-bool-string 三类型/函数内局部/顶层全局函数体内读/for 循环体内声明+同块赋值，11 行输出）+ 三实证（if(false) 分支内赋值后读——解释器 none vs 拒编；while(false) 体内赋值后读——none vs 拒编；number 无初始化——解释器 3 vs 维持拒编），ctest -C Release 差分 44/44 逐字节一致，Debug 门禁 6/6（M6 t92）
 - 2026-07-31 `feat(compiler)`: codegen 嵌套函数声明（t91，M6）：受限雷姆达提升解锁函数体内嵌套函数——declare_function 加 prefix 缺省参，嵌套函数注册键改编 `外层名.内层名`（用户标识符无 '.' 天然防冲突，符号名 collie.<改编键>），尾部 declare_nested_in 递归下探 Block/If/While/For/DoWhile/Switch 全语句子树建模块级原型并登记 nested_fns_（FunctionStmt* → 改编键）；visitFunction 嵌套路径：nested_fns_ 查表区分（未登记位置如类方法体内维持 "nested function declaration" 拒编），声明处向 scopes_.back() 登记 CGVar{fn_key=改编键} 绑定（对齐解释器"执行到声明处 env_.define"——声明前调用不可见/所在块退出失效），生成现场 in_function_/current_ret_type_/current_ret_cls_ 从复位改保存恢复（嵌套生成完还原外层函数上下文），嵌套体链底 = 全局层 + 外层链上全部 fn_key 绑定拷入（自身递归/前置兄弟嵌套可见，变量槽不拷——引用外层局部即标识符不可见拒编，捕获面范围外）；visitCall 三级解析：内建 → 作用域链函数绑定（lookup_var fn_key 非空 → functions_[fn_key]）→ 顶层 functions_；visitIdentifier/visitAssign fn_key 守卫（函数名作值/被赋值拒编，非一等公民）；零新增 collie_rt 接口；选型排除记录：非 bool if/while 条件非差分面（语义层 "must be a boolean expression" 双端同报预检实证）、嵌套遮蔽顶层同名被语义层 "already defined" 双端拦截非差分面；新差分用例 s44_nestedfn（基本嵌套 6/嵌套读全局 22/自身递归 fac(5)=120/前置兄弟嵌套 8/带参字符串嵌套 [collie]，5 行输出）+ 三拒编实证（捕获外层局部——解释器 42 vs "identifier 'captured'"；类方法体内嵌套；函数名作值），ctest -C Release 差分 43/43 逐字节一致，Debug 门禁 6/6（M6 t91）
 - 2026-07-31 `feat(compiler)`: codegen Num 元素数组字面量（t90，M6）：visitArrayLiteral 数值系同质判定扩展含 Num——元素 CGType ∈ {Int/Double/Num} 互混时 elem 统一提升 Double（Num 运行期 tag 静态不可判，double 视图承载；rt format_f64 整数值省 .0，print 输出与解释器混合表示一致），全 Num 字面量循环后兜底 elem=Num→Double，存槽循环 Int/Num 元素 to_double 提升；to_double 加 Num 分支（num_tag/num_bits 提取后 tag==0 ? SIToFP : BitCast，两分支无副作用 select 免分支）；visitIndexAssign 静态数值槽（elem∈{Int,Double}）收 Num 值——tag 运行期定，下沉既有 rt_arr_set_num 按槽 kind 对齐（tag==kind 直存/0→1 提升/1→0 失配落 CG7 陷阱，对齐槽同质表示）；零新增 collie_rt 接口；选型排除记录：位运算/移位/位取反 Num 整数态非差分面（语义层 "Bit operands expected for bitwise operation" 两端一致拦截，预检 7 错误双端同报实证）；无初始化变量绑 none（候选 D）成立但涉变量槽类型流转规模较大后置；新差分用例 s43_numarr（Num 整/小数态与 Int/Double 混合字面量/全 Num 字面量/print/索引读含负索引/length/len/Num 值写 int-double 槽/深比较（同异内容）/函数内局部 Num 数组循环遍历两态，16 行输出）+ 陷阱实证（小数态 Num 写 int 槽——解释器 [1.5, 2] vs 产物 CG7 陷阱不错值），ctest -C Release 差分 42/42 逐字节一致，Debug 门禁 6/6（M6 t90）
