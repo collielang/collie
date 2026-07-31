@@ -476,7 +476,9 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a.speak()`（a 静态类 Animal） | visitMethodCall Obj 分支：收集静态 cls 全部后代类（按 id 排序保 IR 确定性）——无后代直调既有单态化实例（零开销，行为不变）；有后代先防御校验各后代覆写签名一致（ret/param 的 type+cls 全等，否则拒编 "overriding method with a different signature"），再 `load i64` 读头部 id 后 `switch`（default=静态类 arm，case=各后代 arm），每 arm `call collie.<分派类>.<定义类>.<方法名>` 后 br 合流块，非 Void 返回值 PHI 合并；单态化副本使模板方法体内 this.m() 经分派后天然按动态类解析，base.m() 静态绑定不受影响 |
 | 调用点返回值 | visitCall/visitMethodCall 结果 cls 记 info.ret_cls（声明类）——返回父类装子类后再调用仍走动态分派，天然正确 |
 | `a == b`（Obj 相等） | S35 恒 false 常量折叠不动——解释器 values_equal 无 Instance 分支恒 false（含 a==a），upcast 不改变该语义 |
-| 范围外 | downcast（父类实例赋子类变量，拒编 "initializing 'B' variable with incompatible value"）；无关类互赋（同消息）；父类静态类型调子类特有方法（解释器按动态类可成功，codegen 静态分派表未命中拒编 "undefined method 'X' on class 'Y'"——拒编不错编陷阱面）；覆写变签名（防御拒编）；零新增 collie_rt 接口 |
+| `a.fetch()`（静态类无此方法但后代类有） | 未命中路径（t102，S39 残余面解锁）：收集 dispatch 含该方法的后代定义者（沿链继承含更深后代，按 id 排序），空维持拒编；非空先防御各定义者副本签名一致（同 t86 "overriding method with a different signature" 模式），arity 检查 + 实参 coerce 同命中路径，读头部 id switch（case 各定义者调单态化实例、**default=运行期陷阱** `collie_rt_trap_undefined_method(name)` + unreachable，动态类即静态类实例无此方法时 exit(1)，消息核心对齐解释器 "Undefined method 'X' on object"），非 Void 返回值 PHI 合流 |
+| `a.breed` 读 / `a.breed = v` 写（静态类无此字段但后代类有） | 未命中路径（t102，S39 残余面解锁）：收集 field_index 含该字段的后代定义者（base-first 前缀布局下各定义者 GEP 下标一致），空维持拒编；非空先防御各定义者字段类型一致（type/cls/bit_max 全等，否则拒编 "inherited field with a different type"），读路径 switch 各定义者字段槽 + default 陷阱 `collie_rt_trap_undefined_property(name)`，PHI 合流；写路径值在 switch 前求值/coerce/bit 陷阱（求值顺序 object→value 不变），各 arm store，default 陷阱 |
+| 范围外 | downcast（父类实例赋子类变量，拒编 "initializing 'B' variable with incompatible value"）；无关类互赋（同消息）；~~父类静态类型调子类特有方法（拒编不错编陷阱面）~~（t102 解锁：方法+字段读/写动态分派，动态类无该成员落运行期陷阱，见上两行）；覆写变签名（防御拒编）；collie_rt 新增 2 个陷阱接口 `collie_rt_trap_undefined_method` / `collie_rt_trap_undefined_property` |
 
 **S40 降级补充（t87 实现）：byte/word 类字段**：
 

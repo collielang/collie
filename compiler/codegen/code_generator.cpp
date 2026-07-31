@@ -117,6 +117,15 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_arr_kind_ = module_->getOrInsertFunction(
         "collie_rt_trap_arr_kind",
         llvm::FunctionType::get(builder_.getVoidTy(), {builder_.getInt64Ty()}, false));
+    // collie_rt 未定义方法/属性陷阱声明（t102，S39 残余面）：静态类无此成员
+    // 但后代类有，upcast 分派 default 臂（动态类即静态类本身）报错退出，
+    // 消息对齐解释器 "Undefined method/property 'X' on object"
+    rt_trap_undefined_method_ = module_->getOrInsertFunction(
+        "collie_rt_trap_undefined_method",
+        llvm::FunctionType::get(builder_.getVoidTy(), {ptr_ty}, false));
+    rt_trap_undefined_property_ = module_->getOrInsertFunction(
+        "collie_rt_trap_undefined_property",
+        llvm::FunctionType::get(builder_.getVoidTy(), {ptr_ty}, false));
 
     // collie_rt 数组运行时声明（t59）：不透明 ptr 数组对象，8 字节槽存位模式；
     // 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）
@@ -1445,8 +1454,93 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             last_value_ = {to_str(object, expr.name()), CGType::Str};
             return;
         }
-        unsupported("undefined method '" + name + "' on class '" + object.cls + "'",
-                    line, column);
+        // 静态类未命中但后代类定义了该方法（t102，S39 残余面解锁）：upcast
+        // 放行后动态类可能为任一定义者（沿链继承，dispatch 表拷贝保证更深
+        // 后代也有）；读对象头类 id switch 到定义者的单态化实例，default
+        // （动态类即静态类，实例无此方法）走运行期陷阱不错值——消息对齐
+        // 解释器 "Undefined method 'X' on object"
+        std::vector<const CGClass*> defs;
+        for (const auto& entry : classes_) {
+            if (is_subclass_of(entry.first, object.cls) &&
+                entry.second.dispatch.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
+        }
+        if (defs.empty()) {
+            unsupported("undefined method '" + name + "' on class '" + object.cls +
+                            "'",
+                        line, column);
+        }
+        const CGMethod& dm = defs[0]->instances.at(defs[0]->dispatch.at(name));
+        const auto& arguments = expr.arguments();
+        if (arguments.size() != dm.param_types.size()) {
+            // 解释器运行期报错；codegen 静态可判，拒编不错编（同命中路径）
+            unsupported("method arity mismatch for '" + name + "'", line, column);
+        }
+        std::vector<llvm::Value*> args{object.value};
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            CGValue a = emit(arguments[i].get());
+            args.push_back(coerce_call_arg(a, dm.param_types[i], dm.param_cls[i],
+                                           line, column));
+        }
+        std::sort(defs.begin(), defs.end(),
+                  [](const CGClass* a, const CGClass* b) {
+                      return a->id < b->id;
+                  });
+        // 各定义者副本签名须与首个一致（同 t86 防御：语义层校验的兜底，
+        // 不一致则统一 PHI 不可行，拒编不错编）
+        for (const CGClass* sub : defs) {
+            const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+            if (m.ret_type != dm.ret_type || m.ret_cls != dm.ret_cls ||
+                m.param_types != dm.param_types || m.param_cls != dm.param_cls) {
+                unsupported("inherited method '" + name +
+                                "' with a different signature",
+                            line, column);
+            }
+        }
+        // switch：case 各定义者（按 id 排序，同 t86），default = 陷阱
+        llvm::Value* clsid = builder_.CreateLoad(
+            builder_.getInt64Ty(), object.value, "clsid");
+        llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+        auto* trap_bb = llvm::BasicBlock::Create(context_, "dispatch.trap", fn);
+        auto* merge_bb = llvm::BasicBlock::Create(context_, "dispatch.end", fn);
+        llvm::SwitchInst* sw = builder_.CreateSwitch(
+            clsid, trap_bb, static_cast<unsigned>(defs.size()));
+        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+        for (const CGClass* sub : defs) {
+            auto* bb = llvm::BasicBlock::Create(
+                context_,
+                "dispatch." + std::string(sub->stmt->name().lexeme()), fn);
+            sw->addCase(builder_.getInt64(sub->id), bb);
+            builder_.SetInsertPoint(bb);
+            const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+            llvm::Value* call = builder_.CreateCall(m.fn, args);
+            incoming.emplace_back(builder_.GetInsertBlock(), call);
+            builder_.CreateBr(merge_bb);
+        }
+        builder_.SetInsertPoint(trap_bb);
+        builder_.CreateCall(rt_trap_undefined_method_,
+                            {builder_.CreateGlobalString(name)});
+        builder_.CreateUnreachable();
+        builder_.SetInsertPoint(merge_bb);
+        llvm::Value* result = nullptr;
+        if (dm.ret_type != CGType::Void) {
+            llvm::PHINode* phi = builder_.CreatePHI(
+                llvm_type_of(dm.ret_type),
+                static_cast<unsigned>(incoming.size()), "dispatchtmp");
+            for (const auto& in : incoming) {
+                phi->addIncoming(in.second, in.first);
+            }
+            result = phi;
+        }
+        // Arr 返回值 elem 记 Num 哨兵（t70，同 visitCall/命中路径）
+        last_value_ = (dm.ret_type == CGType::Void)
+                          ? CGValue{nullptr, CGType::Void}
+                          : CGValue{result, dm.ret_type,
+                                    dm.ret_type == CGType::Arr ? CGType::Num
+                                                               : CGType::Int,
+                                    dm.ret_cls};
+        return;
     }
 
     if (name == "toString" && expr.arguments().empty()) {
@@ -1628,19 +1722,86 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         const CGClass& cls = classes_.at(object.cls);
         const std::string name(expr.name().lexeme());
         auto it = cls.field_index.find(name);
-        if (it == cls.field_index.end()) {
-            unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
+        if (it != cls.field_index.end()) {
+            const CGField& field = cls.fields[it->second];
+            llvm::Value* slot =
+                builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name);
+            // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
+            // 即动态域，同 t70 形参机制）；Obj 字段带类名（t72）
+            last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
+                           field.type,
+                           field.type == CGType::Arr ? CGType::Num : CGType::Int,
+                           field.cls};
+            return;
+        }
+        // 静态类未命中但后代类定义了该字段（t102，S39 残余面解锁）：upcast
+        // 放行后动态类可能为任一定义者（沿链继承，field_index 拷贝保证更深
+        // 后代也有，base-first 前缀布局下各定义者 GEP 下标一致）；读对象头
+        // 类 id switch 到定义者字段槽，default（动态类即静态类，实例无此
+        // 字段）走运行期陷阱不错值——消息对齐解释器 "Undefined property 'X' on object"
+        std::vector<const CGClass*> defs;
+        for (const auto& entry : classes_) {
+            if (is_subclass_of(entry.first, object.cls) &&
+                entry.second.field_index.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
+        }
+        if (defs.empty()) {
+            unsupported("undefined property '" + name + "' on class '" + object.cls +
+                            "'",
                         expr.name().line(), expr.name().column());
         }
-        const CGField& field = cls.fields[it->second];
-        llvm::Value* slot =
-            builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name);
-        // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
-        // 即动态域，同 t70 形参机制）；Obj 字段带类名（t72）
-        last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
-                       field.type,
-                       field.type == CGType::Arr ? CGType::Num : CGType::Int,
-                       field.cls};
+        const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
+        std::sort(defs.begin(), defs.end(),
+                  [](const CGClass* a, const CGClass* b) {
+                      return a->id < b->id;
+                  });
+        // 各定义者字段类型须与首个一致（同 t86 防御：不一致则统一 PHI
+        // 与后续使用类型不可定，拒编不错编）
+        for (const CGClass* sub : defs) {
+            const CGField& f = sub->fields.at(sub->field_index.at(name));
+            if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
+                unsupported("inherited field '" + name + "' with a different type",
+                            expr.name().line(), expr.name().column());
+            }
+        }
+        // switch：case 各定义者（按 id 排序），default = 陷阱
+        llvm::Value* clsid = builder_.CreateLoad(
+            builder_.getInt64Ty(), object.value, "clsid");
+        llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+        auto* trap_bb = llvm::BasicBlock::Create(context_, "prop.trap", fn);
+        auto* merge_bb = llvm::BasicBlock::Create(context_, "prop.end", fn);
+        llvm::SwitchInst* sw = builder_.CreateSwitch(
+            clsid, trap_bb, static_cast<unsigned>(defs.size()));
+        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+        for (const CGClass* sub : defs) {
+            auto* bb = llvm::BasicBlock::Create(
+                context_,
+                "prop." + std::string(sub->stmt->name().lexeme()), fn);
+            sw->addCase(builder_.getInt64(sub->id), bb);
+            builder_.SetInsertPoint(bb);
+            const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
+            llvm::Value* slot =
+                builder_.CreateStructGEP(sub->type, object.value, idx, name);
+            llvm::Value* loaded =
+                builder_.CreateLoad(llvm_type_of(ref.type), slot, name);
+            incoming.emplace_back(builder_.GetInsertBlock(), loaded);
+            builder_.CreateBr(merge_bb);
+        }
+        builder_.SetInsertPoint(trap_bb);
+        builder_.CreateCall(rt_trap_undefined_property_,
+                            {builder_.CreateGlobalString(name)});
+        builder_.CreateUnreachable();
+        builder_.SetInsertPoint(merge_bb);
+        llvm::PHINode* phi = builder_.CreatePHI(
+            llvm_type_of(ref.type), static_cast<unsigned>(incoming.size()), "proptmp");
+        for (const auto& in : incoming) {
+            phi->addIncoming(in.second, in.first);
+        }
+        // Arr 字段 elem 记 Num 哨兵（t71）；Obj 字段带类名（t72）
+        last_value_ = {phi, ref.type,
+                       ref.type == CGType::Arr ? CGType::Num : CGType::Int,
+                       ref.cls};
         return;
     }
     if (object.type == CGType::Tup) {
@@ -1675,25 +1836,93 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     const CGClass& cls = classes_.at(object.cls);
     const std::string name(expr.name().lexeme());
     auto it = cls.field_index.find(name);
-    if (it == cls.field_index.end()) {
+    if (it != cls.field_index.end()) {
+        CGValue v = emit(expr.value());
+        const CGField& field = cls.fields[it->second];
+        llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
+        if (field.bit_max > 0) {
+            // byte/word 字段赋值点范围陷阱（t87，对齐解释器 coerce_to_declared）
+            stored = check_bit_range(stored, field.bit_max,
+                                     field.bit_max == 255 ? "byte" : "word");
+        }
+        builder_.CreateStore(
+            stored, builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name));
+        // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
+        // Obj 字段带类名（t72）
+        last_value_ = {stored, field.type,
+                       field.type == CGType::Arr ? CGType::Num : CGType::Int,
+                       field.cls};
+        return;
+    }
+    // 静态类未命中但后代类定义了该字段（t102，S39 残余面解锁）：同读路径
+    // 收集定义者 + 字段类型一致防御；值在 switch 前求值/coerce（求值顺序
+    // object → value 不变，bit 陷阱仍在赋值点前），各 arm 按定义者布局
+    // 存储（base-first 前缀布局下 GEP 下标一致），default（动态类即静态
+    // 类，实例无此字段）走运行期陷阱不错值——消息对齐解释器
+    std::vector<const CGClass*> defs;
+    for (const auto& entry : classes_) {
+        if (is_subclass_of(entry.first, object.cls) &&
+            entry.second.field_index.count(name) != 0) {
+            defs.push_back(&entry.second);
+        }
+    }
+    if (defs.empty()) {
         unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
                     expr.name().line(), expr.name().column());
     }
-    CGValue v = emit(expr.value());
-    const CGField& field = cls.fields[it->second];
-    llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
-    if (field.bit_max > 0) {
-        // byte/word 字段赋值点范围陷阱（t87，对齐解释器 coerce_to_declared）
-        stored = check_bit_range(stored, field.bit_max,
-                                 field.bit_max == 255 ? "byte" : "word");
+    const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
+    std::sort(defs.begin(), defs.end(),
+              [](const CGClass* a, const CGClass* b) {
+                  return a->id < b->id;
+              });
+    for (const CGClass* sub : defs) {
+        const CGField& f = sub->fields.at(sub->field_index.at(name));
+        if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
+            unsupported("inherited field '" + name + "' with a different type",
+                        expr.name().line(), expr.name().column());
+        }
     }
-    builder_.CreateStore(
-        stored, builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name));
+    CGValue v = emit(expr.value());
+    llvm::Value* stored = coerce_for_slot(v, ref.type, expr.name(), ref.cls);
+    if (ref.bit_max > 0) {
+        stored = check_bit_range(stored, ref.bit_max,
+                                 ref.bit_max == 255 ? "byte" : "word");
+    }
+    llvm::Value* clsid = builder_.CreateLoad(
+        builder_.getInt64Ty(), object.value, "clsid");
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "propasg.trap", fn);
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "propasg.end", fn);
+    llvm::SwitchInst* sw = builder_.CreateSwitch(
+        clsid, trap_bb, static_cast<unsigned>(defs.size()));
+    std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+    for (const CGClass* sub : defs) {
+        auto* bb = llvm::BasicBlock::Create(
+            context_,
+            "propasg." + std::string(sub->stmt->name().lexeme()), fn);
+        sw->addCase(builder_.getInt64(sub->id), bb);
+        builder_.SetInsertPoint(bb);
+        const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
+        builder_.CreateStore(
+            stored, builder_.CreateStructGEP(sub->type, object.value, idx, name));
+        incoming.emplace_back(builder_.GetInsertBlock(), stored);
+        builder_.CreateBr(merge_bb);
+    }
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_undefined_property_,
+                        {builder_.CreateGlobalString(name)});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(merge_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(
+        llvm_type_of(ref.type), static_cast<unsigned>(incoming.size()), "proptmp");
+    for (const auto& in : incoming) {
+        phi->addIncoming(in.second, in.first);
+    }
     // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
     // Obj 字段带类名（t72）
-    last_value_ = {stored, field.type,
-                   field.type == CGType::Arr ? CGType::Num : CGType::Int,
-                   field.cls};
+    last_value_ = {phi, ref.type,
+                   ref.type == CGType::Arr ? CGType::Num : CGType::Int,
+                   ref.cls};
 }
 void CodeGenerator::visitNew(const NewExpr& expr) {
     // 类实例化（t60）：collie_rt_obj_new 分配字段块（按字段类型累计上界：

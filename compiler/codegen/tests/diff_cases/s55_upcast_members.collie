@@ -1,0 +1,136 @@
+// t102 S55 差分用例：父类静态类型调子类特有方法/字段——静态类无此成员、
+// 后代类定义（S39 残余面解锁）；upcast 后按对象头类 id 分派到定义该成员的
+// 后代（沿链继承含更深后代副本），动态类即静态类本身（实例无此成员）时
+// 运行期陷阱退出（消息对齐解释器，本用例不含触发路径）
+
+// 三级继承链：Animal <- Dog <- Puppy
+// Dog 特有：方法 fetch()/fetch_times()、字段 breed（Animal 无）
+// Puppy 特有：方法 rollover()、字段 age（Animal/Dog 均无）
+
+class Animal {
+    public string name = "?";
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function sound() string {
+        return "...";
+    }
+}
+
+class Dog extends Animal {
+    public string breed = "collie";
+
+    public Dog(n string, b string) : base(n) {
+        this.breed = b;
+    }
+
+    @override
+    public function sound() string {
+        return "woof";
+    }
+
+    // Dog 特有方法（Animal 未定义）
+    public function fetch() string {
+        return this.name + " fetches";
+    }
+
+    // Dog 特有带参方法：覆盖 t102 方法路径的 arity/coerce 分支
+    public function fetch_times(n integer) string {
+        if (n <= 0) {
+            return this.name + " refuses";
+        }
+        return this.name + " fetches " + toString(n);
+    }
+}
+
+class Puppy extends Dog {
+    public integer age = 0;
+
+    public Puppy(n string, a integer) : base(n, "collie") {
+        this.age = a;
+    }
+
+    // Puppy 特有方法（Animal/Dog 均未定义）
+    public function rollover() string {
+        return this.name + " rolls";
+    }
+}
+
+// 1) 父类静态类型调子类特有方法：Dog 实例与 Puppy 实例分别分派到 Dog.fetch
+//    的对应分派类副本（Puppy 沿链继承，case 含两个定义者）
+function intro(a Animal) string {
+    return a.fetch();
+}
+Dog d = new Dog("rex", "husky");
+Puppy p = new Puppy("mini", 1);
+print(intro(d));              // rex fetches
+print(intro(p));              // mini fetches
+
+// 2) 父类静态类型调子类特有带参方法（实参 coerce + 方法体内 this 分派）
+function multi(a Animal, n integer) string {
+    return a.fetch_times(n);
+}
+print(multi(d, 3));           // rex fetches 3
+print(multi(p, 0));           // mini refuses
+
+// 3) 父类静态类型调子类特有字段（读）
+function breed_of(a Animal) string {
+    return a.breed;
+}
+print(breed_of(d));           // husky
+print(breed_of(p));           // collie
+
+// 4) 父类静态类型写子类特有字段（赋值表达式值 + 经自身静态类型回读）
+function rename(a Animal, b string) string {
+    a.breed = b;
+    return a.breed;
+}
+print(rename(d, "lab"));      // lab
+print(d.breed);               // lab
+print(rename(p, "pom"));      // pom
+print(p.breed);               // pom
+
+// 5) 深链特有成员：Puppy 独有的 rollover/age 经 Animal 槽调用/读写
+function play(a Animal) string {
+    return a.rollover();
+}
+print(play(p));               // mini rolls
+function set_age(a Animal, v integer) integer {
+    a.age = v;
+    return a.age;
+}
+print(set_age(p, 7));         // 7
+print(p.age);                 // 7
+
+// 6) 返回值 upcast 后调子类特有成员
+function make(kind integer) Animal {
+    if (kind == 1) {
+        return new Dog("bolt", "border");
+    }
+    return new Puppy("dot", 2);
+}
+Animal m1 = make(1);
+Animal m2 = make(2);
+print(m1.fetch());            // bolt fetches
+print(m2.rollover());         // dot rolls
+print(m2.age);                // 2
+
+// 7) 混调：特有成员 + 覆写方法 + 父类字段同一对象（t86 与新路径共存）
+Animal slot = m1;
+print(slot.sound(), slot.breed, slot.name);   // woof border bolt
+slot = m2;
+print(slot.sound(), slot.age, slot.name);     // yip 2 dot
+
+// 8) 变量槽 upcast 后写特有字段，再经子类自身读（互不影响）
+Animal slot2 = m1;
+slot2.breed = "shep";
+print(slot2.breed);           // shep
+print(d.breed);               // lab（与 4) 的写入互不影响）
+
+// 9) 静态类实例调特有成员编译通过（switch default 陷阱臂存在），但运行必
+//    触发陷阱——差分门禁两端 rc==0，本用例不执行该路径；此处回归静态类
+//    自身方法不受影响
+Animal a0 = new Animal("plain");
+print(a0.sound());            // ...

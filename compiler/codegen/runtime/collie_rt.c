@@ -73,6 +73,14 @@
  *     // strcmp 查找，命中返对应槽 i64 位模式、未命中打 "Undefined tuple field '<key>'"
  *     // + exit(1)（核心消息对齐解释器，位置前缀缺失同越界陷阱）
  *
+ * 未定义方法/属性陷阱（t102，S39 残余面）：静态类无此成员但后代类有，
+ * upcast 后按对象头类 id 分派到定义该成员的后代；动态类即静态类本身
+ * （实例无此成员）时解释器运行期报错，编译产物同消息报错退出不错值：
+ *   void collie_rt_trap_undefined_method(const char* name);
+ *     // 消息核心对齐解释器 "Undefined method 'X' on object"（stderr + exit(1)）
+ *   void collie_rt_trap_undefined_property(const char* name);
+ *     // 消息核心对齐解释器 "Undefined property 'X' on object"（同上）
+ *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
  *     size 由 codegen 按字段类型累计上界给定（Num 16、其余 8，t74），
@@ -414,6 +422,23 @@ void collie_rt_trap_arr_kind(long long kind) {
                      : kind == 5 ? "object" : "nested";
     fprintf(stderr, "runtime error: reading %s array element in dynamic "
                     "context (element type not statically known, gap CG9)\n", what);
+    exit(1);
+}
+
+/* ---- 未定义方法/属性陷阱（t102，S39 残余面）---- */
+
+/* 父类静态类型调子类特有成员：静态类无此方法但后代类有，codegen 按对象头
+ * 类 id switch 到定义该方法的后代单态化实例；动态类即静态类本身（实例无
+ * 此方法）时解释器运行期报 RuntimeError，编译产物同消息报错退出不错值 */
+void collie_rt_trap_undefined_method(const char* name) {
+    fprintf(stderr, "runtime error: Undefined method '%s' on object\n", name);
+    exit(1);
+}
+
+/* 同上：静态类无此字段但后代类有，switch 到后代字段槽；动态类即静态类
+ * 本身（实例无此字段）时解释器报 RuntimeError，编译产物同消息报错退出 */
+void collie_rt_trap_undefined_property(const char* name) {
+    fprintf(stderr, "runtime error: Undefined property '%s' on object\n", name);
     exit(1);
 }
 

@@ -429,6 +429,11 @@ private:
     /// collie_rt 动态域元素 kind 陷阱（t88，缺口 CG9）：bool/str/嵌套数组经
     /// 透传后索引读出元素静态类型不可定，陷阱退出不错值
     llvm::FunctionCallee rt_trap_arr_kind_;     // void(i64 kind)
+    /// collie_rt 未定义方法/属性陷阱（t102，S39 残余面）：静态类无此成员但
+    /// 后代类有，upcast 分派 default 臂（动态类即静态类本身）报错退出，
+    /// 消息对齐解释器 "Undefined method/property 'X' on object"
+    llvm::FunctionCallee rt_trap_undefined_method_;    // void(ptr name)
+    llvm::FunctionCallee rt_trap_undefined_property_;  // void(ptr name)
     /// collie_rt 数组运行时（t59）：不透明 ptr 数组对象，8 字节槽存位模式（引用语义）
     llvm::FunctionCallee rt_arr_new_;    // ptr(i64 len, i64 kind)
     llvm::FunctionCallee rt_arr_get_;    // i64(ptr, i64)，负索引/越界处理在运行期
