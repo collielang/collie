@@ -184,7 +184,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | Collie 构造 | LLVM IR 降级 |
 |------------|--------------|
 | `s.trim()` / `trimLeft()` / `trimRight()` | `call ptr @collie_rt_str_trim(ptr, i32 mode)`（mode 0=两端/1=左/2=右）：只剥空格与 Tab（对齐解释器 is_blank），返 malloc 新串（CG6 不 free） |
-| `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数限 Int（Double/NaN 特例拒编，解释器 NaN 特判属 Double 域） |
+| `s.subString(start[, end])` | `call ptr @collie_rt_str_substring(ptr, i64, i64)`：UTF-8 码点区间 [start,end)，缺省 end 传 -1 运行时取 length，越界 clamp、start>=end 得空串；参数收 Int/Double/Num（~~限 Int，Double/NaN 特例拒编~~ t105 解锁）——Double/Num 对齐解释器：end 在 floor 前判 NaN/精确 -1.0 取 length（floor(-0.9) 为 -1 不特判、clamp 到 0 得空串，顺序敏感），NaN start 归 0，其余 llvm.floor 后 double 域 clamp [0,4e18]（防 fptosi poison，±Infinity/超大值由 rt 垫片按 length 收口）转 i64；零新增 rt 接口 |
 | `x.toString()`（任意标量接收者） | 复用 `to_str` 降级（与内建 `toString(x)` 同一路径），结果为 Str |
 | `toNumber()` / number/tuple 方法 | toNumber() 已于 S16（t63）解锁；tribool 方法（isTrue/isFalse/isUnset）已于 S18（t65）解锁；number 专属方法（abs/integerPart 等）已于 S20（t67）解锁；tuple.get("字面量键")已于 S21（t68）静态解析 |
 

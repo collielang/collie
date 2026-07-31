@@ -1692,26 +1692,64 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             return;
         }
         if (name == "subString") {
-            // subString(start[, end])：参数限 Int（Double/NaN 特例拒编）；
-            // 缺省 end 传 -1，运行时取 length（对齐解释器 end 缺省/-1 语义）
+            // subString(start[, end])：参数收 Int/Double/Num（t105 解锁非整数，
+            // 对齐解释器：end 在 floor 前判 NaN/精确 -1.0 取 length——floor(-0.9)
+            // 为 -1 不特判、clamp 到 0 得空串，顺序敏感；NaN start 归 0；其余
+            // floor 后 clamp 转 i64 交 rt 垫片按 length 收口）；缺省 end 传 -1，
+            // 运行时取 length（对齐解释器 end 缺省/-1 语义）
             const auto& arguments = expr.arguments();
             if (arguments.empty() || arguments.size() > 2) {
                 unsupported("subString() with this arity", line, column);
             }
+            auto coerce_index = [&](const CGValue& v, bool is_end) -> llvm::Value* {
+                if (v.type == CGType::Int) {
+                    return v.value;  // rt 侧 clamp；end==-1 取 length（既有语义）
+                }
+                if (v.type != CGType::Double && v.type != CGType::Num) {
+                    unsupported(std::string("non-numeric subString() ") +
+                                    (is_end ? "end" : "start"),
+                                line, column);
+                }
+                llvm::Value* d = to_double(v);
+                llvm::Value* special = builder_.CreateFCmpUNO(d, d, "ssnan");
+                if (is_end) {
+                    // 精确 -1.0 特判在 floor 之前（解释器 end_raw == -1.0 判定）
+                    llvm::Value* is_neg1 = builder_.CreateFCmpOEQ(
+                        d, llvm::ConstantFP::get(builder_.getDoubleTy(), -1.0),
+                        "ssneg1");
+                    special = builder_.CreateOr(special, is_neg1, "ssspec");
+                }
+                // 特例值先中和为 0 再 floor/clamp/转换（NaN 过 fptosi 是 poison）；
+                // 上界 clamp 4e18 防超范围 fptosi poison（±Infinity/超大值随后
+                // 由 rt 垫片按 length 收口，与解释器 double 域 clamp 殊途同归）
+                llvm::Value* zero =
+                    llvm::ConstantFP::get(builder_.getDoubleTy(), 0.0);
+                llvm::Value* safe = builder_.CreateSelect(special, zero, d, "sssafe");
+                llvm::Value* fl =
+                    builder_.CreateUnaryIntrinsic(llvm::Intrinsic::floor, safe);
+                fl = builder_.CreateBinaryIntrinsic(llvm::Intrinsic::maxnum, fl, zero);
+                fl = builder_.CreateBinaryIntrinsic(
+                    llvm::Intrinsic::minnum, fl,
+                    llvm::ConstantFP::get(builder_.getDoubleTy(), 4.0e18));
+                llvm::Value* idx =
+                    builder_.CreateFPToSI(fl, builder_.getInt64Ty(), "ssidx");
+                if (!is_end) {
+                    return idx;  // NaN start 中和为 0 即解释器语义
+                }
+                // NaN/精确 -1.0 end → 哨兵 -1（rt 取 length）
+                return builder_.CreateSelect(
+                    special, llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1),
+                    idx, "ssend");
+            };
             CGValue start = emit(arguments[0].get());
-            if (start.type != CGType::Int) {
-                unsupported("non-integer subString() start", line, column);
-            }
+            llvm::Value* start_v = coerce_index(start, false);
             llvm::Value* end = llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1);
             if (arguments.size() == 2) {
                 CGValue end_value = emit(arguments[1].get());
-                if (end_value.type != CGType::Int) {
-                    unsupported("non-integer subString() end", line, column);
-                }
-                end = end_value.value;
+                end = coerce_index(end_value, true);
             }
             last_value_ = {builder_.CreateCall(
-                               rt_str_substring_, {object.value, start.value, end}, "substrtmp"),
+                               rt_str_substring_, {object.value, start_v, end}, "substrtmp"),
                            CGType::Str};
             return;
         }

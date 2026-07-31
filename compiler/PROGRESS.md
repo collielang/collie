@@ -618,6 +618,10 @@
     - 方案：register_class_methods 自身方法循环（含构造器）尾部对方法体逐语句 declare_nested_in，改编键前缀 <定义类>.<方法名>（同 t91 顶层嵌套规则，与顶层同名在语义层即拒绝——p3 预检实证遮蔽场景不存在），继承副本共享同一 FunctionStmt 仅定义类注册一次；visitFunction 嵌套路径加单态化副本重访守卫（info.fn 非空时仅登记可见性绑定即返——嵌套体是独立函数，体内 this/字段/外层局部不可见，行为与分派类无关）；生成现场保存/清空/恢复 current_this_/current_class_name_/current_defining_class_（嵌套体内 this/base 落 "'this' outside class method" 拒编不错编，不清空会跨函数引用方法 this 实参生成非法 IR）
     - 验证：p1-p3 探针（基础嵌套/继承单态化副本三分派路径/嵌套递归+兄弟互调+调顶层）编译产物输出与解释器逐字节一致；p4 实证嵌套体内 this 维持拒编（解释器动态作用域可运行，捕获面既定差分）；新差分用例 s57_method_nested_fn（构造器内嵌套/方法内嵌套读 this.seed/嵌套递归 fact/两方法同名嵌套 f 键区分/兄弟互调+调顶层/分支块内声明/覆写方法自带嵌套/继承副本重访/upcast 后分派随覆写，10 行输出双端逐字节一致）；ctest -C Release 差分 56/56（含 s57 新增），单元 4/4，CLI 2/2
     - 范围外：嵌套体引用 this/字段/方法形参/方法局部维持拒编（捕获面，同 t91）；subString 非整数参数活跃差分面已预检实证（p5）留待后续任务；零新增 collie_rt 接口
+- [x] subString 非整数参数解锁（t105，S10 残余面）
+    - 方案：visitMethodCall subString 分支参数从限 Int 扩为 Int/Double/Num（coerce_index 统一收口，Int 透传既有语义）：对齐解释器顺序敏感语义——end 在 floor 前判 NaN/精确 -1.0 取 length（floor(-0.9) 为 -1 不特判、clamp 到 0 得空串）、NaN start 归 0，特例值先 select 中和为 0 再 llvm.floor + maxnum/minnum clamp [0,4e18]（防 NaN/超范围 fptosi poison）转 i64，end 特例值 select 哨兵 -1 交 rt 垫片取 length（±Infinity/超大值由 rt 按 length 收口，与解释器 double 域 clamp 殊途同归）；Bool 等非数值维持拒编
+    - 验证：p1 探针 13 边界（小数 floor/负小数 clamp/精确 -1.0 vs -0.9 顺序敏感/NaN start・end/±Infinity/Num 变量/Int -1 既有路径）编译产物输出与解释器逐字节一致；新差分用例 s58_substring_frac（Double 字面量/负数/NaN/Infinity/Num 整数・小数双 tag 路径/混合参数/Int 既有路径/UTF-8 码点叠加，18 行输出双端逐字节一致）；ctest -C Release 差分 57/57（含 s58 新增），单元 4/4，CLI 2/2
+    - 范围外：Bool/string 等非数值参数维持拒编（解释器运行期报错，拒编不错编）；零新增 collie_rt 接口（复用 rt_str_substring 既有 i64 域 clamp/-1 语义）
 
 ---
 
