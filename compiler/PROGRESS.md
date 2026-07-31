@@ -682,6 +682,10 @@
     - 方案：visitVarDecl 新增 KW_OBJECT 分支（原落 declared_cgtype default 拒编 "variable type 'object'"）——解释器 coerce_to_declared default 不校验任意值直存；codegen 以"静态初始类名"近似：emit 初始值，非 Obj 拒编 "initializing 'object' variable with non-object value"（string/number/none 等需动态值表示，官方示例 main.collie 用法属此），建 Obj 槽 store、scopes_ 登记 {slot, Obj, Int, init.cls}——字段按该类前缀偏移解码、方法按对象头 id 动态分派、后续同树重赋走 visitAssign Obj 既有守卫 t86/t103，与类名声明同规则；零新增 collie_rt 接口
     - 验证：p1/p2 探针（object 声明 new Dog 后方法动态分派+字段读、Animal→Dog 同树下溯重赋均 IDENTICAL）；p3 兄弟类 Dog→Cat 重赋、p4 非 Obj 初始值 42 保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s73_object_decl（object 声明 new Dog 方法/字段/继承方法、同树下溯重赋、同树链内多轮重赋、object 互初始化与类名变量初始化引用别名+字段写可见、函数内局部+if 分支重赋、循环内多轮重赋，18 行输出双端逐字节一致）；ctest -C Release 差分 72/72（含 s73 新增），单元 4/4，CLI 2/2
     - 范围外：非 Obj 初始值（string/number/none，需动态值表示）与无初始化 `object x;`（可赋任意值语义边界同前）维持拒编不错编；兄弟类/跨树重赋走 visitAssign 既有守卫拒编不错编；object 函数形参/返回值仍拒编（签名类型静态不可定）；零新增 collie_rt 接口
+- [x] 无初始化 object 变量声明（t121，L2557 兜底拒编面，S70）
+    - 方案：visitVarDecl 无初始化分支新增 KW_OBJECT case（原落 unsupported "variable declaration without initializer"）——建 Obj 槽（llvm_type_of(Obj)）+ type=Obj + cls 留空占位 + uninit=true（镜像 t101 无初始化类类型变量分支）；visitAssign Obj 分支守卫前识别首赋 `var->cls.empty() && v.type == Obj` 吸收 RHS 类名（镜像 t112 首赋按 RHS 建槽模式）——吸收后与类名声明同规则：字段按吸收类前缀偏移解码、方法按对象头 id 动态分派、后续同树重赋走既有守卫 t86/t103；非 Obj 值首赋仍拒编 "assigning incompatible value"；吸收持久化（t110 快照只隔离 uninit 标志），条件区内首赋后跨树赋值只可能保守拒编不错编（与 t101 类类型变量分支内赋值行为一致）；零新增 collie_rt 接口
+    - 验证：p1/p2/p3 探针（直线首赋后方法/字段/继承方法、首赋后同树链多轮重赋、if/else 双分支全路径首赋+汇合点读均 IDENTICAL）；p4 非 Obj 首赋 42、p5 if 无 else 分支内首赋后区外读保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s74_uninit_object（直线首赋/同树链多轮重赋/if-else 双分支全路径首赋+汇合读/函数内局部+if-else 全路径首赋后返回/循环体内声明+首赋+读/互初始化引用别名+字段写可见/全局首赋后函数内同树重赋+函数外读/与 t120 带初始化混用，20 行输出双端逐字节一致）；ctest -C Release 差分 73/73（含 s74 新增），单元 4/4，CLI 2/2
+    - 范围外：非 Obj 值首赋（string/number/none 需动态值表示）维持拒编不错编；if 无 else 分支内首赋后区外读维持 uninit 拒编不错编（t110 保守隔离）；条件区内首赋后跨树赋值只可能保守拒编不错编；object 函数形参/返回值仍拒编；零新增 collie_rt 接口
 
 ---
 

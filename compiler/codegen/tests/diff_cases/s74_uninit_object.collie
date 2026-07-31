@@ -1,0 +1,98 @@
+// t121 S70 差分用例：无初始化 object 变量声明解锁（首赋吸收 RHS 类名）
+// ——visitVarDecl 无初始化分支新增 KW_OBJECT（Obj 槽 cls 留空占位、uninit
+// 标记），visitAssign Obj 分支首赋时吸收 RHS 类名（镜像 t112 首赋建槽模式）：
+// 吸收后与类名声明同规则——字段按吸收类前缀偏移解码、方法按对象头 id 动态
+// 分派、后续同树重赋走既有守卫 t86/t103；非 Obj 值首赋与 uninit 期读维持
+// 拒编不错编（本用例不含）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+
+// 1) 无初始化 object 直线首赋（核心：方法动态分派 + 字段读 + 继承方法）
+object x;
+x = new Dog("d0");
+print(x.sound());                   // woof
+print(x.name);                      // d0
+print(x.describe());                // d0 says woof
+
+// 2) 首赋后同树链内多轮重赋（Animal → Puppy 上溯 → Dog 下溯）
+object y;
+y = new Animal("a0");
+print(y.sound());                   // animal
+y = new Puppy("yp");
+print(y.sound());                   // yip
+y = new Dog("yd");
+print(y.describe());                // yd says woof
+
+// 3) if/else 双分支全路径首赋 + 汇合点读（t110 交集清除 + 首赋吸收）
+bool flag = true;
+object z;
+if (flag) {
+    z = new Dog("zd");
+} else {
+    z = new Puppy("zp");
+}
+print(z.sound());                   // woof
+print(z.name);                      // zd
+
+// 4) 函数内局部无初始化 object + if/else 全路径首赋后返回
+function pick(flag bool) string {
+    object t;
+    if (flag) {
+        t = new Dog("hi");
+    } else {
+        t = new Puppy("lo");
+    }
+    return t.sound();
+}
+print(pick(true));                  // woof
+print(pick(false));                 // yip
+
+// 5) 循环体内声明 + 首赋 + 读（每迭代新建，同块直线路径）
+for (integer i = 1; i <= 3; i = i + 1) {
+    object lp;
+    lp = new Puppy("p" + i);
+    print(lp.sound());
+}
+
+// 6) 无初始化 object 互初始化（引用别名，指针拷贝）+ 字段写可见
+object a;
+a = new Dog("ad");
+object b;
+b = a;
+print(b.sound());                   // woof
+b.name = "bb";
+print(a.name);                      // bb（别名同对象）
+
+// 7) 全局无初始化 object：首赋后函数内同树重赋 + 函数外读
+object g;
+g = new Dog("g0");
+function relabel(n string) string {
+    g = new Puppy(n);
+    return g.name;
+}
+print(relabel("gx"));              // gx（函数内重赋后返回值）
+print(g.sound());                   // yip
+print(g.name);                      // gx
+
+// 8) 与 t120 带初始化 object 混用（later 首赋吸收 init 的类名）
+object init = new Animal("in");
+object later;
+later = init;
+print(later.describe());            // in says animal
+
+print("END");

@@ -1157,6 +1157,13 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // 实例赋值即指针拷贝（引用语义对齐解释器 shared_ptr，t60）；
         // 同一继承树内 upcast/downcast 均放行（t86/t103，解释器不校验类，
         // 成员访问按对象头类 id 动态分派/陷阱不错值）；跨树拒编不错编
+        // 无初始化 object 首赋（t121）：cls 空占位吸收 RHS 类名（镜像 t112
+        // 首赋建槽模式）——吸收后按静态类名同树规则判定；吸收持久化（t110
+        // 快照只隔离 uninit 标志），条件区内首赋后跨树赋值只可能保守拒编
+        // 不错编，与 t101 类类型变量分支内赋值行为一致
+        if (var->cls.empty() && v.type == CGType::Obj) {
+            var->cls = v.cls;
+        }
         if (v.type != CGType::Obj ||
             (v.cls != var->cls && !is_subclass_of(v.cls, var->cls) &&
              !is_subclass_of(var->cls, v.cls))) {
@@ -2551,6 +2558,21 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Tup;
             var.uninit = true;
             var.fn_gen_at = fn_gen_count_; // 换形状全局守卫基准（t117）
+            scopes_.back()[name] = var;
+            return;
+        }
+        if (tt == TokenType::KW_OBJECT) {
+            // 无初始化 object 变量（t121）：Obj 槽 cls 留空占位，首赋时吸收
+            // RHS 类名（visitAssign Obj 分支识别 cls 为空，镜像 t112 首赋按
+            // RHS 建槽模式）；吸收后与类名声明同规则——字段按吸收类前缀
+            // 偏移解码、方法按对象头 id 动态分派、后续同树重赋走既有守卫
+            // t86/t103；非 Obj 值首赋维持拒编不错编；uninit 期读拒编
+            // （同块赋值后清，t92/t110 定赋区域跟踪）
+            const std::string name(stmt.name().lexeme());
+            CGVar var;
+            var.slot = create_var_slot(llvm_type_of(CGType::Obj), name);
+            var.type = CGType::Obj;
+            var.uninit = true;
             scopes_.back()[name] = var;
             return;
         }
