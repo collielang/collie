@@ -1,0 +1,55 @@
+// t106 S59 差分用例：数组变量槽异型互赋解锁——互赋时槽 elem 降级 Num
+// 动态域哨兵（t94 先例），kind 随新数组对象自带，print/length/== rt 侧
+// 全 kind 覆盖、数值 kind 索引读写走动态路径；循环回边与全局槽跨函数
+// 快照两面维持拒编不错编
+
+// 顶层：integer 数组槽 <- string 数组
+array a = [1, 2, 3];
+print(a[2]);                 // 3（互赋前静态读）
+array s = ["x", "y"];
+a = s;
+print(a);                    // [x, y]
+print(a.length);             // 2
+print(a == s);               // true（引用等价）
+a = [7, 8];                  // 降级后再赋数值数组：透传
+print(a[1]);                 // 8
+print(a == s);               // false
+
+// bool 槽 <- decimal 数组，降级后动态读数值 kind
+array b = [true, false, true];
+print(b);                    // [true, false, true]
+array c = [1.5, 2.5];
+b = c;
+print(b[0] + b[1]);          // 4
+b[1] = 9.5;                  // 动态域索引写
+print(c[1]);                 // 9.5（引用语义：b、c 同对象）
+
+// 嵌套数组整体赋入标量槽
+array n = [4, 5];
+n = [[1], [2, 3]];
+print(n);                    // [[1], [2, 3]]
+print(n.length);             // 2
+
+// 空数组槽 <- string 数组
+array e = [];
+print(e.length);             // 0
+e = ["only"];
+print(e);                    // [only]（降级槽 string 元素索引读落 CG9 陷阱，整体 print 全 kind 覆盖）
+
+// 函数内局部槽互赋（链底快照守卫不涉局部）
+function pick(flag bool) number {
+    array t = [10, 20];
+    t = [1.25, 2.75];
+    if (flag) {
+        return t[0];
+    }
+    return t[1];
+}
+print(pick(true));           // 1.25
+print(pick(false));          // 2.75
+
+// 声明在全部函数之后的全局槽：互赋不受快照守卫影响
+array late = [1];
+late = ["tail"];
+print(late);                 // [tail]
+print("END");

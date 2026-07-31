@@ -1009,9 +1009,26 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
             // 动态 elem 槽（t70/t88）：任意元素数组透传（kind 随数组对象自带，
             // print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
         } else if (v.elem != var->elem) {
-            // 含 Num 来源写静态槽：元素类型静态不可知，拒编
-            unsupported("assigning array with different element type to '" + name + "'",
-                        expr.name().line(), expr.name().column());
+            // 异型互赋（t106）：槽 elem 降级 Num 动态域哨兵（t94 先例）——
+            // 整数组替换 kind 随新对象自带，后续读写走动态路径；两面拒编
+            // 不错编：循环回边（赋值前已生成的静态读代码第二轮按旧 elem
+            // 解码错值）与全局槽跨函数快照（函数体链底按值拷贝静态 elem，
+            // 降级不回溯/不外传）
+            if (loops_.size() != var->loop_depth) {
+                unsupported("assigning array with different element type to '" +
+                                name + "' inside a loop",
+                            expr.name().line(), expr.name().column());
+            }
+            if (llvm::isa<llvm::GlobalVariable>(var->slot) &&
+                (in_function_ || fn_gen_count_ != var->fn_gen_at)) {
+                // 函数内写全局槽（链底副本降级不外传顶层）或声明后已有
+                // 函数体快照旧 elem：拒编；声明在后的全局槽不受影响
+                unsupported("assigning array with different element type to "
+                            "global '" + name + "' across functions",
+                            expr.name().line(), expr.name().column());
+            }
+            var->elem = CGType::Num;
+            var->cls.clear();
         } else if (var->elem == CGType::Obj && v.cls != var->cls) {
             // 实例数组同类约束（t100）：元素类不同则后续 arr[i].field/method()
             // 按旧类解码会错值，拒编不错编
@@ -2315,7 +2332,10 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     const std::string name(stmt.name().lexeme());
     llvm::Value* slot = create_var_slot(llvm_type_of(type), name);
     builder_.CreateStore(stored, slot);
-    scopes_.back()[name] = {slot, type, elem, elem_cls}; // 同名直接遮蔽（重复声明由语义层拦截）
+    CGVar var{slot, type, elem, elem_cls}; // 同名直接遮蔽（重复声明由语义层拦截）
+    var.loop_depth = loops_.size();        // 异型互赋降级限同层（t106）
+    var.fn_gen_at = fn_gen_count_;         // 全局槽快照守卫基准（t106）
+    scopes_.back()[name] = var;
 }
 
 void CodeGenerator::visitBlock(const BlockStmt& stmt) {
@@ -2547,6 +2567,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
     const bool saved_in_function = in_function_;
+    ++fn_gen_count_; // 全局数组槽 elem 快照守卫（t106）
     const CGType saved_ret_type = current_ret_type_;
     const std::string saved_ret_cls = current_ret_cls_;
     const long long saved_ret_bit_max = current_ret_bit_max_;
@@ -3247,6 +3268,7 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
+    ++fn_gen_count_; // 全局数组槽 elem 快照守卫（t106）
     scopes_.clear();
     scopes_.emplace_back();
     if (!saved_scopes.empty()) {

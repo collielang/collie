@@ -137,6 +137,12 @@ private:
         std::string fn_key;        // 非空即嵌套函数绑定（t91）：functions_ 改编键，slot 恒 nullptr
         bool uninit = false;       // 无初始化声明（t92）：读拒编，同块赋值后清
         size_t decl_depth = 0;     // 仅 uninit 有意义：声明时 scopes_.size()（t92）
+        size_t loop_depth = 0;     // 仅 type == Arr 有意义：声明时 loops_.size()（t106）——
+                                   // 异型互赋降级仅限同层（循环回边下赋值前生成的
+                                   // 静态读代码会按旧 elem 解码错值，跨层拒编不错编）
+        size_t fn_gen_at = 0;      // 仅 type == Arr 有意义：声明时 fn_gen_count_（t106）——
+                                   // 声明后有函数/方法体生成即可能链底快照旧 elem，
+                                   // 全局槽异型互赋降级不回溯，拒编不错编
     };
 
     /// @brief tuple 静态展开值（t68）：元素值 + 平行名字表（无运行时对象，
@@ -476,6 +482,10 @@ private:
     std::string current_defining_class_;
     /// 当前是否在生成函数体（顶层 return / 嵌套函数拒编用）
     bool in_function_ = false;
+    /// 已生成的函数/方法体计数（t106）：函数体链底按值快照声明在先的
+    /// 全局槽静态 elem，全局数组槽异型互赋降级不回溯已生成代码——
+    /// 声明后计数增长即拒编（CGVar.fn_gen_at 对比）
+    size_t fn_gen_count_ = 0;
     /// 当前函数的返回类型（visitReturn 校验/提升用；Void 即 none）
     CGType current_ret_type_ = CGType::Void;
     /// 返回类型为 Obj 时的类名（t61）：visitReturn 严格同类校验用

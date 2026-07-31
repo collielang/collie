@@ -622,6 +622,10 @@
     - 方案：visitMethodCall subString 分支参数从限 Int 扩为 Int/Double/Num（coerce_index 统一收口，Int 透传既有语义）：对齐解释器顺序敏感语义——end 在 floor 前判 NaN/精确 -1.0 取 length（floor(-0.9) 为 -1 不特判、clamp 到 0 得空串）、NaN start 归 0，特例值先 select 中和为 0 再 llvm.floor + maxnum/minnum clamp [0,4e18]（防 NaN/超范围 fptosi poison）转 i64，end 特例值 select 哨兵 -1 交 rt 垫片取 length（±Infinity/超大值由 rt 按 length 收口，与解释器 double 域 clamp 殊途同归）；Bool 等非数值维持拒编
     - 验证：p1 探针 13 边界（小数 floor/负小数 clamp/精确 -1.0 vs -0.9 顺序敏感/NaN start・end/±Infinity/Num 变量/Int -1 既有路径）编译产物输出与解释器逐字节一致；新差分用例 s58_substring_frac（Double 字面量/负数/NaN/Infinity/Num 整数・小数双 tag 路径/混合参数/Int 既有路径/UTF-8 码点叠加，18 行输出双端逐字节一致）；ctest -C Release 差分 57/57（含 s58 新增），单元 4/4，CLI 2/2
     - 范围外：Bool/string 等非数值参数维持拒编（解释器运行期报错，拒编不错编）；零新增 collie_rt 接口（复用 rt_str_substring 既有 i64 域 clamp/-1 语义）
+- [x] 数组变量槽异型互赋解锁（t106，S12 残余面）
+    - 方案：visitAssign Arr 分支 v.elem != var->elem 时槽 elem 降级 Num 动态域哨兵（t94 三元合流先例）——整数组指针替换 kind 随新对象自带，后续读写/print/len/== 走 t70/t88 动态路径；程序序提升 var->elem 的两个错编盲区收口为守卫拒编：①循环回边——CGVar.loop_depth 记声明时 loops_.size()，跨层赋值拒编 "inside a loop"；②全局槽跨函数快照——fn_gen_count_ 计数器 + CGVar.fn_gen_at 声明基准，GlobalVariable 槽且（in_function_ 或计数增长）拒编 "across functions"（函数体链底按值快照静态 elem，降级不回溯；声明在全部函数之后的全局槽不受影响，bool 标志方案会误伤此场景已精化为计数器）
+    - 验证：p1-p4 探针（基础互赋双端一致/循环内拒编/全局跨函数拒编/函数内局部槽与声明在后全局槽放行）；新差分用例 s59_array_retype（int←str、bool←decimal 降级后动态读写与引用语义、嵌套数组赋入标量槽、空数组槽、函数内局部互赋、声明在后全局槽，20 行输出双端逐字节一致）；ctest -C Release 差分 58/58（含 s59 新增），单元 4/4，CLI 2/2
+    - 范围外：循环回边与全局槽跨函数快照两面拒编不错编；Obj 元素类不匹配面维持拒编（t100 同类约束）；tuple 槽维持拒编；降级槽 kind≥2 索引读落既定 CG9 陷阱；零新增 collie_rt 接口
 
 ---
 

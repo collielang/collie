@@ -196,7 +196,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a[i]` 读 / `a[i] = v` 写 | `collie_rt_arr_get/set(ptr, i64[, i64 bits])`：负索引归一化（-1 为最后一个元素），越界 stderr 报错后 exit(1)（消息格式同 str_index）；读结果 `bits_to_elem` 按 elem 还原；写入仅允许 Int→Double 提升否则拒编；求值顺序 object→index→value 对齐解释器 |
 | `a.length` / `len(a)` | `call i64 @collie_rt_arr_len(ptr)`（len 内建同时支持 string 走 str_len） |
 | `print(a)` / `toString(a)` / 拼接 | `call ptr @collie_rt_arr_to_str(ptr)` 整体转 `[1, 2, 3]` 格式串（对齐 Value::to_string：元素递归格式化、字符串不加引号）后走 print_str/Str 路径 |
-| 赋值/三元中的数组 | 指针拷贝即引用语义；~~两侧 elem 不一致拒编~~（三元/==? 合流已于 S47 t94 统一 elem=Num 动态域；数组变量再赋不同 elem 仍拒编——程序序提升 var->elem 在循环回边/函数全局快照下会错编） |
+| 赋值/三元中的数组 | 指针拷贝即引用语义；~~两侧 elem 不一致拒编~~（三元/==? 合流已于 S47 t94 统一 elem=Num 动态域；~~数组变量再赋不同 elem 仍拒编~~ t106 解锁：槽 elem 降级 Num 动态域哨兵，循环回边/全局槽跨函数快照两面守卫拒编不错编，见 S55） |
 | array 函数参数/返回值 | 拒编（`array` 声明无元素类型标注，跨函数签名无法定 elem；待带元素类型的声明语法或动态 kind 方案） |
 
 **S13 降级补充（t60 实现）：class 最小闭环**：
@@ -321,7 +321,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 动态域不变量 | ~~进动态域的数组 elem 限 {Int, Double, Num}：bool/str 数组（kind 2/3 无 number 对应）作实参（coerce_call_arg）/返回值（visitReturn）静态拒编~~（t88 解除：任意 kind 透传进动态域，索引读 kind≥2 运行期 CG9 陷阱，见 S41） |
 | `a[i]` 读（elem==Num） | `rt_arr_get` bits + 新接口 `collie_rt_arr_kind` 直接拼 Num（kind 即 tag，零转换）；后续算术/比较/打印走既有 Num 路径 |
 | `a[i] = v` 写（elem==Num） | v 限数值系转 Num 表示，下沉新接口 `collie_rt_arr_set_num(arr,i,tag,bits)`：tag==kind 直存 / int 写 double 数组提升（对齐静态路径 Int→Double）/ decimal 写 int 数组陷阱退出（解释器动态异质可容、同质表示不可，拒错编从陷阱，新缺口 CG7） |
-| 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；~~三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持~~（三元/==? 合流已于 S47 t94 统一动态域，tuple 槽与变量再赋维持拒编） |
+| 数组赋值规则 | Num 槽 ← Int/Double/Num 来源放行（不变量内）；静态槽 ← Num 来源拒编（元素类型静态不可知）；~~三元/==?/tuple 槽的 elem 不一致既有拒编守卫维持~~（三元/==? 合流已于 S47 t94 统一动态域；变量再赋已于 S55 t106 降级解锁；tuple 槽维持拒编） |
 | length/len/print/toString | 运行时 kind 驱动（rt_arr_len/rt_arr_to_str），零改动天然支持动态域 |
 | 接口面 | collie_rt 新增 2 个：`collie_rt_arr_kind`（读 kind）/ `collie_rt_arr_set_num`（kind 感知写，含 CG7 陷阱）；范围外：嵌套/异质数组（数组类字段已于 t71 解锁，见 S24） |
 
@@ -637,6 +637,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `a = […]` / `c = new Cat(...)` 同块赋值 | visitAssign 的 Arr 分支与 Obj 分支原 CreateStore 后即 `return` 早退，**不经通用路径 t92 的 uninit 清除逻辑**——故两分支各补同块清除 `if (var->uninit && scopes_.size()==var->decl_depth) var->uninit=false`；深层块（分支/循环体）赋值存值不清标记（流不敏感保守，同 t92） |
 | 读 uninit / 深层块赋值后读 | visitIdentifier 读 uninit 拒编 "use of uninitialized variable"（复用 t92）；分支/循环块内赋值后读拒编不错编（实证：无初始化 array 仅 if 块内赋值后读——解释器 `[1,2,3]` vs 拒编 deep-block 保守） |
 | 范围外 | 无初始化 Tuple（形状无从推断——元素数/名字表静态不可知，解构槽组无从建，维持拒编 "variable declaration without initializer"，实证）；array 动态域索引读 kind ≥ 2 落既有 CG9 陷阱（elem=Num 哨兵，同 t70/t88）；零新增 collie_rt 接口 |
+
+**S55 降级补充（t106 实现）：数组变量槽异型互赋**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `array a = [1]; a = ["x"];` 异型互赋 | visitAssign Arr 分支：v.elem != var->elem 时槽 **elem 降级 Num 动态域哨兵**（t94 三元合流先例）——整数组指针替换，kind 随新对象自带，后续读写/print/len/== 走 t70/t88 动态路径；降级同时清 var->cls（Obj 元素类伴随失效） |
+| 循环回边守卫 | CGVar.loop_depth 记录声明时 `loops_.size()`（仅 while/for/do-while 压栈），赋值时层级不等拒编 "inside a loop"——否则赋值点之前已按旧 elem 生成的静态读代码在第二轮迭代解码错值（程序序提升 var->elem 的固有盲区） |
+| 全局槽跨函数快照守卫 | fn_gen_count_ 计数器（visitFunction/gen_method_body 各 ++）+ CGVar.fn_gen_at 声明时基准：GlobalVariable 槽且（in_function_ 或计数增长）拒编 "across functions"——函数体生成时链底按值快照声明在先的全局槽静态 elem，降级不回溯/不外传；声明在全部函数之后的全局槽不受影响 |
+| 降级后索引读 | 数值 kind 走动态路径；kind ≥ 2（bool/str/嵌套/obj）落既有 CG9 陷阱（拒错编从陷阱，整体 print/len/== rt 全 kind 覆盖不受限） |
+| 范围外 | Obj 元素类不匹配面维持拒编（t100 同类约束）；tuple 槽 elem 不一致维持拒编；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 
