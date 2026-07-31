@@ -5,6 +5,6 @@ sidebar_label: Primitive Data Type
 
 # Primitive Data Type
 
-:::danger
-There is no English version of the document, please check the Chinese version
+:::info
+Variables of primitive data types (primitive variables for short) store primitive values.
 :::
