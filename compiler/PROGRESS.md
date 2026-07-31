@@ -629,7 +629,11 @@
 - [x] 数值系异质 tuple 非常量索引解锁（t107，S36 残余面）
     - 方案：visitIndex Tup 非常量路径新增数值系分支——元素全 ∈ {Int/Double/Num}（含全 Num 同质，原 "this element type" 拒编面一并解锁）时逐元素 to_num 物化 tags+bits 双 int 数组，同一动态索引两次 rt_arr_get 取回 make_num 拼 Num 动态值（负索引归一化/越界陷阱在首次 get，消息同 t83 既定分歧）；原三重守卫重构为 homogeneous/all_numeric 双标志一次扫描，两条既有拒编消息分工保留；同质 4 类保持 t83 静态路径不变
     - 验证：p1-p3 探针（int/decimal/Num 混合与全 Num 同质双端一致/越界陷阱核心消息一致/含 Str 异质维持拒编）；新差分用例 s60_tuple_hetnum（正负索引/算术合流/双 tag 路径/循环遍历/比较插值/常量索引回归，15 行输出双端逐字节一致）；ctest -C Release 差分 59/59（含 s60 新增），单元 4/4，CLI 2/2
-    - 范围外：含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编（结果类型静态不可定且无统一表示）；空 tuple 维持拒编；get() 动态键同一面待后续任务（机制同源可复用）；零新增 collie_rt 接口
+    - 范围外：含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编（结果类型静态不可定且无统一表示）；空 tuple 维持拒编；get() 动态键同一面已于 t108 解锁；零新增 collie_rt 接口
+- [x] 数值系异质 tuple 动态键 get() 解锁（t108，S37 残余面）
+    - 方案：visitMethodCall Tup+get 动态键路径新增数值系分支（机制与 t107 同源）——元素全 ∈ {Int/Double/Num}（含全 Num 同质）时逐元素 to_num 物化 tags+bits 双 int 数组，names 数组复用一份、同一键两次 rt_tuple_get 取回 make_num 拼 Num 动态值（未命中陷阱在首次 get，第二次同键必命中同槽位）；守卫重构为 homogeneous/all_numeric 双标志同 t107，无命名字段/非 Str 键守卫不变；同质 4 类保持 t84 静态路径不变
+    - 验证：p1-p3 探针（int/decimal 异质命名与 Num 混入及全 Num 同质双端一致/未命中键陷阱核心消息一致/含 Str 异质维持拒编）；新差分用例 s61_tuple_getnum（变量键与拼接键/算术合流/双 tag 路径/混合命名无名槽跳过/循环动态键遍历/常量键回归，12 行输出双端逐字节一致）；ctest -C Release 差分 60/60（含 s61 新增），单元 4/4，CLI 2/2
+    - 范围外：含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编；空 tuple/无命名字段/非 Str 键维持拒编；零新增 collie_rt 接口（复用 rt_tuple_get 单 i64 返回调两次）
 
 ---
 

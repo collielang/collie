@@ -1659,21 +1659,33 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         // ≥1 非空名，结果类型静态可定）——物化 names(kind 3)+values 数组后
         // rt_tuple_get 按非空名 strcmp 扫描取 i64 bits、bits_to_elem 还原；未命中打
         // "Undefined tuple field '<key>'" + exit(1)（核心消息与解释器 RuntimeError
-        // 一致，位置前缀缺失同 t83 越界陷阱既定分歧）。异质/非 4 类元素/空 tuple/
-        // 无命名字段/非 Str 键保持拒编——结果类型静态不可定或数组槽无法承载
+        // 一致，位置前缀缺失同 t83 越界陷阱既定分歧）。
+        // 数值系异质（t108，同 t107 索引机制）：元素全 ∈ {Int/Double/Num}
+        //（含全 Num 同质）——逐元素 to_num 后物化 tags+bits 双 int 数组，
+        // names 复用一份、同一键两次 rt_tuple_get 拼 Num 动态值（未命中陷阱
+        // 在首次，零新增 rt 接口）。含 Bool/Str/嵌套的异质/非 4 类元素/
+        // 空 tuple/无命名字段/非 Str 键保持拒编——结果类型静态不可定或
+        // 无统一表示，拒编不错编
         const long long n = static_cast<long long>(t.elems.size());
         if (n == 0) {
             unsupported("non-constant get() on empty tuple", line, column);
         }
+        const auto is_numeric = [](CGType ty) {
+            return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
+        };
+        bool homogeneous = true;
+        bool all_numeric = true;
         const CGType elem = t.elems.front().type;
-        if (elem != CGType::Int && elem != CGType::Double &&
-            elem != CGType::Bool && elem != CGType::Str) {
+        for (const auto& e : t.elems) {
+            if (e.type != elem) homogeneous = false;
+            if (!is_numeric(e.type)) all_numeric = false;
+        }
+        if (homogeneous && elem != CGType::Int && elem != CGType::Double &&
+            elem != CGType::Bool && elem != CGType::Str && !all_numeric) {
             unsupported("non-constant tuple get() on this element type", line, column);
         }
-        for (const auto& e : t.elems) {
-            if (e.type != elem) {
-                unsupported("non-constant get() on heterogeneous tuple", line, column);
-            }
+        if (!homogeneous && !all_numeric) {
+            unsupported("non-constant get() on heterogeneous tuple", line, column);
         }
         bool has_named = false;
         for (const auto& nm : t.names) {
@@ -1699,7 +1711,33 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                 {names, builder_.getInt64(static_cast<uint64_t>(i)),
                  builder_.CreatePtrToInt(nm_ptr, builder_.getInt64Ty(), "nmbits")});
         }
-        // values 数组（元素 kind）：逐元素 elem_to_bits 物化
+        // values 数组：数值系路径（t108）tags+bits 双数组（均 kind 0）同一键
+        // 两次 rt_tuple_get 拼 Num；静态路径（t84）单数组逐元素 elem_to_bits
+        if (!homogeneous || elem == CGType::Num) {
+            llvm::Value* tags = builder_.CreateCall(
+                rt_arr_new_,
+                {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(0)},
+                "tuptags");
+            llvm::Value* bits_arr = builder_.CreateCall(
+                rt_arr_new_,
+                {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(0)},
+                "tupbits");
+            for (long long i = 0; i < n; ++i) {
+                llvm::Value* num = to_num(t.elems[static_cast<size_t>(i)]);
+                builder_.CreateCall(
+                    rt_arr_set_,
+                    {tags, builder_.getInt64(static_cast<uint64_t>(i)), num_tag(num)});
+                builder_.CreateCall(
+                    rt_arr_set_,
+                    {bits_arr, builder_.getInt64(static_cast<uint64_t>(i)), num_bits(num)});
+            }
+            llvm::Value* tag = builder_.CreateCall(
+                rt_tuple_get_, {names, tags, key_val.value}, "tuptag");
+            llvm::Value* bits = builder_.CreateCall(
+                rt_tuple_get_, {names, bits_arr, key_val.value}, "tupbit");
+            last_value_ = {make_num(tag, bits), CGType::Num};
+            return;
+        }
         llvm::Value* vals = builder_.CreateCall(
             rt_arr_new_,
             {builder_.getInt64(static_cast<uint64_t>(n)),

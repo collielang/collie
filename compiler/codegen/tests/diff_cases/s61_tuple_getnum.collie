@@ -1,0 +1,47 @@
+// t108 S61 差分用例：数值系异质 tuple 动态键 get() 解锁——元素全 ∈
+// {integer, decimal, number}（含全 number 同质）时物化 tags+bits 双 int
+// 数组，names 复用一份、同一键两次 rt_tuple_get 拼 number 动态值（未命中
+// 陷阱在首次，零新增 rt 接口）；含 bool/string/嵌套的异质维持拒编
+
+// int/decimal 异质命名：变量键与拼接键
+Tuple t = (a: 1, b: 2.5, c: 3);
+string k = "b";
+print(t.get(k));             // 2.5
+print(t.get("a" + ""));      // 1
+string kc = "c";
+print(t.get(kc));            // 3
+number s1 = t.get(k);
+number s2 = t.get(kc);
+print(s1 + s2);              // 5.5（Num 算术合流）
+
+// number 元素混入（双 tag 路径）
+number n = 42;
+number d = 1.25;
+Tuple u = (x: n, y: 7, z: d);
+string kz = "z";
+print(u.get(kz));            // 1.25
+print(u.get("x" + ""));      // 42
+
+// 全 number 同质命名（原拒编面一并解锁）
+Tuple w = (p: n, q: d);
+string kq = "q";
+print(w.get(kq));            // 1.25
+print(w.get("p" + ""));      // 42
+
+// 混合命名：无名槽 rt 侧非空名匹配天然跳过
+Tuple m = (5, tag: 9.5);
+string kt = "tag";
+print(m.get(kt));            // 9.5
+
+// 循环动态键遍历
+Tuple v = (one: 10, two: 0.5, three: 20);
+array keys = ["one", "two", "three"];
+number sum = 0;
+for (integer i = 0; i < 3; i = i + 1) {
+    sum = sum + v.get(keys[i]);
+}
+print(sum);                  // 30.5
+
+// 常量键静态路径回归
+print(t.get("a"));           // 1
+print("END");

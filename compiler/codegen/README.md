@@ -455,7 +455,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `t.get(k)`（k 运行期字符串，t 同质命名 tuple） | visitMethodCall Tup+get 分支：键非字符串字面量进动态键路径——四守卫（空 tuple / 元素非 {Int/Double/Bool/Str} / 异质 / 无命名字段分别拒编）后 emit(key) 校验 Str，rt_arr_new 物化 names 数组（kind 3 string，无名元素存空串 ""）+ values 数组（elem kind，逐元素 elem_to_bits），新接口 `collie_rt_tuple_get(names, vals, key)` 按非空名 strcmp 扫描：命中返对应 values 槽 i64 bits（bits_to_elem 还原元素类型），未命中打 "Undefined tuple field '<key>'" + exit(1)（核心消息对齐解释器 RuntimeError，位置前缀缺失同 S36 越界陷阱既定分歧）；空名槽 rt 侧 `name[0] != '\0'` 天然跳过（对齐解释器非空名匹配） |
 | 常量字符串键 `t.get("a")`（回归） | 保持编译期解析（t68 路径不变），未命中静态拒编 "undefined tuple field 'X'" 不错编 |
 | 悬垂防护 | `const CGTuple t` 按值拷贝——动态键路径 `emit(key)` 可能触发 register_tuple 扩容 tuple_values_ 使引用悬垂，与 S36 visitIndex/gen_tuple_eq 同一防护 |
-| 范围外 | 异质 tuple 动态键（拒编 "non-constant get() on heterogeneous tuple"）；无命名字段 tuple（"non-constant get() on tuple with no named fields"）；空 tuple（"non-constant get() on empty tuple"）；Num/嵌套(Tup/Arr/Obj)元素（"non-constant tuple get() on this element type"）；非 string 键（"non-string tuple get() key"，解释器亦运行期报错）；新增 1 个 collie_rt 接口 |
+| 范围外 | ~~异质 tuple 动态键（拒编 "non-constant get() on heterogeneous tuple"）~~~~；Num/嵌套(Tup/Arr/Obj)元素（"non-constant tuple get() on this element type"）~~（数值系异质与全 Num 同质已于 S57 t108 解锁；含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编）；无命名字段 tuple（"non-constant get() on tuple with no named fields"）；空 tuple（"non-constant get() on empty tuple"）；非 string 键（"non-string tuple get() key"，解释器亦运行期报错）；新增 1 个 collie_rt 接口 |
 
 **S38 降级补充（t85 实现）：嵌套数组**：
 
@@ -655,7 +655,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `t[i]`（i 变量/表达式，t 元素全 ∈ {Int/Double/Num}） | visitIndex Tup 非常量路径新增数值系分支（含全 Num 同质——原 "this element type" 拒编面一并解锁）：逐元素 to_num 后物化 **tags+bits 双 int 数组**（均 kind 0），同一动态索引两次 rt_arr_get 取回 make_num 拼 Num 动态值；负索引归一化/越界陷阱在首次 get（消息同 t83 既定分歧：核心一致、位置前缀缺失）；结果型 Num，下游算术/比较/print/toString 走既有 Num 路径 |
 | 同质 4 类（回归） | 保持 t83 静态元素类型路径（单数组 elem_to_bits/bits_to_elem）不变；常量索引编译期解析不受影响 |
 | 守卫重构 | 原三重守卫改为 homogeneous/all_numeric 双标志一次扫描：同质非 4 类且非数值系→"this element type"；异质且非全数值系→"heterogeneous tuple"；两条既有消息分工保留 |
-| 范围外 | 含 Bool/Str/嵌套(Tup/Arr/Obj)的异质与嵌套元素同质维持拒编（结果类型静态不可定且无统一表示）；空 tuple 维持拒编；get() 动态键的同一面（数值系异质/全 Num 同质）未同步解锁（待后续任务，机制同源可复用 tags+bits 物化）；零新增 collie_rt 接口 |
+| 范围外 | 含 Bool/Str/嵌套(Tup/Arr/Obj)的异质与嵌套元素同质维持拒编（结果类型静态不可定且无统一表示）；空 tuple 维持拒编；~~get() 动态键的同一面（数值系异质/全 Num 同质）未同步解锁~~（已于 S57 t108 解锁）；零新增 collie_rt 接口 |
+
+**S57 降级补充（t108 实现）：数值系异质 tuple 动态键 get()**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `t.get(k)`（k 运行期字符串，t 元素全 ∈ {Int/Double/Num}、≥1 非空名） | visitMethodCall Tup+get 动态键路径新增数值系分支（含全 Num 同质——原 "this element type" 拒编面一并解锁，与 S56 t107 索引同源机制）：逐元素 to_num 后物化 **tags+bits 双 int 数组**（均 kind 0），names 数组复用一份、同一键两次 rt_tuple_get 取回 make_num 拼 Num 动态值；未命中陷阱在首次 get（"Undefined tuple field '<key>'"，核心消息同 t84 既定分歧）；结果型 Num 走既有路径 |
+| 同质 4 类/常量键（回归） | 保持 t84 单数组静态元素类型路径与 t68 编译期解析不变 |
+| 守卫重构 | 同 S56：homogeneous/all_numeric 双标志一次扫描，两条既有拒编消息分工保留；无命名字段/非 Str 键守卫位置与消息不变 |
+| 范围外 | 含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编；空 tuple/无命名字段/非 Str 键维持拒编；零新增 collie_rt 接口（复用 rt_tuple_get 单 i64 返回调两次） |
 
 ## 五、构建与链接方案（关键决策）
 
