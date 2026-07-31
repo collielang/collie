@@ -2735,7 +2735,11 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
     builder_.CreateBr(body_bb);
 
     // 条件发射区（t110）：体内 break 可跳过体尾/条件，区内 uninit
-    // 清除隔离不外泄（体必执行一次但非全体支配，保守隔离）
+    // 清除隔离不外泄（体必执行一次但非全体支配，保守隔离）；
+    // 但体内无本层 break/continue 时体末无条件定赋线性支配 cont→end
+    //（体必执行一次，嵌套 if/else 部分定赋已由 visitIf 交集处理），
+    // 可安全外泄（t113：不 restore，体末清除集即到达出口必定赋集）
+    const bool body_escapes = has_loop_escape(stmt.body());
     const auto uninit_snap = uninit_snapshot();
     builder_.SetInsertPoint(body_bb);
     loops_.push_back({cond_bb, end_bb});
@@ -2752,7 +2756,9 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
                     stmt.do_token().line(), stmt.do_token().column());
     }
     builder_.CreateCondBr(cond.value, body_bb, end_bb);
-    uninit_restore(uninit_snap);
+    if (body_escapes) {
+        uninit_restore(uninit_snap);
+    }
     builder_.SetInsertPoint(end_bb);
 }
 
@@ -3328,6 +3334,35 @@ void CodeGenerator::uninit_restore(
             found->second.uninit = true;
         }
     }
+}
+
+bool CodeGenerator::has_loop_escape(const Stmt* s) {
+    // do-while 体逃逸扫描（t113）：本层 break/continue 会跳过体尾后续
+    // 赋值/直接跳出，致体末清除集不再支配出口；下探 block/if
+    // 但不下探嵌套循环/switch（其内 break/continue 绑定内层，
+    // 不影响本 do-while 体的支配）
+    if (s == nullptr) {
+        return false;
+    }
+    if (dynamic_cast<const BreakStmt*>(s) ||
+        dynamic_cast<const ContinueStmt*>(s)) {
+        return true;
+    }
+    if (const auto* block = dynamic_cast<const BlockStmt*>(s)) {
+        for (const auto& inner : block->statements()) {
+            if (has_loop_escape(inner.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if (const auto* if_stmt = dynamic_cast<const IfStmt*>(s)) {
+        return has_loop_escape(if_stmt->then_branch()) ||
+               has_loop_escape(if_stmt->else_branch());
+    }
+    // 嵌套 while/for/do-while/switch 不下探：其内逃逸绑定自身，
+    // 其余语句（表达式/声明/返回等）不含本层逃逸
+    return false;
 }
 
 void CodeGenerator::declare_function(const FunctionStmt& stmt,

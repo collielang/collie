@@ -650,6 +650,10 @@
     - 方案：visitVarDecl 无初始化分支加 KW_TUPLE——形状（元素数/名字表）声明处无从推断，不建槽，CGVar 仅记 type=Tup + uninit（tup 保持 -1 哨兵）；visitAssign Tup 分支 tup<0 识别首赋——RHS 非 Tup 拒编，create_tuple_var 按 RHS 形状建解构槽组（顶层升全局槽/函数内 entry alloca，嵌套递归，t68/t76 既有机制）、形状自此固化、清 uninit；重赋路径补无条件清 uninit（t110 快照隔离下安全）；uninit_restore 只恢复标志不恢复 tup——条件区内首赋建槽后区外读仍拒编（安全）
     - 验证：p1/p3/p4 探针（顶层首赋+同形重赋 IDENTICAL；换形状重赋解释器可行而 codegen 拒编 "assigning tuple of different shape"——拒编不错编；函数内局部+if/else 全路径定赋+命名字段 IDENTICAL）；新差分用例 s65_uninit_tuple（顶层首赋后 print/索引/负索引/length、同形重赋、命名元组字段/get、嵌套 tuple 元素、函数内局部+if/else 全路径定赋，14 行输出双端逐字节一致）；ctest -C Release 差分 64/64（含 s65 新增），单元 4/4，CLI 2/2
     - 范围外：换形状重赋维持拒编（形状固化，解释器动态可行但拒编不错编）；tuple 进函数签名/进数组既有拒编不变；零新增 collie_rt 接口
+- [x] do-while 体定赋外泄（t113，S59 范围外拒编面，S62）
+    - 方案：do-while 体必执行一次——体末无条件定赋线性支配 cond→end（body_bb 无旁路进 cond_bb），visitDoWhile 体后**不** uninit_restore，体末清除集（到达出口必定赋集）外泄放行区外读；新增 has_loop_escape 递归 helper 扫描体内本层 break/continue（下探 block/if，不下探嵌套 while/for/do-while/switch——其内 break/continue 绑定内层），含逃逸时保守隔离（restore）；体内 if/else 全路径定赋由 visitIf 汇合交集（t110）+ 体必执行一次双重保证
+    - 验证：p1/p2/p3 探针（体内无条件定赋后区外读 IDENTICAL；含 break 保守拒编——解释器可跑出值而 codegen 拒编，拒编不错编；体内 if/else 全路径定赋 IDENTICAL）；新差分用例 s66_dowhile_definite（基础面/体内 if-else 全路径定赋/多变量同时外泄/嵌套 do-while/函数内局部 do-while 体定赋，7 行输出双端逐字节一致）；ctest -C Release 差分 65/65（含 s66 新增），单元 4/4，CLI 2/2
+    - 范围外：体含本层 break/continue 时保守隔离维持拒编不错编；while/for 体（可零次执行）维持拒编；零新增 collie_rt 接口
 
 ---
 

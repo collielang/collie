@@ -1,0 +1,64 @@
+// s66: do-while 体定赋外泄（t113 差分用例）
+// 体必执行一次——体内无本层 break/continue 时体末无条件定赋支配循环
+// 出口，区外读放行；含逃逸保守隔离（范围外，拒编不错编）
+
+// 基础面：体内无条件定赋后区外读
+integer x;
+integer i = 0;
+do {
+    x = i * 10;
+    i = i + 1;
+} while (i < 3);
+print(x);
+
+// 体内 if/else 全路径定赋（体必执行一次 + visitIf 汇合交集）
+integer y;
+integer j = 0;
+do {
+    if (j < 2) {
+        y = 100;
+    } else {
+        y = 200;
+    }
+    j = j + 1;
+} while (j < 3);
+print(y);
+
+// 多变量同时外泄
+string s;
+integer m;
+integer k = 0;
+do {
+    s = "loop";
+    m = k + 5;
+    k = k + 1;
+} while (k < 2);
+print(s);
+print(m);
+
+// 嵌套 do-while：外层体内内层循环之后的无条件定赋仍支配外层出口
+integer z;
+integer p = 0;
+do {
+    integer q = 0;
+    do {
+        q = q + 1;
+    } while (q < 2);
+    z = p + q;
+    p = p + 1;
+} while (p < 2);
+print(z);
+
+// 函数内局部 do-while 体定赋
+function firstNonZero(n integer) integer {
+    integer r;
+    integer c = 0;
+    do {
+        r = c * n;
+        c = c + 1;
+    } while (c < 3);
+    return r;
+}
+print(firstNonZero(4));
+
+print("END");

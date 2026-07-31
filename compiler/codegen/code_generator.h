@@ -252,6 +252,11 @@ private:
     std::vector<std::pair<size_t, std::string>> uninit_snapshot();
     void uninit_restore(const std::vector<std::pair<size_t, std::string>>& snap);
 
+    /// @brief do-while 体是否含本层 break/continue（t113）：体必执行一次，
+    /// 本层无逃逸时体末清除集支配循环出口可外泄（不 restore）；下探
+    /// block/if 但不下探嵌套循环/switch（其内 break/continue 绑定内层）
+    bool has_loop_escape(const Stmt* s);
+
     /// @brief 三元表达式：两分支 bool/tribool 条件（unset 走 false 分支）+
     /// 三分支 tribool 形式 a ? x : y : z 三路分派（t65）；分支值 PHI 汇合
     /// （类型不同时 int→double/num 提升、bool→tribool 加宽）
