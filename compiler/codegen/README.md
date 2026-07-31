@@ -66,6 +66,7 @@
 | S53 | 类实例进数组（同类，kind 5）：arr_kind_of(Obj)→5、elem_to_bits/bits_to_elem 加 PtrToInt/IntToPtr；visitArrayLiteral 追踪元素类名（复用 CGValue.cls）+ 混合类守卫，visitVarDecl/visitAssign array 分支传播 cls + 异类守卫，visitIndex 静态读出传播 cls（arr[i].field/method() + 动态分派），visitIndexAssign Obj 分支 cls 兼容守卫（子类 upcast 放行）；rt 三触点加 kind 5——arr_to_str `<object>` / arr_eq 恒不等 / trap_arr_kind `object`；本地静态读出全解锁，动态域 obj 读出落 CG9 陷阱 | 同类实例数组 build/len/print/toString/本地静态读出字段与方法调用/负索引/整槽写同类/子类 upcast 整槽写后动态分派/== 实例恒不等程序编译执行，输出与解释器一致 **✅ t100** |
 | S54 | 无初始化 array/类类型变量声明：visitVarDecl 无初始化分支加 KW_ARRAY（建 opaque ptr 槽 + elem=Num 动态域哨兵 t70）/IDENTIFIER 已注册类名（建 Obj 槽 + cls）两分支，沿用 uninit ~~+ decl_depth~~（t92，S59 t110 后为定赋区域跟踪）；visitAssign Arr/Obj 两分支原早退不经通用路径故各补 uninit 清除；读 uninit 拒编~~、深层块赋值不清标记~~全复用 t92 机制 | 无初始化 array 隔句赋值读写/别名引用语义/无初始化类变量赋值后字段读+方法调用+upcast 动态分派/函数内局部/循环体内同块赋值程序编译执行，输出与解释器一致 **✅ t101** |
 | S59 | 无初始化变量定赋区域跟踪：t92 同块深度代理（decl_depth）升级为定赋区域跟踪——赋值无条件清 uninit（发射顺序即支配顺序），八个条件发射位点（if 分支/while/for 条件体增量/do-while/switch 候选与 body/三目臂/multi-match 臂/短路 RHS）uninit_snapshot/restore 快照隔离区内清除不外泄（句柄为 scopes_ 下标+变量名防 vector 重分配悬垂），visitIf 汇合点两分支清除集取交集（终止支不约束交集，死块判 hasNPredecessors(0)）——if/else 全路径定赋后读放行；顺带修复无大括号 if 分支/三目臂内赋值同深度清除泄漏两处既有错编洞 | integer/decimal/string/bool/number/array/类类型 if-else 全路径定赋、分支内读+汇合读、嵌套 if/else、无大括号分支、裸块外泄、终止支 return、双 return、多变量交集程序编译执行，输出与解释器一致 **✅ t110** |
+| S60 | number → integer/decimal 窄化：新增 num_to_int_checked（tag 1 小数态分支调 collie_rt_trap_num_narrow 陷阱退出，对齐解释器 coerce_to_declared "cannot assign decimal value to 'integer' variable"；整数态返 bits 即 i64）；三触点接入——coerce_call_arg（函数/方法/构造器/base 全六调用点共用）/coerce_for_slot（变量与字段槽）/visitReturn；Num→Double 双态皆合法复用 to_double 既有 Num 分支（t90 tag select 免分支，无陷阱）；新增 1 个 rt 接口 | 整数态 number → integer 形参/变量初始化与赋值/返回值/方法与构造器实参/integer 字段槽，双态 number → decimal 形参/变量/返回值/方法实参，number 表达式实参程序编译执行，输出与解释器一致 **✅ t111** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），byte/word 类方法/构造器参数与返回已于 S52 t99 解锁——方法单签名按名解析，形参绑定点插 check_bit_range 范围陷阱（实参可为整数字面量，覆盖方法/构造器/base 全路径），返回走 t97 陷阱（方法调用结果参与 ==/!= 比较、word→byte 返回属解释器语义边界非 codegen 拒编面）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且~~同块赋值后读，分支/循环块内赋值后读仍拒编~~（S59 t110 定赋区域跟踪：if/else 全路径定赋后读已放行，单支/循环体内赋值后区外读仍拒编）（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/类类型已于 S54 t101 放行——array 建 opaque ptr 槽 + elem=Num 动态域哨兵、类类型建 Obj 槽 + cls，visitAssign Arr/Obj 分支补同块 uninit 清除，无初始化 Tuple 仍拒编——形状无从推断）；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编；类实例进数组已于 S53 t100 解锁——限同类（kind 5，复用 CGValue.cls 记元素类名），本地静态读出/字段/方法调用/整槽写同类或子类 upcast 全支持，混合类字面量/整槽写异类仍拒编，动态域（数组过签名/字段/返回值）obj 元素读出落 CG9 陷阱不错值）。
@@ -232,7 +233,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 算术 `+ - * / %` / 一元 `-`（任一侧 Num） | `call void @collie_rt_num_arith(i64 op, i64 atag, i64 abits, i64 btag, i64 bbits, ptr otag, ptr obits)`（op：0=+ 1=- 2=* 3=/ 4=% 5=一元负号）：双整数精确 + - * 与 floor 取模（i64 溢出复用 CG1 陷阱报错退出）、`/` 恒 double、混合走 double、除零 IEEE 754；另一侧 Int/Double 先 to_num 加宽 |
 | 比较 `== != < <= > >=`（任一侧 Num） | `call i32 @collie_rt_num_cmp(i64 op, i64 atag, i64 abits, i64 btag, i64 bbits)`（op：0..5 对应 == != < <= > >=）后与 0 做 icmp ne 返 i1：双整数精确、混合 double 视图（5 == 5.0 为 true）、NaN 语义对齐解释器 |
 | `print(n)` / `toString(n)` | `collie_rt_print_num(i64 tag, i64 bits)` / `collie_rt_num_to_str(i64, i64)`：整数态按整数打、小数态走 f64 四步格式（与 print_f64 共享，对齐 Value::to_string） |
-| integer/decimal → number 加宽 | 声明/赋值/实参/return 四路径 to_num：保持原表示打 tag（对齐解释器 coerce_to_declared 的 KW_NUMBER 分支）；反向 number→integer/decimal 窄化拒编（静态无法判定 tag） |
+| integer/decimal → number 加宽 | 声明/赋值/实参/return 四路径 to_num：保持原表示打 tag（对齐解释器 coerce_to_declared 的 KW_NUMBER 分支）；~~反向 number→integer/decimal 窄化拒编（静态无法判定 tag）~~（S60 t111 解锁：integer 窄化插 tag 陷阱、decimal 双态直收） |
 | 三元分支混型 | 任一分支 Num → 两分支块尾统一 to_num，merge 处 PHI 用 struct 类型 |
 | 范围外拒编 | number 数组元素表示不变（S12 同质 kind 拍板，动态域见 S23）、任意精度自动扩容（BigInt 运行时化留远期，超 i64 整数运算陷阱退出）（toNumber 内建已于 S16 t63、number 类字段已于 S27 t74 解锁） |
 
@@ -364,7 +365,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `new` 字段块分配 | visitNew malloc 上界从 `8 × 字段数` 改为按字段类型累计（Num 记 16、其余 8）；对齐 ≤ 8 前提下累计值即精确尺寸；rt_obj_new 零改动 |
 | 字段初始值 / 字段写 | coerce_for_slot 既有 Num 槽分支：integer/decimal 来源 to_num 加宽（保持原表示打 tag，对齐解释器 coerce_to_declared KW_NUMBER 原样通过）、number 来源相等直通，零新增转换 |
 | 字段参与运算/方法/跨签名 | 字段读出即 CGValue{Num}，算术/比较/print/插值/abs 等内建方法/函数传参返回全走 t62 既有 Num 路径（16 字节按值流转先例：变量/全局槽、tuple 解构槽、签名传参） |
-| 范围外 | Tup 字段（既有拒编不变）、number 字段读出赋窄化静态槽（走既有 Num→静态槽拒编）、字段上直接一元负号/相等比较（语义层对属性访问的既有限制，经 number 局部变量可用） |
+| 范围外 | Tup 字段（既有拒编不变）、~~number 字段读出赋窄化静态槽（走既有 Num→静态槽拒编）~~（S60 t111 解锁）、字段上直接一元负号/相等比较（语义层对属性访问的既有限制，经 number 局部变量可用） |
 
 **S28 降级补充（t75 实现）：tuple 相等比较**：
 
@@ -689,6 +690,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 既有错编洞修复 | 无大括号 if 分支 `if (c > 5) x = 99;`（parse_statement 不强制块、visitIf 不推作用域）与三目臂内赋值 `c > 5 ? (x = 9) : 0`——旧深度代理下同深度清 uninit 泄漏，零值槽 vs 解释器 none 错编；新机制下均转拒编 |
 | 范围外 | 单支 if（含无 else 带块）/循环体/三目臂/switch body/短路 RHS 内赋值后**区外**读维持拒编不错编（运行期可能未经赋值，解释器 none）；零新增 collie_rt 接口 |
 
+**S60 降级补充（t111 实现）：number → integer/decimal 窄化**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `f(n)`（n 为 number，形参 integer） | coerce_call_arg 新增 Num→Int 分支：`num_to_int_checked(num)`——ICmpNE(tag, 0) 分支 numnarrow.trap 调 `collie_rt_trap_num_narrow()`（无参，stderr "runtime error: Type mismatch: cannot assign decimal value to 'integer' variable" + exit(1)，核心消息对齐解释器 coerce_to_declared，位置前缀缺失属既定 CG 陷阱分歧）+ unreachable，cont 块返 num_bits 即 i64；六个调用点（函数/方法×2/构造器/base 构造器/base 方法）共用零改动 |
+| `g(n)`（形参 decimal） | Num→Double 复用 to_double 既有 Num 分支（t90 tag select 免分支）：整数态 SIToFP 加宽、小数态 bitcast，双态皆合法无陷阱（对齐解释器 KW_DECIMAL 分支整数态加宽小数表示） |
+| `integer i = n;` / `i = n;` / `this.count = n;` | coerce_for_slot 同样两分支：变量初始化/赋值/字段初始值/字段写全路径生效 |
+| `function f() integer { return n; }` | visitReturn 新增 Num→Int（num_to_int_checked）与 Num→Double（to_double）两分支，对齐解释器返回值 coerce_to_declared 校验 |
+| 范围外 | number→byte/word 由语义分析器前端静态拒绝（"Cannot initialize variable of type 'KW_BYTE' with value of type 'KW_NUMBER'"，两端一致非差分面，实证）；小数态窄化 integer 为运行期陷阱面非差分成功面（实证 p2：stdout 一致、陷阱消息核心一致）；新增 1 个 collie_rt 接口 collie_rt_trap_num_narrow |
+
 ## 五、构建与链接方案（关键决策）
 
 **CRT 对齐**（t48b 已验证的事实）：LLVM 官方预编译包为 Release + **/MT 静态 CRT**；
@@ -721,7 +732,7 @@ codegen + 前端四库，而前端库当前 Release 配置为 /MD —— 直接�
 |------|------|------|
 | CG1 | integer 降为 i64，非任意精度；溢出已改显式陷阱报错退出（t58：s{add,sub,mul}.with.overflow + collie_rt_trap_int_overflow，含一元负号；INT64_MIN % -1 硬件陷阱边缘 select 安全除数得 0 对齐解释器），不再静默回绕；超 i64 字面量仍编译期拒编 | 任意精度对齐：BigInt 运行时库（collie_rt）远期 |
 | CG2 | print 标量格式已对齐解释器（t53 collie_rt 垫片）；数组格式已对齐（t59 arr_to_str）；tuple 格式已对齐（t68 tuple_to_str 静态展开）；none 值 print/toString/插值已对齐（t81 常量串 "none"）；对象仍固定 "\<object\>" | 随对应类型的 codegen 支持扩展 collie_rt 接口 |
-| CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补 |
+| CG3 | 运行期类型校验（coerce_to_declared 五处）在编译产物中缺失 | 语义层静态保证覆盖的部分可省；动态部分（object/窄化）随 collie_rt 补（number→integer 小数态陷阱已于 t111 补齐） |
 | CG4 | 仅支持 x86_64-pc-windows-msvc target | CI 矩阵起来后加 Linux target；LLVM 包已含全部 target 后端 |
 | CG6 | 拼接/转串结果 malloc 后不 free，编译产物存在内存泄漏 | 短生命周期进程暂容忍；后续随 string 运行时成熟引入引用计数或 arena 分配器 |
 | CG7 | 动态域（数组经函数签名边界）decimal 写 integer 数组陷阱退出（t70：解释器数组动态异质可容，编译产物同质 8 字节槽无法承载，拒错编从陷阱不静默错值） | 异质数组降级支持（元素 tagged 表示）时一并消除 |

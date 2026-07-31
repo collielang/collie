@@ -201,6 +201,10 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_shift_count_ = module_->getOrInsertFunction(
         "collie_rt_trap_shift_count",
         llvm::FunctionType::get(builder_.getVoidTy(), false));
+    // collie_rt number 窄化陷阱声明（t111）：Num 小数态窄化 integer 报错退出
+    rt_trap_num_narrow_ = module_->getOrInsertFunction(
+        "collie_rt_trap_num_narrow",
+        llvm::FunctionType::get(builder_.getVoidTy(), false));
     // collie_rt 动态域元素 kind 陷阱声明（t88，缺口 CG9）：bool/str/嵌套数组
     // 经透传后索引读出元素静态类型不可定，陷阱退出不错值
     rt_trap_arr_kind_ = module_->getOrInsertFunction(
@@ -2938,6 +2942,14 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
         if (v.type != current_ret_type_) {
             if (current_ret_type_ == CGType::Double && v.type == CGType::Int) {
                 v = {to_double(v), CGType::Double};
+            } else if (current_ret_type_ == CGType::Int &&
+                       v.type == CGType::Num) {
+                // number → integer 窄化返回（t111）：小数态运行期陷阱
+                v = {num_to_int_checked(v.value), CGType::Int};
+            } else if (current_ret_type_ == CGType::Double &&
+                       v.type == CGType::Num) {
+                // number → decimal 窄化返回（t111）：双态皆合法
+                v = {to_double(v), CGType::Double};
             } else if (current_ret_type_ == CGType::Num &&
                        (v.type == CGType::Int || v.type == CGType::Double)) {
                 // integer/decimal → number 加宽（t62）：保持原表示打 tag
@@ -3095,8 +3107,17 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     if (want == CGType::Double && a.type == CGType::Int) {
         return to_double(a);
     }
+    // number → integer/decimal 窄化（t111，对齐解释器 coerce_to_declared）：
+    // integer 需整数态——小数态运行期陷阱；decimal 双态皆合法，整数态
+    // 加宽小数表示（to_double 的 Num 分支 tag select 免分支）
+    if (want == CGType::Int && a.type == CGType::Num) {
+        return num_to_int_checked(a.value);
+    }
+    if (want == CGType::Double && a.type == CGType::Num) {
+        return to_double(a);
+    }
     // integer/decimal → number 加宽（t62）：保持原表示打 tag；反向窄化
-    // （number→integer/decimal）静态无法判 tag，落入下方拒编
+    // 已由上方 t111 分支覆盖
     if (want == CGType::Num &&
         (a.type == CGType::Int || a.type == CGType::Double)) {
         return to_num(a);
@@ -3219,6 +3240,15 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
     // 仅 integer → decimal 隐式提升（与语义层/解释器 coerce_to_declared 一致）
     if (slot_type == CGType::Double && v.type == CGType::Int) {
         return builder_.CreateSIToFP(v.value, builder_.getDoubleTy());
+    }
+    // number → integer/decimal 窄化（t111，同 coerce_call_arg）：integer 需
+    // 整数态——小数态运行期陷阱；decimal 双态皆合法（number→byte/word
+    // 由语义分析器前端静态拒绝，不经此处）
+    if (slot_type == CGType::Int && v.type == CGType::Num) {
+        return num_to_int_checked(v.value);
+    }
+    if (slot_type == CGType::Double && v.type == CGType::Num) {
+        return to_double(v);
     }
     // integer/decimal → number 加宽（t62）：保持原表示打 tag
     if (slot_type == CGType::Num &&
@@ -4280,6 +4310,23 @@ llvm::Value* CodeGenerator::check_bit_range(llvm::Value* v, long long max_val,
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(cont_bb);
     return v;
+}
+
+llvm::Value* CodeGenerator::num_to_int_checked(llvm::Value* num) {
+    // number → integer 窄化（t111）：tag 1（小数态）陷阱退出（对齐解释器
+    // coerce_to_declared "cannot assign decimal value to 'integer' variable"，
+    // 核心消息一致、位置前缀缺失同既定 CG 陷阱分歧）；整数态 bits 即 i64
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "numnarrow.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "numnarrow.cont", fn);
+    llvm::Value* is_dec = builder_.CreateICmpNE(
+        num_tag(num), builder_.getInt64(0), "numnarrow.bad");
+    builder_.CreateCondBr(is_dec, trap_bb, cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_num_narrow_);
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return num_bits(num);
 }
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {

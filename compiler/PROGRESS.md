@@ -642,6 +642,10 @@
     - 方案：t92 同块深度代理（decl_depth）删除，升级定赋区域跟踪——三处赋值路径无条件清 uninit（发射顺序即支配顺序）；八个条件发射位点（if 分支/while/for 条件体增量/do-while/switch 候选与 body/三目臂/multi-match 臂/短路 RHS）uninit_snapshot/restore 快照隔离区内清除不外泄，句柄为 scopes_ 下标+变量名（防区内 emplace_back 触发 vector 重分配致裸指针悬垂）；visitIf 汇合点两分支清除集取交集，终止支不约束交集（return/break/continue 后插入点在无前驱死块，branch_terminated 补判 hasNPredecessors(0)）
     - 验证：p1-p7 探针（if/else 全路径定赋 IDENTICAL/无大括号单 if 与三目臂错编洞转拒编/带块单 if 与 while 体维持拒编/终止支+双 return IDENTICAL/裸块外泄+多变量 IDENTICAL）；新差分用例 s63_uninit_branches（integer/decimal/string/bool/number/array/类类型全路径定赋、嵌套 if/else、无大括号分支、裸块、终止支、交集不含面补齐后读，15 行输出双端逐字节一致）；ctest -C Release 差分 62/62（含 s63 新增），单元 4/4，CLI 2/2
     - 范围外：单支 if/循环体/三目臂/switch body/短路 RHS 内赋值后区外读维持拒编不错编（运行期可能未经赋值，解释器 none）；零新增 collie_rt 接口
+- [x] number → integer/decimal 窄化（t111，S15 反向窄化拒编面，S60）
+    - 方案：新增 num_to_int_checked——ICmpNE(num_tag, 0) 小数态分支 numnarrow.trap 调新增无参陷阱 collie_rt_trap_num_narrow（stderr "runtime error: Type mismatch: cannot assign decimal value to 'integer' variable" + exit(1)，核心消息对齐解释器 coerce_to_declared）+ unreachable，cont 块返 num_bits 即 i64；三触点接入 Num→Int（num_to_int_checked）与 Num→Double（复用 to_double 既有 Num 分支，t90 tag select 免分支，双态皆合法无陷阱）——coerce_call_arg（函数/方法×2/构造器/base 构造器/base 方法六调用点共用）、coerce_for_slot（变量/字段槽）、visitReturn
+    - 验证：p1-p4 探针（形参窄化/变量槽/返回值 IDENTICAL，小数态窄化 integer 陷阱正确触发——stdout 一致、陷阱消息核心一致、位置前缀缺失属既定 CG 陷阱分歧）；新差分用例 s64_num_narrow（整数态→integer 形参/变量初始化与赋值/返回值/方法与构造器实参/字段槽、双态→decimal 形参/变量/返回值/方法实参、number 表达式实参，17 行输出双端逐字节一致）；ctest -C Release 差分 63/63（含 s64 新增），单元 4/4，CLI 2/2
+    - 范围外：number→byte/word 由语义分析器前端静态拒绝（两端一致非差分面，实证）；小数态窄化 integer 为运行期陷阱面非差分成功面；新增 1 个 collie_rt 接口 collie_rt_trap_num_narrow
 
 ---
 

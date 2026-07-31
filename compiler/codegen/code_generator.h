@@ -375,6 +375,11 @@ private:
     llvm::Value* check_bit_range(llvm::Value* v, long long max_val,
                                  const char* type_name);
 
+    /// @brief number → integer 窄化检查（t111）：tag 1（小数态）分支调
+    /// collie_rt 陷阱（对齐解释器 coerce_to_declared "cannot assign decimal
+    /// value to 'integer' variable"）；整数态返 bits 即 i64 值
+    llvm::Value* num_to_int_checked(llvm::Value* num);
+
     /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
     llvm::Value* to_str(const CGValue& v, const Token& where);
 
@@ -443,6 +448,8 @@ private:
     /// collie_rt byte/word 范围与移位量陷阱（t69）：越界报错退出
     llvm::FunctionCallee rt_trap_bit_range_;    // void(ptr name, i64 max, i64 got)
     llvm::FunctionCallee rt_trap_shift_count_;  // void()
+    /// collie_rt number 窄化陷阱（t111）：Num 小数态窄化 integer 报错退出
+    llvm::FunctionCallee rt_trap_num_narrow_;   // void()
     /// collie_rt 动态域元素 kind 陷阱（t88，缺口 CG9）：bool/str/嵌套数组经
     /// 透传后索引读出元素静态类型不可定，陷阱退出不错值
     llvm::FunctionCallee rt_trap_arr_kind_;     // void(i64 kind)

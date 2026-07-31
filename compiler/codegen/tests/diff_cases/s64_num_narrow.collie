@@ -1,0 +1,80 @@
+// s64: number → integer/decimal 窄化（t111）
+// number 整数态经 num_to_int_checked 窄化 integer（小数态运行期陷阱，
+// 不在差分成功面内）；number → decimal 双态经 to_double 加宽小数表示。
+// 触点：函数/方法/构造器实参（coerce_call_arg）、变量/字段槽
+// （coerce_for_slot）、返回值（visitReturn）。
+// 注：number → byte/word 由语义分析器前端静态拒绝，不在此面内。
+
+// 函数形参窄化：整数态 → integer；双态 → decimal
+function addOne(x integer) integer {
+    return x + 1;
+}
+function twice(x decimal) decimal {
+    return x * 2.0;
+}
+number n = 41;
+print(addOne(n));        // 42
+print(twice(n));         // 82
+number m = 1.5;
+print(twice(m));         // 3
+
+// 变量槽：初始化与赋值
+integer i = n;
+print(i);                // 41
+decimal d = n;
+print(d);                // 41
+decimal e = m;
+print(e);                // 1.5
+integer j;
+j = n;
+print(j);                // 41
+d = m;
+print(d);                // 1.5
+
+// 返回值窄化
+function pick() integer {
+    number k = 7;
+    return k;
+}
+function half() decimal {
+    number h = 2.5;
+    return h;
+}
+print(pick());           // 7
+print(half());           // 2.5
+
+// 方法/构造器参数窄化
+class Counter {
+    public integer count = 0;
+    public decimal ratio = 0.0;
+
+    public Counter(start integer) {
+        this.count = start;
+    }
+
+    public function add(delta integer) none {
+        this.count = this.count + delta;
+    }
+
+    public function setRatio(r decimal) none {
+        this.ratio = r;
+    }
+}
+number s = 10;
+Counter c = new Counter(s);
+print(c.count);          // 10
+c.add(n);
+print(c.count);          // 51
+c.setRatio(m);
+print(c.ratio);          // 1.5
+c.setRatio(n);
+print(c.ratio);          // 41
+
+// 字段槽窄化：number → integer 字段
+number f = 5;
+c.count = f;
+print(c.count);          // 5
+
+// number 表达式（非简单变量）实参窄化
+print(addOne(n + 1));    // 43
+print("END");

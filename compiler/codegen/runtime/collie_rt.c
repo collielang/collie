@@ -329,6 +329,15 @@ void collie_rt_trap_bit_range(const char* name, long long max, long long got) {
     exit(1);
 }
 
+/* number → integer 窄化陷阱（t111）：Num 小数态窄化 integer 形参/变量槽/
+ * 返回值时报错退出，对齐解释器 coerce_to_declared 的
+ * "cannot assign decimal value to 'integer' variable" */
+void collie_rt_trap_num_narrow(void) {
+    fprintf(stderr, "runtime error: Type mismatch: cannot assign decimal "
+                    "value to 'integer' variable\n");
+    exit(1);
+}
+
 /* 移位量越界（<0 或 >63）：对齐解释器 eval_bitwise 的运行期报错，
  * 回避 LLVM shl/ashr 移位量越界的 poison */
 void collie_rt_trap_shift_count(void) {
