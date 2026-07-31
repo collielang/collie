@@ -1,0 +1,117 @@
+// t110 S59 差分用例：无初始化变量 if/else 全路径定赋后读（定赋区域跟踪）
+// 条件发射区快照隔离 + if/else 汇合点两分支清除集交集，对齐解释器流不敏感放行
+
+// 两分支定赋后读（integer）
+integer x;
+integer c = 7;
+if (c > 5) {
+    x = 1;
+} else {
+    x = 2;
+}
+print(x);                    // 1
+
+// 分支内赋值后同分支读 + 汇合后读（decimal）
+decimal d;
+if (c > 0) {
+    d = 2.5;
+    print(d);                // 2.5
+} else {
+    d = 0.5;
+}
+print(d);                    // 2.5
+
+// 嵌套 if/else 全路径定赋（string）
+string s;
+if (c > 5) {
+    if (c > 6) {
+        s = "a";
+    } else {
+        s = "b";
+    }
+} else {
+    s = "c";
+}
+print(s);                    // a
+
+// 无大括号单语句分支（两支均定赋则放行）
+bool b;
+if (c > 5) b = true; else b = false;
+print(b);                    // true
+
+// 裸嵌套块内赋值（无条件执行，定赋外泄合法）
+number n;
+{
+    n = 42;
+}
+print(n);                    // 42
+
+// 终止支不约束交集：else 支 return，then 支定赋即可
+function pick(k integer) integer {
+    integer v;
+    if (k > 0) {
+        v = k * 10;
+    } else {
+        return -1;
+    }
+    return v;
+}
+print(pick(3));              // 30
+print(pick(-2));             // -1
+
+// 两分支各自 return（汇合点不可达）
+function both(k integer) integer {
+    integer y;
+    if (k > 0) {
+        y = 1;
+        return y;
+    } else {
+        return 0;
+    }
+}
+print(both(5));              // 1
+print(both(-5));             // 0
+
+// array / 类类型无初始化变量 if/else 定赋（t101 面叠加 t110）
+array a;
+if (c > 5) {
+    a = [1, 2, 3];
+} else {
+    a = [9];
+}
+print(a, len(a));            // [1, 2, 3] 3
+
+class Pt {
+    public integer px = 0;
+    public Pt(v integer) {
+        this.px = v;
+    }
+}
+Pt p;
+if (c > 5) {
+    p = new Pt(11);
+} else {
+    p = new Pt(22);
+}
+print(p.px);                 // 11
+
+// 同一 if/else 内多变量定赋
+integer w;
+integer u;
+if (c > 5) {
+    w = 100;
+} else {
+    w = 200;
+    u = 2;
+}
+print(w);                    // 100
+
+// 上面 u 仅 else 支定赋（交集不含），此处补齐两支后读
+if (c > 5) {
+    u = 1;
+} else {
+    u = 2;
+}
+print(w + u);                // 101
+
+print("END");

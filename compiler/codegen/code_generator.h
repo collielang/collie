@@ -135,8 +135,9 @@ private:
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_vars_ 下标（slot 恒 nullptr，t68）
         long long bit_max = 0;     // byte/word 声明的范围上限 255/65535，0 即非位类型（t69）
         std::string fn_key;        // 非空即嵌套函数绑定（t91）：functions_ 改编键，slot 恒 nullptr
-        bool uninit = false;       // 无初始化声明（t92）：读拒编，同块赋值后清
-        size_t decl_depth = 0;     // 仅 uninit 有意义：声明时 scopes_.size()（t92）
+        bool uninit = false;       // 无初始化声明（t92/t110）：读拒编；直线区域赋值清，
+                                   // 条件发射区（分支/循环体/三目臂等）快照隔离，
+                                   // if/else 汇合点取两分支清除集交集
         size_t loop_depth = 0;     // 仅 type == Arr 有意义：声明时 loops_.size()（t106）——
                                    // 异型互赋降级仅限同层（循环回边下赋值前生成的
                                    // 静态读代码会按旧 elem 解码错值，跨层拒编不错编）
@@ -241,6 +242,15 @@ private:
 
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
+
+    /// @brief 定赋区域跟踪（t110）：条件发射区进入前快照全部 uninit 变量，
+    /// 退出时恢复——区内赋值清的 uninit 不外泄（运行期可能未执行）；
+    /// if/else 汇合点另对两分支清除集取交集（终止支不达汇合点计全集）。
+    /// 句柄为 (scopes_ 下标, 变量名)——区内 visitBlock 可能扩容 scopes_
+    /// 重分配（MSVC unordered_map 移动非 noexcept 时元素被拷贝），
+    /// 裸 CGVar* 会悬垂
+    std::vector<std::pair<size_t, std::string>> uninit_snapshot();
+    void uninit_restore(const std::vector<std::pair<size_t, std::string>>& snap);
 
     /// @brief 三元表达式：两分支 bool/tribool 条件（unset 走 false 分支）+
     /// 三分支 tribool 形式 a ? x : y : z 三路分派（t65）；分支值 PHI 汇合

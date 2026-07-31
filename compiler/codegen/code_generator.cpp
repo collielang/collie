@@ -1013,6 +1013,8 @@ void CodeGenerator::gen_logical(const BinaryExpr& expr) {
         l_tri, builder_.getInt8(is_and ? 0 : 2), is_and ? "and.sc" : "or.sc");
     builder_.CreateCondBr(sc, merge_bb, rhs_bb);
 
+    // 条件发射区（t110）：短路右侧运行期可能不执行，区内 uninit 清除隔离
+    const auto uninit_snap = uninit_snapshot();
     builder_.SetInsertPoint(rhs_bb);
     CGValue rhs = emit(expr.right());
     if (rhs.type != CGType::Bool && rhs.type != CGType::Tri) {
@@ -1024,6 +1026,7 @@ void CodeGenerator::gen_logical(const BinaryExpr& expr) {
         is_and ? llvm::Intrinsic::umin : llvm::Intrinsic::umax, l_tri, to_tri(rhs));
     llvm::BasicBlock* rhs_end = builder_.GetInsertBlock(); // 右侧可能自带嵌套分支
     builder_.CreateBr(merge_bb);
+    uninit_restore(uninit_snap);
 
     builder_.SetInsertPoint(merge_bb);
     llvm::PHINode* phi = builder_.CreatePHI(builder_.getInt8Ty(), 2,
@@ -1060,8 +1063,8 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
                     expr.name().line(), expr.name().column());
     }
     if (var->uninit) {
-        // 无初始化声明未经同块赋值（t92）：解释器此值为 none（分支/循环内
-        // 赋值流不敏感放行但运行期可能未执行），槽值静态不可知，拒编不错编
+        // 无初始化声明未经支配性定赋（t92/t110）：解释器此值为 none（流不
+        // 敏感放行但运行期可能未经赋值），槽值静态不可知，拒编不错编
         unsupported("use of uninitialized variable '" + name + "'",
                     expr.name().line(), expr.name().column());
     }
@@ -1125,11 +1128,9 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                         expr.name().line(), expr.name().column());
         }
         builder_.CreateStore(v.value, var->slot);
-        if (var->uninit && scopes_.size() == var->decl_depth) {
-            // 无初始化 array 变量同块赋值后清 uninit 放行后续读（t101，与
-            // 通用路径 t92 一致；本分支原早退不经通用路径故此处补清）
-            var->uninit = false;
-        }
+        // 无初始化 array 变量赋值后清 uninit 放行后续读（t101/t110 定赋
+        // 区域跟踪：条件发射区已快照隔离，此处无条件清）
+        var->uninit = false;
         last_value_ = {v.value, CGType::Arr, var->elem, var->cls};
         return;
     }
@@ -1144,11 +1145,9 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                         expr.name().line(), expr.name().column());
         }
         builder_.CreateStore(v.value, var->slot);
-        if (var->uninit && scopes_.size() == var->decl_depth) {
-            // 无初始化类类型变量同块赋值后清 uninit 放行后续读（t101，与
-            // 通用路径 t92 一致；本分支原早退不经通用路径故此处补清）
-            var->uninit = false;
-        }
+        // 无初始化类类型变量赋值后清 uninit 放行后续读（t101/t110 定赋
+        // 区域跟踪：条件发射区已快照隔离，此处无条件清）
+        var->uninit = false;
         last_value_ = {v.value, CGType::Obj, CGType::Int, var->cls};
         return;
     }
@@ -1165,12 +1164,10 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                                  var->bit_max == 255 ? "byte" : "word");
     }
     builder_.CreateStore(stored, var->slot);
-    if (var->uninit && scopes_.size() == var->decl_depth) {
-        // 同块直线区域赋值（t92）：块内顺序执行，后续读运行期必已过此存储，
-        // 清 uninit 放行；深层块（分支/循环体）赋值不清——运行期可能未执行，
-        // 后续读维持拒编保守安全
-        var->uninit = false;
-    }
+    // 定赋区域跟踪（t92/t110）：发射顺序即支配顺序，赋值后同区域后续读
+    // 运行期必已过此存储，无条件清；条件发射区（分支/循环体/三目臂等）
+    // 由 uninit_snapshot/restore 隔离，区内清除不外泄
+    var->uninit = false;
     // 赋值表达式的值 = 存入后的值（与解释器一致）
     last_value_ = {stored, var->type};
 }
@@ -2394,10 +2391,10 @@ void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
 void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     // 无初始化时解释器绑 none（动态哨兵值）；静态类型放行（t92 四类型，
     // t96 扩展 number/tribool/byte/word/char/character）：槽照常创建（顶层
-    // 零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit + 声明深度——
-    // uninit 期间读拒编（语义层流不敏感放行的分支内赋值后读，解释器运行期
-    // 仍是 none，零初始化槽会错值，拒编不错编），同块赋值后清；
-    // 其余类型（array/Tuple/类）维持拒编
+    // 零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit——uninit 期间
+    // 读拒编（语义层流不敏感放行的未定赋读，解释器运行期仍是 none，
+    // 零初始化槽会错值，拒编不错编），支配性定赋后清（t110 定赋区域
+    // 跟踪：if/else 全路径定赋取交集）；其余类型（Tuple）维持拒编
     if (!stmt.initializer()) {
         const TokenType tt = stmt.type().type();
         if (tt == TokenType::KW_BYTE || tt == TokenType::KW_WORD) {
@@ -2409,7 +2406,6 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Int;
             var.bit_max = tt == TokenType::KW_BYTE ? 255 : 65535;
             var.uninit = true;
-            var.decl_depth = scopes_.size();
             scopes_.back()[name] = var;
             return;
         }
@@ -2425,7 +2421,6 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.slot = create_var_slot(llvm_type_of(type), name);
             var.type = type;
             var.uninit = true;
-            var.decl_depth = scopes_.size();
             scopes_.back()[name] = var;
             return;
         }
@@ -2440,7 +2435,6 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Arr;
             var.elem = CGType::Num;
             var.uninit = true;
-            var.decl_depth = scopes_.size();
             scopes_.back()[name] = var;
             return;
         }
@@ -2456,7 +2450,6 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Obj;
             var.cls = cls_name;
             var.uninit = true;
-            var.decl_depth = scopes_.size();
             scopes_.back()[name] = var;
             return;
         }
@@ -2569,16 +2562,55 @@ void CodeGenerator::visitIf(const IfStmt& stmt) {
     auto* merge_bb = llvm::BasicBlock::Create(context_, "if.end", fn);
     builder_.CreateCondBr(cond.value, then_bb, else_bb ? else_bb : merge_bb);
 
+    // 定赋区域跟踪（t110）：分支为条件发射区，快照隔离区内 uninit 清除；
+    // 有 else 时运行期必走其一，汇合点对两分支清除集取交集（终止支
+    // 不达汇合点，不约束交集）——if/else 全路径定赋后读放行，对齐解释器
+    const auto uninit_snap = uninit_snapshot();
+    // 句柄解析：快照变量居外层作用域，分支只 push/pop 更深层，恒可寻得
+    auto snap_var = [&](const std::pair<size_t, std::string>& h) -> CGVar* {
+        auto found = scopes_[h.first].find(h.second);
+        return found == scopes_[h.first].end() ? nullptr : &found->second;
+    };
     builder_.SetInsertPoint(then_bb);
     stmt.then_branch()->accept(*this);
+    // 终止支检测：return/break/continue 后插入点被切到无前驱死块
+    //（visitReturn 等的 *.dead 块），getTerminator 恒空——补判无前驱；
+    // 非死支末块必有前驱（then/else 入口块有 CondBr 前驱）
+    auto branch_terminated = [&]() {
+        llvm::BasicBlock* bb = builder_.GetInsertBlock();
+        return bb->getTerminator() != nullptr || bb->hasNPredecessors(0);
+    };
+    const bool then_terminated = branch_terminated();
     if (!builder_.GetInsertBlock()->getTerminator()) {
         builder_.CreateBr(merge_bb);
     }
+    std::vector<bool> then_cleared(uninit_snap.size(), false);
+    for (size_t i = 0; i < uninit_snap.size(); ++i) {
+        CGVar* v = snap_var(uninit_snap[i]);
+        then_cleared[i] = v != nullptr && !v->uninit;
+    }
+    uninit_restore(uninit_snap);
     if (else_bb) {
         builder_.SetInsertPoint(else_bb);
         stmt.else_branch()->accept(*this);
+        const bool else_terminated = branch_terminated();
         if (!builder_.GetInsertBlock()->getTerminator()) {
             builder_.CreateBr(merge_bb);
+        }
+        std::vector<bool> else_cleared(uninit_snap.size(), false);
+        for (size_t i = 0; i < uninit_snap.size(); ++i) {
+            CGVar* v = snap_var(uninit_snap[i]);
+            else_cleared[i] = v != nullptr && !v->uninit;
+        }
+        uninit_restore(uninit_snap);
+        for (size_t i = 0; i < uninit_snap.size(); ++i) {
+            const bool by_then = then_terminated || then_cleared[i];
+            const bool by_else = else_terminated || else_cleared[i];
+            if (by_then && by_else) {
+                if (CGVar* v = snap_var(uninit_snap[i])) {
+                    v->uninit = false;
+                }
+            }
         }
     }
     builder_.SetInsertPoint(merge_bb);
@@ -2591,6 +2623,9 @@ void CodeGenerator::visitWhile(const WhileStmt& stmt) {
     auto* end_bb = llvm::BasicBlock::Create(context_, "while.end", fn);
     builder_.CreateBr(cond_bb);
 
+    // 条件发射区（t110）：循环条件/体回边多次、体可能零次执行，
+    // 区内 uninit 清除隔离不外泄
+    const auto uninit_snap = uninit_snapshot();
     builder_.SetInsertPoint(cond_bb);
     CGValue cond = emit(stmt.condition());
     if (cond.type != CGType::Bool) {
@@ -2606,6 +2641,7 @@ void CodeGenerator::visitWhile(const WhileStmt& stmt) {
     if (!builder_.GetInsertBlock()->getTerminator()) {
         builder_.CreateBr(cond_bb);
     }
+    uninit_restore(uninit_snap);
     builder_.SetInsertPoint(end_bb);
 }
 
@@ -2615,6 +2651,9 @@ void CodeGenerator::visitFor(const ForStmt& stmt) {
     if (stmt.initializer()) {
         stmt.initializer()->accept(*this);
     }
+    // 条件发射区（t110）：初始化语句无条件执行定赋外泄合法，
+    // 条件/体/增量区内 uninit 清除隔离
+    const auto uninit_snap = uninit_snapshot();
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
     auto* cond_bb = llvm::BasicBlock::Create(context_, "for.cond", fn);
     auto* body_bb = llvm::BasicBlock::Create(context_, "for.body", fn);
@@ -2649,6 +2688,7 @@ void CodeGenerator::visitFor(const ForStmt& stmt) {
         emit(stmt.increment()); // 值弃用
         builder_.CreateBr(cond_bb);
     }
+    uninit_restore(uninit_snap);
     builder_.SetInsertPoint(end_bb);
     scopes_.pop_back();
 }
@@ -2661,6 +2701,9 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
     auto* end_bb = llvm::BasicBlock::Create(context_, "do.end", fn);
     builder_.CreateBr(body_bb);
 
+    // 条件发射区（t110）：体内 break 可跳过体尾/条件，区内 uninit
+    // 清除隔离不外泄（体必执行一次但非全体支配，保守隔离）
+    const auto uninit_snap = uninit_snapshot();
     builder_.SetInsertPoint(body_bb);
     loops_.push_back({cond_bb, end_bb});
     stmt.body()->accept(*this);
@@ -2676,6 +2719,7 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
                     stmt.do_token().line(), stmt.do_token().column());
     }
     builder_.CreateCondBr(cond.value, body_bb, end_bb);
+    uninit_restore(uninit_snap);
     builder_.SetInsertPoint(end_bb);
 }
 
@@ -2687,6 +2731,9 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
     CGValue cond = emit(stmt.condition());
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
     auto* end_bb = llvm::BasicBlock::Create(context_, "switch.end", fn);
+    // 条件发射区（t110）：比较链候选惰性求值、各 body 互为替代路径，
+    // 区内 uninit 清除逐段隔离不外泄
+    const auto uninit_snap = uninit_snapshot();
 
     const SwitchCase* default_case = nullptr;
     struct Pending {
@@ -2716,6 +2763,7 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
         bodies.push_back({default_bb, default_case->body.get()});
     }
     builder_.CreateBr(default_bb);
+    uninit_restore(uninit_snap); // 候选链清除不流入 body（后段候选不支配前段 body）
 
     // 各 body（BlockStmt 自带作用域）执行后跳 end；body 内 break/continue
     // 维持绑定外层循环（解释器 switch 不捕获 BreakSignal，loop 栈不动）
@@ -2724,6 +2772,7 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
         if (p.body != nullptr) {
             p.body->accept(*this);
         }
+        uninit_restore(uninit_snap); // body 间互为替代路径，逐个隔离
         if (!builder_.GetInsertBlock()->getTerminator()) {
             builder_.CreateBr(end_bb);
         }
@@ -3194,6 +3243,34 @@ CodeGenerator::CGVar* CodeGenerator::lookup_var(const std::string& name) {
     return nullptr;
 }
 
+std::vector<std::pair<size_t, std::string>> CodeGenerator::uninit_snapshot() {
+    // 定赋区域跟踪（t110）：收集当前全部 uninit 变量——句柄记
+    // (scopes_ 下标, 变量名)：区内 visitBlock 可能扩容 scopes_ 重分配
+    // （MSVC unordered_map 移动非 noexcept 时元素被拷贝），裸 CGVar*
+    // 会悬垂；快照变量均居外层作用域，区内只 push/pop 更深层，
+    // 恢复点按句柄重新寻址恒命中
+    std::vector<std::pair<size_t, std::string>> snap;
+    for (size_t i = 0; i < scopes_.size(); ++i) {
+        for (auto& entry : scopes_[i]) {
+            if (entry.second.uninit) {
+                snap.emplace_back(i, entry.first);
+            }
+        }
+    }
+    return snap;
+}
+
+void CodeGenerator::uninit_restore(
+    const std::vector<std::pair<size_t, std::string>>& snap) {
+    // 条件发射区退出：区内清除的 uninit 全部恢复（运行期可能未执行）
+    for (const auto& h : snap) {
+        auto found = scopes_[h.first].find(h.second);
+        if (found != scopes_[h.first].end()) {
+            found->second.uninit = true;
+        }
+    }
+}
+
 void CodeGenerator::declare_function(const FunctionStmt& stmt,
                                      const std::string& prefix) {
     const std::string name(stmt.name().lexeme());
@@ -3577,12 +3654,16 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         llvm::Value* aligned = nullptr;  // 对齐 result_type 后的值
     };
     std::vector<Arm> arms;
+    // 条件发射区（t110）：三目臂运行期仅执行其一，臂内 uninit 清除
+    // 逐臂隔离不外泄（条件已在区前发射，其定赋外泄合法）
+    const auto uninit_snap = uninit_snapshot();
     auto eval_arm = [&](llvm::BasicBlock* bb, const Expr* e) {
         builder_.SetInsertPoint(bb);
         Arm arm;
         arm.value = emit(e);
         arm.end = builder_.GetInsertBlock();
         arms.push_back(std::move(arm));
+        uninit_restore(uninit_snap);
     };
 
     auto* then_bb = llvm::BasicBlock::Create(context_, "tern.then", fn);
@@ -4035,6 +4116,9 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
                     op.line(), op.column());
     }
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    // 条件发射区（t110）：候选惰性求值、分支结果互为替代路径，
+    // 区内 uninit 清除逐段隔离不外泄（目标已在区前发射）
+    const auto uninit_snap = uninit_snapshot();
 
     struct Arm {
         CGValue value;
@@ -4053,11 +4137,13 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
             builder_.SetInsertPoint(next_bb);
         }
         llvm::BasicBlock* chain_bb = builder_.GetInsertBlock(); // 比较链续点
+        uninit_restore(uninit_snap); // 后段候选清除不支配 body（首候选命中即可进入）
         builder_.SetInsertPoint(body_bb);
         Arm arm;
         arm.value = emit(branch.result.get());
         arm.end = builder_.GetInsertBlock();
         arms.push_back(std::move(arm));
+        uninit_restore(uninit_snap); // 臂间互为替代路径，逐个隔离
         builder_.SetInsertPoint(chain_bb);
     }
     // 全部未命中落到默认分支（比较链末端即默认块）；tribool 穷尽形式
@@ -4067,6 +4153,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         def.value = emit(expr.default_expr());
         def.end = builder_.GetInsertBlock();
         arms.push_back(std::move(def));
+        uninit_restore(uninit_snap); // 默认臂同为替代路径，隔离
     } else {
         builder_.CreateUnreachable();
     }

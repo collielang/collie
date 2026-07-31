@@ -638,6 +638,10 @@
     - 方案：register_class_layout 不再拒编无初值字段，置 CGField.uninit 标志、槽按声明类型照常布局；visitNew 对 uninit 字段跳过初值求值存 getNullValue 零值占位，并静态守卫：实例化类自身构造器体顶部前缀须以 this.f = expr（RHS 经 expr_observes_this 递归走查不含 this/base——new 期间实例未逃逸，仅此三类节点可观察本实例）覆盖全部 uninit 字段（含继承来的，不经 base 直赋即可），满足则 none 态不可观察放行，否则拒编 "not definitely assigned at start of constructor"
     - 验证：p1-p5 探针（基础面/无构造器 none 可观察拒编/继承字段子类直赋放行/print 打断前缀拒编/RHS 含 this 拒编）；新差分用例 s62_class_uninit_field（int/decimal/string/类实例/number 字段、继承面、有初值字段混入前缀重赋，11 行输出双端逐字节一致）；ctest -C Release 差分 61/61（含 s62 新增），单元 4/4，CLI 2/2
     - 范围外：none 可观察面维持拒编（无构造器/前缀被打断/RHS 含 this 读已定赋字段也保守拒编）；自引用类字段仍因未注册自然拒编；tuple 字段维持拒编；零新增 collie_rt 接口
+- [x] 无初始化变量定赋区域跟踪（t110，S45/S49/S54 范围外面，if/else 全路径定赋解锁 + 两处既有错编洞修复）
+    - 方案：t92 同块深度代理（decl_depth）删除，升级定赋区域跟踪——三处赋值路径无条件清 uninit（发射顺序即支配顺序）；八个条件发射位点（if 分支/while/for 条件体增量/do-while/switch 候选与 body/三目臂/multi-match 臂/短路 RHS）uninit_snapshot/restore 快照隔离区内清除不外泄，句柄为 scopes_ 下标+变量名（防区内 emplace_back 触发 vector 重分配致裸指针悬垂）；visitIf 汇合点两分支清除集取交集，终止支不约束交集（return/break/continue 后插入点在无前驱死块，branch_terminated 补判 hasNPredecessors(0)）
+    - 验证：p1-p7 探针（if/else 全路径定赋 IDENTICAL/无大括号单 if 与三目臂错编洞转拒编/带块单 if 与 while 体维持拒编/终止支+双 return IDENTICAL/裸块外泄+多变量 IDENTICAL）；新差分用例 s63_uninit_branches（integer/decimal/string/bool/number/array/类类型全路径定赋、嵌套 if/else、无大括号分支、裸块、终止支、交集不含面补齐后读，15 行输出双端逐字节一致）；ctest -C Release 差分 62/62（含 s63 新增），单元 4/4，CLI 2/2
+    - 范围外：单支 if/循环体/三目臂/switch body/短路 RHS 内赋值后区外读维持拒编不错编（运行期可能未经赋值，解释器 none）；零新增 collie_rt 接口
 
 ---
 
