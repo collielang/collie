@@ -51,11 +51,11 @@
 			"patterns": [
 				{
 					"name": "keyword.control.collie",
-					"match": "\\b(if|else|switch|case|default|for|while|do|break|continue|return|try|catch|finally|throw|instanceof|is|in)\\b"
+					"match": "\\b(if|else|switch|case|default|for|while|do|break|continue|return|try|catch|finally|throw|instanceof|is|i)\\b"
 				},
 				{
 					"name": "keyword.other.collie",
-					"match": "\\b(interface|enum|extends|implements|package|import|new|this|super|base|proxy)\\b"
+					"match": "\\b(class|function|void|interface|enum|extends|implements|package|import|new|this|super|extends|base|proxy)\\b"
 				},
 				{
 					"name": "storage.modifier.collie",
@@ -79,7 +79,7 @@
 				},
 				{
 					"name": "keyword.operator.comparison.collie",
-					"match": "!=|==|>=|<=|>|<"
+					"match": "==\\?|!=|==|>=|<=|>|<"
 				},
 				{
 					"name": "keyword.operator.logical.collie",
@@ -111,7 +111,7 @@
 				},
 				{
 					"name": "storage.type.primitive.collie",
-					"match": "\\[?\\b(object|none|char|character|string|number|integer|decimal|bool|tribool|bit|byte|word|dword|buffer|var)\\b\\]?|\\[(number|string)\\b"
+					"match": "\\[?\\b(object|none|char|character|string|number|integer|decimal|bool|tribool|bit|byte|word|dword|buffer|var|array|Tuple)\\b\\]?|\\[(number|string)\\b"
 				}
 			]
 		},
