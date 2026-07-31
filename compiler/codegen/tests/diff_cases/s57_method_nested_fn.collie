@@ -1,0 +1,90 @@
+// t104 S57 差分用例：类方法体内嵌套函数解锁——方法/构造器体内的
+// function 声明按 t91 改编键（<定义类>.<方法名>.<名>）登记原型，
+// visitFunction 首访生成、继承单态化副本重访跳过；嵌套体是独立函数
+// （体内 this/字段/外层局部不可见维持拒编），行为与分派类无关
+
+// 顶层函数：嵌套体内可调，且不受方法内嵌套影响
+function add100(v number) number {
+    return v + 100;
+}
+
+class Calc {
+    public number seed = 0;
+
+    public Calc(s number) {
+        // 构造器体内嵌套
+        function boost(v number) number {
+            return v * 2 + 1;
+        }
+        this.seed = boost(s);
+    }
+
+    public function twice(x number) number {
+        function d(v number) number {
+            return v * 2;
+        }
+        return d(x) + this.seed;
+    }
+
+    public function fact(n number) number {
+        // 嵌套自身递归
+        function f(v number) number {
+            if (v <= 1) {
+                return 1;
+            }
+            return v * f(v - 1);
+        }
+        return f(n);
+    }
+
+    public function combo(n number) number {
+        // 与 fact 内嵌套同名 f（改编键含方法名，互不冲突）
+        function f(v number) number {
+            return add100(v) * 10;      // 嵌套体内调顶层函数
+        }
+        function wrap(v number) number {
+            return f(v) + 1;            // 前置兄弟嵌套可见
+        }
+        return wrap(n);
+    }
+
+    public function pick(flag bool, x number) number {
+        if (flag) {
+            // 分支块内声明块内调用（所在块退出即失效）
+            function inner(v number) number {
+                return v + 7;
+            }
+            return inner(x);
+        }
+        return x;
+    }
+}
+
+class SubCalc extends Calc {
+    public SubCalc(s number) : base(s) {
+    }
+
+    // 覆写方法自带嵌套（与父类 twice 内嵌套 d 不同名不同体）
+    @override
+    public function twice(x number) number {
+        function t(v number) number {
+            return v * 3;
+        }
+        return t(x);
+    }
+}
+
+Calc c = new Calc(5);           // seed = boost(5) = 11
+print(c.twice(4));              // 8 + 11 = 19
+print(c.fact(6));               // 720
+print(c.combo(3));              // (103 * 10) + 1 = 1031
+print(c.pick(true, 10));        // 17
+print(c.pick(false, 10));       // 10
+
+SubCalc sc = new SubCalc(2);    // seed = boost(2) = 5
+print(sc.twice(4));             // 12（覆写方法内嵌套）
+print(sc.fact(4));              // 24（继承副本重访跳过，嵌套体仅生成一次）
+Calc up = sc;
+print(up.twice(6));             // 18（upcast 后分派到覆写，嵌套随之）
+print(up.combo(1));             // (101 * 10) + 1 = 1011
+print(add100(1));               // 101（顶层函数不受方法内嵌套影响）

@@ -614,6 +614,10 @@
     - 方案：五赋值触点（visitAssign(Obj)/visitVarDecl(IDENTIFIER 初始化)/visitReturn/coerce_call_arg/coerce_for_slot）放行条件从“同类或子类（upcast）”扩为“同一继承树”（双向 is_subclass_of），对齐解释器 coerce_to_declared default 分支对类不校验；跨树维持拒编。成员访问三触点（visitMethodCall 命中/未命中、visitProperty、visitPropertyAssign）定义者收集从“静态类后代”扩为“整棵继承树”（含祖先/旁支，同树判定用 nearest_common_ancestor 非空）——downcast 后槽内动态类可为树上任意类（旁支可经共同祖先中转）；t86 命中路径 switch 的 default=静态类臂改为 default=陷阱（祖先字段块更小，直走静态类臂会错值；纯 upcast 程序 default 不可达行为不变）；字段读写命中路径同样重构（多类树下静态命中直 GEP 不再安全）；单类树维持直调/直 GEP 零开销；toString 陷阱臂特判（签名 () string 且动态类无用户定义时返 "<object>" 内建兜底，对齐解释器 find_method 优先顺序；未命中路径的提前兜底同步移入 defs 判空之后，修正 t102 期树内有用户 toString 仍走内建的残余差分）
     - 验证：p1-p5 探针（初始化/赋值/实参/返回值/字段存储五触点 downcast）编译产物输出与解释器逐字节一致；p6 陷阱实证——downcast 后动态类为父类访子类字段，产物 exit 1 + stderr "runtime error: Undefined property 'breed' on object"（消息核心对齐解释器）；新差分用例 s56_downcast_members（树 Animal←Dog←Puppy + 旁支 Cat：五触点 downcast 后覆写/特有/父类成员全访问、深链 Puppy 经 Animal 中转进 Dog 槽调 rollover、旁支 Cat 进 Dog 槽分派 meow/读 name、toString 内建兜底、downcast 后再 upcast 回贴，16 行输出双端逐字节一致）；ctest -C Release 差分 55/55（含 s56 新增），单元 4/4，CLI 2/2
     - 范围外：跨树互赋维持拒编（无公共祖先，解释器虽放行但合理程序不依赖，拒编安全），旁支静态直赋（如 Cat 静态值直接赋 Dog 槽，双向判定不含，需经祖先中转）维持拒编，混合类实例数组维持拒编（t100 同类约束不动）；零新增 collie_rt 接口（复用 t102 两陷阱）
+- [x] 类方法体内嵌套函数解锁（t104，S44 残余面）
+    - 方案：register_class_methods 自身方法循环（含构造器）尾部对方法体逐语句 declare_nested_in，改编键前缀 <定义类>.<方法名>（同 t91 顶层嵌套规则，与顶层同名在语义层即拒绝——p3 预检实证遮蔽场景不存在），继承副本共享同一 FunctionStmt 仅定义类注册一次；visitFunction 嵌套路径加单态化副本重访守卫（info.fn 非空时仅登记可见性绑定即返——嵌套体是独立函数，体内 this/字段/外层局部不可见，行为与分派类无关）；生成现场保存/清空/恢复 current_this_/current_class_name_/current_defining_class_（嵌套体内 this/base 落 "'this' outside class method" 拒编不错编，不清空会跨函数引用方法 this 实参生成非法 IR）
+    - 验证：p1-p3 探针（基础嵌套/继承单态化副本三分派路径/嵌套递归+兄弟互调+调顶层）编译产物输出与解释器逐字节一致；p4 实证嵌套体内 this 维持拒编（解释器动态作用域可运行，捕获面既定差分）；新差分用例 s57_method_nested_fn（构造器内嵌套/方法内嵌套读 this.seed/嵌套递归 fact/两方法同名嵌套 f 键区分/兄弟互调+调顶层/分支块内声明/覆写方法自带嵌套/继承副本重访/upcast 后分派随覆写，10 行输出双端逐字节一致）；ctest -C Release 差分 56/56（含 s57 新增），单元 4/4，CLI 2/2
+    - 范围外：嵌套体引用 this/字段/方法形参/方法局部维持拒编（捕获面，同 t91）；subString 非整数参数活跃差分面已预检实证（p5）留待后续任务；零新增 collie_rt 接口
 
 ---
 

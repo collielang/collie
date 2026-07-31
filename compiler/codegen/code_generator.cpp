@@ -2467,7 +2467,8 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
 
 void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     // 函数体生成（第二遍，S5 t52）：原型已在第一遍建好；
-    // 嵌套函数（t91）按改编键查表，未登记的嵌套位置（类方法体内）维持拒编
+    // 嵌套函数（t91/t104）按改编键查表——函数体与类方法体内的嵌套均已
+    // 登记，未登记位置维持拒编（防御）
     const std::string name(stmt.name().lexeme());
     auto nested_it = nested_fns_.find(&stmt);
     const bool is_nested = nested_it != nested_fns_.end();
@@ -2491,6 +2492,12 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         binding.fn_key = key;
         scopes_.back()[name] = binding;
     }
+    if (is_nested && !info.fn->empty()) {
+        // 方法体单态化副本重访（t104）：同一方法体按分派类多次生成，嵌套
+        // 函数体与分派类无关（体内 this/字段/外层局部均不可见），首个副本
+        // 已生成完整函数体，重访仅需登记可见性绑定
+        return;
+    }
 
     // 保存 @main（或外层函数）生成现场，函数体用独立的变量环境/循环栈；
     // 顶层作用域拷贝为链底（t73）：全局槽（GlobalVariable）跨函数可见；
@@ -2505,6 +2512,15 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     const CGType saved_ret_type = current_ret_type_;
     const std::string saved_ret_cls = current_ret_cls_;
     const long long saved_ret_bit_max = current_ret_bit_max_;
+    // 方法体内嵌套（t104）：this 上下文清空——嵌套体是独立函数（无 this
+    // 隐藏参），体内 this/base 落 "'this' outside class method" 拒编不错编
+    // （同 t91 外层局部捕获面范围外），不清空会跨函数引用方法 this 实参
+    llvm::Value* saved_this = current_this_;
+    const std::string saved_class_name = current_class_name_;
+    const std::string saved_defining_class = current_defining_class_;
+    current_this_ = nullptr;
+    current_class_name_.clear();
+    current_defining_class_.clear();
     scopes_.clear();
     scopes_.emplace_back();
     if (!saved_scopes.empty()) {
@@ -2575,6 +2591,9 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     current_ret_type_ = saved_ret_type;
     current_ret_cls_ = saved_ret_cls;
     current_ret_bit_max_ = saved_ret_bit_max;
+    current_this_ = saved_this;
+    current_class_name_ = saved_class_name;
+    current_defining_class_ = saved_defining_class;
     scopes_ = std::move(saved_scopes);
     loops_ = std::move(saved_loops);
     builder_.SetInsertPoint(saved_bb);
@@ -3171,6 +3190,13 @@ void CodeGenerator::register_class_methods(const ClassStmt& stmt) {
                                          module_.get());
         cls.dispatch[mname] = key;
         cls.instances[key] = std::move(info);
+        // 方法体内嵌套函数原型登记（t104）：改编键 <定义类>.<方法名>.<名>
+        // （同 t91 顶层嵌套规则，用户标识符无 '.' 天然不冲突；与顶层同名
+        // 在语义层即拒绝）；继承副本共享同一 FunctionStmt，仅定义类注册
+        // 一次，函数体由 visitFunction 首访生成、单态化副本重访跳过
+        for (const auto& body_stmt : method->body()->statements()) {
+            declare_nested_in(body_stmt.get(), key);
+        }
     }
 }
 

@@ -527,7 +527,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 声明处可见性 | visitFunction 嵌套路径：nested_fns_ 查表命中即在声明处向 scopes_.back() 登记 CGVar{fn_key=改编键}（对齐解释器"执行到声明处 env_.define"——声明前调用不可见、所在块退出即失效）；生成现场 in_function_/current_ret_type_/current_ret_cls_ 保存恢复（嵌套生成完还原外层函数上下文） |
 | 嵌套体内可见集 | 链底 = 全局层拷贝 + 外层链上全部 fn_key 绑定拷入（自身递归/前置兄弟嵌套可见，对齐动态作用域"声明先于调用即可见"）；变量槽不拷——引用外层局部即标识符不可见拒编（捕获面范围外，实证：解释器 42 vs 拒编 "identifier 'captured'"） |
 | `inner()` 调用解析 | visitCall 三级顺序：内建 → 作用域链函数绑定（lookup_var fn_key 非空 → functions_[fn_key]）→ 顶层 functions_[fname]（嵌套绑定遮蔽顶层同名，对齐解释器 env 由内向外解析） |
-| 范围外 | 嵌套体引用外层局部（捕获，拒编不错编）；类方法体内嵌套函数（declare-pass 不下探方法体，维持 "nested function declaration" 拒编）；函数名作值/被赋值（"function 'f' used as a value" / "assignment to function"，非一等公民）；同外层同名嵌套（语义层 "already defined" 双端拦截非差分面）；零新增 collie_rt 接口 |
+| 范围外 | 嵌套体引用外层局部（捕获，拒编不错编）；~~类方法体内嵌套函数（declare-pass 不下探方法体，维持 "nested function declaration" 拒编）~~（t104 解锁，见下方补充）；函数名作值/被赋值（"function 'f' used as a value" / "assignment to function"，非一等公民）；同外层同名嵌套（语义层 "already defined" 双端拦截非差分面）；零新增 collie_rt 接口 |
+
+**S44 降级补充（t104 实现）：类方法体内嵌套函数**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `class C { function m() { function inner() {...} ... } }` | register_class_methods 自身方法循环（含构造器）尾部对方法体逐语句 declare_nested_in，改编键前缀 `<定义类>.<方法名>`（如 `Calc.fact.f`，符号 `collie.Calc.fact.f`，同 t91 规则；与顶层同名在语义层即拒绝）；继承副本共享同一 FunctionStmt，仅定义类注册一次 |
+| 单态化副本重访 | 同一方法体按分派类多次生成，visitFunction 嵌套路径加重访守卫：`info.fn` 非空（首个副本已生成完整函数体）时仅登记可见性绑定即返——嵌套体是独立函数，行为与分派类无关 |
+| this 上下文隔离 | visitFunction 生成现场保存/清空/恢复 current_this_/current_class_name_/current_defining_class_：嵌套体内 this/base 落 "'this' outside class method" 拒编不错编（同 t91 外层局部捕获面；不清空会跨函数引用方法 this 实参生成非法 IR，解释器动态作用域可运行为既定拒编差分） |
+| 范围外 | 嵌套体引用 this/字段/方法形参/方法局部（捕获面，拒编不错编，同 t91）；零新增 collie_rt 接口 |
 
 **S45 降级补充（t92 实现）：无初始化变量声明**：
 
