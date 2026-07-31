@@ -1,0 +1,85 @@
+// t118 S67 差分用例：实例数组单槽写同继承树互赋解锁（arr[i] = x upcast/downcast）
+// ——visitIndexAssign Obj 元素守卫（原仅放行 upcast，t100）镜像整体互赋 t115
+// 追加 downcast：is_subclass_of 任一方向放行。同树内元素类沿链前缀布局兼容：
+// d[0].field 按 object.cls（声明元素类）偏移解码、d[0].method() 按对象头类 id
+// 动态分派；兄弟类单槽写仍保守拒编不错编（本用例不含）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+
+// 1) 上溯单槽写（Animal 元素槽 ← Dog/Puppy 实例，t100 回归）
+array up = [new Animal("a0"), new Animal("a1")];
+print(up[0].describe());        // a0 says animal
+up[0] = new Dog("rex");
+print(up[0].sound());           // woof（动态分派到 Dog）
+print(up[0].name);              // rex
+up[1] = new Puppy("pip");
+print(up[1].sound());           // yip（跨两级）
+
+// 2) 下溯单槽写（Dog 元素槽 ← Animal 实例，t118 核心解锁）
+array down = [new Dog("d0")];
+print(down[0].sound());         // woof
+down[0] = new Animal("plain");
+print(down[0].sound());         // animal（动态分派到 Animal）
+print(down[0].name);            // plain（Animal 级字段偏移前缀一致）
+
+// 3) 同树链内多轮单槽写（Dog 槽 ← Puppy 上溯 ← Animal 下溯 ← Dog 回归）
+array chain = [new Dog("c0")];
+chain[0] = new Puppy("cp");
+print(chain[0].sound());        // yip
+chain[0] = new Animal("ca");
+print(chain[0].sound());        // animal
+chain[0] = new Dog("cd");
+print(chain[0].describe());     // cd says woof
+
+// 4) 引用语义：单槽写经别名可见（两变量同对象）
+array r1 = [new Animal("x")];
+array r2 = [new Dog("y")];
+r1 = r2;
+r2[0] = new Animal("z");
+print(r1[0].sound());           // animal（别名同对象）
+
+// 5) 函数内局部数组单槽写（下溯）
+function pick(flag bool) string {
+    array t = [new Dog("lo")];
+    if (flag) {
+        t[0] = new Animal("hi");
+        return t[0].sound();
+    }
+    return t[0].sound();
+}
+print(pick(true));              // animal
+print(pick(false));             // woof
+
+// 6) 整体互赋 + 单槽写混用（t115+t118 协同：先整体下溯再单槽回填上溯）
+array mix = [new Dog("m0")];
+mix = [new Animal("ma")];
+print(mix[0].sound());          // animal
+mix[0] = new Puppy("mp");
+print(mix[0].describe());       // mp says yip
+
+// 7) 循环内单槽写下溯（多轮交替，动态分派稳定）
+array loop = [new Dog("l0")];
+for (integer i = 1; i <= 3; i = i + 1) {
+    if (i % 2 == 0) {
+        loop[0] = new Animal("even");
+    } else {
+        loop[0] = new Dog("odd");
+    }
+    print(loop[0].sound());
+}
+print("END");

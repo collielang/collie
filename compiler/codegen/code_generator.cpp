@@ -1551,9 +1551,13 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         }
     }
     if (object.elem == CGType::Obj && v.type == CGType::Obj &&
-        v.cls != object.cls && !is_subclass_of(v.cls, object.cls)) {
-        // 实例数组整槽写（t100）：同类或子类 upcast 放行（同 coerce_call_arg 语义），
-        // 异类写入后按元素类解码会错值，拒编不错编
+        v.cls != object.cls && !is_subclass_of(v.cls, object.cls) &&
+        !is_subclass_of(object.cls, v.cls)) {
+        // 实例数组整槽写（t100/t118）：同类或同继承树互赋放行（镜像整体互赋
+        // t115 L1138——upcast/downcast 任一方向）。同树内元素类沿链前缀布局
+        // 兼容：d[0].field 按 object.cls（声明元素类）偏移解码，父类级字段
+        // 偏移前缀一致；d[0].method() 按对象头类 id 动态分派。兄弟类/无关类
+        //（互不为子类）特有字段偏移错位可能错值，拒编不错编
         unsupported("array element class mismatch in index assignment",
                     expr.bracket().line(), expr.bracket().column());
     }
