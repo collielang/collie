@@ -662,6 +662,10 @@
     - 方案：visitAssign Arr 分支 Obj 元素异类守卫（原 `var->elem==Obj && v.cls!=var->cls` 无条件拒）镜像标量 Obj L1145——追加 `!is_subclass_of(v.cls, var->cls) && !is_subclass_of(var->cls, v.cls)` 才拒，同继承树 upcast/downcast 放行、指针拷贝 store、var->cls 保持不变（不收敛 NCA，与标量 Obj 一致）；同树内元素类沿链前缀布局兼容，arr[i].field 按 var->cls 偏移解码（父类级字段偏移前缀一致）、方法按对象头类 id 动态分派；兄弟类/无关类（互不为子类）特有字段偏移错位可能错值，保守拒编不错编
     - 验证：p1/p2 探针（下溯 Dog 槽←Animal 数组、上溯 Animal 槽←Dog 数组均 IDENTICAL）；p3 兄弟类 Dog←Cat 保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s68_instance_array_cast（上溯/下溯/跨两级深链上溯/同树链内多轮互赋/引用别名/函数内局部槽/函数后全局槽，16 行输出双端逐字节一致）；ctest -C Release 差分 67/67（含 s68 新增），单元 4/4，CLI 2/2
     - 范围外：兄弟类/无关类整体互赋维持拒编不错编（特有字段偏移错位可能错值）；元素级整槽写 `arr[i]=x` 异类仍走 visitIndexAssign 既有守卫；零新增 collie_rt 接口
+- [x] tuple 内实例元素同继承树互赋 upcast/downcast（t116，t100 残余拒编面，S65）
+    - 方案：store_tuple_var Obj 元素守卫（原 `e.cls != var.cls` 无条件拒）镜像标量 Obj L1151 / 实例数组 t115 L1128——追加 `!is_subclass_of(e.cls, var.cls) && !is_subclass_of(var.cls, e.cls)` 才拒，同形状重赋前提下同树 upcast/downcast 放行、指针拷贝 store、槽 var.cls 保持不变（不收敛 NCA）；stored 元数据回填改保留 var.cls 而非 e.cls（与槽解码一致，load_tuple_var 恒用 var.cls——同树互赋后元数据异类会导致下游二次解码错位；标量 Obj/Arr 同规则）；同树内元素类沿链前缀布局兼容，t[i].field 按 var.cls 偏移解码、方法按对象头类 id 动态分派；兄弟类/无关类（互不为子类）特有字段偏移错位可能错值，保守拒编不错编
+    - 验证：p1/p2 探针（上溯 Animal 槽←Dog、下溯 Dog 槽←Animal 均 IDENTICAL）；p3 兄弟类 Dog←Cat 保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s69_tuple_instance_cast（上溯/下溯/跨两级深链上溯/命名 tuple 元素 .name/.get/嵌套 tuple 内元素/全局 tuple 函数内重赋/函数内局部 tuple，14 行输出双端逐字节一致）；ctest -C Release 差分 68/68（含 s69 新增），单元 4/4，CLI 2/2
+    - 范围外：换形状重赋维持拒编（t68 形状固化，S61 t112 范围外）；兄弟类/无关类元素互赋维持拒编不错编；零新增 collie_rt 接口
 
 ---
 

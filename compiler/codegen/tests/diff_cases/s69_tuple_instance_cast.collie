@@ -1,0 +1,74 @@
+// t116 S65 差分用例：tuple Obj 元素同继承树互赋解锁——镜像标量 Obj / 实例
+// 数组（t115）。store_tuple_var Obj 元素守卫（原 e.cls != var.cls 无条件拒）
+// 放行 is_subclass_of 任一方向。同形状重赋前提下，同树内元素类沿链前缀布局
+// 兼容：t[i].field 按槽声明类 var.cls 偏移解码（load_tuple_var 恒用 var.cls）、
+// 方法按对象头类 id 动态分派；var.cls 保持不变。兄弟类互赋仍保守拒编（本
+// 用例不含）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+
+// 1) 上溯：Animal 元素槽 <- Dog（同形状重赋，标量元素混入）
+Tuple up = (new Animal("a0"), 1);
+print(up[0].describe(), up[1]);   // a0 says animal 1
+up = (new Dog("rex"), 2);
+print(up[0].name, up[0].sound()); // rex woof
+print(up[0].describe(), up[1]);   // rex says woof 2
+
+// 2) 下溯：Dog 元素槽 <- Animal（仅访问 Animal 级成员）
+Tuple down = (new Dog("d0"), 0);
+print(down[0].sound());           // woof
+down = (new Animal("plain"), 9);
+print(down[0].name, down[0].sound(), down[1]); // plain animal 9
+
+// 3) 深链上溯：Animal 槽 <- Puppy（跨两级）
+Tuple deep = (new Animal("base"), true);
+deep = (new Puppy("pip"), false);
+print(deep[0].describe(), deep[1]); // pip says yip false
+
+// 4) 命名 tuple 的 Obj 元素同树互赋（.name / .get 访问）
+Tuple named = (pet: new Animal("n0"), tag: "t0");
+print(named.pet.sound(), named.tag);  // animal t0
+named = (pet: new Dog("bud"), tag: "t1");
+print(named.pet.describe(), named.get("tag")); // bud says woof t1
+
+// 5) 嵌套 tuple 内 Obj 元素同树互赋
+Tuple nest = ((new Animal("inner"), 5), "outer");
+print(nest[0][0].sound(), nest[1]);   // animal outer
+nest = ((new Puppy("np"), 6), "outer2");
+print(nest[0][0].describe(), nest[0][1], nest[1]); // np says yip 6 outer2
+
+// 6) 全局 tuple 在函数内同树重赋，跨函数可见
+Tuple g = (new Animal("g0"), 0);
+function bump() none {
+    g = (new Dog("gdog"), 1);
+}
+bump();
+print(g[0].describe(), g[1]);     // gdog says woof 1
+
+// 7) 函数内局部 tuple 同树互赋
+function local(flag bool) string {
+    Tuple lt = (new Animal("lo"), 0);
+    lt = (new Puppy("hi"), 1);
+    if (flag) {
+        return lt[0].sound();
+    }
+    return lt[0].describe();
+}
+print(local(true));               // yip
+print(local(false));              // hi says yip
+print("END");

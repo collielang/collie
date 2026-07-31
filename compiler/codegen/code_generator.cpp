@@ -4889,13 +4889,22 @@ int CodeGenerator::store_tuple_var(int var_idx, const CGValue& v,
             continue;
         }
         if (var.type == CGType::Obj) {
-            if (e.type != CGType::Obj || e.cls != var.cls) {
+            // tuple Obj 元素同继承树互赋放行（t116，镜像标量 Obj L1151 与实例
+            // 数组 t115 L1128）：同树内元素类沿链前缀布局兼容，t[i].field 按
+            // 槽声明类 var.cls 偏移解码（load_tuple_var 恒用 var.cls）、方法按
+            // 对象头类 id 动态分派；槽 var.cls 保持不变（不收敛 NCA），stored
+            // 元数据也保留 var.cls 与槽解码一致。兄弟类/无关类（互不为子类）
+            // 特有字段偏移错位可能错值，保守拒编不错编
+            if (e.type != CGType::Obj ||
+                (e.cls != var.cls &&
+                 !is_subclass_of(e.cls, var.cls) &&
+                 !is_subclass_of(var.cls, e.cls))) {
                 unsupported("assigning tuple with incompatible instance element to '" +
                                 std::string(where.lexeme()) + "'",
                             where.line(), where.column());
             }
             builder_.CreateStore(e.value, var.slot);
-            stored.elems.push_back(e);
+            stored.elems.push_back({e.value, CGType::Obj, e.elem, var.cls});
             continue;
         }
         llvm::Value* sv = coerce_for_slot(e, var.type, where);

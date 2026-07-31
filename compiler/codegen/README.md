@@ -71,6 +71,7 @@
 | S62 | do-while 体定赋外泄：体必执行一次——体内**无本层 break/continue** 时体末清除集支配循环出口，外泄（不 restore）；visitDoWhile 先调 has_loop_escape 递归扫描体（下探 block/if、不下探嵌套循环/switch——其内 break/continue 绑定内层），无逃逸则体末不 restore（嵌套 if/else 部分定赋已由 visitIf 交集处理，体末 uninit 状态即到达出口必定赋集）；含逃逸保守隔离（同 t110）；零新增 rt 接口 | do-while 体内无条件定赋后区外读、体内 if/else 全路径定赋、多变量同时外泄、嵌套 do-while、函数内局部体定赋程序编译执行，输出与解释器一致 **✅ t113** |
 | S63 | 同质 Arr/Obj 元素 tuple 非常量索引与动态键 get()：结果 CGType 恒为 Arr/Obj（静态可定），复用 t83 单数组物化 + rt kind 4/5 机制——visitIndex/visitMethodCall get() 非常量守卫放行 Arr/Obj（仍拒 Tup 无 LLVM 承载）；新增 tuple_dynamic_result helper 回填结果元数据——Arr 结果扫描各内层 elem 统一（不一致降 Num 动态域哨兵 t94 同规则）、Obj 结果扫描各 cls 取最近公共祖先（t93/t100 同规则，无公共祖先拒编不错编）供下游索引/字段/方法解码；零新增 rt 接口 | 同质数组元素 tuple 非常量索引后再索引、命名 tuple 动态键 get()、内层 elem 不一致降 Num 动态域、同质实例元素方法动态分派+类不一致取 NCA+字段读、函数内局部程序编译执行，输出与解释器一致 **✅ t114** |
 | S64 | 实例数组同继承树互赋（upcast/downcast）：visitAssign Arr 分支 Obj 元素异类守卫（原无条件拒）镜像标量 Obj 放行 `is_subclass_of` 任一方向——同树内元素类沿链前缀布局兼容，arr[i].field 按 var->cls 偏移解码（Animal 级字段偏移前缀一致），方法按对象头类 id 动态分派；var->cls 保持不变（不收敛 NCA，与标量 Obj 一致）；兄弟类（互不为子类）特有字段偏移错位可能错值，保守拒编不错编；零新增 rt 接口 | Animal 槽 ← Dog 数组上溯、Dog 槽 ← Animal 数组下溯、跨两级深链上溯、同树链内多轮互赋、引用别名、函数内局部槽、函数后全局槽程序编译执行，输出与解释器一致 **✅ t115** |
+| S65 | tuple 内实例元素同继承树互赋（同形状重赋 upcast/downcast）：store_tuple_var Obj 元素守卫（原 `e.cls != var.cls` 无条件拒）镜像标量 Obj / 实例数组（t115）放行 `is_subclass_of` 任一方向——同树内元素类沿链前缀布局兼容，t[i].field 按槽声明类 var.cls 偏移解码（load_tuple_var 恒用 var.cls）、方法按对象头类 id 动态分派；槽 var.cls 保持不变（不收敛 NCA），stored 元数据也保留 var.cls 与槽解码一致；兄弟类（互不为子类）特有字段偏移错位可能错值，保守拒编不错编；零新增 rt 接口 | Animal 元素槽 ← Dog 上溯、Dog 槽 ← Animal 下溯、跨两级深链上溯、命名 tuple 元素 .name/.get、嵌套 tuple 内元素、全局 tuple 函数内重赋、函数内局部 tuple 程序编译执行，输出与解释器一致 **✅ t116** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁（同质 Arr/Obj 元素已于 S63 t114 解锁——结果 CGType 静态可定复用单数组物化），异质 tuple 非常量索引/动态键（含 Bool/Str）/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），byte/word 类方法/构造器参数与返回已于 S52 t99 解锁——方法单签名按名解析，形参绑定点插 check_bit_range 范围陷阱（实参可为整数字面量，覆盖方法/构造器/base 全路径），返回走 t97 陷阱（方法调用结果参与 ==/!= 比较、word→byte 返回属解释器语义边界非 codegen 拒编面）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且~~同块赋值后读，分支/循环块内赋值后读仍拒编~~（S59 t110 定赋区域跟踪：if/else 全路径定赋后读已放行，单支/循环体内赋值后区外读仍拒编）（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/类类型已于 S54 t101 放行——array 建 opaque ptr 槽 + elem=Num 动态域哨兵、类类型建 Obj 槽 + cls，visitAssign Arr/Obj 分支补同块 uninit 清除，~~无初始化 Tuple 仍拒编——形状无从推断~~（S61 t112 放行——解构槽组延迟到首赋处按 RHS 形状建，换形状重赋仍拒编））；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编；类实例进数组已于 S53 t100 解锁——限同类（kind 5，复用 CGValue.cls 记元素类名），本地静态读出/字段/方法调用/整槽写同类或子类 upcast 全支持，混合类字面量/整槽写异类仍拒编，动态域（数组过签名/字段/返回值）obj 元素读出落 CG9 陷阱不错值；实例数组变量同继承树整体互赋（`a = [...]`）已于 S64 t115 解锁——visitAssign Arr 分支镜像标量 Obj 放行 upcast/downcast、var->cls 保持不变，兄弟类/无关类仍拒编不错编）。
@@ -742,6 +743,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `array a = [new Animal(..)]; a = [new Dog(..)];`（上溯：var->cls=Animal ← Dog 元素数组） | 同守卫放行；后续 arr[i].field 按 var->cls 偏移解码（Animal 级字段偏移沿链前缀一致），arr[i].method() 按对象头类 id 动态分派（覆写沿实际类生效） |
 | 深链 / 多轮互赋 | Animal 槽 ← Puppy（跨两级 is_subclass_of 真）；同树链内 Dog 槽 ← Puppy 上溯 ← Animal 下溯反复互赋，var->cls 恒为声明元素类不变 |
 | 范围外 | 兄弟类/无关类（互不为子类）整体互赋维持拒编不错编（特有字段偏移错位可能错值，实证 p3：解释器可跑而 codegen 拒编）；元素级整槽写 `arr[i]=x` 异类仍走 visitIndexAssign 既有守卫；零新增 collie_rt 接口 |
+
+**S65 降级补充（t116 实现）：tuple 内实例元素同继承树互赋（同形状重赋 upcast/downcast）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `Tuple t = (new Animal(..), 1); t = (new Dog(..), 2);`（上溯：Animal 元素槽 ← Dog） | store_tuple_var Obj 元素守卫（原 `e.cls != var.cls` 无条件拒）镜像标量 Obj L1151 / 实例数组 t115 L1128：`e.cls != var.cls && !is_subclass_of(e.cls, var.cls) && !is_subclass_of(var.cls, e.cls)` 才拒——同树 upcast/downcast 放行，指针拷贝 store，槽 var.cls 保持不变（不收敛 NCA） |
+| `Tuple d = (new Dog(..), 0); d = (new Animal(..), 9);`（下溯：Dog 元素槽 ← Animal） | 同守卫放行；后续 t[i].field 按槽声明类 var.cls 偏移解码（load_tuple_var 恒用 var.cls，Animal 级字段偏移沿链前缀一致），t[i].method() 按对象头类 id 动态分派 |
+| stored 元数据回填 | `stored.elems.push_back({e.value, CGType::Obj, e.elem, var.cls})`——保留 var.cls 而非 e.cls，与槽解码一致（避免同树互赋后元数据异类导致下游二次解码错位；标量 Obj L1161 / Arr L1144 同规则） |
+| 深链 / 命名 / 嵌套 / 全局 / 局部 | Animal 槽 ← Puppy 跨两级；命名 tuple 元素 .name/.get；嵌套 tuple 内 Obj 元素同树互赋（递归 store_tuple_var 自然覆盖）；全局 tuple 函数内同树重赋；函数内局部 tuple 同树互赋——全部同形状重赋前提 |
+| 范围外 | 换形状重赋维持拒编（t68 形状固化，S61 t112 范围外）；兄弟类/无关类（互不为子类）元素互赋维持拒编不错编（实证 p3：解释器可跑而 codegen 拒编）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 
