@@ -1,0 +1,75 @@
+// t109 S62 差分用例：类字段无初始值解锁——解释器字段先绑 none、构造器
+// 覆写；codegen 要求实例化类自身构造器体前缀以 this.f = expr（RHS 不含
+// this/base）覆盖全部 uninit 字段（含继承），none 态不可观察即放行并
+// 零值占位；前缀被打断/RHS 含 this/无构造器覆盖等面维持拒编不错编
+
+// 基础面：int/decimal/string 无初值字段 + 构造器前缀定赋
+class Point {
+    public integer x;
+    public decimal y;
+    public string tag;
+
+    public Point(px integer, py decimal) {
+        this.x = px;
+        this.y = py;
+        this.tag = "pt";
+    }
+
+    public function sum() number {
+        return this.x + this.y;
+    }
+}
+
+// 类实例/number 无初值字段：RHS 为 new/算术（不含 this）
+class Other {
+    public integer w = 5;
+}
+
+class Holder {
+    public Other o;
+    public number n;
+
+    public Holder(k integer) {
+        this.o = new Other();
+        this.n = k * 2.5;
+    }
+}
+
+// 继承面：父类 uninit 字段由子类构造器直接定赋（不经 base）；
+// 有初值字段混入前缀重赋
+class Pack {
+    public integer bv;
+
+    public function getBv() integer {
+        return this.bv;
+    }
+}
+
+class Box extends Pack {
+    public integer cv = 100;
+
+    public Box(a integer, b integer) {
+        this.bv = a;
+        this.cv = b;
+    }
+}
+
+Point p = new Point(3, 4.5);
+print(p.x);            // 3
+print(p.y);            // 4.5
+print(p.tag);          // pt
+print(p.sum());        // 7.5
+p.x = 10;
+print(p.x);            // 10
+
+Holder h = new Holder(4);
+Other ow = h.o;
+print(ow.w);           // 5
+print(h.n);            // 10
+
+Box c = new Box(7, 8);
+print(c.bv);           // 7
+print(c.cv);           // 8
+print(c.getBv());      // 7
+
+print("END");

@@ -41,6 +41,95 @@ namespace {
     return false;
 }
 
+/// 表达式是否可观察 this（t109）：new 期间实例未逃逸（尚无任何别名），
+/// 构造器前缀 RHS 仅 this/base 三类节点可触及本实例，其余递归子树
+ bool expr_observes_this(const Expr* e) {
+    if (e == nullptr) return false;
+    if (dynamic_cast<const ThisExpr*>(e) != nullptr ||
+        dynamic_cast<const BaseCallExpr*>(e) != nullptr ||
+        dynamic_cast<const BaseMethodCallExpr*>(e) != nullptr) {
+        return true;
+    }
+    if (const auto* b = dynamic_cast<const BinaryExpr*>(e)) {
+        return expr_observes_this(b->left()) || expr_observes_this(b->right());
+    }
+    if (const auto* u = dynamic_cast<const UnaryExpr*>(e)) {
+        return expr_observes_this(u->operand());
+    }
+    if (const auto* a = dynamic_cast<const AssignExpr*>(e)) {
+        return expr_observes_this(a->value());
+    }
+    if (const auto* c = dynamic_cast<const CallExpr*>(e)) {
+        if (expr_observes_this(c->callee())) return true;
+        for (const auto& arg : c->arguments()) {
+            if (expr_observes_this(arg.get())) return true;
+        }
+        return false;
+    }
+    if (const auto* tp = dynamic_cast<const TupleExpr*>(e)) {
+        for (const auto& el : tp->elements()) {
+            if (expr_observes_this(el.get())) return true;
+        }
+        return false;
+    }
+    if (const auto* t = dynamic_cast<const TernaryExpr*>(e)) {
+        return expr_observes_this(t->condition()) ||
+               expr_observes_this(t->then_expr()) ||
+               expr_observes_this(t->else_expr()) ||
+               expr_observes_this(t->unset_expr());
+    }
+    if (const auto* m = dynamic_cast<const MultiMatchExpr*>(e)) {
+        if (expr_observes_this(m->target()) ||
+            expr_observes_this(m->default_expr())) {
+            return true;
+        }
+        for (const auto& br : m->branches()) {
+            for (const auto& v : br.values) {
+                if (expr_observes_this(v.get())) return true;
+            }
+            if (expr_observes_this(br.result.get())) return true;
+        }
+        return false;
+    }
+    if (const auto* arr = dynamic_cast<const ArrayLiteralExpr*>(e)) {
+        for (const auto& el : arr->elements()) {
+            if (expr_observes_this(el.get())) return true;
+        }
+        return false;
+    }
+    if (const auto* ix = dynamic_cast<const IndexExpr*>(e)) {
+        return expr_observes_this(ix->object()) ||
+               expr_observes_this(ix->index());
+    }
+    if (const auto* ia = dynamic_cast<const IndexAssignExpr*>(e)) {
+        return expr_observes_this(ia->object()) ||
+               expr_observes_this(ia->index()) ||
+               expr_observes_this(ia->value());
+    }
+    if (const auto* mc = dynamic_cast<const MethodCallExpr*>(e)) {
+        if (expr_observes_this(mc->object())) return true;
+        for (const auto& arg : mc->arguments()) {
+            if (expr_observes_this(arg.get())) return true;
+        }
+        return false;
+    }
+    if (const auto* p = dynamic_cast<const PropertyExpr*>(e)) {
+        return expr_observes_this(p->object());
+    }
+    if (const auto* pa = dynamic_cast<const PropertyAssignExpr*>(e)) {
+        return expr_observes_this(pa->object()) ||
+               expr_observes_this(pa->value());
+    }
+    if (const auto* nw = dynamic_cast<const NewExpr*>(e)) {
+        for (const auto& arg : nw->arguments()) {
+            if (expr_observes_this(arg.get())) return true;
+        }
+        return false;
+    }
+    // Literal/Identifier 叶节点
+    return false;
+}
+
 } // namespace
 
 CodeGenerator::CodeGenerator() : builder_(context_) {}
@@ -2115,6 +2204,41 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
+    // 无初值字段守卫（t109）：解释器字段先绑 none、构造器随后覆写——仅当
+    // 实例化类自身构造器体前缀以 this.f = expr（RHS 不含 this/base，
+    // 实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）时
+    // none 态不可观察，放行并零值占位；否则拒编不错编（none 无静态表示）
+    std::vector<std::string> pending;
+    for (const CGField& field : cls.fields) {
+        if (field.uninit) pending.push_back(field.name);
+    }
+    if (!pending.empty()) {
+        auto cit = cls.dispatch.find(name);
+        if (cit != cls.dispatch.end()) {
+            const FunctionStmt* ctor_stmt = cls.instances.at(cit->second).stmt;
+            for (const auto& s : ctor_stmt->body()->statements()) {
+                const auto* es = dynamic_cast<const ExpressionStmt*>(s.get());
+                if (!es) break;
+                const auto* pa =
+                    dynamic_cast<const PropertyAssignExpr*>(es->expression());
+                if (!pa ||
+                    dynamic_cast<const ThisExpr*>(pa->object()) == nullptr ||
+                    expr_observes_this(pa->value())) {
+                    break;
+                }
+                const std::string assigned(pa->name().lexeme());
+                pending.erase(
+                    std::remove(pending.begin(), pending.end(), assigned),
+                    pending.end());
+            }
+        }
+        if (!pending.empty()) {
+            unsupported("field '" + pending.front() +
+                            "' without initializer not definitely assigned at "
+                            "start of constructor of class '" + name + "'",
+                        line, column);
+        }
+    }
     uint64_t size = 8; // i64 类 id 头部（t86）
     for (const CGField& field : cls.fields) {
         size += field.type == CGType::Num ? 16 : 8;
@@ -2126,6 +2250,14 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
                          builder_.CreateStructGEP(cls.type, obj, 0, "clsid"));
     for (unsigned i = 0; i < cls.fields.size(); ++i) {
         const CGField& field = cls.fields[i];
+        if (field.uninit) {
+            // 无初值字段（t109）：零值占位——上方前缀定赋守卫保证赋值前
+            // 不可观察，占位值任意且安全（解释器 none 同样不可观察）
+            builder_.CreateStore(
+                llvm::Constant::getNullValue(llvm_type_of(field.type)),
+                builder_.CreateStructGEP(cls.type, obj, i + 1, field.name));
+            continue;
+        }
         CGValue v = emit(field.decl->initializer());
         // 字段初始值按声明类型对齐（解释器 coerce_to_declared 等价静态检查）
         llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name(),
@@ -3212,10 +3344,12 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
             unsupported("duplicate or shadowing field '" + fname + "'",
                         field->name().line(), field->name().column());
         }
+        bool field_uninit = false;
         if (!field->initializer()) {
-            // 无初值字段解释器落 none，静态布局无对应表示（t60 范围外）
-            unsupported("class field without initializer",
-                        field->name().line(), field->name().column());
+            // 无初值字段（t109）：解释器绑 none——实例化点（visitNew）守卫
+            // 构造器前缀定赋后 none 态不可观察，槽零值占位；守卫不满足
+            // 处拒编不错编（none 无静态表示）
+            field_uninit = true;
         }
         CGType ftype;
         std::string fcls;
@@ -3246,7 +3380,7 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         // number 字段放行（t74）：StructType 按 llvm_type_of 逐字段拼装，
         // {i64,i64} 自动占位；malloc 上界在 visitNew 按字段类型累计（Num 16）
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
-        cls.fields.push_back({fname, ftype, field, fcls, fbit_max});
+        cls.fields.push_back({fname, ftype, field, fcls, fbit_max, field_uninit});
         field_types.push_back(llvm_type_of(ftype));
     }
     cls.type = llvm::StructType::create(context_, field_types,

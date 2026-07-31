@@ -634,6 +634,10 @@
     - 方案：visitMethodCall Tup+get 动态键路径新增数值系分支（机制与 t107 同源）——元素全 ∈ {Int/Double/Num}（含全 Num 同质）时逐元素 to_num 物化 tags+bits 双 int 数组，names 数组复用一份、同一键两次 rt_tuple_get 取回 make_num 拼 Num 动态值（未命中陷阱在首次 get，第二次同键必命中同槽位）；守卫重构为 homogeneous/all_numeric 双标志同 t107，无命名字段/非 Str 键守卫不变；同质 4 类保持 t84 静态路径不变
     - 验证：p1-p3 探针（int/decimal 异质命名与 Num 混入及全 Num 同质双端一致/未命中键陷阱核心消息一致/含 Str 异质维持拒编）；新差分用例 s61_tuple_getnum（变量键与拼接键/算术合流/双 tag 路径/混合命名无名槽跳过/循环动态键遍历/常量键回归，12 行输出双端逐字节一致）；ctest -C Release 差分 60/60（含 s61 新增），单元 4/4，CLI 2/2
     - 范围外：含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编；空 tuple/无命名字段/非 Str 键维持拒编；零新增 collie_rt 接口（复用 rt_tuple_get 单 i64 返回调两次）
+- [x] 类字段无初始值解锁（t109，S13 范围外面，构造器前缀定赋子集）
+    - 方案：register_class_layout 不再拒编无初值字段，置 CGField.uninit 标志、槽按声明类型照常布局；visitNew 对 uninit 字段跳过初值求值存 getNullValue 零值占位，并静态守卫：实例化类自身构造器体顶部前缀须以 this.f = expr（RHS 经 expr_observes_this 递归走查不含 this/base——new 期间实例未逃逸，仅此三类节点可观察本实例）覆盖全部 uninit 字段（含继承来的，不经 base 直赋即可），满足则 none 态不可观察放行，否则拒编 "not definitely assigned at start of constructor"
+    - 验证：p1-p5 探针（基础面/无构造器 none 可观察拒编/继承字段子类直赋放行/print 打断前缀拒编/RHS 含 this 拒编）；新差分用例 s62_class_uninit_field（int/decimal/string/类实例/number 字段、继承面、有初值字段混入前缀重赋，11 行输出双端逐字节一致）；ctest -C Release 差分 61/61（含 s62 新增），单元 4/4，CLI 2/2
+    - 范围外：none 可观察面维持拒编（无构造器/前缀被打断/RHS 含 this 读已定赋字段也保守拒编）；自引用类字段仍因未注册自然拒编；tuple 字段维持拒编；零新增 collie_rt 接口
 
 ---
 

@@ -209,7 +209,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `obj.m(args)` / `this.m(args)` | 类方法表优先命中 → `call @collie.C.m(ptr this, args...)`；未命中且 `toString()` 无参 → 固定串 `"<object>"` 兜底（分派顺序对齐解释器）；否则拒编 |
 | `print(obj)` / `toString(obj)` | 固定输出 `"<object>"`（对齐 Value::to_string Instance 分支） |
 | 赋值/三元中的实例 | 指针拷贝即引用语义；~~两侧类名不一致拒编~~（赋值收后代类 S39 t86、三元/==? 分支统一最近公共祖先 S46 t93 陆续放宽，无继承关系仍拒编） |
-| 范围外拒编 | 无初值字段（解释器落 none 无静态表示）、tuple 字段、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁；array 字段 S24 t71、实例字段 S25 t72、number 字段 S27 t74 陆续解锁；tribool 字段随 S18 tribool 支持自然放行，t74 实测确认；实例相等比较已于 S35 t82 解锁恒 false、~~实例进数组/元组仍拒编~~（同类实例进数组已于 S53 t100 解锁见 S53，进元组仍拒编）） |
+| 范围外拒编 | ~~无初值字段（解释器落 none 无静态表示）~~（构造器前缀定赋子集已于 S58 t109 解锁，none 可观察面维持拒编）、tuple 字段、`object` 声明类型、方法重载（extends/base/实例作参数返回值已于 S14 t61 解锁；array 字段 S24 t71、实例字段 S25 t72、number 字段 S27 t74 陆续解锁；tribool 字段随 S18 tribool 支持自然放行，t74 实测确认；实例相等比较已于 S35 t82 解锁恒 false、~~实例进数组/元组仍拒编~~（同类实例进数组已于 S53 t100 解锁见 S53，进元组仍拒编）） |
 
 **S14 降级补充（t61 实现）：class 二期——继承/base/实例作函数参数返回值**：
 
@@ -665,6 +665,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 同质 4 类/常量键（回归） | 保持 t84 单数组静态元素类型路径与 t68 编译期解析不变 |
 | 守卫重构 | 同 S56：homogeneous/all_numeric 双标志一次扫描，两条既有拒编消息分工保留；无命名字段/非 Str 键守卫位置与消息不变 |
 | 范围外 | 含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编；空 tuple/无命名字段/非 Str 键维持拒编；零新增 collie_rt 接口（复用 rt_tuple_get 单 i64 返回调两次） |
+
+**S58 降级补充（t109 实现）：类字段无初始值（构造器前缀定赋子集）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `class C { integer x; ... }`（字段无初值） | register_class_layout 不再拒编，置 CGField.uninit 标志，槽按声明类型照常布局；自引用类字段仍因未注册自然拒编 |
+| `new C(...)` 实例化守卫 | 实例化类自身构造器体**顶部前缀**须以 `this.f = expr` 语句（RHS 递归走查不含 this/base——new 期间实例未逃逸，仅此三类节点可观察本实例）覆盖全部 uninit 字段（含继承来的，不经 base 直赋即可），否则拒编 "not definitely assigned at start of constructor" |
+| uninit 字段初始化 | visitNew 跳过初值求值，存 `Constant::getNullValue`（null/0/{0,0}）零值占位——守卫保证赋值前不可观察，占位值任意且安全（解释器 none 同样不可观察） |
+| 有初值字段/既有面（回归） | 前缀内重赋有初值字段不破坏前缀；字段初始化→实参求值→构造器调用三段顺序不变 |
+| 范围外 | none 可观察面维持拒编：无构造器/前缀被打断（如先 print 后赋值）/RHS 含 this（读已定赋字段也保守拒编）均拒编不错编；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 
