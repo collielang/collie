@@ -1125,10 +1125,16 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
             }
             var->elem = CGType::Num;
             var->cls.clear();
-        } else if (var->elem == CGType::Obj && v.cls != var->cls) {
-            // 实例数组同类约束（t100）：元素类不同则后续 arr[i].field/method()
-            // 按旧类解码会错值，拒编不错编
-            unsupported("assigning array with different element class to '" + name + "'",
+        } else if (var->elem == CGType::Obj && v.cls != var->cls &&
+                   !is_subclass_of(v.cls, var->cls) &&
+                   !is_subclass_of(var->cls, v.cls)) {
+            // 实例数组同继承树互赋放行（t115，镜像标量 Obj upcast/downcast）：
+            // 同树内元素类沿链前缀布局兼容——Animal 级字段偏移前缀一致、
+            // arr[i].field 按 var->cls 偏移解码；子类特有字段深度访问运行期
+            // 陷阱退出不错值，方法调用按对象头类 id 动态分派。var->cls 保持
+            // 不变（不收敛 NCA，与标量 Obj L1145 一致）。兄弟类（互不为子类）
+            // 特有字段偏移错位可能错值，保守拒编不错编（t100 残余面）
+            unsupported("assigning array with incompatible element class to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
         builder_.CreateStore(v.value, var->slot);

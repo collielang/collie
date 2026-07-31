@@ -1,0 +1,75 @@
+// t115 S64 差分用例：实例数组同继承树互赋解锁——镜像标量 Obj upcast/downcast
+// （L1131 无条件拒 → 放行 is_subclass_of 任一方向）。同树内元素类沿链前缀
+// 布局兼容：Animal 级字段偏移前缀一致，arr[i].field 按 var->cls 偏移解码；
+// 方法调用按对象头类 id 动态分派。var->cls 保持不变（不收敛 NCA，与标量
+// 一致）；兄弟类互赋仍保守拒编不错编（本用例不含）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+
+// 1) 上溯：Animal 元素数组槽 <- Dog 数组（var->cls=Animal 保持）
+array up = [new Animal("a0")];
+print(up[0].describe());       // a0 says animal
+up = [new Dog("rex"), new Dog("bud")];
+print(up.length);              // 2
+print(up[0].name);             // rex
+print(up[0].sound());          // woof（动态分派到 Dog）
+print(up[1].describe());       // bud says woof
+
+// 2) 下溯：Dog 元素数组槽 <- Animal 数组（var->cls=Dog 保持，仅访问 Animal 级成员）
+array down = [new Dog("d0")];
+print(down[0].sound());        // woof
+down = [new Animal("plain")];
+print(down[0].name);           // plain（Animal 级字段偏移前缀一致）
+print(down[0].sound());        // animal（动态分派到 Animal）
+
+// 3) 深链上溯：Animal 槽 <- Puppy 数组（跨两级）
+array deep = [new Animal("base")];
+deep = [new Puppy("pip")];
+print(deep[0].describe());     // pip says yip
+
+// 4) 同树链内多轮互赋（Dog 槽 <- Puppy 上溯 <- Animal 下溯，var->cls=Dog 保持）
+array chain = [new Dog("c0")];
+chain = [new Puppy("cp")];
+print(chain[0].sound());       // yip
+chain = [new Animal("ca")];
+print(chain[0].sound());       // animal
+
+// 5) 引用语义：互赋即指针拷贝，两变量别名同一数组对象
+array r1 = [new Animal("x")];
+array r2 = [new Dog("y")];
+r1 = r2;
+r2[0] = new Dog("z");
+print(r1[0].name);             // z（引用别名：r1、r2 同对象）
+
+// 6) 函数内局部槽互赋
+function pick(flag bool) string {
+    array t = [new Animal("lo")];
+    t = [new Dog("hi")];
+    if (flag) {
+        return t[0].sound();
+    }
+    return t[0].name;
+}
+print(pick(true));             // woof
+print(pick(false));            // hi
+
+// 7) 声明在全部函数之后的全局槽互赋
+array late = [new Dog("late")];
+late = [new Puppy("latep")];
+print(late[0].sound());        // yip
+print("END");

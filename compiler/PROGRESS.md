@@ -658,6 +658,10 @@
     - 方案：结果 CGType 恒为 Arr/Obj（静态可定），复用 t83 单数组物化 + rt kind 4/5 机制——visitIndex/visitMethodCall get() 非常量守卫放行 elem==Arr/Obj（仍拒 Tup——无 LLVM 承载）；新增 tuple_dynamic_result helper 回填结果元数据——单数组物化只给 {ptr, elem}，Arr 结果扫描各内层 elem（统一回填、不一致降 Num 动态域哨兵 t94 同规则）、Obj 结果扫描各 cls（统一回填、不一致逐个 nearest_common_ancestor 合流 t93/t100 同规则，无公共祖先拒编）供下游索引/字段/方法解码
     - 验证：p1/p3/p5/p6/p7 探针（同质 string 已支持 t83 回归 IDENTICAL；同质 array/实例元素/命名 get()/内层混合降 Num 均 IDENTICAL）；p2/p4 含 Bool/Str 异质维持拒编（范围外）；新差分用例 s67_tuple_ref_index（同质数组元素索引后再索引、命名动态键 get()、内层 elem 不一致降 Num、同质实例方法动态分派+类不一致取 NCA+字段读、函数内局部，14 行输出双端逐字节一致）；ctest -C Release 差分 66/66（含 s67 新增），单元 4/4，CLI 2/2
     - 范围外：含 Bool/Str 的异质 tuple 动态访问（结果类型运行期才定，需动态标记值）；同质 Tup 元素（嵌套 tuple 无单数组承载）维持拒编；零新增 collie_rt 接口
+- [x] 实例数组同继承树互赋 upcast/downcast（t115，S53/t100 残余拒编面，S64）
+    - 方案：visitAssign Arr 分支 Obj 元素异类守卫（原 `var->elem==Obj && v.cls!=var->cls` 无条件拒）镜像标量 Obj L1145——追加 `!is_subclass_of(v.cls, var->cls) && !is_subclass_of(var->cls, v.cls)` 才拒，同继承树 upcast/downcast 放行、指针拷贝 store、var->cls 保持不变（不收敛 NCA，与标量 Obj 一致）；同树内元素类沿链前缀布局兼容，arr[i].field 按 var->cls 偏移解码（父类级字段偏移前缀一致）、方法按对象头类 id 动态分派；兄弟类/无关类（互不为子类）特有字段偏移错位可能错值，保守拒编不错编
+    - 验证：p1/p2 探针（下溯 Dog 槽←Animal 数组、上溯 Animal 槽←Dog 数组均 IDENTICAL）；p3 兄弟类 Dog←Cat 保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s68_instance_array_cast（上溯/下溯/跨两级深链上溯/同树链内多轮互赋/引用别名/函数内局部槽/函数后全局槽，16 行输出双端逐字节一致）；ctest -C Release 差分 67/67（含 s68 新增），单元 4/4，CLI 2/2
+    - 范围外：兄弟类/无关类整体互赋维持拒编不错编（特有字段偏移错位可能错值）；元素级整槽写 `arr[i]=x` 异类仍走 visitIndexAssign 既有守卫；零新增 collie_rt 接口
 
 ---
 
