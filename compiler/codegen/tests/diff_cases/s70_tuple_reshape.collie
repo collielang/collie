@@ -1,0 +1,71 @@
+// t117 S66 差分用例：tuple 换形状重赋解锁——重建解构槽组 + 条件发射区/
+// 全局跨函数双守卫。解释器整值替换动态换形状（visitAssign 无形状检查），
+// codegen 原 store_tuple_var 形状守卫无条件拒；现 visitAssign Tup 分支先
+// tuple_shape_matches 递归同形判定，不一致则重建槽组（create_tuple_var
+// 递归建子槽，嵌套换形状一并解决），旧槽组成死存储。两守卫拒编不错编：
+// 条件发射区内（cond_depth_ > 0，8 个条件发射区配 CondDepthGuard RAII）
+// 与全局槽组跨函数（fn_gen_at 同 t106 规则）——本用例只含放行路径。
+
+// 1) 顶层直线换形状重赋（扩容/缩容/整值打印）
+Tuple t = (1, 2);
+print(t.length, t[0]);        // 2 1
+t = (1, 2, 3);
+print(t.length, t[0], t[2]);  // 3 1 3
+t = (9, 8);
+print(t.length, t[1]);        // 2 8
+print(t);                     // (9, 8)
+
+// 2) 函数内局部 tuple 换形状重赋（混型 + 单命名元素）
+function f() none {
+    Tuple ft = (1, "a");
+    print(ft.length, ft[0]);        // 2 1
+    ft = (true, "b", 3.5);
+    print(ft.length, ft[0], ft[2]); // 3 true 3.5
+    ft = (solo: "only");
+    print(ft.length, ft.solo);      // 1 only
+}
+f();
+
+// 3) 嵌套 tuple 换形状重赋（内层扩容）
+Tuple n = ((1, 2), "x");
+print(n[0][1], n[1]);         // 2 x
+n = ((1, 2, 3), "y");
+print(n[0][2], n[1]);         // 3 y
+
+// 4) 命名 tuple 换形状重赋（名字表变化）
+Tuple p = (a: 1, b: "x");
+print(p.a, p.b);              // 1 x
+p = (a: 2, b: "y", c: true);
+print(p.a, p.c, p.length);    // 2 true 3
+p = (a: 5);
+print(p.a, p.length);         // 5 1
+
+// 5) 与 t 无关的条件区后换形状重赋（直线放行，验证 cond_depth 精确性）
+Tuple q = (1, 2);
+bool c = true;
+if (c) {
+    print("branch");
+}
+q = (1, 2, 3);
+print(q.length, q[0]);        // 3 1
+
+// 6) 全局 tuple 声明后函数体生成前换形状，函数内按新形状读
+Tuple g = (1, 2);
+g = (1, 2, 3);
+function readG() none {
+    print(g.length, g[0]);    // 3 1
+}
+readG();
+
+// 7) 无初始化 Tuple 首赋后换形状重赋（t112 + t117 同路径）
+Tuple u;
+u = (1, 2);
+u = (1, 2, 3);
+print(u.length, u[0], u[2]);  // 3 1 3
+
+// 8) 多轮换形状后元素级读写/索引仍正确
+Tuple m = ("x", 0);
+m = ("y", 1, true);
+m = ("z", 2, false, 7.5);
+print(m.length, m[0], m[2], m[3]);  // 4 z false 7.5
+print("END");

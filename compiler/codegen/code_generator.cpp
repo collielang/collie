@@ -23,6 +23,14 @@ namespace collie {
 
 namespace {
 
+/// 条件发射区深度 RAII（t117）：构造 +1 析构 -1（C++ 栈帧作用域即区内发射
+/// 作用域——区末汇合/PHI 无用户语句发射，析构时机恒等于区退出）
+struct CondDepthGuard {
+    int& depth;
+    explicit CondDepthGuard(int& d) : depth(d) { ++depth; }
+    ~CondDepthGuard() { --depth; }
+};
+
 /// 块是否从函数 entry 可达（S5 t52）：return/break 后的 dead 块会被
 /// 外层控制流补 br 挂到后续块上，单看前驱数会误判可达，须从 entry 遍历
  bool reachable_from_entry(llvm::BasicBlock* target) {
@@ -1019,6 +1027,7 @@ void CodeGenerator::gen_logical(const BinaryExpr& expr) {
 
     // 条件发射区（t110）：短路右侧运行期可能不执行，区内 uninit 清除隔离
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     builder_.SetInsertPoint(rhs_bb);
     CGValue rhs = emit(expr.right());
     if (rhs.type != CGType::Bool && rhs.type != CGType::Tri) {
@@ -1164,8 +1173,8 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     if (var->type == CGType::Tup) {
         if (var->tup < 0) {
             // 无初始化 Tuple 首赋（t112）：按 RHS 形状建解构槽组，形状自此
-            // 固化（异形重赋走下方 store_tuple_var 既有拒编）；条件发射区
-            // 内首赋后区外读仍由 uninit 快照恢复拒编（槽组已建但不可读）
+            // 固化（异形重赋走下方换形状重建路径 t117）；条件发射区内首赋
+            // 后区外读仍由 uninit 快照恢复拒编（槽组已建但不可读）
             if (v.type != CGType::Tup) {
                 unsupported("assigning non-tuple value to tuple variable '" +
                                 name + "'",
@@ -1176,7 +1185,40 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
             last_value_ = {nullptr, CGType::Tup, CGType::Int, "", v.tup};
             return;
         }
-        // tuple 变量重赋值（t68）：同形状逐槽写（形状不同拒编不错编）
+        // tuple 变量重赋值（t68）：同形状逐槽写；换形状重建槽组（t117）
+        if (v.type != CGType::Tup) {
+            unsupported("assigning non-tuple value to tuple variable '" +
+                            name + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        if (!tuple_shape_matches(var->tup, v.tup)) {
+            // 换形状重赋（t117，解释器整值替换动态换形状）：重建解构槽组
+            //（create_tuple_var 递归建全部子槽，嵌套换形状一并解决），旧槽组
+            // 成死存储不影响运行期输出。两守卫拒编不错编：① 条件发射区内
+            //（分支/循环体/三目臂等，cond_depth_ > 0）——区外读按生成时形状
+            // 解码，区内换形状后形状运行期才定；② 全局槽组跨函数——函数体
+            // 链底快照旧槽组（t76），函数内换形状/声明后已有函数体（t106
+            // fn_gen_at 同规则）均不回溯，重建新全局符号后旧函数体按旧槽组
+            // 解码错值。循环回边无需单独守卫：循环体即条件发射区，且重建
+            // 是新槽组、旧读旧槽互不污染（与 Arr 共享单 ptr 槽不同）
+            if (cond_depth_ > 0) {
+                unsupported("assigning tuple of different shape to '" + name +
+                                "' inside a conditional region",
+                            expr.name().line(), expr.name().column());
+            }
+            if (has_global_slot(var->tup) &&
+                (in_function_ || fn_gen_count_ != var->fn_gen_at)) {
+                unsupported("assigning tuple of different shape to global '" +
+                                name + "' across functions",
+                            expr.name().line(), expr.name().column());
+            }
+            var->tup = create_tuple_var(
+                tuple_values_[v.tup],
+                name + "#" + std::to_string(tuple_rebuild_seq_++));
+            var->uninit = false;
+            last_value_ = {nullptr, CGType::Tup, CGType::Int, "", v.tup};
+            return;
+        }
         int idx = store_tuple_var(var->tup, v, expr.name());
         // 无初始化 Tuple 条件区内首赋后区外同形重赋清 uninit 放行后续读
         // （t112，t110 定赋区域跟踪：条件发射区已快照隔离，此处无条件清）
@@ -2497,6 +2539,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             CGVar var;
             var.type = CGType::Tup;
             var.uninit = true;
+            var.fn_gen_at = fn_gen_count_; // 换形状全局守卫基准（t117）
             scopes_.back()[name] = var;
             return;
         }
@@ -2561,7 +2604,9 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         }
         const std::string name(stmt.name().lexeme());
         int idx = create_tuple_var(tuple_values_[init.tup], name);
-        scopes_.back()[name] = {nullptr, CGType::Tup, CGType::Int, "", idx};
+        CGVar var{nullptr, CGType::Tup, CGType::Int, "", idx};
+        var.fn_gen_at = fn_gen_count_; // 换形状全局守卫基准（t117）
+        scopes_.back()[name] = var;
         return;
     }
     if (type == CGType::Arr) {
@@ -2613,6 +2658,7 @@ void CodeGenerator::visitIf(const IfStmt& stmt) {
     // 有 else 时运行期必走其一，汇合点对两分支清除集取交集（终止支
     // 不达汇合点，不约束交集）——if/else 全路径定赋后读放行，对齐解释器
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     // 句柄解析：快照变量居外层作用域，分支只 push/pop 更深层，恒可寻得
     auto snap_var = [&](const std::pair<size_t, std::string>& h) -> CGVar* {
         auto found = scopes_[h.first].find(h.second);
@@ -2673,6 +2719,7 @@ void CodeGenerator::visitWhile(const WhileStmt& stmt) {
     // 条件发射区（t110）：循环条件/体回边多次、体可能零次执行，
     // 区内 uninit 清除隔离不外泄
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     builder_.SetInsertPoint(cond_bb);
     CGValue cond = emit(stmt.condition());
     if (cond.type != CGType::Bool) {
@@ -2701,6 +2748,7 @@ void CodeGenerator::visitFor(const ForStmt& stmt) {
     // 条件发射区（t110）：初始化语句无条件执行定赋外泄合法，
     // 条件/体/增量区内 uninit 清除隔离
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
     auto* cond_bb = llvm::BasicBlock::Create(context_, "for.cond", fn);
     auto* body_bb = llvm::BasicBlock::Create(context_, "for.body", fn);
@@ -2755,6 +2803,7 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
     // 可安全外泄（t113：不 restore，体末清除集即到达出口必定赋集）
     const bool body_escapes = has_loop_escape(stmt.body());
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     builder_.SetInsertPoint(body_bb);
     loops_.push_back({cond_bb, end_bb});
     stmt.body()->accept(*this);
@@ -2787,6 +2836,7 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
     // 条件发射区（t110）：比较链候选惰性求值、各 body 互为替代路径，
     // 区内 uninit 清除逐段隔离不外泄
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
 
     const SwitchCase* default_case = nullptr;
     struct Pending {
@@ -3765,6 +3815,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     // 条件发射区（t110）：三目臂运行期仅执行其一，臂内 uninit 清除
     // 逐臂隔离不外泄（条件已在区前发射，其定赋外泄合法）
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     auto eval_arm = [&](llvm::BasicBlock* bb, const Expr* e) {
         builder_.SetInsertPoint(bb);
         Arm arm;
@@ -4227,6 +4278,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     // 条件发射区（t110）：候选惰性求值、分支结果互为替代路径，
     // 区内 uninit 清除逐段隔离不外泄（目标已在区前发射）
     const auto uninit_snap = uninit_snapshot();
+    CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
 
     struct Arm {
         CGValue value;
@@ -4848,6 +4900,46 @@ CodeGenerator::CGValue CodeGenerator::load_tuple_var(int var_idx,
         }
     }
     return {nullptr, CGType::Tup, CGType::Int, "", register_tuple(std::move(t))};
+}
+
+bool CodeGenerator::tuple_shape_matches(int var_idx, int val_idx) const {
+    // 同形状判定（t117）：元素数+名字表逐层一致，嵌套 Tup 元素递归
+    //（visitAssign Tup 分支换形状重建前的守卫；一致才走 store_tuple_var
+    // 逐槽写，其内同名守卫保持防御）
+    const CGTupleVar& tv = tuple_vars_[var_idx];
+    const CGTuple& t = tuple_values_[val_idx];
+    if (tv.slots.size() != t.elems.size() || tv.names != t.names) {
+        return false;
+    }
+    for (size_t i = 0; i < t.elems.size(); ++i) {
+        const CGVar& var = tv.slots[i];
+        const CGValue& e = t.elems[i];
+        if (var.type == CGType::Tup || e.type == CGType::Tup) {
+            if (var.type != CGType::Tup || e.type != CGType::Tup) {
+                return false;
+            }
+            if (!tuple_shape_matches(var.tup, e.tup)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool CodeGenerator::has_global_slot(int var_idx) const {
+    // 槽组含全局槽判定（t117）：顶层槽组整体升 GlobalVariable（t76），
+    // 递归查嵌套子槽组任一 GlobalVariable 即真
+    for (const CGVar& var : tuple_vars_[var_idx].slots) {
+        if (var.type == CGType::Tup) {
+            if (has_global_slot(var.tup)) {
+                return true;
+            }
+        } else if (var.slot != nullptr &&
+                   llvm::isa<llvm::GlobalVariable>(var.slot)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int CodeGenerator::store_tuple_var(int var_idx, const CGValue& v,

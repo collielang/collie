@@ -666,6 +666,10 @@
     - 方案：store_tuple_var Obj 元素守卫（原 `e.cls != var.cls` 无条件拒）镜像标量 Obj L1151 / 实例数组 t115 L1128——追加 `!is_subclass_of(e.cls, var.cls) && !is_subclass_of(var.cls, e.cls)` 才拒，同形状重赋前提下同树 upcast/downcast 放行、指针拷贝 store、槽 var.cls 保持不变（不收敛 NCA）；stored 元数据回填改保留 var.cls 而非 e.cls（与槽解码一致，load_tuple_var 恒用 var.cls——同树互赋后元数据异类会导致下游二次解码错位；标量 Obj/Arr 同规则）；同树内元素类沿链前缀布局兼容，t[i].field 按 var.cls 偏移解码、方法按对象头类 id 动态分派；兄弟类/无关类（互不为子类）特有字段偏移错位可能错值，保守拒编不错编
     - 验证：p1/p2 探针（上溯 Animal 槽←Dog、下溯 Dog 槽←Animal 均 IDENTICAL）；p3 兄弟类 Dog←Cat 保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s69_tuple_instance_cast（上溯/下溯/跨两级深链上溯/命名 tuple 元素 .name/.get/嵌套 tuple 内元素/全局 tuple 函数内重赋/函数内局部 tuple，14 行输出双端逐字节一致）；ctest -C Release 差分 68/68（含 s69 新增），单元 4/4，CLI 2/2
     - 范围外：换形状重赋维持拒编（t68 形状固化，S61 t112 范围外）；兄弟类/无关类元素互赋维持拒编不错编；零新增 collie_rt 接口
+- [x] tuple 变量换形状重赋（t117，t68/t112 残余拒编面，S66）
+    - 方案：visitAssign Tup 分支同形状重赋（t68 逐槽写）外新增换形状路径——tuple_shape_matches 递归同形判定（元素数+名字表逐层一致、嵌套递归，元素类型不参与，同树 Obj 元素类名互赋 t116 不参与判定），不一致则 create_tuple_var 重建槽组（递归建全部子槽、嵌套换形状一并解决，旧槽组成死存储不影响运行期输出），槽组名追加 "#N"（tuple_rebuild_seq_ 递增）防全局符号同名冲突（verifyModule 失败）；双守卫拒编不错编：① 8 个条件发射区（t110 位点，新 CondDepthGuard RAII 构造+1 析构-1 跟踪 cond_depth_——C++ 栈帧作用域即区内发射作用域）内换形状拒编——区外读可能按新形状解码旧槽组错值；② 全局槽组跨函数（has_global_slot 递归查嵌套子槽组任一 GlobalVariable + fn_gen_at 基准，t106 同规则）拒编——函数体链底快照旧槽组不回溯；循环回边无需单独守卫（与 t106 不同）：循环体即条件发射区（已拒），且重建是新槽组、旧读旧槽互不污染（与 Arr 共享单 ptr 槽不同）；visitVarDecl 两处 Tup 声明（无初始化/有初始化）补 fn_gen_at 作守卫基准；零新增 collie_rt 接口
+    - 验证：p1/p2/p5/p6/p7 探针（顶层直线扩容/缩容/整值打印、函数内局部混型+单命名元素、嵌套内层扩容、命名名字表变化、与 t 无关条件区后换形状——cond_depth 精确性实证均 IDENTICAL）；p3 条件发射区内换形状拒编（"inside a conditional region"）、p4 全局槽组函数内换形状拒编（"across functions"）——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s70_tuple_reshape（顶层直线扩容/缩容/整值打印、函数内局部混型+单命名元素、嵌套内层扩容、命名名字表变化、与 t 无关条件区后换形状、全局 tuple 声明后函数体生成前换形状函数内按新形状读、无初始化 Tuple 首赋后换形状、多轮换形状，20 行输出双端逐字节一致）；ctest -C Release 差分 69/69（含 s70 新增），单元 4/4，CLI 2/2
+    - 范围外：条件发射区内换形状（区外读可能按新形状解码旧槽组错值）与全局槽组跨函数换形状（函数体链底快照旧槽组不回溯）维持拒编不错编；零新增 collie_rt 接口
 
 ---
 

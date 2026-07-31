@@ -293,6 +293,16 @@ private:
                          llvm::BasicBlock* merge_bb, const char* what,
                          size_t line, size_t column);
 
+    /// @brief tuple 变量同形状判定（t117）：var_idx 槽组与 val_idx 展开值
+    /// 元素数+名字表递归一致（嵌套 Tup 元素递归）——一致走逐槽写，
+    /// 不一致即换形状重赋（重建槽组）
+    bool tuple_shape_matches(int var_idx, int val_idx) const;
+
+    /// @brief tuple 槽组是否含全局槽（t117）：顶层槽组升 GlobalVariable（t76），
+    /// 换形状重建会新建全局符号——函数体链底快照旧槽组不回溯，递归查含
+    /// GlobalVariable 任一子槽即真（嵌套递归）
+    bool has_global_slot(int var_idx) const;
+
     /// @brief 顶层函数建原型（第一遍，S5 t52）：同名重载拒编；none 返回降 void；
     /// prefix 非空即嵌套函数（t91）：注册键/符号名改编为 prefix.name（用户
     /// 标识符无 '.'，与顶层名天然不冲突），并递归下探函数体登记更深嵌套
@@ -496,6 +506,11 @@ private:
     /// tuple 静态展开注册表（t68）：CGValue/CGVar 以 tup 下标引用（只增不删）
     std::vector<CGTuple> tuple_values_;
     std::vector<CGTupleVar> tuple_vars_;
+    /// tuple 换形状重建序号（t117）：create_tuple_var 顶层槽组名 "name.N" 升
+    /// 全局后重建会同名符号冲突（verifyModule 失败），重建槽组名追加序号
+    /// 后缀唯一化（alloca 重名由 LLVM 自动改号，全局不自动）；旧槽组成
+    /// 死存储不影响运行期输出
+    int tuple_rebuild_seq_ = 0;
     /// 循环上下文栈：break/continue 查最内层跳转目标（S4 t51）
     std::vector<LoopContext> loops_;
     /// 顶层函数表（S5 t52）：名字 → 原型；第一遍填充，递归/前向调用天然可用
@@ -517,6 +532,11 @@ private:
     /// 全局槽静态 elem，全局数组槽异型互赋降级不回溯已生成代码——
     /// 声明后计数增长即拒编（CGVar.fn_gen_at 对比）
     size_t fn_gen_count_ = 0;
+    /// 条件发射区深度（t117）：uninit_snapshot 各调用点配 CondDepthGuard RAII
+    /// 自增自减（C++ 栈帧作用域 == 区内发射作用域，区末无用户语句发射）——
+    /// tuple 换形状重赋在区内的形状运行期才定，区外读按生成时形状解码
+    /// 错值，区内换形状拒编不错编；嵌套区经调用栈自然累加
+    int cond_depth_ = 0;
     /// 当前函数的返回类型（visitReturn 校验/提升用；Void 即 none）
     CGType current_ret_type_ = CGType::Void;
     /// 返回类型为 Obj 时的类名（t61）：visitReturn 严格同类校验用
