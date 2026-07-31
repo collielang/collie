@@ -654,6 +654,10 @@
     - 方案：do-while 体必执行一次——体末无条件定赋线性支配 cond→end（body_bb 无旁路进 cond_bb），visitDoWhile 体后**不** uninit_restore，体末清除集（到达出口必定赋集）外泄放行区外读；新增 has_loop_escape 递归 helper 扫描体内本层 break/continue（下探 block/if，不下探嵌套 while/for/do-while/switch——其内 break/continue 绑定内层），含逃逸时保守隔离（restore）；体内 if/else 全路径定赋由 visitIf 汇合交集（t110）+ 体必执行一次双重保证
     - 验证：p1/p2/p3 探针（体内无条件定赋后区外读 IDENTICAL；含 break 保守拒编——解释器可跑出值而 codegen 拒编，拒编不错编；体内 if/else 全路径定赋 IDENTICAL）；新差分用例 s66_dowhile_definite（基础面/体内 if-else 全路径定赋/多变量同时外泄/嵌套 do-while/函数内局部 do-while 体定赋，7 行输出双端逐字节一致）；ctest -C Release 差分 65/65（含 s66 新增），单元 4/4，CLI 2/2
     - 范围外：体含本层 break/continue 时保守隔离维持拒编不错编；while/for 体（可零次执行）维持拒编；零新增 collie_rt 接口
+- [x] 同质 Arr/Obj 元素 tuple 非常量索引与动态键 get()（t114，S56/S57 范围外拒编面，S63）
+    - 方案：结果 CGType 恒为 Arr/Obj（静态可定），复用 t83 单数组物化 + rt kind 4/5 机制——visitIndex/visitMethodCall get() 非常量守卫放行 elem==Arr/Obj（仍拒 Tup——无 LLVM 承载）；新增 tuple_dynamic_result helper 回填结果元数据——单数组物化只给 {ptr, elem}，Arr 结果扫描各内层 elem（统一回填、不一致降 Num 动态域哨兵 t94 同规则）、Obj 结果扫描各 cls（统一回填、不一致逐个 nearest_common_ancestor 合流 t93/t100 同规则，无公共祖先拒编）供下游索引/字段/方法解码
+    - 验证：p1/p3/p5/p6/p7 探针（同质 string 已支持 t83 回归 IDENTICAL；同质 array/实例元素/命名 get()/内层混合降 Num 均 IDENTICAL）；p2/p4 含 Bool/Str 异质维持拒编（范围外）；新差分用例 s67_tuple_ref_index（同质数组元素索引后再索引、命名动态键 get()、内层 elem 不一致降 Num、同质实例方法动态分派+类不一致取 NCA+字段读、函数内局部，14 行输出双端逐字节一致）；ctest -C Release 差分 66/66（含 s67 新增），单元 4/4，CLI 2/2
+    - 范围外：含 Bool/Str 的异质 tuple 动态访问（结果类型运行期才定，需动态标记值）；同质 Tup 元素（嵌套 tuple 无单数组承载）维持拒编；零新增 collie_rt 接口
 
 ---
 

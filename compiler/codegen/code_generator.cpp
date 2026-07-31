@@ -1321,7 +1321,11 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
             if (!is_numeric(e.type)) all_numeric = false;
         }
         if (homogeneous && elem != CGType::Int && elem != CGType::Double &&
-            elem != CGType::Bool && elem != CGType::Str && !all_numeric) {
+            elem != CGType::Bool && elem != CGType::Str &&
+            elem != CGType::Arr && elem != CGType::Obj && !all_numeric) {
+            // 同质 Arr/Obj 元素（t114）：结果 CGType 静态可定（恒为 Arr/Obj），
+            // 走下方单数组物化路径 + tuple_dynamic_result 回填内层 elem/cls；
+            // 同质嵌套 Tuple（无 LLVM 承载）等其余类型仍拒编不错编
             unsupported("non-constant tuple index on this element type",
                         expr.bracket().line(), expr.bracket().column());
         }
@@ -1374,7 +1378,8 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         }
         llvm::Value* bits =
             builder_.CreateCall(rt_arr_get_, {arr, index.value}, "tupget");
-        last_value_ = {bits_to_elem(bits, elem), elem};
+        last_value_ = tuple_dynamic_result(bits, elem, t, expr.bracket().line(),
+                                           expr.bracket().column());
         return;
     }
     if (object.type != CGType::Str && object.type != CGType::Arr) {
@@ -1788,7 +1793,10 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             if (!is_numeric(e.type)) all_numeric = false;
         }
         if (homogeneous && elem != CGType::Int && elem != CGType::Double &&
-            elem != CGType::Bool && elem != CGType::Str && !all_numeric) {
+            elem != CGType::Bool && elem != CGType::Str &&
+            elem != CGType::Arr && elem != CGType::Obj && !all_numeric) {
+            // 同质 Arr/Obj 元素（t114，同 visitIndex）：结果静态可定，走下方
+            // 单数组物化路径 + tuple_dynamic_result 回填；同质嵌套 Tuple 仍拒编
             unsupported("non-constant tuple get() on this element type", line, column);
         }
         if (!homogeneous && !all_numeric) {
@@ -1858,7 +1866,7 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         }
         llvm::Value* bits =
             builder_.CreateCall(rt_tuple_get_, {names, vals, key_val.value}, "tupget");
-        last_value_ = {bits_to_elem(bits, elem), elem};
+        last_value_ = tuple_dynamic_result(bits, elem, t, line, column);
         return;
     }
 
@@ -4698,6 +4706,39 @@ llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
             return builder_.CreateIntToPtr(bits, llvm::PointerType::getUnqual(context_), "elemtmp");
         default:             unsupported("array element type", 0, 0);
     }
+}
+
+CodeGenerator::CGValue CodeGenerator::tuple_dynamic_result(
+    llvm::Value* bits, CGType elem, const CGTuple& t, size_t line, size_t column) {
+    // t114：同质 Arr/Obj 元素 tuple 非常量索引/get 结果回填。单数组物化
+    // 路径只给出 {ptr, elem}，Arr 结果需内层 elem、Obj 结果需 cls 才能供下游
+    // 索引/字段/方法调用解码。元素均为静态展开值，编译期扫描各内层
+    // 元数据即可得统一型（与 t100 数组/t93 合流同规则）
+    CGValue r{bits_to_elem(bits, elem), elem};
+    if (elem == CGType::Arr) {
+        CGType inner = t.elems.front().elem;
+        for (const auto& e : t.elems) {
+            if (e.elem != inner) {
+                inner = CGType::Num; // 内层 elem 不一致降动态域哨兵（t94）
+                break;
+            }
+        }
+        r.elem = inner;
+    } else if (elem == CGType::Obj) {
+        std::string cls = t.elems.front().cls;
+        for (size_t i = 1; i < t.elems.size(); ++i) {
+            if (t.elems[i].cls != cls) {
+                cls = nearest_common_ancestor(cls, t.elems[i].cls);
+                if (cls.empty()) {
+                    unsupported("non-constant tuple access on incompatible "
+                                "instance elements",
+                                line, column);
+                }
+            }
+        }
+        r.cls = cls; // 最近公共祖先（t93/t100）；方法按对象头类 id 动态分派
+    }
+    return r;
 }
 
 int CodeGenerator::arr_kind_of(CGType elem) {

@@ -395,6 +395,14 @@ private:
     /// @brief 8 字节槽位模式 i64 → 数组元素值（t59，elem_to_bits 的逆变换）
     llvm::Value* bits_to_elem(llvm::Value* bits, CGType elem);
 
+    /// @brief 同质 Arr/Obj 元素 tuple 动态访问结果元数据回填（t114）：单数组
+    /// 物化读回的 bits 经 bits_to_elem 还原后，结果 CGType 恒为 elem，但 Arr
+    /// 需回填统一内层 elem、Obj 需回填统一 cls 供下游索引/成员访问。内层 elem
+    /// 不一致降 Num 动态域哨兵（t94 同规则）；类不一致取最近公共祖先（t93/t100
+    /// 同规则），无公共祖先拒编不错编
+    CGValue tuple_dynamic_result(llvm::Value* bits, CGType elem, const CGTuple& t,
+                                 size_t line, size_t column);
+
     /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
     int arr_kind_of(CGType elem);
 

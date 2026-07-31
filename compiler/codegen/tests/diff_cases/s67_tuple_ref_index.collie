@@ -1,0 +1,62 @@
+// s67: 同质 Arr/Obj 元素 tuple 非常量索引与动态键 get()（t114 差分用例）
+// 结果 CGType 静态可定（恒为 Arr/Obj），复用 t83 单数组物化 + kind 4/5 rt
+// 机制；内层 elem 不一致降 Num 动态域、类不一致取最近公共祖先
+
+// 基础面：同质数组元素 tuple 非常量索引 → 结果为数组，再索引
+array a = [1, 2];
+array b = [3, 4];
+array c = [5, 6];
+Tuple t = (a, b, c);
+integer i = 1;
+print(t[i]);
+print(t[i][0]);
+print(t[i - 1][1]);
+
+// 命名 tuple 同质数组元素动态键 get()
+Tuple nm = (lo: a, hi: c);
+string k = "hi";
+print(nm.get(k));
+print(nm.get(k)[1]);
+
+// 内层 elem 不一致 → 结果 elem 降 Num 动态域（print/int 索引仍可）
+array ints = [10, 20];
+array strs = ["p", "q"];
+Tuple mix = (ints, strs);
+integer j = 0;
+print(mix[j]);
+print(mix[j + 1]);
+print(mix[j][1]);
+
+// 同质实例元素 tuple 非常量索引 → 方法动态分派 + 类不一致取 NCA
+class Animal {
+    string name = "";
+    public Animal(n string) { this.name = n; }
+    public function speak() string { return "..."; }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    public function speak() string { return "woof"; }
+}
+class Cat extends Animal {
+    public Cat(n string) : base(n) { }
+    public function speak() string { return "meow"; }
+}
+Dog dog = new Dog("Rex");
+Cat cat = new Cat("Tom");
+Tuple zoo = (dog, cat);
+integer z = 0;
+print(zoo[z].name);
+print(zoo[z].speak());
+print(zoo[z + 1].speak());
+
+// 函数内局部：同质数组元素 tuple 非常量索引
+function pick(idx integer) integer {
+    array p = [100, 200];
+    array q = [300, 400];
+    Tuple local = (p, q);
+    return local[idx][0];
+}
+print(pick(0));
+print(pick(1));
+
+print("END");
