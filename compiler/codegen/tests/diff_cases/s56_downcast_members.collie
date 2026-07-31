@@ -1,0 +1,117 @@
+// t103 S56 差分用例：同一继承树内 downcast 放行——父类静态类型值写入子类
+// 静态类型槽（初始化/赋值/实参/返回值/字段存储五触点），解释器对类不校验
+// （coerce_to_declared default 放行），codegen 同树放行后成员访问按对象头
+// 类 id 动态分派/陷阱不错值；跨树维持拒编（本用例不含）
+
+// 继承树：Animal <- Dog <- Puppy；旁支 Cat <- Animal
+class Animal {
+    public string name = "?";
+
+    public Animal(n string) {
+        this.name = n;
+    }
+
+    public function sound() string {
+        return "...";
+    }
+}
+
+class Dog extends Animal {
+    public string breed = "collie";
+
+    public Dog(n string, b string) : base(n) {
+        this.breed = b;
+    }
+
+    @override
+    public function sound() string {
+        return "woof";
+    }
+
+    // Dog 特有方法（Animal 未定义）
+    public function fetch() string {
+        return this.name + " fetches";
+    }
+}
+
+class Puppy extends Dog {
+    public Puppy(n string) : base(n, "toy") {
+    }
+
+    // Puppy 特有方法（Animal/Dog 均未定义）
+    public function rollover() string {
+        return this.name + " rolls";
+    }
+}
+
+class Cat extends Animal {
+    public Cat(n string) : base(n) {
+    }
+
+    @override
+    public function sound() string {
+        return "meow";
+    }
+}
+
+// 1) 初始化 downcast：Animal 静态值初始化 Dog 槽，动态类为 Dog——覆写
+//    方法/特有方法/特有字段/父类字段全部经 Dog 槽访问
+Animal a1 = new Dog("rex", "husky");
+Dog d1 = a1;
+print(d1.sound());            // woof
+print(d1.fetch());            // rex fetches
+print(d1.breed);              // husky
+print(d1.name);               // rex
+
+// 2) 赋值 downcast：已有 Dog 槽被 Animal 静态值重赋
+Dog d2 = new Dog("bo", "lab");
+Animal a2 = new Dog("max", "gsd");
+d2 = a2;
+print(d2.fetch());            // max fetches
+print(d2.breed);              // gsd
+
+// 3) 实参 downcast：Animal 静态值传 Dog 形参
+function greet(d Dog) string {
+    return d.fetch() + " " + d.breed;
+}
+print(greet(a1));             // rex fetches husky
+
+// 4) 返回值 downcast：Animal 静态值从 Dog 返回类型返回
+function as_dog(a Animal) Dog {
+    return a;
+}
+Dog d3 = as_dog(a2);
+print(d3.sound());            // woof
+
+// 5) 字段存储 downcast：Dog 声明字段存 Animal 静态值
+class Kennel {
+    public Dog star = new Dog("d0", "c0");
+
+    public Kennel() {
+    }
+}
+Kennel k = new Kennel();
+k.star = a1;
+print(k.star.sound(), k.star.name, k.star.breed);  // woof rex husky
+
+// 6) 深链 downcast：Puppy 动态类经 Animal 中转进 Dog 槽，再调 Dog 静态类
+//    未定义的 Puppy 特有方法（未命中路径全树收集）
+Animal ap = new Puppy("mini");
+Dog dp = ap;
+print(dp.rollover());         // mini rolls
+print(dp.sound());            // woof（Puppy 继承 Dog 覆写）
+print(dp.breed);              // toy
+
+// 7) 旁支中转：Cat 动态类经 Animal 槽进 Dog 槽——覆写方法分派到旁支 case，
+//    公共祖先字段读旁支布局正确（不触发陷阱面，仅访问树根成员）
+Animal ac = new Cat("tom");
+Dog dc = ac;
+print(dc.sound());            // meow（命中路径旁支 case）
+print(dc.name);               // tom（字段读旁支 case）
+
+// 8) 树内无用户 toString：内建兜底 "<object>"（对齐解释器分派顺序）
+print(a1.toString());         // <object>
+
+// 9) downcast 后再 upcast 回父类槽（t86 面共存回归）
+Animal back = d1;
+print(back.sound(), back.breed);  // woof husky

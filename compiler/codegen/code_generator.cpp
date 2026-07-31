@@ -1029,10 +1029,11 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     }
     if (var->type == CGType::Obj) {
         // 实例赋值即指针拷贝（引用语义对齐解释器 shared_ptr，t60）；
-        // 子类实例可赋父类变量（t86 upcast，槽静态 cls 不变）；其余
-        // 跨类拒编不错编（字段布局不同，错类会错值）
+        // 同一继承树内 upcast/downcast 均放行（t86/t103，解释器不校验类，
+        // 成员访问按对象头类 id 动态分派/陷阱不错值）；跨树拒编不错编
         if (v.type != CGType::Obj ||
-            (v.cls != var->cls && !is_subclass_of(v.cls, var->cls))) {
+            (v.cls != var->cls && !is_subclass_of(v.cls, var->cls) &&
+             !is_subclass_of(var->cls, v.cls))) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
@@ -1375,25 +1376,33 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                 args.push_back(coerce_call_arg(a, info.param_types[i],
                                                info.param_cls[i], line, column));
             }
-            // 后代类收集（t86）：任一后代都可能是动态类（upcast 放行后）；
-            // 按类 id 排序保证 case 生成顺序确定（classes_ 无序表）
-            std::vector<const CGClass*> subs;
+            // 同树定义者收集（t86/t103）：downcast 放行后动态类可为整棵
+            // 继承树上任意类（旁支可经共同祖先中转写入槽），case 只挂
+            // 树内定义了该方法的类；按类 id 排序保证 case 生成顺序确定
+            std::vector<const CGClass*> defs{&cls};
+            bool lone_tree = true;
             for (const auto& entry : classes_) {
-                if (is_subclass_of(entry.first, object.cls)) {
-                    subs.push_back(&entry.second);
+                if (entry.first == object.cls ||
+                    nearest_common_ancestor(entry.first, object.cls).empty()) {
+                    continue;
+                }
+                lone_tree = false;
+                if (entry.second.dispatch.count(name) != 0) {
+                    defs.push_back(&entry.second);
                 }
             }
-            std::sort(subs.begin(), subs.end(),
+            std::sort(defs.begin(), defs.end(),
                       [](const CGClass* a, const CGClass* b) {
                           return a->id < b->id;
                       });
             llvm::Value* result = nullptr;
-            if (subs.empty()) {
+            if (lone_tree) {
+                // 单类树：动态类必为静态类，直调零开销（现状保持）
                 result = builder_.CreateCall(info.fn, args);
             } else {
-                // 各后代副本签名须与静态类一致（覆写同签名，语义层校验的
+                // 各定义者副本签名须与静态类一致（覆写同签名，语义层校验的
                 // 防御；不一致则统一 PHI 不可行，拒编不错编）
-                for (const CGClass* sub : subs) {
+                for (const CGClass* sub : defs) {
                     const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
                     if (m.ret_type != info.ret_type || m.ret_cls != info.ret_cls ||
                         m.param_types != info.param_types ||
@@ -1404,31 +1413,44 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                     }
                 }
                 // 读头部类 id（struct 元素 0，偏移 0 即对象指针本身）后
-                // switch：default = 静态类，case = 各后代类
+                // switch：case = 各定义者，default = 陷阱（t103：downcast 放
+                // 行后动态类可为无此方法的祖先/旁支，t86 期 default 直走静态
+                // 类臂的前提不再成立——祖先字段块更小会错值；纯 upcast 程序
+                // 动态类必有该方法，default 不可达行为不变）
                 llvm::Value* clsid = builder_.CreateLoad(
                     builder_.getInt64Ty(), object.value, "clsid");
                 llvm::Function* fn = builder_.GetInsertBlock()->getParent();
-                auto* static_bb =
-                    llvm::BasicBlock::Create(context_, "dispatch.static", fn);
+                auto* trap_bb =
+                    llvm::BasicBlock::Create(context_, "dispatch.trap", fn);
                 auto* merge_bb =
                     llvm::BasicBlock::Create(context_, "dispatch.end", fn);
                 llvm::SwitchInst* sw = builder_.CreateSwitch(
-                    clsid, static_bb, static_cast<unsigned>(subs.size()));
+                    clsid, trap_bb, static_cast<unsigned>(defs.size()));
                 std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
-                auto emit_arm = [&](const CGClass& c, llvm::BasicBlock* bb) {
-                    builder_.SetInsertPoint(bb);
-                    const CGMethod& m = c.instances.at(c.dispatch.at(name));
-                    llvm::Value* call = builder_.CreateCall(m.fn, args);
-                    incoming.emplace_back(builder_.GetInsertBlock(), call);
-                    builder_.CreateBr(merge_bb);
-                };
-                emit_arm(cls, static_bb);
-                for (const CGClass* sub : subs) {
+                for (const CGClass* sub : defs) {
                     auto* bb = llvm::BasicBlock::Create(
                         context_,
                         "dispatch." + std::string(sub->stmt->name().lexeme()), fn);
                     sw->addCase(builder_.getInt64(sub->id), bb);
-                    emit_arm(*sub, bb);
+                    builder_.SetInsertPoint(bb);
+                    const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+                    llvm::Value* call = builder_.CreateCall(m.fn, args);
+                    incoming.emplace_back(builder_.GetInsertBlock(), call);
+                    builder_.CreateBr(merge_bb);
+                }
+                builder_.SetInsertPoint(trap_bb);
+                if (name == "toString" && info.ret_type == CGType::Str &&
+                    arguments.empty()) {
+                    // 动态类无用户 toString → 内建兜底 "<object>"（对齐解释
+                    // 器分派顺序：find_method 优先，未命中才内建兜底）
+                    incoming.emplace_back(
+                        trap_bb, builder_.CreateGlobalString("<object>"));
+                    builder_.CreateBr(merge_bb);
+                } else {
+                    // 消息对齐解释器 "Undefined method 'X' on object"
+                    builder_.CreateCall(rt_trap_undefined_method_,
+                                        {builder_.CreateGlobalString(name)});
+                    builder_.CreateUnreachable();
                 }
                 builder_.SetInsertPoint(merge_bb);
                 if (info.ret_type != CGType::Void) {
@@ -1450,23 +1472,25 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                                         info.ret_cls};
             return;
         }
-        if (name == "toString" && expr.arguments().empty()) {
-            last_value_ = {to_str(object, expr.name()), CGType::Str};
-            return;
-        }
-        // 静态类未命中但后代类定义了该方法（t102，S39 残余面解锁）：upcast
-        // 放行后动态类可能为任一定义者（沿链继承，dispatch 表拷贝保证更深
-        // 后代也有）；读对象头类 id switch 到定义者的单态化实例，default
-        // （动态类即静态类，实例无此方法）走运行期陷阱不错值——消息对齐
-        // 解释器 "Undefined method 'X' on object"
+        // 静态类未命中但树内其他类定义了该方法（t102/t103，S39 残余面解
+        // 锁）：upcast/downcast 放行后动态类可为整棵继承树上任意定义者；
+        // 读对象头类 id switch 到定义者的单态化实例，default（动态类实例
+        // 无此方法）走运行期陷阱不错值——消息对齐解释器
+        // "Undefined method 'X' on object"；toString 仅在树内无用户定义时
+        // 才直接内建兜底（对齐解释器分派顺序：find_method 优先）
         std::vector<const CGClass*> defs;
         for (const auto& entry : classes_) {
-            if (is_subclass_of(entry.first, object.cls) &&
+            if (entry.first != object.cls &&
+                !nearest_common_ancestor(entry.first, object.cls).empty() &&
                 entry.second.dispatch.count(name) != 0) {
                 defs.push_back(&entry.second);
             }
         }
         if (defs.empty()) {
+            if (name == "toString" && expr.arguments().empty()) {
+                last_value_ = {to_str(object, expr.name()), CGType::Str};
+                return;
+            }
             unsupported("undefined method '" + name + "' on class '" + object.cls +
                             "'",
                         line, column);
@@ -1519,9 +1543,17 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             builder_.CreateBr(merge_bb);
         }
         builder_.SetInsertPoint(trap_bb);
-        builder_.CreateCall(rt_trap_undefined_method_,
-                            {builder_.CreateGlobalString(name)});
-        builder_.CreateUnreachable();
+        if (name == "toString" && dm.ret_type == CGType::Str &&
+            arguments.empty()) {
+            // 动态类无用户 toString → 内建兜底 "<object>"（对齐解释器）
+            incoming.emplace_back(trap_bb,
+                                  builder_.CreateGlobalString("<object>"));
+            builder_.CreateBr(merge_bb);
+        } else {
+            builder_.CreateCall(rt_trap_undefined_method_,
+                                {builder_.CreateGlobalString(name)});
+            builder_.CreateUnreachable();
+        }
         builder_.SetInsertPoint(merge_bb);
         llvm::Value* result = nullptr;
         if (dm.ret_type != CGType::Void) {
@@ -1718,11 +1750,35 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         return;
     }
     if (object.type == CGType::Obj) {
-        // 类实例字段读（t60）：struct GEP + load，字段类型静态已知
+        // 类实例字段读（t60/t102/t103）：同树定义者收集——downcast 放行后
+        // 动态类可为整棵继承树上任意类（旁支可经共同祖先中转写入槽）；
+        // 单类树维持直 GEP + load 零开销，多类树读对象头类 id switch 到
+        // 定义者字段槽（各定义者按自身 field_index 下标 GEP），default
+        // （动态类实例无此字段）走运行期陷阱不错值——消息对齐解释器
+        // "Undefined property 'X' on object"
         const CGClass& cls = classes_.at(object.cls);
         const std::string name(expr.name().lexeme());
-        auto it = cls.field_index.find(name);
-        if (it != cls.field_index.end()) {
+        std::vector<const CGClass*> defs;
+        bool lone_tree = true;
+        for (const auto& entry : classes_) {
+            if (entry.first != object.cls) {
+                if (nearest_common_ancestor(entry.first, object.cls).empty()) {
+                    continue;
+                }
+                lone_tree = false;
+            }
+            if (entry.second.field_index.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
+        }
+        if (defs.empty()) {
+            unsupported("undefined property '" + name + "' on class '" + object.cls +
+                            "'",
+                        expr.name().line(), expr.name().column());
+        }
+        if (lone_tree) {
+            // 单类树：动态类必为静态类，直 GEP + load 零开销（现状保持）
+            auto it = cls.field_index.find(name);
             const CGField& field = cls.fields[it->second];
             llvm::Value* slot =
                 builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name);
@@ -1733,23 +1789,6 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                            field.type == CGType::Arr ? CGType::Num : CGType::Int,
                            field.cls};
             return;
-        }
-        // 静态类未命中但后代类定义了该字段（t102，S39 残余面解锁）：upcast
-        // 放行后动态类可能为任一定义者（沿链继承，field_index 拷贝保证更深
-        // 后代也有，base-first 前缀布局下各定义者 GEP 下标一致）；读对象头
-        // 类 id switch 到定义者字段槽，default（动态类即静态类，实例无此
-        // 字段）走运行期陷阱不错值——消息对齐解释器 "Undefined property 'X' on object"
-        std::vector<const CGClass*> defs;
-        for (const auto& entry : classes_) {
-            if (is_subclass_of(entry.first, object.cls) &&
-                entry.second.field_index.count(name) != 0) {
-                defs.push_back(&entry.second);
-            }
-        }
-        if (defs.empty()) {
-            unsupported("undefined property '" + name + "' on class '" + object.cls +
-                            "'",
-                        expr.name().line(), expr.name().column());
         }
         const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
         std::sort(defs.begin(), defs.end(),
@@ -1835,8 +1874,30 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     }
     const CGClass& cls = classes_.at(object.cls);
     const std::string name(expr.name().lexeme());
-    auto it = cls.field_index.find(name);
-    if (it != cls.field_index.end()) {
+    // 同树定义者收集（t60/t102/t103，与读路径一致）：downcast 放行后动态
+    // 类可为整棵继承树上任意类；单类树维持直 GEP 存零开销，多类树各
+    // arm 按定义者布局存储，default（动态类实例无此字段）走运行期陷阱
+    // 不错值——消息对齐解释器 "Undefined property 'X' on object"
+    std::vector<const CGClass*> defs;
+    bool lone_tree = true;
+    for (const auto& entry : classes_) {
+        if (entry.first != object.cls) {
+            if (nearest_common_ancestor(entry.first, object.cls).empty()) {
+                continue;
+            }
+            lone_tree = false;
+        }
+        if (entry.second.field_index.count(name) != 0) {
+            defs.push_back(&entry.second);
+        }
+    }
+    if (defs.empty()) {
+        unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
+                    expr.name().line(), expr.name().column());
+    }
+    if (lone_tree) {
+        // 单类树：动态类必为静态类，直 GEP + store 零开销（现状保持）
+        auto it = cls.field_index.find(name);
         CGValue v = emit(expr.value());
         const CGField& field = cls.fields[it->second];
         llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
@@ -1854,22 +1915,8 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
                        field.cls};
         return;
     }
-    // 静态类未命中但后代类定义了该字段（t102，S39 残余面解锁）：同读路径
-    // 收集定义者 + 字段类型一致防御；值在 switch 前求值/coerce（求值顺序
-    // object → value 不变，bit 陷阱仍在赋值点前），各 arm 按定义者布局
-    // 存储（base-first 前缀布局下 GEP 下标一致），default（动态类即静态
-    // 类，实例无此字段）走运行期陷阱不错值——消息对齐解释器
-    std::vector<const CGClass*> defs;
-    for (const auto& entry : classes_) {
-        if (is_subclass_of(entry.first, object.cls) &&
-            entry.second.field_index.count(name) != 0) {
-            defs.push_back(&entry.second);
-        }
-    }
-    if (defs.empty()) {
-        unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
-                    expr.name().line(), expr.name().column());
-    }
+    // 多类树：字段类型一致防御后值在 switch 前求值/coerce（求值顺序
+    // object → value 不变，bit 陷阱仍在赋值点前），各 arm 按定义者布局存储
     const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
     std::sort(defs.begin(), defs.end(),
               [](const CGClass* a, const CGClass* b) {
@@ -2162,10 +2209,11 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
                         stmt.type().line(), stmt.type().column());
         }
         CGValue init = emit(stmt.initializer());
-        // 子类实例可初始化父类变量（t86 upcast，静态 cls 记声明类）；
-        // 其余跨类拒编不错编
+        // 同一继承树内 upcast/downcast 均可初始化（t86/t103，静态 cls 记
+        // 声明类，解释器不校验类）；跨树拒编不错编
         if (init.type != CGType::Obj ||
-            (init.cls != cls_name && !is_subclass_of(init.cls, cls_name))) {
+            (init.cls != cls_name && !is_subclass_of(init.cls, cls_name) &&
+             !is_subclass_of(cls_name, init.cls))) {
             unsupported("initializing '" + cls_name + "' variable with incompatible value",
                         stmt.name().line(), stmt.name().column());
         }
@@ -2567,8 +2615,9 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                             stmt.keyword().line(), stmt.keyword().column());
             }
         } else if (v.type == CGType::Obj && v.cls != current_ret_cls_ &&
-                   !is_subclass_of(v.cls, current_ret_cls_)) {
-            // 子类→父类向上转型放行（t86）；其余跨类拒编不错编
+                   !is_subclass_of(v.cls, current_ret_cls_) &&
+                   !is_subclass_of(current_ret_cls_, v.cls)) {
+            // 同一继承树内 upcast/downcast 放行（t86/t103）；跨树拒编不错编
             unsupported("returning instance of class '" + v.cls +
                             "' where '" + current_ret_cls_ + "' is declared",
                         stmt.keyword().line(), stmt.keyword().column());
@@ -2693,12 +2742,13 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
 llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
                                             const std::string& want_cls,
                                             size_t line, size_t column) {
-    // 实参对齐形参类型：仅 integer→decimal 提升；Obj 允许子类→父类向上
-    // 转型（t86，指针原样传递，调用点按对象头类 id 动态分派保覆写语义），
-    // 其余跨类拒编不错编
+    // 实参对齐形参类型：仅 integer→decimal 提升；Obj 允许同一继承树内
+    // upcast/downcast（t86/t103，指针原样传递，调用点按对象头类 id 动态
+    // 分派/陷阱保语义），跨树拒编不错编
     if (a.type == want) {
         if (want == CGType::Obj && a.cls != want_cls &&
-            !is_subclass_of(a.cls, want_cls)) {
+            !is_subclass_of(a.cls, want_cls) &&
+            !is_subclass_of(want_cls, a.cls)) {
             unsupported("passing instance of class '" + a.cls +
                             "' where '" + want_cls + "' is expected",
                         line, column);
@@ -2821,9 +2871,10 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
         // Num 哨兵，kind 随数组对象自带——print/len/== rt 侧全 kind 覆盖，
         // 索引读 kind ≥ 2 落 CG9 陷阱；Arr 目标仅字段路径可达）
         if (slot_type == CGType::Obj && v.cls != slot_cls &&
-            !is_subclass_of(v.cls, slot_cls)) {
-            // 字段允许子类→父类向上转型（t86，调用点按头部类 id 动态分派）；
-            // 其余跨类拒编不错编（Obj 目标同样仅字段路径可达）
+            !is_subclass_of(v.cls, slot_cls) &&
+            !is_subclass_of(slot_cls, v.cls)) {
+            // 字段允许同一继承树内 upcast/downcast（t86/t103，访问点按头部
+            // 类 id 动态分派/陷阱）；跨树拒编不错编（Obj 目标仅字段路径可达）
             unsupported("storing instance of class '" + v.cls +
                             "' where '" + slot_cls + "' is declared",
                         where.line(), where.column());
