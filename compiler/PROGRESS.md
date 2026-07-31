@@ -646,6 +646,10 @@
     - 方案：新增 num_to_int_checked——ICmpNE(num_tag, 0) 小数态分支 numnarrow.trap 调新增无参陷阱 collie_rt_trap_num_narrow（stderr "runtime error: Type mismatch: cannot assign decimal value to 'integer' variable" + exit(1)，核心消息对齐解释器 coerce_to_declared）+ unreachable，cont 块返 num_bits 即 i64；三触点接入 Num→Int（num_to_int_checked）与 Num→Double（复用 to_double 既有 Num 分支，t90 tag select 免分支，双态皆合法无陷阱）——coerce_call_arg（函数/方法×2/构造器/base 构造器/base 方法六调用点共用）、coerce_for_slot（变量/字段槽）、visitReturn
     - 验证：p1-p4 探针（形参窄化/变量槽/返回值 IDENTICAL，小数态窄化 integer 陷阱正确触发——stdout 一致、陷阱消息核心一致、位置前缀缺失属既定 CG 陷阱分歧）；新差分用例 s64_num_narrow（整数态→integer 形参/变量初始化与赋值/返回值/方法与构造器实参/字段槽、双态→decimal 形参/变量/返回值/方法实参、number 表达式实参，17 行输出双端逐字节一致）；ctest -C Release 差分 63/63（含 s64 新增），单元 4/4，CLI 2/2
     - 范围外：number→byte/word 由语义分析器前端静态拒绝（两端一致非差分面，实证）；小数态窄化 integer 为运行期陷阱面非差分成功面；新增 1 个 collie_rt 接口 collie_rt_trap_num_narrow
+- [x] 无初始化 Tuple 变量声明（t112，S54 范围外拒编面，S61）
+    - 方案：visitVarDecl 无初始化分支加 KW_TUPLE——形状（元素数/名字表）声明处无从推断，不建槽，CGVar 仅记 type=Tup + uninit（tup 保持 -1 哨兵）；visitAssign Tup 分支 tup<0 识别首赋——RHS 非 Tup 拒编，create_tuple_var 按 RHS 形状建解构槽组（顶层升全局槽/函数内 entry alloca，嵌套递归，t68/t76 既有机制）、形状自此固化、清 uninit；重赋路径补无条件清 uninit（t110 快照隔离下安全）；uninit_restore 只恢复标志不恢复 tup——条件区内首赋建槽后区外读仍拒编（安全）
+    - 验证：p1/p3/p4 探针（顶层首赋+同形重赋 IDENTICAL；换形状重赋解释器可行而 codegen 拒编 "assigning tuple of different shape"——拒编不错编；函数内局部+if/else 全路径定赋+命名字段 IDENTICAL）；新差分用例 s65_uninit_tuple（顶层首赋后 print/索引/负索引/length、同形重赋、命名元组字段/get、嵌套 tuple 元素、函数内局部+if/else 全路径定赋，14 行输出双端逐字节一致）；ctest -C Release 差分 64/64（含 s65 新增），单元 4/4，CLI 2/2
+    - 范围外：换形状重赋维持拒编（形状固化，解释器动态可行但拒编不错编）；tuple 进函数签名/进数组既有拒编不变；零新增 collie_rt 接口
 
 ---
 

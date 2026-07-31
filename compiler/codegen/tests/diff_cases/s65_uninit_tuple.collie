@@ -1,0 +1,44 @@
+// s65: 无初始化 Tuple 变量（t112 差分用例）
+// 声明处形状无从推断，解构槽组延迟到首次赋值处按 RHS 形状建、形状自此
+// 固化；同形重赋放行；换形状重赋维持拒编（范围外，拒编不错编）
+
+// 顶层基础面：首赋后 print/索引/负索引/length
+Tuple t;
+t = (1, 2, 3);
+print(t);
+print(t[0]);
+print(t[-1]);
+print(t.length);
+
+// 同形重赋
+t = (7, 8, 9);
+print(t[1]);
+
+// 命名元组：字段/get/length/索引
+Tuple q;
+q = (name: "collie", age: 3);
+print(q.name);
+print(q.get("age"));
+print(q.length);
+print(q[0]);
+
+// 嵌套 tuple 元素（create_tuple_var 递归建槽）
+Tuple n;
+n = (1, (2, 3), "x");
+print(n[1]);
+print(n[2]);
+
+// 函数内局部无初始化 Tuple + if/else 全路径定赋（t110 定赋区域跟踪汇合）
+function pickPair(flag bool) integer {
+    Tuple p;
+    if (flag) {
+        p = (x: 10, y: 20);
+    } else {
+        p = (x: 1, y: 2);
+    }
+    return p.x + p.y;
+}
+print(pickPair(true));
+print(pickPair(false));
+
+print("END");

@@ -1156,8 +1156,25 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         return;
     }
     if (var->type == CGType::Tup) {
+        if (var->tup < 0) {
+            // 无初始化 Tuple 首赋（t112）：按 RHS 形状建解构槽组，形状自此
+            // 固化（异形重赋走下方 store_tuple_var 既有拒编）；条件发射区
+            // 内首赋后区外读仍由 uninit 快照恢复拒编（槽组已建但不可读）
+            if (v.type != CGType::Tup) {
+                unsupported("assigning non-tuple value to tuple variable '" +
+                                name + "'",
+                            expr.name().line(), expr.name().column());
+            }
+            var->tup = create_tuple_var(tuple_values_[v.tup], name);
+            var->uninit = false;
+            last_value_ = {nullptr, CGType::Tup, CGType::Int, "", v.tup};
+            return;
+        }
         // tuple 变量重赋值（t68）：同形状逐槽写（形状不同拒编不错编）
         int idx = store_tuple_var(var->tup, v, expr.name());
+        // 无初始化 Tuple 条件区内首赋后区外同形重赋清 uninit 放行后续读
+        // （t112，t110 定赋区域跟踪：条件发射区已快照隔离，此处无条件清）
+        var->uninit = false;
         last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
         return;
     }
@@ -2398,7 +2415,8 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     // 零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit——uninit 期间
     // 读拒编（语义层流不敏感放行的未定赋读，解释器运行期仍是 none，
     // 零初始化槽会错值，拒编不错编），支配性定赋后清（t110 定赋区域
-    // 跟踪：if/else 全路径定赋取交集）；其余类型（Tuple）维持拒编
+    // 跟踪：if/else 全路径定赋取交集）；Tuple 延迟建槽（t112）；其余
+    // （object/未注册类名）维持拒编
     if (!stmt.initializer()) {
         const TokenType tt = stmt.type().type();
         if (tt == TokenType::KW_BYTE || tt == TokenType::KW_WORD) {
@@ -2453,6 +2471,17 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.slot = create_var_slot(llvm_type_of(CGType::Obj), name);
             var.type = CGType::Obj;
             var.cls = cls_name;
+            var.uninit = true;
+            scopes_.back()[name] = var;
+            return;
+        }
+        if (tt == TokenType::KW_TUPLE) {
+            // 无初始化 Tuple 变量（t112）：形状（元素数/名字表）声明处无从
+            // 推断，解构槽组延迟到首次赋值处按 RHS 形状建（tup 恒 -1
+            // 哨兵，visitAssign Tup 分支识别）；uninit 期读拒编（t92/t110）
+            const std::string name(stmt.name().lexeme());
+            CGVar var;
+            var.type = CGType::Tup;
             var.uninit = true;
             scopes_.back()[name] = var;
             return;
