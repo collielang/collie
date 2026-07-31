@@ -678,6 +678,10 @@
     - 方案：visitArrayLiteral 元素类守卫（原 `elem == Obj && v.cls != elem_cls` 无条件拒，t100）改为最近公共祖先收敛——nearest_common_ancestor(elem_cls, v.cls) 有公共祖先（t93/t114 既有机制，空串=无公共祖先）则 elem_cls = NCA（逐元素收敛，多元素逐级收敛到全体最近公共祖先）；同树内元素类沿链前缀布局兼容，m[i].field 按 NCA 偏移解码（父类级字段偏移前缀一致）、方法按对象头类 id 动态分派（兄弟子类各自分派到自己的方法），与 t115/t118 同规则；var->cls 传播 NCA（整体互赋 t115/单槽写 t118 在 NCA 数组上自然放行）；无公共祖先（跨树无公共字段前缀）unsupported 拒编不错编；零新增 collie_rt 接口
     - 验证：p1/p2/p3 探针（下溯混合 [Animal,Dog]、兄弟混合 [Dog,Cat] 均 IDENTICAL——方法动态分派与字段读正确；无公共祖先 [Dog,Robot] 保守拒编——解释器可跑而 codegen 拒编，拒编不错编）；新差分用例 s72_mixed_array_literal（下溯混合/兄弟混合/深链混合 NCA=Dog/多元素逐级收敛/print 整数组 [<object>,...] 与单元素 <object>/== 恒不等/整体互赋+单槽写协同/函数内局部/循环内访问，32 行输出双端逐字节一致）；ctest -C Release 差分 71/71（含 s72 新增），单元 4/4，CLI 2/2
     - 范围外：无公共祖先混合字面量（跨树无公共字段前缀）维持拒编不错编；整槽写异类（`arr = [异类数组]`）仍走 visitAssign Arr 分支既有守卫；零新增 collie_rt 接口
+- [x] object 动态类型声明 Obj 初始值（t120，declared_cgtype default 残余拒编面，S69）
+    - 方案：visitVarDecl 新增 KW_OBJECT 分支（原落 declared_cgtype default 拒编 "variable type 'object'"）——解释器 coerce_to_declared default 不校验任意值直存；codegen 以"静态初始类名"近似：emit 初始值，非 Obj 拒编 "initializing 'object' variable with non-object value"（string/number/none 等需动态值表示，官方示例 main.collie 用法属此），建 Obj 槽 store、scopes_ 登记 {slot, Obj, Int, init.cls}——字段按该类前缀偏移解码、方法按对象头 id 动态分派、后续同树重赋走 visitAssign Obj 既有守卫 t86/t103，与类名声明同规则；零新增 collie_rt 接口
+    - 验证：p1/p2 探针（object 声明 new Dog 后方法动态分派+字段读、Animal→Dog 同树下溯重赋均 IDENTICAL）；p3 兄弟类 Dog→Cat 重赋、p4 非 Obj 初始值 42 保守拒编——解释器可跑而 codegen 拒编（拒编不错编）；新差分用例 s73_object_decl（object 声明 new Dog 方法/字段/继承方法、同树下溯重赋、同树链内多轮重赋、object 互初始化与类名变量初始化引用别名+字段写可见、函数内局部+if 分支重赋、循环内多轮重赋，18 行输出双端逐字节一致）；ctest -C Release 差分 72/72（含 s73 新增），单元 4/4，CLI 2/2
+    - 范围外：非 Obj 初始值（string/number/none，需动态值表示）与无初始化 `object x;`（可赋任意值语义边界同前）维持拒编不错编；兄弟类/跨树重赋走 visitAssign 既有守卫拒编不错编；object 函数形参/返回值仍拒编（签名类型静态不可定）；零新增 collie_rt 接口
 
 ---
 

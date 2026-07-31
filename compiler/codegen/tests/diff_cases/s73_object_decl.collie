@@ -1,0 +1,78 @@
+// t120 S69 差分用例：object 动态类型声明 Obj 初始值解锁（静态初始类名）
+// ——visitVarDecl 新增 KW_OBJECT 分支：解释器 coerce_to_declared default 不校验
+// 任意值直存；codegen 以"静态初始类名"近似——槽记初始值类名（字段按该类
+// 前缀偏移解码、方法按对象头 id 动态分派、后续同树重赋走 visitAssign Obj
+// 既有守卫 t86/t103，与类名声明同规则）；非 Obj 初始值（string/number 等
+// 需动态值表示）与无初始化声明维持拒编不错编（本用例不含）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+
+// 1) object 声明 new Dog（核心：方法动态分派 + 字段读 + 继承方法）
+object x = new Dog("d0");
+print(x.sound());                   // woof
+print(x.name);                      // d0
+print(x.describe());                // d0 says woof
+
+// 2) object 声明后同树重赋（Animal → Dog 下溯，visitAssign 既有守卫放行）
+object y = new Animal("a0");
+print(y.sound());                   // animal
+y = new Dog("dy");
+print(y.sound());                   // woof（动态分派到 Dog）
+print(y.name);                      // dy
+
+// 3) 同树链内多轮重赋（Dog → Puppy 上溯 → Animal 下溯 → Dog 回归）
+object z = new Dog("z0");
+z = new Puppy("zp");
+print(z.sound());                   // yip
+z = new Animal("za");
+print(z.sound());                   // animal
+z = new Dog("zd");
+print(z.describe());                // zd says woof
+
+// 4) object 初始化为另一个 object/类名变量（引用别名，指针拷贝）
+object o1 = new Dog("ox");
+object o2 = o1;
+print(o2.sound());                  // woof
+o1.name = "oy";
+print(o2.name);                     // oy（别名同对象）
+Dog plain = new Dog("p1");
+object o3 = plain;
+print(o3.describe());               // p1 says woof
+
+// 5) 函数内局部 object + if 分支内重赋
+function pick(flag bool) string {
+    object t = new Animal("lo");
+    if (flag) {
+        t = new Dog("hi");
+    }
+    return t.sound();
+}
+print(pick(true));                  // woof
+print(pick(false));                 // animal
+
+// 6) 循环内 object 多轮重赋（动态分派稳定）
+object lp = new Dog("l0");
+for (integer i = 1; i <= 3; i = i + 1) {
+    if (i % 2 == 0) {
+        lp = new Animal("even");
+    } else {
+        lp = new Dog("odd");
+    }
+    print(lp.sound());
+}
+print("END");

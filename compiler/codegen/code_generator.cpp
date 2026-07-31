@@ -2557,6 +2557,24 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         unsupported("variable declaration without initializer",
                     stmt.name().line(), stmt.name().column());
     }
+    // object 动态类型变量（t120）：解释器 coerce_to_declared default 不校验
+    // 任意值直存（官方示例以字符串/数字演示）；codegen 以"静态初始类名"近似
+    // 解锁 Obj 初始值场景——槽记初始值类名（字段按该类前缀偏移解码、方法按
+    // 对象头 id 动态分派、后续同树重赋走 visitAssign Obj 既有守卫 t86/t103，
+    // 与类名声明同规则）；非 Obj 初始值（string/number/none 等需动态值表示）
+    // 维持拒编不错编
+    if (stmt.type().type() == TokenType::KW_OBJECT) {
+        CGValue init = emit(stmt.initializer());
+        if (init.type != CGType::Obj) {
+            unsupported("initializing 'object' variable with non-object value",
+                        stmt.name().line(), stmt.name().column());
+        }
+        const std::string name(stmt.name().lexeme());
+        llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
+        builder_.CreateStore(init.value, slot);
+        scopes_.back()[name] = {slot, CGType::Obj, CGType::Int, init.cls};
+        return;
+    }
     // 类类型变量（t60）：声明类型为已注册类名的 IDENTIFIER token（语义层
     // 内部改写 KW_OBJECT，AST 原样保留标识符）；槽存实例 ptr，指针拷贝即引用语义
     if (stmt.type().type() == TokenType::IDENTIFIER) {
