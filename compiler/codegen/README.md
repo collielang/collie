@@ -446,7 +446,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `t[i]`（i 变量/表达式，t 同质 tuple） | visitIndex Tup 分支：`const_int_of` 失败进非常量路径——三重守卫（空 tuple / 元素非 {Int/Double/Bool/Str} / 异质分别拒编），过守卫后 rt_arr_new(n, kind) + 逐元素 elem_to_bits/rt_arr_set 物化为运行时数组、rt_arr_get(动态 idx) 取 i64 bits、bits_to_elem 还原为元素类型；负索引归一化 + 越界陷阱（消息 "Index N out of range (size M)"）由 collie_rt_arr_norm_index 复用，与解释器 normalize_index 完全一致 |
 | 常量索引 `t[0]` / `t[-1]`（回归） | 保持编译期解析（`const_int_of` 成功路径内联不变），负索引归一化 + 静态越界拒编不错编 |
 | 关键修复 | `const CGTuple& t` 改按值拷贝 `const CGTuple t`——非常量路径 `emit(index)` 可能触发 register_tuple 扩容 tuple_values_ 使引用悬垂（`t[idxs[0]]` 嵌套索引实测 0xC0000005），与 gen_tuple_eq 同一防护 |
-| 范围外 | 异质 tuple 非常量索引（结果类型静态不可定，拒编 "non-constant index on heterogeneous tuple"，解释器动态可求值）；Num/嵌套(Tup/Arr/Obj)元素同质 tuple（数组槽 elem_to_bits 仅 4 类，拒编 "non-constant tuple index on this element type"）；空 tuple 非常量索引；`(t[i]==literal)`/`&&` 混逻辑（语义层不追踪 tuple 元素类型，两端一致 "Incomparable operand types"）；tuple 作函数形参/实参（"tuple in function signature"）；tuple `get()` 动态键（已于 S37 t84 解锁）；零新增 collie_rt 接口 |
+| 范围外 | ~~异质 tuple 非常量索引（结果类型静态不可定，拒编 "non-constant index on heterogeneous tuple"，解释器动态可求值）；Num/嵌套(Tup/Arr/Obj)元素同质 tuple（数组槽 elem_to_bits 仅 4 类，拒编 "non-constant tuple index on this element type"）~~（数值系异质与全 Num 同质已于 S56 t107 解锁；含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编）；空 tuple 非常量索引；`(t[i]==literal)`/`&&` 混逻辑（语义层不追踪 tuple 元素类型，两端一致 "Incomparable operand types"）；tuple 作函数形参/实参（"tuple in function signature"）；tuple `get()` 动态键（已于 S37 t84 解锁）；零新增 collie_rt 接口 |
 
 **S37 降级补充（t84 实现）：非常量 tuple get() 动态键**：
 
@@ -647,6 +647,15 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 全局槽跨函数快照守卫 | fn_gen_count_ 计数器（visitFunction/gen_method_body 各 ++）+ CGVar.fn_gen_at 声明时基准：GlobalVariable 槽且（in_function_ 或计数增长）拒编 "across functions"——函数体生成时链底按值快照声明在先的全局槽静态 elem，降级不回溯/不外传；声明在全部函数之后的全局槽不受影响 |
 | 降级后索引读 | 数值 kind 走动态路径；kind ≥ 2（bool/str/嵌套/obj）落既有 CG9 陷阱（拒错编从陷阱，整体 print/len/== rt 全 kind 覆盖不受限） |
 | 范围外 | Obj 元素类不匹配面维持拒编（t100 同类约束）；tuple 槽 elem 不一致维持拒编；零新增 collie_rt 接口 |
+
+**S56 降级补充（t107 实现）：数值系异质 tuple 非常量索引**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `t[i]`（i 变量/表达式，t 元素全 ∈ {Int/Double/Num}） | visitIndex Tup 非常量路径新增数值系分支（含全 Num 同质——原 "this element type" 拒编面一并解锁）：逐元素 to_num 后物化 **tags+bits 双 int 数组**（均 kind 0），同一动态索引两次 rt_arr_get 取回 make_num 拼 Num 动态值；负索引归一化/越界陷阱在首次 get（消息同 t83 既定分歧：核心一致、位置前缀缺失）；结果型 Num，下游算术/比较/print/toString 走既有 Num 路径 |
+| 同质 4 类（回归） | 保持 t83 静态元素类型路径（单数组 elem_to_bits/bits_to_elem）不变；常量索引编译期解析不受影响 |
+| 守卫重构 | 原三重守卫改为 homogeneous/all_numeric 双标志一次扫描：同质非 4 类且非数值系→"this element type"；异质且非全数值系→"heterogeneous tuple"；两条既有消息分工保留 |
+| 范围外 | 含 Bool/Str/嵌套(Tup/Arr/Obj)的异质与嵌套元素同质维持拒编（结果类型静态不可定且无统一表示）；空 tuple 维持拒编；get() 动态键的同一面（数值系异质/全 Num 同质）未同步解锁（待后续任务，机制同源可复用 tags+bits 物化）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

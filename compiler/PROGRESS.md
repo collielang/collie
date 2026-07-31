@@ -626,6 +626,10 @@
     - 方案：visitAssign Arr 分支 v.elem != var->elem 时槽 elem 降级 Num 动态域哨兵（t94 三元合流先例）——整数组指针替换 kind 随新对象自带，后续读写/print/len/== 走 t70/t88 动态路径；程序序提升 var->elem 的两个错编盲区收口为守卫拒编：①循环回边——CGVar.loop_depth 记声明时 loops_.size()，跨层赋值拒编 "inside a loop"；②全局槽跨函数快照——fn_gen_count_ 计数器 + CGVar.fn_gen_at 声明基准，GlobalVariable 槽且（in_function_ 或计数增长）拒编 "across functions"（函数体链底按值快照静态 elem，降级不回溯；声明在全部函数之后的全局槽不受影响，bool 标志方案会误伤此场景已精化为计数器）
     - 验证：p1-p4 探针（基础互赋双端一致/循环内拒编/全局跨函数拒编/函数内局部槽与声明在后全局槽放行）；新差分用例 s59_array_retype（int←str、bool←decimal 降级后动态读写与引用语义、嵌套数组赋入标量槽、空数组槽、函数内局部互赋、声明在后全局槽，20 行输出双端逐字节一致）；ctest -C Release 差分 58/58（含 s59 新增），单元 4/4，CLI 2/2
     - 范围外：循环回边与全局槽跨函数快照两面拒编不错编；Obj 元素类不匹配面维持拒编（t100 同类约束）；tuple 槽维持拒编；降级槽 kind≥2 索引读落既定 CG9 陷阱；零新增 collie_rt 接口
+- [x] 数值系异质 tuple 非常量索引解锁（t107，S36 残余面）
+    - 方案：visitIndex Tup 非常量路径新增数值系分支——元素全 ∈ {Int/Double/Num}（含全 Num 同质，原 "this element type" 拒编面一并解锁）时逐元素 to_num 物化 tags+bits 双 int 数组，同一动态索引两次 rt_arr_get 取回 make_num 拼 Num 动态值（负索引归一化/越界陷阱在首次 get，消息同 t83 既定分歧）；原三重守卫重构为 homogeneous/all_numeric 双标志一次扫描，两条既有拒编消息分工保留；同质 4 类保持 t83 静态路径不变
+    - 验证：p1-p3 探针（int/decimal/Num 混合与全 Num 同质双端一致/越界陷阱核心消息一致/含 Str 异质维持拒编）；新差分用例 s60_tuple_hetnum（正负索引/算术合流/双 tag 路径/循环遍历/比较插值/常量索引回归，15 行输出双端逐字节一致）；ctest -C Release 差分 59/59（含 s60 新增），单元 4/4，CLI 2/2
+    - 范围外：含 Bool/Str/嵌套的异质与嵌套元素同质维持拒编（结果类型静态不可定且无统一表示）；空 tuple 维持拒编；get() 动态键同一面待后续任务（机制同源可复用）；零新增 collie_rt 接口
 
 ---
 

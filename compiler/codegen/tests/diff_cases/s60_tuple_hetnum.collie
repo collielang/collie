@@ -1,0 +1,45 @@
+// t107 S60 差分用例：数值系异质 tuple 非常量索引解锁——元素全 ∈
+// {integer, decimal, number}（含全 number 同质）时物化 tags+bits 双 int
+// 数组，同一索引两次取回拼 number 动态值（负索引归一化/越界陷阱复用
+// t83 机制，零新增 rt 接口）；含 bool/string/嵌套的异质维持拒编
+
+// int/decimal 异质：正/负索引与算术
+Tuple t = (1, 2.5, 3);
+integer i = 1;
+print(t[i]);                 // 2.5
+print(t[i - 1]);             // 1
+print(t[i + 1]);             // 3
+integer neg = -3;
+print(t[neg]);               // 1（负索引归一化）
+print(t[i] + t[i + 1]);      // 5.5（Num 算术合流）
+
+// number 元素混入（双 tag 路径）
+number n = 42;
+number d = 1.25;
+Tuple u = (n, 7, d);
+integer j = 0;
+print(u[j]);                 // 42（number 整数 tag）
+print(u[j + 2]);             // 1.25（number 小数 tag）
+print(u[j + 1] * 2);         // 14
+
+// 全 number 同质（原拒编面一并解锁）
+Tuple w = (n, d);
+print(w[j]);                 // 42
+print(w[j - 1]);             // 1.25（负索引）
+
+// 循环遍历动态索引
+Tuple v = (10, 0.5, 20, 2.5);
+number sum = 0;
+for (integer k = 0; k < 4; k = k + 1) {
+    sum = sum + v[k];
+}
+print(sum);                  // 33
+
+// 比较与插值走既有 Num 路径（经 number 变量中转，直接 t[i]==2.5 语义层拒）
+number cmpv = t[i];
+print(cmpv == 2.5);          // true
+print("v[1] = " + toString(v[1]));  // v[1] = 0.5
+
+// 常量索引静态路径不受影响
+print(t[2]);                 // 3
+print("END");

@@ -1193,28 +1193,66 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         // {Int/Double/Bool/Str}）——物化为运行时数组后 rt_arr_get(动态 idx) 取值，
         // 复用负索引归一化 + 越界陷阱（消息 "Index N out of range (size M)"
         // 与解释器 normalize_index 一致）；结果类型即元素类型，静态可定。
-        // 异质 tuple、Num/嵌套(Tup/Arr/Obj)元素、空 tuple 保持拒编——结果类型
-        // 静态不可定或数组槽无法承载（elem_to_bits 仅 4 类），拒编不错编
+        // 数值系异质（t107）：元素全 ∈ {Int/Double/Num}（含全 Num 同质）——
+        // 逐元素 to_num 后物化 tags+bits 双 int 数组，同一索引两次 rt_arr_get
+        // 拼 Num 动态值（首次即越界陷阱，零新增 rt 接口）；结果型 Num，
+        // 下游算术/比较/打印走既有 Num 路径。含 Bool/Str/嵌套(Tup/Arr/Obj)
+        // 的异质、空 tuple 保持拒编——结果类型静态不可定且无统一表示，
+        // 拒编不错编
         if (t.elems.empty()) {
             unsupported("non-constant index on empty tuple",
                         expr.bracket().line(), expr.bracket().column());
         }
+        const auto is_numeric = [](CGType ty) {
+            return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
+        };
+        bool homogeneous = true;
+        bool all_numeric = true;
         const CGType elem = t.elems.front().type;
-        if (elem != CGType::Int && elem != CGType::Double &&
-            elem != CGType::Bool && elem != CGType::Str) {
+        for (const auto& e : t.elems) {
+            if (e.type != elem) homogeneous = false;
+            if (!is_numeric(e.type)) all_numeric = false;
+        }
+        if (homogeneous && elem != CGType::Int && elem != CGType::Double &&
+            elem != CGType::Bool && elem != CGType::Str && !all_numeric) {
             unsupported("non-constant tuple index on this element type",
                         expr.bracket().line(), expr.bracket().column());
         }
-        for (const auto& e : t.elems) {
-            if (e.type != elem) {
-                unsupported("non-constant index on heterogeneous tuple",
-                            expr.bracket().line(), expr.bracket().column());
-            }
+        if (!homogeneous && !all_numeric) {
+            unsupported("non-constant index on heterogeneous tuple",
+                        expr.bracket().line(), expr.bracket().column());
         }
         CGValue index = emit(expr.index());
         if (index.type != CGType::Int) {
             unsupported("non-integer index",
                         expr.bracket().line(), expr.bracket().column());
+        }
+        if (!homogeneous || elem == CGType::Num) {
+            // 数值系路径（t107）：tags+bits 双数组（均 kind 0 int），同一
+            // 索引两次取回拼 Num（负索引归一化/越界陷阱在首次 get）
+            llvm::Value* tags = builder_.CreateCall(
+                rt_arr_new_,
+                {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(0)},
+                "tuptags");
+            llvm::Value* bits_arr = builder_.CreateCall(
+                rt_arr_new_,
+                {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(0)},
+                "tupbits");
+            for (long long i = 0; i < n; ++i) {
+                llvm::Value* num = to_num(t.elems[static_cast<size_t>(i)]);
+                builder_.CreateCall(
+                    rt_arr_set_,
+                    {tags, builder_.getInt64(static_cast<uint64_t>(i)), num_tag(num)});
+                builder_.CreateCall(
+                    rt_arr_set_,
+                    {bits_arr, builder_.getInt64(static_cast<uint64_t>(i)), num_bits(num)});
+            }
+            llvm::Value* tag =
+                builder_.CreateCall(rt_arr_get_, {tags, index.value}, "tuptag");
+            llvm::Value* bits =
+                builder_.CreateCall(rt_arr_get_, {bits_arr, index.value}, "tupbit");
+            last_value_ = {make_num(tag, bits), CGType::Num};
+            return;
         }
         llvm::Value* arr = builder_.CreateCall(
             rt_arr_new_,
