@@ -64,9 +64,10 @@
 | S51 | byte/word 函数参数：declare_function 参数循环 KW_BYTE/KW_WORD 前置识别为 CGType::Int 承载（llvm 形参 i64），visitFunction 形参绑定置 CGVar.bit_max（255/65535）——体内重赋走既有赋值点 check_bit_range 陷阱、返回越界走 visitReturn t97 陷阱；调用点零改动——重载解析要求实参类型即 byte/word（整数字面量/算术实参双端语义错非差分面），实参恒为来源处已校验值；~~类方法/构造器参数维持拒编~~（S52 t99 已放行）；零新增 rt 接口 | byte 形参 identity/clamp 多返回/word 形参/嵌套调用/byte 函数返回作实参/循环内反复调用/形参返回值比较程序编译执行，输出与解释器一致 **✅ t98** |
 | S52 | byte/word 类方法/构造器参数与返回：方法注册循环返回类型/参数 KW_BYTE/KW_WORD 前置识别为 CGType::Int 承载（返回位复用 CGMethod 继承的 ret_bit_max），gen_method_body 设/复位 current_ret_bit_max_（返回走 t97 陷阱）+ 形参绑定点读 AST 形参类型插 check_bit_range 范围陷阱（方法单签名按名解析、实参可为整数字面量、覆盖方法/构造器/base 全路径）+ 置 CGVar.bit_max；coerce_call_arg 零改动；零新增 rt 接口 | 构造器 byte 参数字面量实参/方法 byte 参数字面量+变量实参/方法 byte 返回 print-算术-存变量/byte 参数+byte 返回多路径/word 参数+word 返回多路径与循环累计/方法返回值作方法实参/byte 返回值有序比较程序编译执行，输出与解释器一致 **✅ t99** |
 | S53 | 类实例进数组（同类，kind 5）：arr_kind_of(Obj)→5、elem_to_bits/bits_to_elem 加 PtrToInt/IntToPtr；visitArrayLiteral 追踪元素类名（复用 CGValue.cls）+ 混合类守卫，visitVarDecl/visitAssign array 分支传播 cls + 异类守卫，visitIndex 静态读出传播 cls（arr[i].field/method() + 动态分派），visitIndexAssign Obj 分支 cls 兼容守卫（子类 upcast 放行）；rt 三触点加 kind 5——arr_to_str `<object>` / arr_eq 恒不等 / trap_arr_kind `object`；本地静态读出全解锁，动态域 obj 读出落 CG9 陷阱 | 同类实例数组 build/len/print/toString/本地静态读出字段与方法调用/负索引/整槽写同类/子类 upcast 整槽写后动态分派/== 实例恒不等程序编译执行，输出与解释器一致 **✅ t100** |
+| S54 | 无初始化 array/类类型变量声明：visitVarDecl 无初始化分支加 KW_ARRAY（建 opaque ptr 槽 + elem=Num 动态域哨兵 t70）/IDENTIFIER 已注册类名（建 Obj 槽 + cls）两分支，沿用 uninit + decl_depth（t92）；visitAssign Arr/Obj 两分支原早退不经通用路径故各补同块 uninit 清除；读 uninit 拒编、深层块赋值不清标记全复用 t92 机制 | 无初始化 array 隔句赋值读写/别名引用语义/无初始化类变量赋值后字段读+方法调用+upcast 动态分派/函数内局部/循环体内同块赋值程序编译执行，输出与解释器一致 **✅ t101** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
-不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），byte/word 类方法/构造器参数与返回已于 S52 t99 解锁——方法单签名按名解析，形参绑定点插 check_bit_range 范围陷阱（实参可为整数字面量，覆盖方法/构造器/base 全路径），返回走 t97 陷阱（方法调用结果参与 ==/!= 比较、word→byte 返回属解释器语义边界非 codegen 拒编面）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读与其余类型无初始化仍拒编（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/Tuple/类无初始化仍拒编）；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编；类实例进数组已于 S53 t100 解锁——限同类（kind 5，复用 CGValue.cls 记元素类名），本地静态读出/字段/方法调用/整槽写同类或子类 upcast 全支持，混合类字面量/整槽写异类仍拒编，动态域（数组过签名/字段/返回值）obj 元素读出落 CG9 陷阱不错值）。
+不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁，异质 tuple 非常量索引/动态键/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类/父类静态类型调子类特有方法仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），byte/word 类方法/构造器参数与返回已于 S52 t99 解锁——方法单签名按名解析，形参绑定点插 check_bit_range 范围陷阱（实参可为整数字面量，覆盖方法/构造器/base 全路径），返回走 t97 陷阱（方法调用结果参与 ==/!= 比较、word→byte 返回属解释器语义边界非 codegen 拒编面）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/类方法体内嵌套/函数名作值仍拒编；无初始化变量声明已于 S45 t92 解锁——限四静态类型且同块赋值后读，分支/循环块内赋值后读仍拒编（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/类类型已于 S54 t101 放行——array 建 opaque ptr 槽 + elem=Num 动态域哨兵、类类型建 Obj 槽 + cls，visitAssign Arr/Obj 分支补同块 uninit 清除，无初始化 Tuple 仍拒编——形状无从推断）；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编；类实例进数组已于 S53 t100 解锁——限同类（kind 5，复用 CGValue.cls 记元素类名），本地静态读出/字段/方法调用/整槽写同类或子类 upcast 全支持，混合类字面量/整槽写异类仍拒编，动态域（数组过签名/字段/返回值）obj 元素读出落 CG9 陷阱不错值）。
 CodeGenVisitor 遇到不支持的节点**显式报错**（"codegen: not yet supported: XXX"），绝不静默错编。
 
 ## 二、总体架构
@@ -534,7 +535,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 读 uninit 变量 | visitIdentifier 拒编 "use of uninitialized variable"——语义层 use-before-init 检查流不敏感（分支/循环内赋值后读会放行），解释器该场景运行期输出 none，零初始化槽会错出 0——拒编不错编 |
 | `x = v` 后续读 | visitAssign 通用路径 store 后仅当 `scopes_.size() == decl_depth`（同块直线区域，块内顺序执行保证运行期先于后续读）清 uninit 放行；深层块（分支/循环体）赋值存值但不清标记 |
 | 全局无初始化 + 函数体内读 | 函数体链底快照拷贝全局层时 uninit 状态随 CGVar 拷贝：声明后已同块赋值的全局在函数内可读，未赋值的保守拒编 |
-| 范围外 | ~~byte/word/number/tribool~~（S49 t96 一并放行）/数组/Tuple/类类型无初始化维持拒编；分支/循环块内赋值后读拒编不错编（实证：if(false)/while(false) 内赋值后读解释器 none vs 拒编）；零新增 collie_rt 接口 |
+| 范围外 | ~~byte/word/number/tribool~~（S49 t96 一并放行）/~~数组/类类型~~（S54 t101 放行）/Tuple 无初始化维持拒编；分支/循环块内赋值后读拒编不错编（实证：if(false)/while(false) 内赋值后读解释器 none vs 拒编）；零新增 collie_rt 接口 |
 
 **S46 降级补充（t93 实现）：三元/==? 分支实例类型统一到最近公共祖先**：
 
@@ -575,7 +576,7 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | `tribool tb;` / `char c;` / `character d;` | Tri（i8）/Str（ptr）同理零初始化槽合法；char/character 经 declared_cgtype 映射 Str 承载 |
 | `byte by;` / `word wd;` | i64 承载零初始化 + CGVar.bit_max（255/65535）；赋值走 visitAssign 通用路径——既有赋值点 check_bit_range 陷阱自动生效，不丢范围校验（实证：范围内赋值两端一致） |
 | 赋值后读 / 全局函数体内读 / 循环体内声明 | 复用 S45 t92 的 uninit/decl_depth/同块清除与链底快照机制，六新类型零新增控制流 |
-| 范围外 | array（elem 无从推断）/Tuple（形状无从推断）/类类型无初始化维持拒编；分支/循环块内赋值后读维持拒编不错编（实证：if 块内赋值 byte 后读——解释器输出值 vs 拒编 "use of uninitialized variable"）；零新增 collie_rt 接口 |
+| 范围外 | ~~array（elem 无从推断）/类类型~~（S54 t101 放行——array 建 opaque ptr 槽 + elem=Num 动态域哨兵、类类型建 Obj 槽 + cls）/Tuple（形状无从推断）无初始化维持拒编；分支/循环块内赋值后读维持拒编不错编（实证：if 块内赋值 byte 后读——解释器输出值 vs 拒编 "use of uninitialized variable"）；零新增 collie_rt 接口 |
 
 **S50 降级补充（t97 实现）：byte/word 函数返回类型**：
 
@@ -615,6 +616,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 变量声明/重赋值 | visitVarDecl array 分支拷贝 init.cls 入 CGVar；visitAssign 整数组重赋值补 Obj 异类守卫 `v.cls != var->cls` 拒编 "assigning array with different element class" + last_value_ 携 cls |
 | print / toString / == | rt 三触点加 kind 5——arr_to_str case 5 `<object>`（对齐 Value::to_string Instance）、arr_eq 同 kind 5 恒返 0（对齐解释器 values_equal 无 Instance 分支实例恒不等，含同实例/同数组自比较）、trap_arr_kind kind 5→`object`（动态域读出兜底）；`==`/print 按 Arr 类型泛化下沉无 elem 守卫天然覆盖 |
 | 范围外 | 混合类实例数组字面量/整槽写异类维持拒编；动态域（数组过签名/字段/返回值）obj 元素读出维持 CG9 陷阱不错编（元素类型静态不可定，trap_arr_kind kind 5→object）；零新增 collie_rt 接口 |
+
+**S54 降级补充（t101 实现）：无初始化 array/类类型变量声明**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| `array a;` 无初始化声明 | visitVarDecl 无初始化分支加 KW_ARRAY 前置分支（静态类型放行块后、终点 unsupported 前）：槽照常创建（opaque ptr，顶层零初始化 GlobalVariable / 函数内 alloca），CGVar 记 elem=Num 动态域哨兵（t70——elem 无从静态推断，后续赋值走 visitAssign Arr 动态域透传）+ uninit + decl_depth；解释器语义绑 none，读被静态拒编故槽初值不可观测 |
+| `Cat c;` 无初始化声明（c 为已注册类名） | visitVarDecl 加 IDENTIFIER 分支（`classes_.count(类名)` 守卫）：Obj 槽照常创建，CGVar 记 cls=声明类名 + uninit + decl_depth；后续赋值走 visitAssign Obj 分支，读出属性链/方法调用/upcast 动态分派全走 t61/t86 既有路径 |
+| `a = […]` / `c = new Cat(...)` 同块赋值 | visitAssign 的 Arr 分支与 Obj 分支原 CreateStore 后即 `return` 早退，**不经通用路径 t92 的 uninit 清除逻辑**——故两分支各补同块清除 `if (var->uninit && scopes_.size()==var->decl_depth) var->uninit=false`；深层块（分支/循环体）赋值存值不清标记（流不敏感保守，同 t92） |
+| 读 uninit / 深层块赋值后读 | visitIdentifier 读 uninit 拒编 "use of uninitialized variable"（复用 t92）；分支/循环块内赋值后读拒编不错编（实证：无初始化 array 仅 if 块内赋值后读——解释器 `[1,2,3]` vs 拒编 deep-block 保守） |
+| 范围外 | 无初始化 Tuple（形状无从推断——元素数/名字表静态不可知，解构槽组无从建，维持拒编 "variable declaration without initializer"，实证）；array 动态域索引读 kind ≥ 2 落既有 CG9 陷阱（elem=Num 哨兵，同 t70/t88）；零新增 collie_rt 接口 |
 
 ## 五、构建与链接方案（关键决策）
 

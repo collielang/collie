@@ -1,0 +1,76 @@
+// t101 S54 差分用例：无初始化 array/类类型变量声明（同块赋值后可用）
+// 复用 t92/t96 uninit + decl_depth 机制；array 叠加 t70 Num 动态域哨兵。
+
+// 无初始化 array 变量：声明后隔句赋值，print/len/正负索引读写（数值 kind 0）
+array a;
+a = [1, 2, 3];
+print("arr:", a, len(a));
+a[0] = 100;
+a[-1] = 300;
+print("idx:", a[0], a[1], a[-1]);
+
+// 无初始化 array 变量赋 decimal 数组（动态域 kind 1，混合表示对齐）
+array d;
+d = [1.5, 2.5, 3.0];
+print("dec:", d, len(d), d[0], d[-1]);
+
+// 无初始化 array 变量 + 引用语义（别名共享同一数组对象）
+array b;
+b = [10, 20];
+array alias = b;
+b[0] = 99;
+print("ref:", alias[0], b, len(b));
+
+// 无初始化类类型变量：声明后赋值，字段读 + 方法调用
+class Cat {
+    public string name = "cat";
+    public integer age = 0;
+
+    public Cat(nm string, ag integer) {
+        this.name = nm;
+        this.age = ag;
+    }
+
+    public function speak() string {
+        return this.name + " meow " + toString(this.age);
+    }
+}
+
+Cat c;
+c = new Cat("mimi", 3);
+print("cat:", c.name, c.age, c.speak());
+
+// 无初始化类变量 + 引用语义（别名写字段另一方可见）
+Cat other;
+other = c;
+other.age = 9;
+print("ref2:", c.age, other.age);
+
+// 无初始化父类类型变量接子类实例（upcast + 方法动态分派，t86）
+class Animal {
+    public function sound() string { return "generic"; }
+}
+class Dog extends Animal {
+    public function sound() string { return "woof"; }
+}
+Animal an;
+an = new Dog();
+print("upcast:", an.sound());
+
+// 函数内局部无初始化 array + class
+function localTest() none {
+    array la;
+    la = [7, 8, 9];
+    print("local-arr:", la, la[1]);
+    Cat lc;
+    lc = new Cat("local", 1);
+    print("local-cat:", lc.speak());
+}
+localTest();
+
+// 循环体内声明 + 同块赋值 + 同块读（同块放行，t92）
+for (integer i = 0; i < 2; i = i + 1) {
+    array loop;
+    loop = [i, i + 1];
+    print("loop:", loop, len(loop));
+}

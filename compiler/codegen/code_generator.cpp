@@ -1010,6 +1010,11 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                         expr.name().line(), expr.name().column());
         }
         builder_.CreateStore(v.value, var->slot);
+        if (var->uninit && scopes_.size() == var->decl_depth) {
+            // 无初始化 array 变量同块赋值后清 uninit 放行后续读（t101，与
+            // 通用路径 t92 一致；本分支原早退不经通用路径故此处补清）
+            var->uninit = false;
+        }
         last_value_ = {v.value, CGType::Arr, var->elem, var->cls};
         return;
     }
@@ -1023,6 +1028,11 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                         expr.name().line(), expr.name().column());
         }
         builder_.CreateStore(v.value, var->slot);
+        if (var->uninit && scopes_.size() == var->decl_depth) {
+            // 无初始化类类型变量同块赋值后清 uninit 放行后续读（t101，与
+            // 通用路径 t92 一致；本分支原早退不经通用路径故此处补清）
+            var->uninit = false;
+        }
         last_value_ = {v.value, CGType::Obj, CGType::Int, var->cls};
         return;
     }
@@ -1875,6 +1885,37 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             CGVar var;
             var.slot = create_var_slot(llvm_type_of(type), name);
             var.type = type;
+            var.uninit = true;
+            var.decl_depth = scopes_.size();
+            scopes_.back()[name] = var;
+            return;
+        }
+        if (tt == TokenType::KW_ARRAY) {
+            // 无初始化 array 变量（t101）：elem 无从静态推断，记 Num 动态域
+            // 哨兵（t70/t88）——后续赋值走 visitAssign Arr 动态域透传（任意元素
+            // 数组指针直存）、读出 kind 随对象自带、kind ≥ 2 落 CG9 陷阱；
+            // uninit 期读拒编（同块赋值后清，t92）
+            const std::string name(stmt.name().lexeme());
+            CGVar var;
+            var.slot = create_var_slot(llvm_type_of(CGType::Arr), name);
+            var.type = CGType::Arr;
+            var.elem = CGType::Num;
+            var.uninit = true;
+            var.decl_depth = scopes_.size();
+            scopes_.back()[name] = var;
+            return;
+        }
+        if (tt == TokenType::IDENTIFIER &&
+            classes_.count(std::string(stmt.type().lexeme()))) {
+            // 无初始化类类型变量（t101）：Obj 槽记声明类名，后续赋值走
+            // visitAssign Obj 分支（同类或子类 upcast 放行，t86）；uninit 期读
+            // 拒编（同块赋值后清，t92）
+            const std::string cls_name(stmt.type().lexeme());
+            const std::string name(stmt.name().lexeme());
+            CGVar var;
+            var.slot = create_var_slot(llvm_type_of(CGType::Obj), name);
+            var.type = CGType::Obj;
+            var.cls = cls_name;
             var.uninit = true;
             var.decl_depth = scopes_.size();
             scopes_.back()[name] = var;
