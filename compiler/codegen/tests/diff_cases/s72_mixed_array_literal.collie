@@ -1,0 +1,92 @@
+// t119 S68 差分用例：混合类实例数组字面量 NCA 收敛解锁
+// ——visitArrayLiteral 元素类守卫（原要求全部同类，t100）改为最近公共祖先收敛：
+// 有公共祖先则元素类收敛到 NCA（字段按 NCA 前缀偏移解码、方法按对象头类 id
+// 动态分派，与 t115/t118 同规则）；无公共祖先（跨树无公共字段前缀）仍保守
+// 拒编不错编（本用例不含）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+class Cat extends Animal {
+    public Cat(n string) : base(n) { }
+    @override
+    public function sound() string { return "meow"; }
+}
+
+// 1) 下溯混合 [Animal, Dog]（NCA=Animal）
+array a = [new Animal("a0"), new Dog("d0")];
+print(a.length);                    // 2
+print(a[0].sound());                // animal
+print(a[1].sound());                // woof（动态分派到 Dog）
+print(a[0].name);                   // a0
+print(a[1].name);                   // d0
+
+// 2) 兄弟混合 [Dog, Cat]（NCA=Animal，两个子类同级收敛到父）
+array m = [new Dog("d0"), new Cat("c0")];
+print(m.length);                    // 2
+print(m[0].sound());                // woof
+print(m[1].sound());                // meow
+print(m[0].describe());             // d0 says woof
+print(m[1].name);                   // c0
+
+// 3) 深链混合 [Dog, Puppy]（NCA=Dog，跨两级收敛）
+array deep = [new Dog("dd"), new Puppy("pp")];
+print(deep[0].sound());             // woof
+print(deep[1].sound());             // yip
+print(deep[1].name);                // pp
+
+// 4) 多元素逐级收敛 [Animal, Dog, Puppy, Cat]（逐元素收敛到 NCA=Animal）
+array mixed = [new Animal("ma"), new Dog("md"), new Puppy("mp"), new Cat("mc")];
+print(mixed.length);                // 4
+print(mixed[2].sound());            // yip
+print(mixed[3].sound());            // meow
+print(mixed[0].name);               // ma
+print(mixed[3].name);               // mc
+
+// 5) print 整数组 / 单元素 `<object>` / == 恒不等（t82 常量折叠对齐 values_equal）
+print(mixed);                       // [<object>, <object>, <object>, <object>]
+print(mixed[0]);                    // <object>
+print(mixed[0] == mixed[1]);        // false
+print(mixed[0] != mixed[0]);        // true
+
+// 6) 整体互赋协同（混合字面量赋给已有数组槽，t115 规则：var->cls 收敛后保持）
+array m2 = [new Dog("x")];
+m2 = [new Animal("y"), new Dog("z")];
+print(m2[0].sound());               // animal
+print(m2[1].sound());               // woof
+
+// 7) 单槽写协同（混合字面量数组元素再被同树单槽写，t118 规则）
+m2[0] = new Puppy("p");
+print(m2[0].sound());               // yip
+print(m2[0].describe());            // p says yip
+
+// 8) 函数内局部混合字面量
+function mix(flag bool) string {
+    array t = [new Animal("lo"), new Dog("hi")];
+    if (flag) {
+        return t[1].sound();
+    }
+    return t[0].sound();
+}
+print(mix(true));                   // woof
+print(mix(false));                  // animal
+
+// 9) 循环内访问混合数组（动态分派稳定）
+array lp = [new Dog("l0"), new Cat("l1")];
+for (integer i = 0; i < 2; i = i + 1) {
+    print(lp[i].sound());
+}
+print("END");

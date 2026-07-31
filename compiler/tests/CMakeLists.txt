@@ -117,7 +117,7 @@ if(COLLIE_ENABLE_LLVM)
             s56_downcast_members s57_method_nested_fn s58_substring_frac s59_array_retype s60_tuple_hetnum
             s61_tuple_getnum s62_class_uninit_field s63_uninit_branches s64_num_narrow s65_uninit_tuple
             s66_dowhile_definite s67_tuple_ref_index s68_instance_array_cast s69_tuple_instance_cast
-            s70_tuple_reshape s71_index_assign_cast)
+            s70_tuple_reshape s71_index_assign_cast s72_mixed_array_literal)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

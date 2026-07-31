@@ -1296,10 +1296,17 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                             bracket.line(), bracket.column());
             }
         } else if (elem == CGType::Obj && v.cls != elem_cls) {
-            // 实例数组同类约束（t100）：kind 5 单一元素类布局，混合类
-            // 实例数组拒编不错编（异类维持后置）
-            unsupported("heterogeneous array literal (mixed classes)",
-                        bracket.line(), bracket.column());
+            // 实例数组混合类字面量（t100 同类约束 → t119 NCA 收敛）：类不同
+            // 时求最近公共祖先——有则元素类收敛到 NCA（各元素类沿链前缀
+            // 布局兼容：字段按 NCA 偏移解码、方法按对象头 id 动态分派，与
+            // t115/t118 同规则；写入照常 rt_arr_set 直存位模式，运行期对象头
+            // 自解释）；无公共祖先（跨树无公共字段前缀）拒编不错编
+            const std::string nca = nearest_common_ancestor(elem_cls, v.cls);
+            if (nca.empty()) {
+                unsupported("heterogeneous array literal (mixed classes)",
+                            bracket.line(), bracket.column());
+            }
+            elem_cls = nca;
         }
         elements.push_back(v);
     }
