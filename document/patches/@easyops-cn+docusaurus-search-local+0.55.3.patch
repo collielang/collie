@@ -1,5 +1,5 @@
 diff --git a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
-index 14f5473..62cff89 100644
+index 10ef222..8bc2e8f 100644
 --- a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
 +++ b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.jsx
 @@ -30,22 +30,7 @@ async function fetchAutoCompleteJS() {
@@ -27,7 +27,7 @@ index 14f5473..62cff89 100644
  const SEARCH_PARAM_HIGHLIGHT = "_highlight";
  export default function SearchBar({ handleSearchBarToggle, }) {
 diff --git a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
-index dd8b024..7588789 100644
+index 4397cde..7a86066 100644
 --- a/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
 +++ b/node_modules/@easyops-cn/docusaurus-search-local/dist/client/client/theme/SearchBar/SearchBar.module.css
 @@ -222,10 +222,6 @@ html[data-theme="dark"] .noResultsIcon {
@@ -38,6 +38,6 @@ index dd8b024..7588789 100644
 -  margin-left: 16px;
 -}
 -
- .searchBarContainer .searchBarLoadingRing {
-   display: none;
+ .searchIcon {
    position: absolute;
+   top: 50%;
