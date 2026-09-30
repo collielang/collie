@@ -495,6 +495,36 @@ export const expand = false
 </details>
 
 
+
+### V (The V Programming Language)
+
+> Simple, fast, safe, compiled language for developing maintainable software.
+- Website: https://vlang.io/
+- Documentation: https://github.com/vlang/v/blob/master/doc/docs.md
+- GitHub Repo: https://github.com/vlang/v
+- GitHub Org: https://github.com/vlang
+
+<details open={expand}>
+<summary>V Ecosystem</summary>
+<Tabs>
+  <TabItem value="Package Manager" label="Package Manager" default>
+    #### vpm
+
+    > The V package manager, built into the V compiler.
+    - Documentation: https://github.com/vlang/v/blob/master/doc/docs.md#package-management
+  </TabItem>
+  <TabItem value="Compiler" label="Compiler">
+    #### V Compiler
+
+    > The V compiler itself, written in V and able to bootstrap itself.
+    - Website: https://vlang.io/
+    - GitHub Repo: https://github.com/vlang/v
+  </TabItem>
+</Tabs>
+</details>
+
+
+
 ### Ruby
 
 > Ruby is an interpreted object-oriented programming language often used for web development. It also offers many scripting features to process plain text and serialized files, or manage system tasks. It is simple, straightforward, and extensible.
