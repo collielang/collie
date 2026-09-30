@@ -395,6 +395,13 @@ private:
     /// value to 'integer' variable"）；整数态返 bits 即 i64 值
     llvm::Value* num_to_int_checked(llvm::Value* num);
 
+    /// @brief 索引值归一化为 i64（t122）：Int 透传；Double/Num 镜像解释器
+    /// normalize_index——转 double 视图，非整数态（含 NaN）调 collie_rt 陷阱
+    /// "Index must be an integer"，整数态 floor 后 clamp ±4e18 防 FPToSI poison
+    /// （±Infinity 随后落 rt 越界陷阱）再 FPToSI；负索引回绕/越界由 rt 侧统一处理。
+    /// 其余类型（Bool/Str 等）拒编不错编
+    llvm::Value* index_to_int(const CGValue& index, size_t line, size_t col);
+
     /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
     llvm::Value* to_str(const CGValue& v, const Token& where);
 
@@ -473,6 +480,8 @@ private:
     llvm::FunctionCallee rt_trap_shift_count_;  // void()
     /// collie_rt number 窄化陷阱（t111）：Num 小数态窄化 integer 报错退出
     llvm::FunctionCallee rt_trap_num_narrow_;   // void()
+    /// collie_rt 非整数索引陷阱（t122）：number/decimal 下标非整数态报错退出
+    llvm::FunctionCallee rt_trap_index_integer_; // void()
     /// collie_rt 动态域元素 kind 陷阱（t88，缺口 CG9）：bool/str/嵌套数组经
     /// 透传后索引读出元素静态类型不可定，陷阱退出不错值
     llvm::FunctionCallee rt_trap_arr_kind_;     // void(i64 kind)

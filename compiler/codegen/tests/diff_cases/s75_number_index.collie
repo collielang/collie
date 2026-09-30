@@ -1,0 +1,47 @@
+// s75: number/decimal 值作下标（t122）
+// number/decimal 整数态经 index_to_int 镜像解释器 normalize_index：
+// 转 double 视图、非整数态运行期陷阱（不在成功面内）、整数态 floor 后
+// FPToSI 归一 i64；负索引回绕/越界由 rt 侧统一处理。
+// 触点：数组读、索引赋值、字符串下标、tuple 非常量下标、循环计数、嵌套数组。
+
+// 数组读：number/decimal 变量作下标
+array a = [10, 20, 30];
+number i = 1;
+print(a[i]);             // 20
+decimal d = 2.0;
+print(a[d]);             // 30
+
+// 负 number 下标回绕（-1 = 最后一个元素）
+number neg = -1;
+print(a[neg]);           // 30
+
+// 索引赋值：number 下标写回
+array b = [1, 2, 3];
+number w = 0;
+b[w] = 99;
+print(b[0]);             // 99
+
+// 字符串下标：number 索引取字符
+string s = "abc";
+number j = 1;
+print(s[j]);             // b
+
+// tuple 非常量 number 下标
+Tuple t = (10, 20, 30);
+number ti = 1;
+print(t[ti]);            // 20
+
+// number 循环计数遍历数组
+array c = [5, 6, 7, 8];
+number k = 0;
+while (k < len(c)) {
+    print(c[k]);         // 5 6 7 8
+    k = k + 1;
+}
+
+// 嵌套数组 number 下标
+array nested = [[1, 2], [3, 4]];
+number ni = 1;
+print(nested[ni][0]);    // 3
+
+print("END");

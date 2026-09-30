@@ -48,6 +48,10 @@
  *     // byte/word 赋值点越界（0-255/0-65535），stderr 报错后 exit(1)
  *   void collie_rt_trap_shift_count(void);  // 移位量越界 0-63，同上
  *
+ * 非整数索引陷阱（t122）：
+ *   void collie_rt_trap_index_integer(void);  // number/decimal 下标非整数态
+ *     （含 NaN）报错退出，对齐解释器 normalize_index "Index must be an integer"
+ *
  * 数组运行时（t59，同质数组降级用）：
  *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
  *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
@@ -335,6 +339,13 @@ void collie_rt_trap_bit_range(const char* name, long long max, long long got) {
 void collie_rt_trap_num_narrow(void) {
     fprintf(stderr, "runtime error: Type mismatch: cannot assign decimal "
                     "value to 'integer' variable\n");
+    exit(1);
+}
+
+/* 非整数索引陷阱（t122）：number/decimal 下标非整数态（含 NaN）时报错退出，
+ * 对齐解释器 normalize_index 的 "Index must be an integer"（裸消息同越界陷阱） */
+void collie_rt_trap_index_integer(void) {
+    fprintf(stderr, "Index must be an integer\n");
     exit(1);
 }
 

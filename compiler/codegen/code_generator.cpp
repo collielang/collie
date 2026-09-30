@@ -213,6 +213,10 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_num_narrow_ = module_->getOrInsertFunction(
         "collie_rt_trap_num_narrow",
         llvm::FunctionType::get(builder_.getVoidTy(), false));
+    // collie_rt 非整数索引陷阱声明（t122）：number/decimal 下标非整数态报错退出
+    rt_trap_index_integer_ = module_->getOrInsertFunction(
+        "collie_rt_trap_index_integer",
+        llvm::FunctionType::get(builder_.getVoidTy(), false));
     // collie_rt 动态域元素 kind 陷阱声明（t88，缺口 CG9）：bool/str/嵌套数组
     // 经透传后索引读出元素静态类型不可定，陷阱退出不错值
     rt_trap_arr_kind_ = module_->getOrInsertFunction(
@@ -1396,10 +1400,9 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
                         expr.bracket().line(), expr.bracket().column());
         }
         CGValue index = emit(expr.index());
-        if (index.type != CGType::Int) {
-            unsupported("non-integer index",
-                        expr.bracket().line(), expr.bracket().column());
-        }
+        index.value =
+            index_to_int(index, expr.bracket().line(), expr.bracket().column());
+        index.type = CGType::Int;
         if (!homogeneous || elem == CGType::Num) {
             // 数值系路径（t107）：tags+bits 双数组（均 kind 0 int），同一
             // 索引两次取回拼 Num（负索引归一化/越界陷阱在首次 get）
@@ -1449,10 +1452,9 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
                     expr.bracket().line(), expr.bracket().column());
     }
     CGValue index = emit(expr.index());
-    if (index.type != CGType::Int) {
-        unsupported("non-integer index",
-                    expr.bracket().line(), expr.bracket().column());
-    }
+    index.value =
+        index_to_int(index, expr.bracket().line(), expr.bracket().column());
+    index.type = CGType::Int;
     if (object.type == CGType::Arr) {
         // 8 字节槽位模式按元素类型解码（字面量同质推断/变量槽记录，t59）
         llvm::Value* bits = builder_.CreateCall(
@@ -1504,10 +1506,9 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
                     expr.bracket().line(), expr.bracket().column());
     }
     CGValue index = emit(expr.index());
-    if (index.type != CGType::Int) {
-        unsupported("non-integer index",
-                    expr.bracket().line(), expr.bracket().column());
-    }
+    index.value =
+        index_to_int(index, expr.bracket().line(), expr.bracket().column());
+    index.type = CGType::Int;
     CGValue v = emit(expr.value());
     if (object.elem == CGType::Arr) {
         // 嵌套数组整槽替换（t85/t89）：外层槽写入新内层数组 ptr 位模式；
@@ -4508,6 +4509,42 @@ llvm::Value* CodeGenerator::num_to_int_checked(llvm::Value* num) {
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(cont_bb);
     return num_bits(num);
+}
+
+llvm::Value* CodeGenerator::index_to_int(const CGValue& index, size_t line,
+                                         size_t col) {
+    if (index.type == CGType::Int) {
+        return index.value;  // 静态整数下标零开销透传
+    }
+    if (index.type != CGType::Double && index.type != CGType::Num) {
+        // Bool/Str 等非数值下标：解释器报 "Index must be a number"（错误对齐面，
+        // 非 stdout 差分），维持拒编不错编
+        unsupported("non-integer index", line, col);
+    }
+    // number/decimal 下标（t122）：镜像解释器 normalize_index——转 double 视图
+    //（to_double：Num 按 tag select、Double 直用），非整数态（d != floor(d)，
+    // NaN 经 FCmpOEQ 为 false）陷阱退出 "Index must be an integer"；整数态 floor
+    // 后 clamp ±4e18 防 ±Infinity/超大值 FPToSI poison（随后落 rt 越界陷阱，
+    // 与解释器 double 域 cast 后越界报错殊途同归），FPToSI 得 i64。负索引回绕与
+    // 越界由 rt_arr_norm_index / rt_str_index 统一处理，故此处只产 i64 下标
+    llvm::Value* d = to_double(index);
+    llvm::Value* fl =
+        builder_.CreateUnaryIntrinsic(llvm::Intrinsic::floor, d, nullptr, "idxfl");
+    llvm::Value* is_int = builder_.CreateFCmpOEQ(d, fl, "idxisint");
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "idxint.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "idxint.cont", fn);
+    builder_.CreateCondBr(is_int, cont_bb, trap_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_index_integer_);
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    llvm::Value* lo = llvm::ConstantFP::get(builder_.getDoubleTy(), -4.0e18);
+    llvm::Value* hi = llvm::ConstantFP::get(builder_.getDoubleTy(), 4.0e18);
+    llvm::Value* cl =
+        builder_.CreateBinaryIntrinsic(llvm::Intrinsic::maxnum, fl, lo);
+    cl = builder_.CreateBinaryIntrinsic(llvm::Intrinsic::minnum, cl, hi);
+    return builder_.CreateFPToSI(cl, builder_.getInt64Ty(), "idx");
 }
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {
