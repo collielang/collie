@@ -1,0 +1,62 @@
+// t128 S81 差分用例：函数体内类声明（class-in-function）——函数被调用时体内
+// 直线/裸块位置的类声明终会被登记（解释器类表全局持久），编译期按执行序
+// 收集注册与之等价；类仅宿主函数体内可实例化（函数外/其它函数体内 new 保守
+// 拒编：函数是否被调用属运行期事实，静态无从判定）。if/while 体内声明与
+// 函数外使用维持拒编（不在此用例）。
+
+class Base {
+    public number bv = 2;
+    public function speak() string { return "base"; }
+    public function combo() number { return this.bv * 10; }
+}
+
+function useSub(n number) number {
+    class Sub extends Base {
+        public number sv;
+        public Sub(x number) : base() {
+            this.sv = x;
+        }
+        public function speak() string { return "sub"; }
+    }
+    Sub s = new Sub(n);
+    Base up = s;
+    print(up.speak());
+    print(s.combo());
+    return s.sv + s.bv;
+}
+print(useSub(3));
+print(useSub(7));
+
+function makeAndUse(n number) number {
+    class Inner {
+        public number v;
+        public Inner(x number) {
+            this.v = x;
+        }
+        public function getv() number { return this.v; }
+    }
+    Inner i = new Inner(n);
+    return i.getv();
+}
+print(makeAndUse(5));
+print(makeAndUse(9));
+
+function blk(n number) number {
+    {
+        class Deep {
+            public number d;
+            public Deep(x number) {
+                this.d = x * 2;
+            }
+            public function getd() number { return this.d; }
+        }
+        Deep dp = new Deep(n);
+        return dp.getd();
+    }
+}
+print(blk(4));
+print(blk(11));
+
+Base b = new Base();
+print(b.speak());
+print("END");

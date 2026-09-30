@@ -207,6 +207,9 @@ private:
         std::unordered_map<std::string, unsigned> field_index; // 字段名 → 逻辑下标（GEP 需 +1 跳头部）
         std::unordered_map<std::string, std::string> dispatch; // 方法名 → 实例键 "D.m"（覆写解析后，含构造器）
         std::unordered_map<std::string, CGMethod> instances;   // "D.m" → 本类分派上下文的单态化实例
+        bool bodies_generated = false;  // 方法体是否已生成（t128）：单态化副本重访不重建 entry
+        const FunctionStmt* owner_fn = nullptr;  // 宿主函数（t128）：函数体内声明的类
+                                                 // 仅该函数体内可实例化；裸块/顶层为 nullptr
         bool ready = true;  // 执行序是否已到声明处（t127）：裸块内类声明注册期置 false，
                             // 第二遍 visitClass 走到声明语句时置 true——对齐解释器
                             // "执行到声明语句才注册"；new 早于声明处即拒编不错编
@@ -317,12 +320,15 @@ private:
     /// prefix 改编名 declare_function 并进 nested_fns_ 注册表
     void declare_nested_in(const Stmt* s, const std::string& prefix);
 
-    /// @brief 按执行序收集类声明（t127）：顶层 ClassStmt 直接收；裸块 BlockStmt
-    /// 恒执行，递归下钻收集（不下钻 if/while/for/switch——执行期条件性，
-    /// 编译期无条件注册即错编）；块内类名另记入 block_class_names（供 ready 标记）
-    void collect_classes_in_order(const std::vector<std::unique_ptr<Stmt>>& stmts,
-                                  std::vector<const ClassStmt*>& out,
-                                  std::set<std::string>& block_class_names);
+    /// @brief 按执行序收集类声明（t127/t128）：顶层 ClassStmt 直接收；裸块 BlockStmt
+    /// 恒执行、函数体被调用即顺序执行，二者递归下钻收集（不下钻 if/while/for/switch
+    /// ——执行期条件性，编译期无条件注册即错编）；非顶层类名记入 deferred_classes
+    /// （值 = 宿主函数指针，裸块内为 nullptr）供 ready/owner_fn 标记
+    void collect_classes_in_order(
+        const std::vector<std::unique_ptr<Stmt>>& stmts,
+        std::vector<const ClassStmt*>& out,
+        std::unordered_map<std::string, const FunctionStmt*>& deferred_classes,
+        const FunctionStmt* owner = nullptr);
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
     /// 自身追加建 struct；同名字段遮蔽/无初值字段/范围外字段类型拒编；
@@ -548,6 +554,9 @@ private:
     std::string current_defining_class_;
     /// 当前是否在生成函数体（顶层 return / 嵌套函数拒编用）
     bool in_function_ = false;
+    /// 当前正在生成体的函数（t128）：函数体内声明的类仅宿主函数体内可实例化，
+    /// 与 CGClass::owner_fn 比对；顶层（@main）为 nullptr
+    const FunctionStmt* current_fn_ = nullptr;
     /// 已生成的函数/方法体计数（t106）：函数体链底按值快照声明在先的
     /// 全局槽静态 elem，全局数组槽异型互赋降级不回溯已生成代码——
     /// 声明后计数增长即拒编（CGVar.fn_gen_at 对比）

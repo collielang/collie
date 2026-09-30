@@ -368,21 +368,28 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     in_function_ = false;
     current_this_ = nullptr;
     current_class_name_.clear();
-    // 类声明收集（t127）：按执行序——顶层类与裸块内类一并收（裸块恒执行，
-    // 递归下钻）；if/while/for/switch 体内类声明不收（执行期条件性，编译期
-    // 无条件注册会使 codegen 比解释器宽松，属错编方向，维持拒编）
+    // 类声明收集（t127/t128）：按执行序——顶层类与裸块内类一并收（裸块恒
+    // 执行，递归下钻），函数体内直线/裸块类声明亦收（t128，函数被调用即
+    // 登记，解释器类表全局持久）；if/while/for/switch 体内类声明不收（执行期
+    // 条件性，编译期无条件注册会使 codegen 比解释器宽松，属错编方向）
     std::vector<const ClassStmt*> class_decls;
-    std::set<std::string> block_class_names;
-    collect_classes_in_order(statements, class_decls, block_class_names);
-    // 裸块内类：注册期置未就绪——对齐解释器"执行到声明语句才注册"，
-    // 声明块之前的 new 在 codegen 侧亦须拒编（不然 codegen 能跑、解释器
+    // 非顶层类 → 宿主函数（裸块内为 nullptr）：键存在即"延迟就绪"
+    std::unordered_map<std::string, const FunctionStmt*> deferred_classes;
+    collect_classes_in_order(statements, class_decls, deferred_classes);
+    // 非顶层类：注册期置未就绪——对齐解释器"执行到声明语句才注册"，
+    // 声明语句之前的 new 在 codegen 侧亦须拒编（不然 codegen 能跑、解释器
     // Undefined class rc=1，两端不一致）
     for (const ClassStmt* c : class_decls) {
         register_class_layout(*c);
     }
-    for (const std::string& n : block_class_names) {
-        auto bit = classes_.find(n);
-        if (bit != classes_.end()) bit->second.ready = false;
+    for (const auto& entry : deferred_classes) {
+        auto bit = classes_.find(entry.first);
+        if (bit == classes_.end()) continue;
+        bit->second.ready = false;
+        // 宿主函数（t128）：仅宿主函数体内可实例化；裸块内类为 nullptr
+        // （顶层语境走到声明块后即可用），函数体内类为该函数——函数外/
+        // 其它函数体内 new 保守拒编（是否被调用属运行期事实，静态无从判定）
+        bit->second.owner_fn = entry.second;
     }
     for (const ClassStmt* c : class_decls) {
         // 阶段二：方法单态化原型（签名可引用任意已注册类，t61）
@@ -2374,13 +2381,19 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
-    // 执行序守卫（t127）：裸块内声明的类在第二遍走到声明语句前尚未"注册"
-    // （对齐解释器执行到才登记）——顶层直线处 new 早于声明块则拒编不错编
+    // 执行序守卫（t127/t128）：裸块/函数体内声明的类在第二遍走到声明语句前
+    // 尚未"注册"（对齐解释器执行到才登记）——new 早于声明语句则拒编不错编
     // （否则 codegen 能跑、解释器 Undefined class rc=1，两端不一致）。
-    // 函数/方法体内的 new 不适用：其 IR 在函数声明处生成，实际实例化发生在
-    // 调用时（运行时类表已齐），检查会误拒既有合法面。
-    if (!cls.ready && !in_function_) {
+    // 宿主函数守卫（t128）：函数体内声明的类仅宿主函数体内可实例化——函数
+    // 是否被调用属运行期事实，静态无从判定，函数外/其它函数体内 new 保守拒编。
+    if (!cls.ready) {
         unsupported("class '" + name + "' used before its declaration", line, column);
+    }
+    if (cls.owner_fn != nullptr && cls.owner_fn != current_fn_) {
+        unsupported("class '" + name + "' declared inside function '" +
+                        std::string(cls.owner_fn->name().lexeme()) +
+                        "' is not visible here",
+                    line, column);
     }
     // 无初值字段守卫（t109/t125/t126）：解释器字段先绑 none、构造器随后覆写——
     // 仅当实例化类自身构造器体在 any 观察点前以 this.f = expr（RHS 不含
@@ -3053,6 +3066,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
     const bool saved_in_function = in_function_;
+    const FunctionStmt* saved_fn = current_fn_; // t128：宿主函数语境保存恢复
     ++fn_gen_count_; // 全局数组槽 elem 快照守卫（t106）
     const CGType saved_ret_type = current_ret_type_;
     const std::string saved_ret_cls = current_ret_cls_;
@@ -3084,6 +3098,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
     in_function_ = true;
+    current_fn_ = &stmt; // t128：函数体内声明的类以本函数为宿主
     current_ret_type_ = info.ret_type;
     current_ret_cls_ = info.ret_cls;
     current_ret_bit_max_ = info.ret_bit_max;
@@ -3133,6 +3148,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     }
 
     in_function_ = saved_in_function;
+    current_fn_ = saved_fn;
     current_ret_type_ = saved_ret_type;
     current_ret_cls_ = saved_ret_cls;
     current_ret_bit_max_ = saved_ret_bit_max;
@@ -3218,20 +3234,27 @@ void CodeGenerator::visitClass(const ClassStmt& stmt) {
     // 的方法在本类语境下重新生成一份——体内 this.m() 按本类分派表解析，
     // 模板方法模式得以正确（与解释器动态分派等价）
     const std::string name(stmt.name().lexeme());
-    if (in_function_) {
-        unsupported("class declaration inside function",
-                    stmt.name().line(), stmt.name().column());
-    }
     auto it = classes_.find(name);
     if (it == classes_.end()) {
-        // 非顶层位置且非裸块内的类声明（if/while/for/switch 体内、函数内）未进类表
+        // 未进类表：函数/方法体内未在收集范围的位置（if/while/for/switch 体内等）
+        if (in_function_) {
+            unsupported("class declaration inside function",
+                        stmt.name().line(), stmt.name().column());
+        }
+        // 非顶层位置且非裸块内的类声明（if/while/for/switch 体内）未进类表
         unsupported("class declaration outside top level",
                     stmt.name().line(), stmt.name().column());
     }
     CGClass& cls = it->second;
-    // 执行序到声明处（t127）：裸块内类自此可实例化——对齐解释器 visitClass
-    // 执行到声明语句才登记 classes_（此前 new 该类名即 Undefined class rc=1）
+    // 执行序到声明处（t127）：裸块/函数体内类自此可实例化——对齐解释器
+    // visitClass 执行到声明语句才登记 classes_（此前 new 即 Undefined class rc=1）
     cls.ready = true;
+    if (cls.bodies_generated) {
+        // 方法体已生成（t128）：同一函数体单态化副本重访（t104 同类机制）——
+        // 重复建 entry 块会产生无效 IR，直接返回
+        return;
+    }
+    cls.bodies_generated = true;
     for (const CGClass* c = &cls; c != nullptr;
          c = c->super.empty() ? nullptr : &classes_.at(c->super)) {
         const std::string dname(c->stmt->name().lexeme());
@@ -3668,19 +3691,25 @@ void CodeGenerator::declare_nested_in(const Stmt* s, const std::string& prefix) 
     // 其余语句（表达式/变量声明/return 等）不含语句子树，无嵌套函数可登记
 }
 
-void CodeGenerator::collect_classes_in_order(const std::vector<std::unique_ptr<Stmt>>& stmts,
-                                             std::vector<const ClassStmt*>& out,
-                                             std::set<std::string>& block_class_names) {
+void CodeGenerator::collect_classes_in_order(
+    const std::vector<std::unique_ptr<Stmt>>& stmts,
+    std::vector<const ClassStmt*>& out,
+    std::unordered_map<std::string, const FunctionStmt*>& deferred_classes,
+    const FunctionStmt* owner) {
     for (const auto& s : stmts) {
         if (const auto* c = dynamic_cast<const ClassStmt*>(s.get())) {
             out.push_back(c);
-        } else if (const auto* b = dynamic_cast<const BlockStmt*>(s.get())) {
-            // 裸块恒执行（t127）：递归下钻；块内类名记入 block_class_names
-            const size_t mark = out.size();
-            collect_classes_in_order(b->statements(), out, block_class_names);
-            for (size_t i = mark; i < out.size(); ++i) {
-                block_class_names.insert(std::string(out[i]->name().lexeme()));
+            if (owner != nullptr) {
+                // 非顶层位置（裸块/函数体内）：记入延迟就绪表
+                deferred_classes[std::string(c->name().lexeme())] = owner;
             }
+        } else if (const auto* b = dynamic_cast<const BlockStmt*>(s.get())) {
+            // 裸块恒执行（t127）：递归下钻（宿主函数沿用外层 owner）
+            collect_classes_in_order(b->statements(), out, deferred_classes, owner);
+        } else if (const auto* fn = dynamic_cast<const FunctionStmt*>(s.get())) {
+            // 函数体（t128）：递归下钻体内直线与裸块，宿主函数记为 fn
+            // （if/while/for/switch 体内仍不收——执行期条件性）
+            collect_classes_in_order(fn->body()->statements(), out, deferred_classes, fn);
         }
     }
 }
@@ -3865,6 +3894,17 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     llvm::BasicBlock* saved_bb = builder_.GetInsertBlock();
     auto saved_scopes = std::move(scopes_);
     auto saved_loops = std::move(loops_);
+    // 外层现场保存恢复（t128）：方法体可能在函数/方法体内声明的类处生成
+    // （函数内类声明），收尾须还原外层语境而非复位顶层——同 visitFunction
+    // 的 saved_in_function 机制（t91）
+    const bool saved_in_function = in_function_;
+    const FunctionStmt* saved_fn = current_fn_; // t128：宿主函数语境保存恢复
+    llvm::Value* saved_this = current_this_;
+    const std::string saved_class_name = current_class_name_;
+    const std::string saved_defining_class = current_defining_class_;
+    const CGType saved_ret_type = current_ret_type_;
+    const std::string saved_ret_cls = current_ret_cls_;
+    const long long saved_ret_bit_max = current_ret_bit_max_;
     ++fn_gen_count_; // 全局数组槽 elem 快照守卫（t106）
     scopes_.clear();
     scopes_.emplace_back();
@@ -3938,13 +3978,13 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
         }
     }
 
-    in_function_ = false;
-    current_ret_type_ = CGType::Void;
-    current_ret_cls_.clear();
-    current_ret_bit_max_ = 0;
-    current_this_ = nullptr;
-    current_class_name_.clear();
-    current_defining_class_.clear();
+    in_function_ = saved_in_function; // t128：还原外层语境（顶层调用时即 false）
+    current_ret_type_ = saved_ret_type;
+    current_ret_cls_ = saved_ret_cls;
+    current_ret_bit_max_ = saved_ret_bit_max;
+    current_this_ = saved_this;
+    current_class_name_ = saved_class_name;
+    current_defining_class_ = saved_defining_class;
     scopes_ = std::move(saved_scopes);
     loops_ = std::move(saved_loops);
     builder_.SetInsertPoint(saved_bb);
