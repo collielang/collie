@@ -1,0 +1,37 @@
+// s84: 顶层函数同名 → 最后定义胜出（t131，对齐解释器 env_.define 覆盖语义——
+// 后定义遮蔽前定义，调用恒取胜出者，实参按胜出者签名 coerce）；同时覆盖隐式
+// number/bool → string（t131，对齐解释器 coerce_to_declared KW_STRING 分支）。
+// 语义层仅允许同名【不同签名】函数（同签名重复定义被拦），与方法侧 first-wins
+// （s76）不对称。触点：同名不同签名 last-wins、number→string 实参 coerce、
+// number/bool → string 变量赋值与返回。
+
+// (1) 两同名不同签名函数：后者（string 版）胜出，调用按胜出者签名 coerce
+function f(n number) number {
+    return n + 1;
+}
+function f(s string) string {
+    return s + "!";
+}
+print(f(1));      // 1!（胜出 string 版：number 1 → "1" 拼 "!"）
+print(f("x"));    // x!
+
+// (2) number → string 隐式转换（变量赋值，不经重载）
+string s = 5;
+print(s);         // 5
+
+// (3) bool → string 隐式转换（返回）
+function h() string {
+    return true;
+}
+print(h());       // true
+
+// (4) 同名不同签名且胜出者为 number 版：coerce 反向（string → 不匹配，走 last）
+function k(x string) string {
+    return x + "?";
+}
+function k(y number) number {
+    return y * 2;
+}
+print(k(3));      // 6（胜出 number 版）
+
+print("END");

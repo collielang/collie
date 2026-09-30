@@ -724,6 +724,11 @@
     - 验证：p1（`if(true){class C{含方法} C x=new C(); print(getv)}`：IDENTICAL，原拒编面）；p2（`if(true){class C{}}` 后块外 `C x=new C()`：解释器 rc=0、codegen "declared inside a block is not visible here" 拒编，保守拒编不错编）；p3（`while` 块内 class 每轮 new：IDENTICAL）；p4（`for` 块内 class：IDENTICAL）；p5（`switch` case 块内 class 同块 new：IDENTICAL）；p6（`switch` 类声明在 case1、new 在 case2：解释器 rc=0、codegen "not visible here" 拒编，异块保守拒编）；新差分用例 s83_block_scoped_class（if/while/for 块内与 switch 两 case 各声明类后同块 new + 字段/方法读，8 行输出双端逐字节一致）；ctest -C Release 差分 82/82（含 s83 新增 #88），单元 4/4，CLI 2/2
     - 范围外：块外/异块 new 控制流块内声明的类维持拒编（块是否执行属运行期事实，静态无从判定，拒编不错编）；控制流块内类与顶层/其它块内类同名仍走 duplicate class 拒编（收集两同名类均进 register_class_layout，第二处触发）；类方法体内条件块内类声明（owner 为方法，条件块内 new 则需条件块在栈中——已随本任务一并支持，因 collect 递归方法体后继续递归其内 if/while 块）
 
+- [x] 顶层函数重载（同名后定义遮蔽前定义 last-wins）+ 隐式 number/bool→string 转换（t131，codegen 顶层函数"同名重载拒编"面 + number/bool→string 隐式 coerce 缺口，S80）
+    - 方案：declare_function 同名键（prefix.name）后者覆盖前者——functions_[key].fn->eraseFromParent() 删被遮蔽的死 llvm 原型（第一遍仅建原型尚无体）；新增 winning_stmt_（基名→胜出 FunctionStmt*）与 fn_stmt_to_key_（FunctionStmt*→基名键），visitFunction 据 fn_stmt_to_key_ 定位原型、仅 &stmt==winning_stmt_[key] 者生成体（被遮蔽前定义跳过，避免重复建 entry 块，且调用恒取最后定义者）；调用点 arity 不符维持拒编（消息由 "overloads not supported" 改为 "call arity mismatch"）。隐式 number/bool→string 转换：新增 coerce_to_string_value（Int→collie_rt_i64_to_str、Double→collie_rt_f64_to_str、Bool→collie_rt_bool_to_str 经 i32 扩展、Num 拆 tag 分派），在 coerce_call_arg/coerce_for_slot/visitReturn 三处 default 臂放行（对齐解释器 coerce_to_declared KW_STRING 分支），tri/arr/obj/tup 维持 default 拒编 "incompatible type"；零新增 rt 接口
+    - 验证：pT（顶层 `f(1)`/`f("x")` 两个同名定义，最后定义 string 版胜出、`f(1)` 把 1 coerce 成 "1!" 拼 "!" 输出 "1!"——实证解释器重载为 last-wins 而非类型分发，codegen 对齐）；pF（顶层重载被遮蔽前定义从不调用）；pV（number 实参/字段/return 隐式转串）；pW（bool 实参/字段/return 隐式转串）；pF/pT/pV/pW 双端逐字节一致；新差分用例 s84_topfn_overload（同名 int/string 重载 last-wins、被遮蔽定义跳过、number/bool 隐式转串，多行输出双端一致）；ctest -C Release codegen_diff 83/83（含 s84 新增），单元 4/4，CLI 2/2
+    - 范围外：方法重载仍为 first-wins（S72 t123，find_method 首个同名胜，与顶层 last-wins 不对称属解释器既有行为）；顶层控制流块内兄弟同名（S73 t124 合成前缀，仍拒编 "function overloading"）；真正的按实参类型选重载（type-based overload resolution）未实现——解释器自身也是 last-wins，故非差分面；tri/arr/obj/tup→string 隐式转换维持拒编不错编
+
 ---
 
 ## 四、模块解耦方案

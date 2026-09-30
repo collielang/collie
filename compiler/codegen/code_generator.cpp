@@ -364,6 +364,8 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 递归与前向引用天然可用
     functions_.clear();
     nested_fns_.clear();
+    winning_stmt_.clear();
+    fn_stmt_to_key_.clear();
     classes_.clear();
     in_function_ = false;
     current_this_ = nullptr;
@@ -998,8 +1000,8 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
         if (info != nullptr) {
             const auto& arguments = expr.arguments();
             if (arguments.size() != info->param_types.size()) {
-                // 元数不匹配属重载选择（语义层支持但 codegen 仅单签名）
-                unsupported("call arity mismatch (overloads not supported)",
+                // 元数不匹配（同名函数按最后定义胜出，t131）
+                unsupported("call arity mismatch",
                             expr.paren().line(), expr.paren().column());
             }
             std::vector<llvm::Value*> args;
@@ -3059,7 +3061,12 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         unsupported("nested function declaration",
                     stmt.name().line(), stmt.name().column());
     }
-    const std::string& key = is_nested ? nested_it->second : name;
+    const std::string& key = fn_stmt_to_key_.at(&stmt);
+    // 同名遮蔽：仅胜出定义生成体（t131，对齐解释器 env_.define 覆盖——
+    // 被遮蔽的前定义从不调用，跳过体生成，避免重复生成到同一 llvm 函数）
+    if (&stmt != winning_stmt_[key]) {
+        return;
+    }
     auto it = functions_.find(key);
     if (it == functions_.end()) {
         // 非顶层位置的函数声明（顶层块内等）未进原型表
@@ -3225,6 +3232,12 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
             } else if (current_ret_type_ == CGType::Tri && v.type == CGType::Bool) {
                 // bool → tribool 单向加宽（t65，与语义层一致）
                 v = {to_tri(v), CGType::Tri};
+            } else if (current_ret_type_ == CGType::Str &&
+                       (v.type == CGType::Int || v.type == CGType::Double ||
+                        v.type == CGType::Num || v.type == CGType::Bool)) {
+                // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared
+                // KW_STRING 分支）
+                v = {coerce_to_string_value(v), CGType::Str};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -3368,6 +3381,27 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
     cls_out.clear();
 }
 
+llvm::Value* CodeGenerator::coerce_to_string_value(const CGValue& v) {
+    // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared KW_STRING
+    // 分支）；调用方须先确保 v.type ∈ {Int, Double, Num, Bool}
+    switch (v.type) {
+        case CGType::Int:
+            return builder_.CreateCall(rt_i64_to_str_, {v.value}, "i64str");
+        case CGType::Double:
+            return builder_.CreateCall(rt_f64_to_str_, {v.value}, "f64str");
+        case CGType::Num:
+            return builder_.CreateCall(
+                rt_num_to_str_, {num_tag(v.value), num_bits(v.value)}, "numstr");
+        case CGType::Bool: {
+            llvm::Value* ext =
+                builder_.CreateZExt(v.value, builder_.getInt32Ty());
+            return builder_.CreateCall(rt_bool_to_str_, {ext}, "boolstr");
+        }
+        default:
+            return nullptr;  // 不应到达：调用方已判类型
+    }
+}
+
 llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
                                             const std::string& want_cls,
                                             size_t line, size_t column) {
@@ -3407,6 +3441,13 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     // bool → tribool 单向加宽（t65，与语义层一致）
     if (want == CGType::Tri && a.type == CGType::Bool) {
         return to_tri(a);
+    }
+    // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared KW_STRING
+    // 分支：number/bool 隐式转 string；其余类型拒编）
+    if (want == CGType::Str &&
+        (a.type == CGType::Int || a.type == CGType::Double ||
+         a.type == CGType::Num || a.type == CGType::Bool)) {
+        return coerce_to_string_value(a);
     }
     unsupported("argument type mismatch", line, column);
 }
@@ -3541,6 +3582,13 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
     if (slot_type == CGType::Tri && v.type == CGType::Bool) {
         return to_tri(v);
     }
+    // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared KW_STRING
+    // 分支：number/bool 隐式转 string；其余类型拒编）
+    if (slot_type == CGType::Str &&
+        (v.type == CGType::Int || v.type == CGType::Double ||
+         v.type == CGType::Num || v.type == CGType::Bool)) {
+        return coerce_to_string_value(v);
+    }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
 }
@@ -3619,9 +3667,9 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt,
     // 与顶层名/其他外层的同名嵌套天然不冲突
     const std::string key = prefix.empty() ? name : prefix + "." + name;
     if (functions_.count(key) != 0) {
-        // 语义层支持同名重载，codegen 第一期仅单签名（同外层同名嵌套同此拒编）
-        unsupported("function overloading for '" + key + "'",
-                    stmt.name().line(), stmt.name().column());
+        // 同名后定义遮蔽前定义（t131，对齐解释器 env_.define 覆盖语义）：
+        // 删去前定义的死 llvm 函数（第一遍仅建原型、尚无体），胜出者重建
+        functions_[key].fn->eraseFromParent();
     }
     // none 返回降级 void；其余返回/参数类型限 declared_signature_type 支持面
     // （含类实例 IDENTIFIER → Obj+cls，t61）
@@ -3669,6 +3717,9 @@ void CodeGenerator::declare_function(const FunctionStmt& stmt,
                                       "collie." + key, module_.get());
     functions_[key] = {fn, std::move(param_types), std::move(param_cls), ret,
                        std::move(ret_cls), ret_bit_max};
+    // 同名遮蔽：后定义恒为胜出者（t131，对齐解释器 env_.define 覆盖）
+    winning_stmt_[key] = &stmt;
+    fn_stmt_to_key_[&stmt] = key;
     // 递归下探函数体登记嵌套函数原型（t91）：可见性到 visitFunction
     // 声明处才登记（对齐解释器"执行到声明处 env_.define"）
     for (const auto& body_stmt : stmt.body()->statements()) {

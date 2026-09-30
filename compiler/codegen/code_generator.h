@@ -373,6 +373,11 @@ private:
                                  const std::string& want_cls, size_t line,
                                  size_t column);
 
+    /// @brief 隐式 number/bool → string 转换（t131，对齐解释器 coerce_to_declared
+    /// KW_STRING 分支）：number/bool 隐式转 string，返回 i8*；其余类型调用方须先
+    /// 判类型（tri/arr/obj/tup 不经此处，维持拒编）
+    llvm::Value* coerce_to_string_value(const CGValue& v);
+
     /// @brief 沿继承链自 start 类向上查首个自身定义了 mname 的类（t61，
     /// base 解析用，对齐解释器 find_method 的自子向父查找）；未找到返空串
     std::string find_defining_class(const std::string& start,
@@ -568,6 +573,12 @@ private:
     /// 嵌套函数注册表（t91）：声明节点 → functions_ 改编键（outer.inner）；
     /// 第一遍递归下探填充，visitFunction 据此区分嵌套/顶层路径
     std::unordered_map<const FunctionStmt*, std::string> nested_fns_;
+    /// 同名函数「最后定义胜出」表（t131）：基名 → 胜出函数 AST 节点；对齐解释器
+    /// env_.define 覆盖语义——同名后定义遮蔽前定义，调用恒取最后定义者
+    std::unordered_map<std::string, const FunctionStmt*> winning_stmt_;
+    /// 函数声明节点 → functions_ 基名键（t131）：visitFunction 据此定位原型；
+    /// 被遮蔽节点据 winning_stmt_ 跳过体生成（前定义从不调用）
+    std::unordered_map<const FunctionStmt*, std::string> fn_stmt_to_key_;
     /// 类表（t60）：类名 → struct 布局 + 方法原型；第一遍注册，前向 new 可用
     std::unordered_map<std::string, CGClass> classes_;
     /// 当前方法的 this 实参与所属类名（t60）：仅方法体生成期非空
