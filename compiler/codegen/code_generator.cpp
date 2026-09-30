@@ -2306,10 +2306,14 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
-    // 无初值字段守卫（t109）：解释器字段先绑 none、构造器随后覆写——仅当
-    // 实例化类自身构造器体前缀以 this.f = expr（RHS 不含 this/base，
-    // 实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）时
-    // none 态不可观察，放行并零值占位；否则拒编不错编（none 无静态表示）
+    // 无初值字段守卫（t109/t125）：解释器字段先绑 none、构造器随后覆写——
+    // 仅当实例化类自身构造器体顶层直线语句以 this.f = expr（RHS 不含
+    // this/base，实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）
+    // 时 none 态不可观察，放行并零值占位；否则拒编不错编（none 无静态表示）。
+    // t125 放宽：定赋语句之间可夹杂"不观察 this 的表达式语句"（如 print/无
+    // this 的调用）——无 this 即无从触及任何 uninit 字段，跳过安全；一旦出现
+    // 观察 this 的非定赋语句（可能在赋值前读 uninit 字段/条件赋值）或非表达式
+    // 语句（控制流/声明/return），保守 break 落下方拒编（拒编不错编）
     std::vector<std::string> pending;
     for (const CGField& field : cls.fields) {
         if (field.uninit) pending.push_back(field.name);
@@ -2319,19 +2323,21 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         if (cit != cls.dispatch.end()) {
             const FunctionStmt* ctor_stmt = cls.instances.at(cit->second).stmt;
             for (const auto& s : ctor_stmt->body()->statements()) {
+                if (pending.empty()) break; // 全部定赋：后续语句无从暴露 none
                 const auto* es = dynamic_cast<const ExpressionStmt*>(s.get());
                 if (!es) break;
                 const auto* pa =
                     dynamic_cast<const PropertyAssignExpr*>(es->expression());
-                if (!pa ||
-                    dynamic_cast<const ThisExpr*>(pa->object()) == nullptr ||
-                    expr_observes_this(pa->value())) {
-                    break;
+                if (pa &&
+                    dynamic_cast<const ThisExpr*>(pa->object()) != nullptr &&
+                    !expr_observes_this(pa->value())) {
+                    const std::string assigned(pa->name().lexeme());
+                    pending.erase(
+                        std::remove(pending.begin(), pending.end(), assigned),
+                        pending.end());
+                    continue;
                 }
-                const std::string assigned(pa->name().lexeme());
-                pending.erase(
-                    std::remove(pending.begin(), pending.end(), assigned),
-                    pending.end());
+                if (expr_observes_this(es->expression())) break;
             }
         }
         if (!pending.empty()) {

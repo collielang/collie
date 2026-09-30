@@ -1,0 +1,41 @@
+// t125 S78 差分用例：构造器体内定赋 uninit 字段前/间夹杂不观察 this 的
+// 表达式语句（print / 无 this 的顶层函数调用）——守卫从"前缀定赋"放宽到
+// "顶层直线定赋，允许跳过 this-free 语句"，none 态仍不可观察（拒编不错编）
+
+function double_it(v number) number {
+    return v * 2;
+}
+
+class Box {
+    public number v;
+    public string s;
+    public Box(n number) {
+        print("ctor begin");
+        this.v = double_it(n);
+        print("mid");
+        this.s = "boxed";
+        print("ctor end");
+    }
+}
+
+class Multi {
+    public number a;
+    public number b;
+    public number c;
+    public Multi(x number) {
+        this.a = x;
+        print("a set");
+        this.b = x + 1;
+        this.c = x + 2;
+    }
+}
+
+Box bx = new Box(5);
+print(bx.v);
+print(bx.s);
+
+Multi m = new Multi(10);
+print(m.a);
+print(m.b);
+print(m.c);
+print("END");
