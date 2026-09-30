@@ -29,7 +29,7 @@ The LLVM native code generation backend (work in progress, see `compiler/PROGRES
    cmake .. -DLLVM_DIR=<extract-path>\lib\cmake\llvm
    ```
 
-:::tip Is adding `bin` to `PATH` necessary?
+:::tip[Is adding `bin` to `PATH` necessary?]
 Adding `<extract-path>\bin` to your `PATH` is **optional**: the build locates LLVM via `LLVM_DIR` and links the libraries statically, so `PATH` is not consulted at all. It is still convenient for development, because it puts command-line tools such as `llc`, `opt` and `llvm-as` at your fingertips for inspecting the generated LLVM IR.
 :::
 

@@ -29,7 +29,7 @@ LLVM 本地代码生成后端（开发中，见 `compiler/PROGRESS.md` 里程碑
    cmake .. -DLLVM_DIR=<解压路径>\lib\cmake\llvm
    ```
 
-:::tip 把 `bin` 加入 `PATH` 有必要吗？
+:::tip[把 `bin` 加入 `PATH` 有必要吗？]
 把 `<解压路径>\bin` 加入 `PATH` 是**可选的**：构建通过 `LLVM_DIR` 定位 LLVM 并静态链接，完全不依赖 `PATH`。但加上对开发很方便：`llc`、`opt`、`llvm-as` 等命令行工具可直接使用，便于检查生成的 LLVM IR。
 :::
 
