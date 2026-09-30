@@ -320,11 +320,20 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
             register_class_methods(*class_stmt);
         }
     }
+    size_t top_idx = 0;
     for (const auto& stmt : statements) {
         // 阶段三：函数原型（参数/返回值可为类实例，需全部类先就位，t61）
         if (const auto* fn_stmt = dynamic_cast<const FunctionStmt*>(stmt.get())) {
             declare_function(*fn_stmt);
+        } else {
+            // 顶层控制流块（if/while/for/do/switch/裸块）内的函数声明（t124）：
+            // 以顶层语句序号作合成前缀，复用 declare_nested_in 递归登记为块作用域
+            // 嵌套函数——数字前缀非法标识符首字符，天然不与用户函数键冲突；可见性
+            // 由 visitFunction 声明处按块作用域绑定（对齐解释器"执行到声明处
+            // env_.define"，块退出即失效；块外调用两端同为语义层 Undefined 报错）
+            declare_nested_in(stmt.get(), std::to_string(top_idx));
         }
+        ++top_idx;
     }
 
     // 顶层语句收拢进 @main（与解释器"脚本式执行"语义对齐）

@@ -1,0 +1,79 @@
+// s77: 顶层控制流块内的函数声明（t124）
+// 顶层 if/while/for/do-while/switch/裸块内的 function 声明，原 codegen 落
+// "function declaration outside top level" 拒编；现按顶层语句序号作合成前缀
+// 复用 declare_nested_in 登记为块作用域嵌套函数（数字前缀非法标识符首字符，
+// 不与用户函数键冲突），visitFunction 声明处按块作用域绑定可见性——对齐解释器
+// "执行到声明处 env_.define、所在块退出即失效"。块外调用两端同为语义层
+// Undefined 报错（不在成功面内）。触点：各控制流容器、递归、嵌套块、
+// 块内调顶层函数、兄弟块同名隔离。
+
+function top(x number) number {
+    return x;
+}
+
+// 裸块内声明+调用
+{
+    function bf(x number) number { return x * x; }
+    print(bf(4));            // 16
+}
+
+// if 块内：递归 + 嵌套块 + 调顶层函数
+if (true) {
+    function fact(n number) number {
+        if (n <= 1) { return 1; }
+        return n * fact(n - 1);
+    }
+    print(fact(5));          // 120
+
+    if (true) {
+        function inner(x number) number { return x + 1000; }
+        print(inner(1));     // 1001
+    }
+
+    function helper(x number) number { return top(x) + 5; }
+    print(helper(3));        // 8
+}
+
+// while 块内
+number i = 0;
+while (i < 1) {
+    function wf(x number) number { return x + 1; }
+    print(wf(10));           // 11
+    i = i + 1;
+}
+
+// for 块内
+for (number j = 0; j < 1; j = j + 1) {
+    function ff(x number) number { return x * 2; }
+    print(ff(6));            // 12
+}
+
+// do-while 块内
+number k = 0;
+do {
+    function df(x number) number { return x - 3; }
+    print(df(10));           // 7
+    k = k + 1;
+} while (k < 1);
+
+// switch 分支块内
+number sel = 2;
+switch (sel) {
+    2 {
+        function sf(x number) number { return x + 100; }
+        print(sf(5));        // 105
+    }
+}
+
+// 兄弟块各自声明同名 wf：合成前缀按顶层语句序号隔离，互不干扰
+if (true) {
+    function dup(x number) number { return x + 1; }
+    print(dup(0));           // 1
+}
+if (true) {
+    function dup(x number) number { return x + 2; }
+    print(dup(0));           // 2
+}
+
+print(top(7));               // 7（顶层函数不受块内声明影响）
+print("END");
