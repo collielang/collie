@@ -1,0 +1,47 @@
+// t129 S82 差分用例：类方法/构造器体内类声明（class-in-method）——方法体同属
+// 可重复进入的函数语境，宿主记为该方法；仅该方法体内可实例化（跨方法/顶层
+// new 保守拒编）。方法体内 if/while 等条件块内声明维持拒编（不在此用例）。
+
+class Host {
+    public number h = 1;
+    public function run(n number) number {
+        class Loc {
+            public number v;
+            public Loc(x number) {
+                this.v = x;
+            }
+            public function getv() number { return this.v; }
+        }
+        Loc l = new Loc(n);
+        return l.getv() + this.h;
+    }
+    public function plain(n number) number {
+        class Simple {
+            public number v = n;
+        }
+        Simple s = new Simple();
+        return s.v;
+    }
+}
+Host h = new Host();
+print(h.run(4));
+print(h.run(10));
+print(h.plain(5));
+
+class BaseH {
+    public function run(n number) number {
+        class Inner6 {
+            public number v = n;
+            public function getv() number { return this.v; }
+        }
+        Inner6 x = new Inner6();
+        return x.getv();
+    }
+}
+class SubH extends BaseH {
+}
+BaseH b = new BaseH();
+print(b.run(1));
+SubH s = new SubH();
+print(s.run(2));
+print("END");

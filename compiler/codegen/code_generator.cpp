@@ -3703,6 +3703,14 @@ void CodeGenerator::collect_classes_in_order(
                 // 非顶层位置（裸块/函数体内）：记入延迟就绪表
                 deferred_classes[std::string(c->name().lexeme())] = owner;
             }
+            // 类方法/构造器体内类声明（t129）：方法体同属可重复进入的函数
+            // 语境，递归收集其体内直线/裸块类声明，宿主记为该方法
+            for (const auto& member : c->members()) {
+                if (const auto* m = dynamic_cast<const FunctionStmt*>(member.get())) {
+                    collect_classes_in_order(m->body()->statements(), out,
+                                             deferred_classes, m);
+                }
+            }
         } else if (const auto* b = dynamic_cast<const BlockStmt*>(s.get())) {
             // 裸块恒执行（t127）：递归下钻（宿主函数沿用外层 owner）
             collect_classes_in_order(b->statements(), out, deferred_classes, owner);
@@ -3914,6 +3922,7 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     scopes_.emplace_back(); // 参数层（可遮蔽全局）
     loops_.clear();
     in_function_ = true;
+    current_fn_ = &stmt; // t129：方法体内声明的类以本方法为宿主
     current_ret_type_ = method.ret_type;
     current_ret_cls_ = method.ret_cls;
     current_ret_bit_max_ = method.ret_bit_max; // byte/word 方法返回（t99）
@@ -3979,6 +3988,7 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     }
 
     in_function_ = saved_in_function; // t128：还原外层语境（顶层调用时即 false）
+    current_fn_ = saved_fn;           // t129：宿主函数语境一并还原
     current_ret_type_ = saved_ret_type;
     current_ret_cls_ = saved_ret_cls;
     current_ret_bit_max_ = saved_ret_bit_max;
