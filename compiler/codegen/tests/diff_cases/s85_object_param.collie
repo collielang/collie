@@ -1,0 +1,49 @@
+// t132 S81 差分用例：object 动态类型作函数形参与返回值（限定实例值，对齐
+// codegen object 变量 S69/S70 语义；非实例值经 object 变量既有边界维持拒编）
+// ——object 形参 cls 编译期未知，本用例仅经方法调用（运行期类 id 动态分派）
+// 间接覆盖字段读取，不直达字段偏移（避免空 cls 静态布局歧义）。
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Cat extends Animal {
+    public Cat(n string) : base(n) { }
+    @override
+    public function sound() string { return "meow"; }
+}
+
+// 1) object 形参收不同类实例：方法沿动态类分派
+function describe(a object) string {
+    return a.describe();
+}
+print(describe(new Dog("Rex")));   // Rex says woof
+print(describe(new Cat("Tom")));   // Tom says meow
+
+// 2) object 形参 + 覆写方法直调
+function soundOf(a object) string {
+    return a.sound();
+}
+print(soundOf(new Dog("D1")));     // woof
+print(soundOf(new Cat("C1")));     // meow
+
+// 3) object 返回值：按条件返回不同类实例
+function make(isDog bool, n string) object {
+    if (isDog) {
+        return new Dog(n);
+    }
+    return new Cat(n);
+}
+object m1 = make(true, "Rex");
+print(m1.describe());              // Rex says woof
+object m2 = make(false, "Tom");
+print(m2.sound());                 // meow
+
+print("END");

@@ -729,7 +729,47 @@
     - 验证：pT（顶层 `f(1)`/`f("x")` 两个同名定义，最后定义 string 版胜出、`f(1)` 把 1 coerce 成 "1!" 拼 "!" 输出 "1!"——实证解释器重载为 last-wins 而非类型分发，codegen 对齐）；pF（顶层重载被遮蔽前定义从不调用）；pV（number 实参/字段/return 隐式转串）；pW（bool 实参/字段/return 隐式转串）；pF/pT/pV/pW 双端逐字节一致；新差分用例 s84_topfn_overload（同名 int/string 重载 last-wins、被遮蔽定义跳过、number/bool 隐式转串，多行输出双端一致）；ctest -C Release codegen_diff 83/83（含 s84 新增），单元 4/4，CLI 2/2
     - 范围外：方法重载仍为 first-wins（S72 t123，find_method 首个同名胜，与顶层 last-wins 不对称属解释器既有行为）；顶层控制流块内兄弟同名（S73 t124 合成前缀，仍拒编 "function overloading"）；真正的按实参类型选重载（type-based overload resolution）未实现——解释器自身也是 last-wins，故非差分面；tri/arr/obj/tup→string 隐式转换维持拒编不错编
 
+- [x] object 动态类型作函数形参与返回值（t132，codegen declared_signature_type 不处理 KW_OBJECT 缺口；语义层本就把类名形参/返回重映射为 object 且 object 为一切类型之父，解释器支持任意实例经 object 形参/返回传递，codegen 此前拒编，S81）
+    - 方案：declared_signature_type 新增 KW_OBJECT 分支——type_out=Obj、cls_out.clear()（动态 object，与 codegen object 变量 S69/S70 同语义：限实例值，非实例值经 object 变量既有边界维持拒编）；coerce_call_arg 的 Obj 子类校验加 `!want_cls.empty()` 守卫——want_cls 为空（动态 object 形参）时跳过，任意类实例实参经空 cls 放行；visitReturn 的 Obj 返回校验加 `!current_ret_cls_.empty()` 守卫——ret_cls 为空（动态 object 返回）时跳过，任意实例返回值放行；函数体内 object 形参/返回值的方法调用走运行期类 id 动态分派、字段读取与 object 变量同机制（GEP 按声明态/运行期分派）；llvm_type_of(Obj) 本就返 ptr，签名/调用/返回 LLVM 类型零改动；零新增 rt 接口
+    - 验证：新差分用例 s85_object_param（object 形参收 Dog/Cat 实例方法沿动态类分派 describe()/sound()、object 返回值 make() 按条件返回不同类实例、object 变量承接返回值后续分派，输出双端一致）；对齐解释器 object 为一切类型之父、任意实例可经 object 形参/返回传递；ctest -C Release codegen_diff 含 s85 预期逐字节一致（本沙箱无 LLVM 构建，交由用户 ctest 验收）
+    - 范围外：非实例值（string/number/bool 等）经 object 形参/返回维持拒编——对齐 codegen object 变量"限 Obj 初始值"既定边界（解释器允许任意值赋 object，属 codegen 动态值表示未覆盖面，拒编不错编）；tuple 进函数签名仍拒编（t68 形状跨边界不可知）
+
 ---
+
+## 三续、codegen 剩余 parity 缺口与路线图（task 2 扫描结论）
+
+**扫描结论（t131 后复核）**：对 `code_generator.cpp` 全量 153 处 `unsupported` 复查，函数重载缺口（原唯一活跃差分）已由 t131 消除。结论：codegen 在「已支持面」上与解释器实质特性对齐，**无活跃差分**。剩余 `unsupported` 归三类——
+1. 合法拒绝：解释器同样拒/报错（rc 一致），属非差分面，维持；
+2. 解析器层面已禁用（如 tuple 类型字段），不会到达 codegen；
+3. 解释器支持但 codegen 尚未实现（真实 parity 缺口，见下路线图）。
+
+**真实 parity 缺口路线图（候选，按价值/风险粗排；实现前需细查解释器是否真支持，避免把"解释器也拒"误列为缺口）**：
+- 嵌套函数捕获外层局部（closure）：高价值 / 高复杂
+- 异质 tuple 非常量索引 / 动态键（含 Bool/Str）/ 进函数签名 / 进数组：中
+- 三元 / `==?` 分支 tuple 形状不一致合流：中低
+- 整槽写异类 / 动态域 obj 元素读出落 CG9 陷阱：中（CG9 为 deliberate trap，非静默错编）
+- tribool 进数组元素 / 元组：低
+- BigInt 运行时化（CG1 远期）：大工程
+
+注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
+
+## 三续、codegen 剩余 parity 缺口与路线图（task 2 扫描结论）
+
+**扫描结论（t131 后复核）**：对 `code_generator.cpp` 全量 153 处 `unsupported` 复查，函数重载缺口（原唯一活跃差分）已由 t131 消除。结论：codegen 在「已支持面」上与解释器实质特性对齐，**无活跃差分**。剩余 `unsupported` 归三类——
+1. 合法拒绝：解释器同样拒/报错（rc 一致），属非差分面，维持；
+2. 解析器层面已禁用（如 tuple 类型字段），不会到达 codegen；
+3. 解释器支持但 codegen 尚未实现（真实 parity 缺口，见下路线图）。
+
+**真实 parity 缺口路线图（候选，按价值/风险粗排；实现前需细查解释器是否真支持，避免把"解释器也拒"误列为缺口）**：
+- 嵌套函数捕获外层局部（closure）：高价值 / 高复杂
+- `object` 动态类型作函数形参与返回值（非具体类名）：中高价值 / 中复杂 —— **已于 t132/S81 解锁**
+- 异质 tuple 非常量索引 / 动态键（含 Bool/Str）/ 进函数签名 / 进数组：中
+- 三元 / `==?` 分支 tuple 形状不一致合流：中低
+- 整槽写异类 / 动态域 obj 元素读出落 CG9 陷阱：中（CG9 为 deliberate trap，非静默错编）
+- tribool 进数组元素 / 元组：低
+- BigInt 运行时化（CG1 远期）：大工程
+
+注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
 
 ## 四、模块解耦方案
 

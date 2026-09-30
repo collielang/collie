@@ -3242,7 +3242,8 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
             }
-        } else if (v.type == CGType::Obj && v.cls != current_ret_cls_ &&
+        } else if (v.type == CGType::Obj && !current_ret_cls_.empty() &&
+                   v.cls != current_ret_cls_ &&
                    !is_subclass_of(v.cls, current_ret_cls_) &&
                    !is_subclass_of(current_ret_cls_, v.cls)) {
             // 同一继承树内 upcast/downcast 放行（t86/t103）；跨树拒编不错编
@@ -3367,6 +3368,14 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
         unsupported("tuple in function signature",
                     type_token.line(), type_token.column());
     }
+    if (type_token.type() == TokenType::KW_OBJECT) {
+        // object 动态类型作函数形参/返回值（t132）：接受任意类实例（运行期
+        // cls 驱动）——与 codegen object 变量（S69/S70）同语义：非实例值
+        // （string/number 等需动态值表示）维持拒编，对齐"限 Obj 初始值"边界
+        type_out = CGType::Obj;
+        cls_out.clear();
+        return;
+    }
     if (type_token.type() == TokenType::IDENTIFIER) {
         const std::string cname(type_token.lexeme());
         if (classes_.count(cname) == 0) {
@@ -3409,7 +3418,7 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     // upcast/downcast（t86/t103，指针原样传递，调用点按对象头类 id 动态
     // 分派/陷阱保语义），跨树拒编不错编
     if (a.type == want) {
-        if (want == CGType::Obj && a.cls != want_cls &&
+        if (want == CGType::Obj && !want_cls.empty() && a.cls != want_cls &&
             !is_subclass_of(a.cls, want_cls) &&
             !is_subclass_of(want_cls, a.cls)) {
             unsupported("passing instance of class '" + a.cls +

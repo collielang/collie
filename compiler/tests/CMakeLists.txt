@@ -120,7 +120,8 @@ if(COLLIE_ENABLE_LLVM)
             s70_tuple_reshape s71_index_assign_cast s72_mixed_array_literal s73_object_decl
             s74_uninit_object s75_number_index s76_method_overload s77_block_function
             s78_ctor_definite_assign s79_ctor_flow_definite s80_block_class s81_function_class
-            s82_method_class s83_block_scoped_class s84_topfn_overload)
+            s82_method_class s83_block_scoped_class s84_topfn_overload
+            s85_object_param)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
