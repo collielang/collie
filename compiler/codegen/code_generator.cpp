@@ -373,8 +373,9 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 登记，解释器类表全局持久）；if/while/for/switch 体内类声明不收（执行期
     // 条件性，编译期无条件注册会使 codegen 比解释器宽松，属错编方向）
     std::vector<const ClassStmt*> class_decls;
-    // 非顶层类 → 宿主函数（裸块内为 nullptr）：键存在即"延迟就绪"
-    std::unordered_map<std::string, const FunctionStmt*> deferred_classes;
+    // 非顶层类 → 声明所属作用域（裸块内沿用外层 owner；函数/方法体为该函数；
+    // if/while/for/do-while/switch 各 case 体为其块）：键存在即"延迟就绪"
+    std::unordered_map<std::string, const Stmt*> deferred_classes;
     collect_classes_in_order(statements, class_decls, deferred_classes);
     // 非顶层类：注册期置未就绪——对齐解释器"执行到声明语句才注册"，
     // 声明语句之前的 new 在 codegen 侧亦须拒编（不然 codegen 能跑、解释器
@@ -386,10 +387,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         auto bit = classes_.find(entry.first);
         if (bit == classes_.end()) continue;
         bit->second.ready = false;
-        // 宿主函数（t128）：仅宿主函数体内可实例化；裸块内类为 nullptr
-        // （顶层语境走到声明块后即可用），函数体内类为该函数——函数外/
-        // 其它函数体内 new 保守拒编（是否被调用属运行期事实，静态无从判定）
-        bit->second.owner_fn = entry.second;
+        // 声明所属作用域（t130）：仅该作用域内（含嵌套）可实例化；裸块内类
+        // owner 为 nullptr（顶层语境走到声明块后即可用），函数/方法/控制流块
+        // 内类 owner 为该 Stmt*——作用域外 new 保守拒编（是否被调用/块是否执行
+        // 属运行期事实，静态无从判定）
+        bit->second.owner_scope = entry.second;
     }
     for (const ClassStmt* c : class_decls) {
         // 阶段二：方法单态化原型（签名可引用任意已注册类，t61）
@@ -2384,15 +2386,23 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
     // 执行序守卫（t127/t128）：裸块/函数体内声明的类在第二遍走到声明语句前
     // 尚未"注册"（对齐解释器执行到才登记）——new 早于声明语句则拒编不错编
     // （否则 codegen 能跑、解释器 Undefined class rc=1，两端不一致）。
-    // 宿主函数守卫（t128）：函数体内声明的类仅宿主函数体内可实例化——函数
-    // 是否被调用属运行期事实，静态无从判定，函数外/其它函数体内 new 保守拒编。
+    // 作用域守卫（t130）：声明所属作用域（owner_scope）必在当前生成栈
+    // scope_stack_ 中（含嵌套）该类方可见——函数/方法体类仅该体内可见，
+    // if/while/for/do-while/switch 各 case 体类仅该块内可见；作用域外 new
+    // 保守拒编（块是否执行/函数是否被调用属运行期事实，静态无从判定）
     if (!cls.ready) {
         unsupported("class '" + name + "' used before its declaration", line, column);
     }
-    if (cls.owner_fn != nullptr && cls.owner_fn != current_fn_) {
-        unsupported("class '" + name + "' declared inside function '" +
-                        std::string(cls.owner_fn->name().lexeme()) +
-                        "' is not visible here",
+    if (cls.owner_scope != nullptr && !scope_contains(cls.owner_scope)) {
+        const std::string where =
+            dynamic_cast<const FunctionStmt*>(cls.owner_scope)
+                ? std::string("function '") +
+                      std::string(
+                          static_cast<const FunctionStmt*>(cls.owner_scope)->name().lexeme()) +
+                      "'"
+                : std::string("a block");
+        unsupported("class '" + name + "' declared inside " + where +
+                        " is not visible here",
                     line, column);
     }
     // 无初值字段守卫（t109/t125/t126）：解释器字段先绑 none、构造器随后覆写——
@@ -2804,7 +2814,10 @@ void CodeGenerator::visitIf(const IfStmt& stmt) {
         return found == scopes_[h.first].end() ? nullptr : &found->second;
     };
     builder_.SetInsertPoint(then_bb);
-    stmt.then_branch()->accept(*this);
+    {
+        ScopePushGuard then_guard(scope_stack_, stmt.then_branch()); // t130：then 块作用域
+        stmt.then_branch()->accept(*this);
+    }
     // 终止支检测：return/break/continue 后插入点被切到无前驱死块
     //（visitReturn 等的 *.dead 块），getTerminator 恒空——补判无前驱；
     // 非死支末块必有前驱（then/else 入口块有 CondBr 前驱）
@@ -2824,7 +2837,10 @@ void CodeGenerator::visitIf(const IfStmt& stmt) {
     uninit_restore(uninit_snap);
     if (else_bb) {
         builder_.SetInsertPoint(else_bb);
-        stmt.else_branch()->accept(*this);
+        {
+            ScopePushGuard else_guard(scope_stack_, stmt.else_branch()); // t130：else 块作用域
+            stmt.else_branch()->accept(*this);
+        }
         const bool else_terminated = branch_terminated();
         if (!builder_.GetInsertBlock()->getTerminator()) {
             builder_.CreateBr(merge_bb);
@@ -2869,7 +2885,10 @@ void CodeGenerator::visitWhile(const WhileStmt& stmt) {
 
     builder_.SetInsertPoint(body_bb);
     loops_.push_back({cond_bb, end_bb}); // break/continue 目标（S4 t51）
-    stmt.body()->accept(*this);
+    {
+        ScopePushGuard body_guard(scope_stack_, stmt.body()); // t130：while 体作用域
+        stmt.body()->accept(*this);
+    }
     loops_.pop_back();
     if (!builder_.GetInsertBlock()->getTerminator()) {
         builder_.CreateBr(cond_bb);
@@ -2912,7 +2931,10 @@ void CodeGenerator::visitFor(const ForStmt& stmt) {
     builder_.SetInsertPoint(body_bb);
     // continue 跳增量块（无增量则条件块），与解释器“continue 后仍执行 increment”对齐
     loops_.push_back({inc_bb ? inc_bb : cond_bb, end_bb});
-    stmt.body()->accept(*this);
+    {
+        ScopePushGuard body_guard(scope_stack_, stmt.body()); // t130：for 体作用域
+        stmt.body()->accept(*this);
+    }
     loops_.pop_back();
     if (!builder_.GetInsertBlock()->getTerminator()) {
         builder_.CreateBr(inc_bb ? inc_bb : cond_bb);
@@ -2945,7 +2967,10 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
     CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     builder_.SetInsertPoint(body_bb);
     loops_.push_back({cond_bb, end_bb});
-    stmt.body()->accept(*this);
+    {
+        ScopePushGuard body_guard(scope_stack_, stmt.body()); // t130：do-while 体作用域
+        stmt.body()->accept(*this);
+    }
     loops_.pop_back();
     if (!builder_.GetInsertBlock()->getTerminator()) {
         builder_.CreateBr(cond_bb);
@@ -3012,6 +3037,7 @@ void CodeGenerator::visitSwitch(const SwitchStmt& stmt) {
     for (const auto& p : bodies) {
         builder_.SetInsertPoint(p.body_bb);
         if (p.body != nullptr) {
+            ScopePushGuard case_guard(scope_stack_, p.body); // t130：switch case 体作用域
             p.body->accept(*this);
         }
         uninit_restore(uninit_snap); // body 间互为替代路径，逐个隔离
@@ -3099,6 +3125,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     loops_.clear();
     in_function_ = true;
     current_fn_ = &stmt; // t128：函数体内声明的类以本函数为宿主
+    ScopePushGuard scope_guard(scope_stack_, &stmt); // t130：进入函数体作用域
     current_ret_type_ = info.ret_type;
     current_ret_cls_ = info.ret_cls;
     current_ret_bit_max_ = info.ret_bit_max;
@@ -3694,17 +3721,17 @@ void CodeGenerator::declare_nested_in(const Stmt* s, const std::string& prefix) 
 void CodeGenerator::collect_classes_in_order(
     const std::vector<std::unique_ptr<Stmt>>& stmts,
     std::vector<const ClassStmt*>& out,
-    std::unordered_map<std::string, const FunctionStmt*>& deferred_classes,
-    const FunctionStmt* owner) {
+    std::unordered_map<std::string, const Stmt*>& deferred_classes,
+    const Stmt* owner) {
     for (const auto& s : stmts) {
         if (const auto* c = dynamic_cast<const ClassStmt*>(s.get())) {
             out.push_back(c);
             if (owner != nullptr) {
-                // 非顶层位置（裸块/函数体内）：记入延迟就绪表
+                // 非顶层位置（裸块/函数/控制流块内）：记入延迟就绪表
                 deferred_classes[std::string(c->name().lexeme())] = owner;
             }
             // 类方法/构造器体内类声明（t129）：方法体同属可重复进入的函数
-            // 语境，递归收集其体内直线/裸块类声明，宿主记为该方法
+            // 语境，递归收集其体内直线/裸块/控制流类声明，宿主记为该方法
             for (const auto& member : c->members()) {
                 if (const auto* m = dynamic_cast<const FunctionStmt*>(member.get())) {
                     collect_classes_in_order(m->body()->statements(), out,
@@ -3712,12 +3739,39 @@ void CodeGenerator::collect_classes_in_order(
                 }
             }
         } else if (const auto* b = dynamic_cast<const BlockStmt*>(s.get())) {
-            // 裸块恒执行（t127）：递归下钻（宿主函数沿用外层 owner）
+            // 裸块恒执行（t127）：递归下钻（宿主沿用外层 owner）
             collect_classes_in_order(b->statements(), out, deferred_classes, owner);
         } else if (const auto* fn = dynamic_cast<const FunctionStmt*>(s.get())) {
             // 函数体（t128）：递归下钻体内直线与裸块，宿主函数记为 fn
-            // （if/while/for/switch 体内仍不收——执行期条件性）
             collect_classes_in_order(fn->body()->statements(), out, deferred_classes, fn);
+        } else if (const auto* ifs = dynamic_cast<const IfStmt*>(s.get())) {
+            // if 体（t130）：then/else 分支为条件执行块，宿主记为各自 BlockStmt；
+            // 仅限"声明与 new 同块"由 scope_stack_ 守卫（编译期无条件注册会让
+            // codegen 比解释器宽松：解释器条件为假不登记，属错编方向）
+            if (const auto* tb = dynamic_cast<const BlockStmt*>(ifs->then_branch())) {
+                collect_classes_in_order(tb->statements(), out, deferred_classes, tb);
+            }
+            if (const auto* eb = dynamic_cast<const BlockStmt*>(ifs->else_branch())) {
+                collect_classes_in_order(eb->statements(), out, deferred_classes, eb);
+            }
+        } else if (const auto* ws = dynamic_cast<const WhileStmt*>(s.get())) {
+            if (const auto* bb = dynamic_cast<const BlockStmt*>(ws->body())) {
+                collect_classes_in_order(bb->statements(), out, deferred_classes, bb);
+            }
+        } else if (const auto* fs = dynamic_cast<const ForStmt*>(s.get())) {
+            if (const auto* bb = dynamic_cast<const BlockStmt*>(fs->body())) {
+                collect_classes_in_order(bb->statements(), out, deferred_classes, bb);
+            }
+        } else if (const auto* dws = dynamic_cast<const DoWhileStmt*>(s.get())) {
+            if (const auto* bb = dynamic_cast<const BlockStmt*>(dws->body())) {
+                collect_classes_in_order(bb->statements(), out, deferred_classes, bb);
+            }
+        } else if (const auto* ss = dynamic_cast<const SwitchStmt*>(s.get())) {
+            for (const auto& sc : ss->cases()) {
+                if (const auto* cb = dynamic_cast<const BlockStmt*>(sc.body.get())) {
+                    collect_classes_in_order(cb->statements(), out, deferred_classes, cb);
+                }
+            }
         }
     }
 }
@@ -3923,6 +3977,7 @@ void CodeGenerator::gen_method_body(const CGClass& cls, const CGMethod& method) 
     loops_.clear();
     in_function_ = true;
     current_fn_ = &stmt; // t129：方法体内声明的类以本方法为宿主
+    ScopePushGuard scope_guard(scope_stack_, &stmt); // t130：进入方法体作用域
     current_ret_type_ = method.ret_type;
     current_ret_cls_ = method.ret_cls;
     current_ret_bit_max_ = method.ret_bit_max; // byte/word 方法返回（t99）

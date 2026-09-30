@@ -26,7 +26,7 @@ C++17。主要考虑因素：
 | 语法分析 Parser | ✅ 基本可用 | 表达式、变量/函数声明、if/while/for/block/return/break/continue |
 | 语义分析 Semantic | ✅ 相对完整 | 类型检查、隐式转换、函数重载打分、作用域、错误恢复 |
 | 树遍历解释器 | ✅ 基本可用 | 字面量/算术/比较/逻辑、变量、控制流、用户函数（含递归）、内建 print |
-| LLVM 后端 Codegen | ✅ 进行中（M6） | AST → LLVM IR，已覆盖 S1–S78（算术/控制流/函数/数组/class 与继承/tuple/tribool/位运算等）；不支持的面**拒编而非错编**，已知缺口 CG1–CG4、CG6–CG7 见 [codegen/README.md](codegen/README.md) 第七节 |
+| LLVM 后端 Codegen | ✅ 进行中（M6） | AST → LLVM IR，已覆盖 S1–S79（算术/控制流/函数/数组/class 与继承/tuple/tribool/位运算等）；不支持的面**拒编而非错编**，已知缺口 CG1–CG4、CG6–CG7 见 [codegen/README.md](codegen/README.md) 第七节 |
 | 优化器 Optimizer | ⬜ 未实现 | 尚未接入 LLVM Pass 管线 |
 
 ## 项目结构
@@ -98,7 +98,7 @@ GitHub Actions 自动运行（Windows MSVC + Linux gcc）：
 - CLI 端到端门禁：`cli_valid_program`、`cli_syntax_error_gate`
 
 codegen **不在 CI 内**：默认 `COLLIE_ENABLE_LLVM=OFF`，且依赖本地 LLVM 预编译包。本地启用后可跑差分门禁——
-同一 `.collie` 源的「解释器输出」与「编译产物输出」**逐字节比对**，共 81 个用例（s1、s3–s82）：
+同一 `.collie` 源的「解释器输出」与「编译产物输出」**逐字节比对**，共 82 个用例（s1、s3–s83）：
 
 ```bash
 cmake --build compiler/build --config Release --target collie colliec

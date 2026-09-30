@@ -208,8 +208,10 @@ private:
         std::unordered_map<std::string, std::string> dispatch; // 方法名 → 实例键 "D.m"（覆写解析后，含构造器）
         std::unordered_map<std::string, CGMethod> instances;   // "D.m" → 本类分派上下文的单态化实例
         bool bodies_generated = false;  // 方法体是否已生成（t128）：单态化副本重访不重建 entry
-        const FunctionStmt* owner_fn = nullptr;  // 宿主函数（t128）：函数体内声明的类
-                                                 // 仅该函数体内可实例化；裸块/顶层为 nullptr
+        const Stmt* owner_scope = nullptr;  // 声明所属作用域（t130）：顶层/裸块类为 nullptr
+                                            // （恒可见）；函数/方法体类为该 FunctionStmt；
+                                            // if/while/for/do-while/switch 各 case 体类为其 BlockStmt。
+                                            // new 仅当 owner_scope 在 scope_stack_ 中（含嵌套）时可见
         bool ready = true;  // 执行序是否已到声明处（t127）：裸块内类声明注册期置 false，
                             // 第二遍 visitClass 走到声明语句时置 true——对齐解释器
                             // "执行到声明语句才注册"；new 早于声明处即拒编不错编
@@ -320,15 +322,37 @@ private:
     /// prefix 改编名 declare_function 并进 nested_fns_ 注册表
     void declare_nested_in(const Stmt* s, const std::string& prefix);
 
-    /// @brief 按执行序收集类声明（t127/t128）：顶层 ClassStmt 直接收；裸块 BlockStmt
-    /// 恒执行、函数体被调用即顺序执行，二者递归下钻收集（不下钻 if/while/for/switch
-    /// ——执行期条件性，编译期无条件注册即错编）；非顶层类名记入 deferred_classes
-    /// （值 = 宿主函数指针，裸块内为 nullptr）供 ready/owner_fn 标记
+    /// @brief 作用域守卫（t130）：构造压栈、析构出栈，配合 scope_stack_ 维护声明作用域；
+    /// 进入函数/方法体、if/while/for/do-while 各分支、switch 各 case 体时 RAII 压入
+    /// 对应 Stmt*（FunctionStmt 或 BlockStmt），离开（含提前 return/异常）自动弹出
+    struct ScopePushGuard {
+        std::vector<const Stmt*>& stk;
+        explicit ScopePushGuard(std::vector<const Stmt*>& s, const Stmt* o) : stk(s) {
+            stk.push_back(o);
+        }
+        ~ScopePushGuard() {
+            if (!stk.empty()) stk.pop_back();
+        }
+    };
+    /// @brief owner_scope 是否在当前 scope_stack_ 中（t130，含嵌套）：new 仅当声明
+    /// 所属作用域仍在生成栈中（即当前位于其内或内层）时可见
+    bool scope_contains(const Stmt* owner) const {
+        for (const Stmt* e : scope_stack_)
+            if (e == owner) return true;
+        return false;
+    }
+
+    /// @brief 按执行序收集类声明（t127/t128/t130）：顶层 ClassStmt 直接收；裸块
+    /// BlockStmt 恒执行、函数体被调用即顺序执行，二者递归下钻；if/while/for/
+    /// do-while 各分支、switch 各 case 体为条件执行块，亦递归收集（宿主记为各自
+    /// 块，仅限"声明与 new 同块"由 scope_stack_ 守卫——编译期无条件注册会让
+    /// codegen 比解释器宽松：解释器条件为假不登记，属错编方向）；非顶层类名记入
+    /// deferred_classes（值 = 宿主 Stmt*，裸块内为外层 owner）供 ready/owner_scope 标记
     void collect_classes_in_order(
         const std::vector<std::unique_ptr<Stmt>>& stmts,
         std::vector<const ClassStmt*>& out,
-        std::unordered_map<std::string, const FunctionStmt*>& deferred_classes,
-        const FunctionStmt* owner = nullptr);
+        std::unordered_map<std::string, const Stmt*>& deferred_classes,
+        const Stmt* owner = nullptr);
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
     /// 自身追加建 struct；同名字段遮蔽/无初值字段/范围外字段类型拒编；
@@ -554,9 +578,14 @@ private:
     std::string current_defining_class_;
     /// 当前是否在生成函数体（顶层 return / 嵌套函数拒编用）
     bool in_function_ = false;
-    /// 当前正在生成体的函数（t128）：函数体内声明的类仅宿主函数体内可实例化，
-    /// 与 CGClass::owner_fn 比对；顶层（@main）为 nullptr
+    /// 当前正在生成体的函数（t128）：函数/方法语境标记（顶层 return / 嵌套函数拒编用）；
+    /// 顶层（@main）为 nullptr
     const FunctionStmt* current_fn_ = nullptr;
+    /// 作用域栈（t130）：生成期维护的声明作用域链，栈底→栈顶对应外层→内层；
+    /// 进入函数/方法体、if/while/for/do-while 各分支、switch 各 case 体时压入对应
+    /// Stmt*（FunctionStmt 或 BlockStmt），离开弹出。CGClass::owner_scope 必在栈中
+    /// （含嵌套）该类方可实例化——对齐解释器"块级作用域执行到才登记"
+    std::vector<const Stmt*> scope_stack_;
     /// 已生成的函数/方法体计数（t106）：函数体链底按值快照声明在先的
     /// 全局槽静态 elem，全局数组槽异型互赋降级不回溯已生成代码——
     /// 声明后计数增长即拒编（CGVar.fn_gen_at 对比）
