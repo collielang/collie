@@ -1,0 +1,68 @@
+// s76: 类方法重载（同名不同参）first-wins（t123）
+// 解释器 find_method 沿声明序取首个同名者胜、call_class_method 仅对首个做元数
+// 检查，后续重载从不被调用；codegen register_class_methods 首个登记后跳过其余
+// 同名成员，与其逐字节对齐。调用非首个重载的元数不符面两端同为报错（不在成功面内）。
+// 触点：本类内重载、体内 this.m() 自调、继承+覆写与重载交互、多重载组共存。
+
+class Calc {
+    public number seed = 0;
+
+    public Calc(s number) {
+        this.seed = s;
+    }
+
+    // 首个 add：单参（first-wins，实际被调用者）
+    public function add(a number) number {
+        return a + this.seed;
+    }
+
+    // 后续 add：双参重载——从不被调用（跳过登记）
+    public function add(a number, b number) number {
+        return a + b + 1000;
+    }
+
+    // 体内 this.add() 自调首个重载
+    public function addTwice(a number) number {
+        return this.add(a) + this.add(a);
+    }
+
+    // 另一组重载：首个 mul 生效
+    public function mul(a number) number {
+        return a * 2;
+    }
+
+    public function mul(a number, b number) number {
+        return a * b * 100;
+    }
+}
+
+class Base {
+    public function greet(n string) string {
+        return "hi " + n;
+    }
+
+    public function greet(n string, m string) string {
+        return n + m;
+    }
+}
+
+class Child extends Base {
+    // 覆写首个 greet（分派表改指本类副本）
+    @override
+    public function greet(n string) string {
+        return "child " + n;
+    }
+}
+
+Calc c = new Calc(10);
+print(c.add(5));            // 15（首个 add：5 + seed 10）
+print(c.addTwice(3));       // 26（(3+10) + (3+10)）
+print(c.mul(4));            // 8（首个 mul：4 * 2）
+
+Base b = new Base();
+print(b.greet("a"));        // hi a（父类首个 greet）
+
+Child ch = new Child();
+print(ch.greet("b"));       // child b（子类覆写首个 greet）
+
+print("END");

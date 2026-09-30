@@ -3160,8 +3160,12 @@ void CodeGenerator::visitClass(const ClassStmt& stmt) {
         const std::string dname(c->stmt->name().lexeme());
         for (const auto& member : c->stmt->members()) {
             if (const auto* method = dynamic_cast<const FunctionStmt*>(member.get())) {
-                gen_method_body(cls, cls.instances.at(
-                    dname + "." + std::string(method->name().lexeme())));
+                const CGMethod& m = cls.instances.at(
+                    dname + "." + std::string(method->name().lexeme()));
+                // 同名重载仅首个登记的成员生成体（t123，first-wins）：其余同名成员
+                // stmt 指针不等即跳过，避免同一 llvm::Function 被重复建 entry 块
+                if (m.stmt != method) continue;
+                gen_method_body(cls, m);
             }
         }
     }
@@ -3703,9 +3707,11 @@ void CodeGenerator::register_class_methods(const ClassStmt& stmt) {
         const std::string mname(method->name().lexeme());
         const std::string key = name + "." + mname;
         if (cls.instances.count(key) != 0) {
-            // 本类内同名重复（语义层支持方法重载，codegen 第一期仅单签名）
-            unsupported("method overloading for '" + mname + "'",
-                        method->name().line(), method->name().column());
+            // 本类内同名重复（方法/构造器重载，t123）：解释器 find_method 沿声明序
+            // 取首个同名者胜、后续重载从不被调用（call_class_method 仅对首个做元数
+            // 检查），故 codegen 首个登记后跳过其余同名成员（first-wins），与解释器
+            // 逐字节对齐；调用非首个重载的元数不符面两端同为报错（rc=1），拒编不错编
+            continue;
         }
         CGMethod info;
         info.defining = name;
