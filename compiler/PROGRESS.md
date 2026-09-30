@@ -703,6 +703,11 @@
     - 验证：p1（先 print 后定赋 v/s：IDENTICAL，原 t109 拒编面）；p4（定赋间夹杂多条 print：IDENTICAL）；s78 候选（print + 无 this 顶层函数调用 double_it + 多字段交错定赋：IDENTICAL）；p2 错误面（赋值前 `print(this.v)` 读 uninit：解释器打印 none rc=0、codegen 拒编 rc=1，none 可观察拒编不错编）；p3 错误面（定赋在 if 块内非顶层直线：解释器 rc=0、codegen 拒编 rc=1，不定赋拒编不错编）；新差分用例 s78_ctor_definite_assign（Box 先 print 后 double_it 定赋、Multi 定赋间夹 print，10 行输出双端逐字节一致）；ctest -C Release 差分 77/77（含 s78 新增），单元 4/4，CLI 2/2
     - 范围外：打断语句观察 this（读已定赋字段也保守拒编）/非表达式语句（控制流/声明/return）/定赋在控制流块内（if/while 等不定赋）/RHS 含 this 均维持拒编不错编；赋值前读 uninit 字段 none 可观察面两端差异（解释器 none、codegen 拒编）属错误面不在差分成功门禁内；base 委托赋继承 uninit 字段仍按 t109 既有面（构造器体顶层不含该赋值即拒编）
 
+- [x] 构造器无初值字段经控制流定赋（t126，visitNew "not definitely assigned at start of constructor" 拒编面，S75）
+    - 方案：将 t125 的顶层直线遍历抽为文件局部递归助手 `ctor_definite_assign_stmt`/`ctor_definite_assign_stmts`（匿名命名空间，近 expr_observes_this，仅依赖 AST + expr_observes_this，不触类成员），visitNew 守卫改调 `ctor_definite_assign_stmts(ctor_stmt->body()->statements(), pending)`。递归识别：裸块 BlockStmt 原地递归（必执行，等同直线）；IfStmt 当 `!expr_observes_this(condition)` 且 `else_branch()!=nullptr`（双臂齐备）时 then/else 各在 pending **副本**上递归，随后求交——`keep` 保留"任一臂副本仍含"的字段（仅两臂皆删的字段离开 pending，即定赋）；`this.f=<this-free>` 定赋照旧从 pending 移除；this-free 表达式语句跳过；其余（While/For/DoWhile/Switch/Return/VarDecl、单臂 if、条件观察 this、观察 this 的非定赋语句）一律停止（不定赋/某路径 none 可观察）；`pending.empty()` 提前退出——镜像解释器字段先绑 none 后覆写、none 态全程不可观察，零新增 rt 接口
+    - 验证：p1（if/else 双臂各赋同字段 v：IDENTICAL，原 t125 拒编面）；p2（嵌套裸块内定赋 v：IDENTICAL）；p5（嵌套块含双臂 if 定赋多字段 a/b：IDENTICAL）；p6（继承 Sub extends Base，双臂 if 各赋继承 bv + 自身 sv：IDENTICAL）；p3 错误面（单臂 if 无 else：解释器打印 none rc=0、codegen 拒编 rc=1，none 可观察拒编不错编）；p4 错误面（一臂赋 v 一臂仅 print：解释器 none rc=0、codegen 拒编 rc=1，非定赋拒编不错编）；新差分用例 s79_ctor_flow_definite（Branch 双臂 if 赋 v/tag、Nested 裸块含双臂 if 赋 a/b、Sub 继承双臂赋 bv/sv，各正负输入，输出双端逐字节一致）；ctest -C Release 差分 78/78（含 s79 新增 #84），单元 4/4，CLI 2/2
+    - 范围外：单臂 if（缺 else，某路径 none 可观察）/一臂缺赋同字段（求交后仍在 pending）/条件观察 this/循环（While/For/DoWhile，迭代次数不定）/switch/return/vardecl 均维持拒编不错编；求交语义保证"任一臂未定赋即保守拒编"，与解释器 none 可观察面对齐；错误面（解释器 none、codegen 拒编）不在差分成功门禁内
+
 ---
 
 ## 四、模块解耦方案

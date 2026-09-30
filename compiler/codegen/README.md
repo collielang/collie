@@ -81,6 +81,7 @@
 | S72 | 类方法重载（同名不同参）first-wins：register_class_methods 原 "method overloading" 拒编改为本类内同名键首个登记后 `continue` 跳过其余同名成员，visitClass 体生成遍加 `stmt` 指针守卫（仅首个登记成员生成体，避免同一 llvm::Function 重复建 entry 块）——镜像解释器 find_method 沿声明序首个同名者胜、call_class_method 仅对首个做元数检查，后续重载从不被调用；继承副本/覆写沿用既有单态化机制不受影响；调用非首个重载的元数不符面两端同为报错（rc=1）维持拒编不错编；零新增 rt 接口 | 本类内多重载组首个生效、体内 this.m() 自调首个重载、父类多重载+子类覆写首个的分派交互程序编译执行，输出与解释器一致 **✅ t123** |
 | S73 | 顶层控制流块内函数声明（if/while/for/do-while/switch/裸块）：generate 阶段三原仅直登 FunctionStmt 改为——遇非函数顶层语句以顶层语句序号作合成前缀调 declare_nested_in 递归登记为块作用域嵌套函数，复用 t91/t104 嵌套机制；数字前缀非法标识符首字符天然不与用户键冲突，同一顶层语句内兄弟同名（then/else）走 "function overloading" 拒编、兄弟顶层语句各自前缀互不干扰；可见性由 visitFunction 声明处按块作用域绑定（对齐解释器"执行到声明处 env_.define"，块退出即失效、块外调用两端同为语义层 Undefined 报错 rc=1）；递归经既有 fn_key 拷入链底支持；零新增 rt 接口 | 裸块/if/while/for/do-while/switch 内声明块内调用、嵌套块内声明、块内递归、块内调顶层函数、兄弟 if 块同名各自前缀程序编译执行，输出与解释器一致 **✅ t124** |
 | S74 | 构造器无初值字段定赋守卫放宽（t109 前缀定赋 → 顶层直线定赋）：visitNew uninit 字段守卫原要求构造器体顶部**连续前缀**全为 `this.f=<不观察 this>` 定赋，遇任何非定赋语句即 break 拒编。改为遍历顶层语句——定赋语句照旧收集；非定赋的**表达式语句**若整棵不观察 this（无 this/base，实例未逃逸故无从触及任何 uninit 字段，如 print/无 this 的调用）则安全跳过继续扫描，一旦遇观察 this 的非定赋语句或非表达式语句（控制流/声明/return，可能在赋值前读 uninit 字段或条件赋值）保守 break；pending 空即提前 break（后续无从暴露 none）——镜像解释器字段先绑 none 后覆写、none 态全程不可观察；零新增 rt 接口 | 构造器体内先 print 后定赋、定赋语句间夹杂 print/无 this 顶层函数调用、多字段交错定赋程序编译执行，输出与解释器一致 **✅ t125** |
+| S75 | 构造器无初值字段经控制流定赋（S74 顶层直线 → 递归下钻）：visitNew 守卫抽为文件局部递归助手 `ctor_definite_assign_stmt`（匿名命名空间，仅依赖 AST + `expr_observes_this`）——裸块 BlockStmt 原地递归（必执行等同直线）；双臂 if（`!expr_observes_this(condition)` 且 `else_branch()!=nullptr`）then/else 各在 pending 副本上递归后**求交**（仅两臂皆删的字段视为定赋）；继承字段同面覆盖。单臂 if / 一臂缺赋 / 条件观察 this / 循环 / switch / return / 声明 / 观察 this 的非定赋语句一律保守停止落拒编（某路径 none 可观察或非定赋）；零新增 rt 接口 | 构造器体内 if/else 双臂各赋同字段、嵌套裸块内定赋、继承字段经双臂 if 定赋、嵌套块含双臂 if 多字段程序编译执行，输出与解释器一致 **✅ t126** |
 | 后续 | BigInt 运行时化 | 逐任务扩展 |
 
 不在第一期范围：异常语义（tuple 已于 S21 t68 以静态展开解锁、相等比较已于 S28 t75 解锁、同质 tuple 非常量索引已于 S36 t83 解锁、同质命名 tuple get() 动态键已于 S37 t84 解锁（同质 Arr/Obj 元素已于 S63 t114 解锁——结果 CGType 静态可定复用单数组物化），异质 tuple 非常量索引/动态键（含 Bool/Str）/进函数签名/进数组仍拒编；两层数值系嵌套数组已于 S38 t85 解锁，≥3 层与内层 bool/str 已于 S42 t89 解锁——内层元素经动态域索引读出 kind ≥ 2 落 CG9 陷阱不错值；类继承向上转型已于 S39 t86 解锁——限覆写同签名，downcast/无关类仍拒编（父类静态类型调子类特有方法已于 t102 解锁、同树 downcast 成员访问已于 t103 解锁）；object 动态类型变量声明已于 S69 t120 解锁——限 Obj 初始值（静态初始类名近似：槽记初始值类名，字段按该类前缀偏移解码、方法按对象头 id 动态分派、同树重赋走 visitAssign 既有守卫 t86/t103），无初始化 object 声明已于 S70 t121 解锁——首赋吸收 RHS 类名（visitAssign Obj 分支识别 cls 空占位，吸收后与类名声明同规则，非 Obj 值首赋仍拒编）；非 Obj 初始值/object 函数形参与返回值仍拒编；byte/word 类字段已于 S40 t87 解锁，byte/word 返回类型已于 S50 t97 解锁——返回值经 check_bit_range 校验，byte/word 函数参数已于 S51 t98 解锁——形参绑定置 bit_max 复用赋值点陷阱（调用点无需陷阱：重载解析保证实参恒为已校验 byte/word 值），byte/word 类方法/构造器参数与返回已于 S52 t99 解锁——方法单签名按名解析，形参绑定点插 check_bit_range 范围陷阱（实参可为整数字面量，覆盖方法/构造器/base 全路径），返回走 t97 陷阱（方法调用结果参与 ==/!= 比较、word→byte 返回属解释器语义边界非 codegen 拒编面）；bool/string/嵌套数组动态域透传已于 S41 t88 解锁——print/len/== 全 kind 安全，动态域索引读出 bool/str/嵌套元素运行期陷阱不错值，缺口 CG9；嵌套函数声明已于 S44 t91 解锁——限函数体内嵌套（受限雷姆达提升），嵌套体引用外层局部（捕获）/函数名作值仍拒编（类方法体内嵌套已于 t104 解锁；顶层控制流块内函数声明已于 S73 t124 解锁——以顶层语句序号作合成前缀复用 declare_nested_in 递归登记为块作用域嵌套，块外调用两端同为语义层 Undefined 报错）；无初始化变量声明已于 S45 t92 解锁——限四静态类型且~~同块赋值后读，分支/循环块内赋值后读仍拒编~~（S59 t110 定赋区域跟踪：if/else 全路径定赋后读已放行，单支/循环体内赋值后区外读仍拒编）（number/tribool/char/character/byte/word 已于 S49 t96 一并放行，array/类类型已于 S54 t101 放行——array 建 opaque ptr 槽 + elem=Num 动态域哨兵、类类型建 Obj 槽 + cls，visitAssign Arr/Obj 分支补同块 uninit 清除，~~无初始化 Tuple 仍拒编——形状无从推断~~（S61 t112 放行——解构槽组延迟到首赋处按 RHS 形状建；换形状重赋已于 S66 t117 放行——重建槽组 + 条件发射区/全局跨函数双守卫，区内与跨函数仍拒编不错编））；三元/==? 分支不同类实例已于 S46 t93 统一到最近公共祖先——无公共祖先的两类合流仍拒编；三元/==? 分支不同 elem 数组已于 S47 t94 统一动态域——数组变量再赋不同 elem 仍拒编；三元/==? 分支 tuple 已于 S48 t95 静态展开合流——限同形状（元素数+名字表递归一致），形状/名字不一致仍拒编；类实例进数组已于 S53 t100 解锁——限同类（kind 5，复用 CGValue.cls 记元素类名），本地静态读出/字段/方法调用/整槽写同类或子类 upcast 全支持（整槽写同树互赋已于 S67 t118 解锁——visitIndexAssign 镜像 t115 追加 downcast，兄弟类/无关类仍拒编不错编），混合类字面量已于 S68 t119 解锁——NCA 收敛（有公共祖先则元素类收敛到最近公共祖先、逐元素收敛、字段按 NCA 前缀偏移解码、方法按对象头类 id 动态分派），无公共祖先（跨树）仍拒编不错编；整槽写异类仍拒编，动态域（数组过签名/字段/返回值）obj 元素读出落 CG9 陷阱不错值；实例数组变量同继承树整体互赋（`a = [...]`）已于 S64 t115 解锁——visitAssign Arr 分支镜像标量 Obj 放行 upcast/downcast、var->cls 保持不变，兄弟类/无关类仍拒编不错编）。
@@ -687,10 +688,10 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | Collie 构造 | LLVM IR 降级 |
 |------------|--------------|
 | `class C { integer x; ... }`（字段无初值） | register_class_layout 不再拒编，置 CGField.uninit 标志，槽按声明类型照常布局；自引用类字段仍因未注册自然拒编 |
-| `new C(...)` 实例化守卫 | 实例化类自身构造器体**顶层直线语句**须以 `this.f = expr`（RHS 递归走查不含 this/base——new 期间实例未逃逸，仅此三类节点可观察本实例）覆盖全部 uninit 字段（含继承来的，不经 base 直赋即可），否则拒编 "not definitely assigned at start of constructor"；~~须为顶部连续前缀~~（S74 t125 放宽：定赋语句之间可夹杂不观察 this 的表达式语句，见下） |
+| `new C(...)` 实例化守卫 | 实例化类自身构造器体须以 `this.f = expr`（RHS 递归走查不含 this/base——new 期间实例未逃逸，仅此三类节点可观察本实例）覆盖全部 uninit 字段（含继承来的，不经 base 直赋即可），否则拒编 "not definitely assigned at start of constructor"；~~须为顶部连续前缀~~（S74 t125 放宽：定赋语句之间可夹杂不观察 this 的表达式语句）、~~仅顶层直线~~（S75 t126 放宽：递归下钻裸块与双臂 if，各臂副本求交，见下） |
 | uninit 字段初始化 | visitNew 跳过初值求值，存 `Constant::getNullValue`（null/0/{0,0}）零值占位——守卫保证赋值前不可观察，占位值任意且安全（解释器 none 同样不可观察） |
 | 有初值字段/既有面（回归） | 前缀内重赋有初值字段不破坏前缀；字段初始化→实参求值→构造器调用三段顺序不变 |
-| 范围外 | none 可观察面维持拒编：无构造器/~~前缀被打断（如先 print 后赋值）~~（S74 t125 放行 this-free 语句夹杂）/定赋在控制流块内（if/while 等，非顶层直线不定赋）/打断语句观察 this（读已定赋字段也保守拒编）/RHS 含 this 均拒编不错编；零新增 collie_rt 接口 |
+| 范围外 | none 可观察面维持拒编：无构造器/~~前缀被打断（如先 print 后赋值）~~（S74 t125 放行 this-free 语句夹杂）/~~定赋在控制流块内（if/while 等，非顶层直线不定赋）~~（S75 t126 放行裸块与双臂 if；单臂 if/循环/switch 仍拒编）/打断语句观察 this（读已定赋字段也保守拒编）/RHS 含 this 均拒编不错编；零新增 collie_rt 接口 |
 
 **S59 降级补充（t110 实现）：无初始化变量定赋区域跟踪**：
 
@@ -855,6 +856,16 @@ print 现已不直连 printf/puts；后续 string 方法/数组/none 格式随 c
 | 定赋语句间夹杂多条 this-free 语句 | 同上：每条 this-free 表达式语句跳过，pending 逐个被后续 `this.f=` 清空；`if (pending.empty()) break;` 于全部定赋后提前退出（后续语句无从暴露 none，即使观察 this 亦安全） |
 | 打断语句观察 this / 非表达式语句（范围外 rc=1 或拒编） | 观察 this 的非定赋语句（如 `print(this.v)` 读未赋字段、`this.m()` 方法调用）或非表达式语句（if/while/for/return/vardecl，可能条件赋值或读未赋字段）→ `break` → pending 非空 → 拒编 "not definitely assigned at start of constructor"；镜像解释器字段先绑 none，若赋值前可读则 none 可观察——拒编不错编 |
 | 定赋在控制流块内（范围外） | `if(c){this.v=n;}` 的赋值在 IfStmt 子块非顶层直线 → 顶层遍历遇 IfStmt（非表达式语句）break → 拒编（运行期 c 假则 none 可观察，不定赋）；错误面不在差分成功门禁内 |
+
+**S75 降级补充（t126 实现）：构造器无初值字段经控制流定赋（if/else 双臂 + 嵌套裸块）**：
+
+| Collie 构造 | LLVM IR 降级 |
+|------------|--------------|
+| 构造器体内 if/else 双臂各赋同字段、嵌套裸块内定赋 | visitNew uninit 字段守卫从 S74 的顶层直线遍历抽为文件局部递归助手 `ctor_definite_assign_stmt`（匿名命名空间，仅依赖 AST + `expr_observes_this`，不触类成员）：裸块 BlockStmt 原地递归（必执行，等同直线）；IfStmt 当 `!expr_observes_this(condition)` 且 `else_branch()!=nullptr`（双臂齐备）时，then/else 各在 pending **副本**上递归，随后求交——仅"两臂皆删"的字段才离开 pending（任一臂副本仍含则保守保留） |
+| 继承来的 uninit 字段经双臂 if 定赋 | 同上：pending 含继承字段（`cls.fields` 全量），双臂覆盖即清空；`base()` 委托不影响守卫（守卫只走实例化类自身构造器体） |
+| 单臂 if / 一臂缺赋 / 条件观察 this（范围外 rc=1） | 缺 else（`else_branch()==nullptr`）、或某臂未赋同字段（求交后仍在 pending）、或 `expr_observes_this(condition)` → 保守停止 → pending 非空 → 拒编 "not definitely assigned at start of constructor"；镜像解释器：单臂/条件读 this 时某路径 none 可观察——拒编不错编 |
+| 循环 / switch / return / 声明 / 观察 this 的非定赋语句（范围外） | `ctor_definite_assign_stmt` 仅识别 BlockStmt、双臂 IfStmt、this-free 表达式语句与 `this.f=<this-free>` 定赋；其余（While/For/DoWhile/Switch/Return/VarDecl，非定赋且观察 this 的表达式）一律停止（不定赋/可能读未赋字段），落拒编；循环体虽必执行但迭代次数不定、且循环内 this-free 判定复杂，保守不递归 |
+
 
 ## 五、构建与链接方案（关键决策）
 

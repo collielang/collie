@@ -138,6 +138,66 @@ struct CondDepthGuard {
     return false;
 }
 
+/// 构造器体定赋走查（t126）：从 pending（尚未定赋的 uninit 字段名）出发就地
+/// 删减——直线 `this.f = <this-free>` 赋值删 f；裸块原地递归（必执行）；this-free
+/// 条件且双臂齐备的 if：各臂在 pending 副本上递归后，仅"两臂皆删"的字段才视为
+/// 定赋（保留仍存在于任一臂副本者）；不观察 this 的表达式语句跳过（无从触及
+/// uninit 字段）。一旦出现观察 this 的非定赋语句、缺 else 的 if、或任何循环 /
+/// switch / return / 声明，保守停止（pending 保留 → 上层拒编）——拒编不错编：
+/// none 可能被观察或非定赋。
+void ctor_definite_assign_stmts(
+    const std::vector<std::unique_ptr<Stmt>>& stmts,
+    std::vector<std::string>& pending);
+
+void ctor_definite_assign_stmt(const Stmt* s, std::vector<std::string>& pending) {
+    if (pending.empty()) return; // 全部定赋：后续无从暴露 none
+    if (const auto* blk = dynamic_cast<const BlockStmt*>(s)) {
+        ctor_definite_assign_stmts(blk->statements(), pending);
+        return;
+    }
+    if (const auto* ifs = dynamic_cast<const IfStmt*>(s)) {
+        // 条件观察 this → 可能在定赋前读 uninit 字段，保守停止
+        if (expr_observes_this(ifs->condition())) return;
+        const Stmt* els = ifs->else_branch();
+        if (els == nullptr) return; // 缺 else：某路径 none 可观察，非定赋
+        std::vector<std::string> then_pending = pending;
+        std::vector<std::string> else_pending = pending;
+        ctor_definite_assign_stmt(ifs->then_branch(), then_pending);
+        ctor_definite_assign_stmt(els, else_pending);
+        // 求交：仅两臂皆定赋的字段离开 pending（任一臂仍缺则保守保留）
+        std::vector<std::string> keep;
+        for (const auto& f : pending) {
+            bool un_t = std::find(then_pending.begin(), then_pending.end(), f) !=
+                        then_pending.end();
+            bool un_e = std::find(else_pending.begin(), else_pending.end(), f) !=
+                        else_pending.end();
+            if (un_t || un_e) keep.push_back(f);
+        }
+        pending.swap(keep);
+        return;
+    }
+    const auto* es = dynamic_cast<const ExpressionStmt*>(s);
+    if (!es) return; // 循环 / switch / return / 声明等：保守停止
+    const auto* pa = dynamic_cast<const PropertyAssignExpr*>(es->expression());
+    if (pa && dynamic_cast<const ThisExpr*>(pa->object()) != nullptr &&
+        !expr_observes_this(pa->value())) {
+        const std::string assigned(pa->name().lexeme());
+        pending.erase(std::remove(pending.begin(), pending.end(), assigned),
+                      pending.end());
+        return;
+    }
+    // 观察 this 的非定赋表达式语句：保守停止；否则（this-free）跳过安全
+}
+
+void ctor_definite_assign_stmts(
+    const std::vector<std::unique_ptr<Stmt>>& stmts,
+    std::vector<std::string>& pending) {
+    for (const auto& s : stmts) {
+        if (pending.empty()) return;
+        ctor_definite_assign_stmt(s.get(), pending);
+    }
+}
+
 } // namespace
 
 CodeGenerator::CodeGenerator() : builder_(context_) {}
@@ -2306,14 +2366,13 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
-    // 无初值字段守卫（t109/t125）：解释器字段先绑 none、构造器随后覆写——
-    // 仅当实例化类自身构造器体顶层直线语句以 this.f = expr（RHS 不含
-    // this/base，实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）
-    // 时 none 态不可观察，放行并零值占位；否则拒编不错编（none 无静态表示）。
-    // t125 放宽：定赋语句之间可夹杂"不观察 this 的表达式语句"（如 print/无
-    // this 的调用）——无 this 即无从触及任何 uninit 字段，跳过安全；一旦出现
-    // 观察 this 的非定赋语句（可能在赋值前读 uninit 字段/条件赋值）或非表达式
-    // 语句（控制流/声明/return），保守 break 落下方拒编（拒编不错编）
+    // 无初值字段守卫（t109/t125/t126）：解释器字段先绑 none、构造器随后覆写——
+    // 仅当实例化类自身构造器体在 any 观察点前以 this.f = expr（RHS 不含
+    // this/base，实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）时
+    // none 态不可观察，放行并零值占位；否则拒编不错编（none 无静态表示）。
+    // 走查逻辑见 ctor_definite_assign_stmt：直线定赋、this-free 表达式跳过、
+    // 裸块递归、双臂 if 各臂副本求交；单臂 if / 循环 / switch / return / 声明 /
+    // 观察 this 的非定赋语句一律保守停止落拒编。
     std::vector<std::string> pending;
     for (const CGField& field : cls.fields) {
         if (field.uninit) pending.push_back(field.name);
@@ -2322,23 +2381,7 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         auto cit = cls.dispatch.find(name);
         if (cit != cls.dispatch.end()) {
             const FunctionStmt* ctor_stmt = cls.instances.at(cit->second).stmt;
-            for (const auto& s : ctor_stmt->body()->statements()) {
-                if (pending.empty()) break; // 全部定赋：后续语句无从暴露 none
-                const auto* es = dynamic_cast<const ExpressionStmt*>(s.get());
-                if (!es) break;
-                const auto* pa =
-                    dynamic_cast<const PropertyAssignExpr*>(es->expression());
-                if (pa &&
-                    dynamic_cast<const ThisExpr*>(pa->object()) != nullptr &&
-                    !expr_observes_this(pa->value())) {
-                    const std::string assigned(pa->name().lexeme());
-                    pending.erase(
-                        std::remove(pending.begin(), pending.end(), assigned),
-                        pending.end());
-                    continue;
-                }
-                if (expr_observes_this(es->expression())) break;
-            }
+            ctor_definite_assign_stmts(ctor_stmt->body()->statements(), pending);
         }
         if (!pending.empty()) {
             unsupported("field '" + pending.front() +

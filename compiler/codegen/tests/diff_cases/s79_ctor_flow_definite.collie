@@ -1,0 +1,74 @@
+// t126 S79 差分用例：构造器体内经控制流定赋 uninit 字段——if/else 双臂
+// （this-free 条件，两臂皆赋同字段视为定赋，副本求交）与嵌套裸块（必执行，
+// 原地递归）。单臂 if / 一臂缺赋属 none 可观察面，维持拒编（不在此用例）。
+// none 态仍不可观察（拒编不错编）。
+
+class Branch {
+    public number v;
+    public string tag;
+    public Branch(n number) {
+        if (n > 0) {
+            this.v = 1;
+            this.tag = "pos";
+        } else {
+            this.v = 2;
+            this.tag = "neg";
+        }
+    }
+}
+
+class Nested {
+    public number a;
+    public number b;
+    public Nested(x number) {
+        {
+            if (x > 0) {
+                this.a = x;
+                this.b = x + 1;
+            } else {
+                this.a = 0 - x;
+                this.b = 0 - x + 1;
+            }
+        }
+        print("nested done");
+    }
+}
+
+class Base {
+    public number bv;
+}
+
+class Sub extends Base {
+    public number sv;
+    public Sub(n number) : base() {
+        if (n > 0) {
+            this.bv = 10;
+            this.sv = 20;
+        } else {
+            this.bv = 30;
+            this.sv = 40;
+        }
+    }
+}
+
+Branch b1 = new Branch(5);
+print(b1.v);
+print(b1.tag);
+Branch b2 = new Branch(-5);
+print(b2.v);
+print(b2.tag);
+
+Nested n1 = new Nested(3);
+print(n1.a);
+print(n1.b);
+Nested n2 = new Nested(-3);
+print(n2.a);
+print(n2.b);
+
+Sub s1 = new Sub(1);
+print(s1.bv);
+print(s1.sv);
+Sub s2 = new Sub(0);
+print(s2.bv);
+print(s2.sv);
+print("END");
