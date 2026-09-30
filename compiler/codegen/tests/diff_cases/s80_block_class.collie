@@ -1,0 +1,60 @@
+// t127 S80 差分用例：裸块（bare block）内类声明——裸块恒执行，编译期注册
+// 与解释器"执行到声明语句登记 classes_"时序等价；类在解释器侧登记于全局
+// 扁平表（非块作用域），块外可见，codegen 侧同规则全局注册。
+// if/while/for/switch 体内类声明属执行期条件性，维持拒编（不在此用例）。
+
+{
+    class Box {
+        public number v;
+        public string tag;
+        public Box(n number) {
+            this.v = n;
+            if (n > 0) {
+                this.tag = "pos";
+            } else {
+                this.tag = "neg";
+            }
+        }
+        public function show() string { return this.tag; }
+    }
+}
+Box b1 = new Box(3);
+print(b1.v);
+print(b1.show());
+Box b2 = new Box(0 - 2);
+print(b2.v);
+print(b2.show());
+
+{
+    class Local {
+        public number x = 42;
+    }
+    Local l = new Local();
+    print(l.x);
+}
+
+{
+    class Animal {
+        public number legs = 4;
+        public function speak() string { return "..."; }
+    }
+    {
+        class Dog extends Animal {
+            public string name;
+            public Dog(nm string) : base() {
+                this.name = nm;
+            }
+            public function speak() string { return "woof"; }
+        }
+    }
+}
+Animal a = new Animal();
+print(a.legs);
+print(a.speak());
+Dog d = new Dog("rex");
+print(d.name);
+print(d.legs);
+print(d.speak());
+Animal up = d;
+print(up.speak());
+print("END");

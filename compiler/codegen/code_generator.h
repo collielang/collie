@@ -20,6 +20,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -206,6 +207,9 @@ private:
         std::unordered_map<std::string, unsigned> field_index; // 字段名 → 逻辑下标（GEP 需 +1 跳头部）
         std::unordered_map<std::string, std::string> dispatch; // 方法名 → 实例键 "D.m"（覆写解析后，含构造器）
         std::unordered_map<std::string, CGMethod> instances;   // "D.m" → 本类分派上下文的单态化实例
+        bool ready = true;  // 执行序是否已到声明处（t127）：裸块内类声明注册期置 false，
+                            // 第二遍 visitClass 走到声明语句时置 true——对齐解释器
+                            // "执行到声明语句才注册"；new 早于声明处即拒编不错编
     };
 
     /// @brief 求值一个表达式子树，返回其 IR 值（accept + 侧信道取回）
@@ -312,6 +316,13 @@ private:
     /// While/For/DoWhile/Switch 各分支体全覆盖；命中 FunctionStmt 即以
     /// prefix 改编名 declare_function 并进 nested_fns_ 注册表
     void declare_nested_in(const Stmt* s, const std::string& prefix);
+
+    /// @brief 按执行序收集类声明（t127）：顶层 ClassStmt 直接收；裸块 BlockStmt
+    /// 恒执行，递归下钻收集（不下钻 if/while/for/switch——执行期条件性，
+    /// 编译期无条件注册即错编）；块内类名另记入 block_class_names（供 ready 标记）
+    void collect_classes_in_order(const std::vector<std::unique_ptr<Stmt>>& stmts,
+                                  std::vector<const ClassStmt*>& out,
+                                  std::set<std::string>& block_class_names);
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
     /// 自身追加建 struct；同名字段遮蔽/无初值字段/范围外字段类型拒编；

@@ -368,17 +368,25 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     in_function_ = false;
     current_this_ = nullptr;
     current_class_name_.clear();
-    for (const auto& stmt : statements) {
-        // 阶段一：类布局（字段合并需父类先注册——要求父类声明在前，t61）
-        if (const auto* class_stmt = dynamic_cast<const ClassStmt*>(stmt.get())) {
-            register_class_layout(*class_stmt);
-        }
+    // 类声明收集（t127）：按执行序——顶层类与裸块内类一并收（裸块恒执行，
+    // 递归下钻）；if/while/for/switch 体内类声明不收（执行期条件性，编译期
+    // 无条件注册会使 codegen 比解释器宽松，属错编方向，维持拒编）
+    std::vector<const ClassStmt*> class_decls;
+    std::set<std::string> block_class_names;
+    collect_classes_in_order(statements, class_decls, block_class_names);
+    // 裸块内类：注册期置未就绪——对齐解释器"执行到声明语句才注册"，
+    // 声明块之前的 new 在 codegen 侧亦须拒编（不然 codegen 能跑、解释器
+    // Undefined class rc=1，两端不一致）
+    for (const ClassStmt* c : class_decls) {
+        register_class_layout(*c);
     }
-    for (const auto& stmt : statements) {
+    for (const std::string& n : block_class_names) {
+        auto bit = classes_.find(n);
+        if (bit != classes_.end()) bit->second.ready = false;
+    }
+    for (const ClassStmt* c : class_decls) {
         // 阶段二：方法单态化原型（签名可引用任意已注册类，t61）
-        if (const auto* class_stmt = dynamic_cast<const ClassStmt*>(stmt.get())) {
-            register_class_methods(*class_stmt);
-        }
+        register_class_methods(*c);
     }
     size_t top_idx = 0;
     for (const auto& stmt : statements) {
@@ -2366,6 +2374,14 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         unsupported("'new' of unknown class '" + name + "'", line, column);
     }
     const CGClass& cls = it->second;
+    // 执行序守卫（t127）：裸块内声明的类在第二遍走到声明语句前尚未"注册"
+    // （对齐解释器执行到才登记）——顶层直线处 new 早于声明块则拒编不错编
+    // （否则 codegen 能跑、解释器 Undefined class rc=1，两端不一致）。
+    // 函数/方法体内的 new 不适用：其 IR 在函数声明处生成，实际实例化发生在
+    // 调用时（运行时类表已齐），检查会误拒既有合法面。
+    if (!cls.ready && !in_function_) {
+        unsupported("class '" + name + "' used before its declaration", line, column);
+    }
     // 无初值字段守卫（t109/t125/t126）：解释器字段先绑 none、构造器随后覆写——
     // 仅当实例化类自身构造器体在 any 观察点前以 this.f = expr（RHS 不含
     // this/base，实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）时
@@ -3208,11 +3224,14 @@ void CodeGenerator::visitClass(const ClassStmt& stmt) {
     }
     auto it = classes_.find(name);
     if (it == classes_.end()) {
-        // 非顶层位置的类声明（块内等）未进类表
+        // 非顶层位置且非裸块内的类声明（if/while/for/switch 体内、函数内）未进类表
         unsupported("class declaration outside top level",
                     stmt.name().line(), stmt.name().column());
     }
     CGClass& cls = it->second;
+    // 执行序到声明处（t127）：裸块内类自此可实例化——对齐解释器 visitClass
+    // 执行到声明语句才登记 classes_（此前 new 该类名即 Undefined class rc=1）
+    cls.ready = true;
     for (const CGClass* c = &cls; c != nullptr;
          c = c->super.empty() ? nullptr : &classes_.at(c->super)) {
         const std::string dname(c->stmt->name().lexeme());
@@ -3647,6 +3666,23 @@ void CodeGenerator::declare_nested_in(const Stmt* s, const std::string& prefix) 
         return;
     }
     // 其余语句（表达式/变量声明/return 等）不含语句子树，无嵌套函数可登记
+}
+
+void CodeGenerator::collect_classes_in_order(const std::vector<std::unique_ptr<Stmt>>& stmts,
+                                             std::vector<const ClassStmt*>& out,
+                                             std::set<std::string>& block_class_names) {
+    for (const auto& s : stmts) {
+        if (const auto* c = dynamic_cast<const ClassStmt*>(s.get())) {
+            out.push_back(c);
+        } else if (const auto* b = dynamic_cast<const BlockStmt*>(s.get())) {
+            // 裸块恒执行（t127）：递归下钻；块内类名记入 block_class_names
+            const size_t mark = out.size();
+            collect_classes_in_order(b->statements(), out, block_class_names);
+            for (size_t i = mark; i < out.size(); ++i) {
+                block_class_names.insert(std::string(out[i]->name().lexeme()));
+            }
+        }
+    }
 }
 
 void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
