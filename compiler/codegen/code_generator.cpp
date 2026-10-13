@@ -1405,14 +1405,12 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
             // 实例数组混合类字面量（t100 同类约束 → t119 NCA 收敛）：类不同
             // 时求最近公共祖先——有则元素类收敛到 NCA（各元素类沿链前缀
             // 布局兼容：字段按 NCA 偏移解码、方法按对象头 id 动态分派，与
-            // t115/t118 同规则；写入照常 rt_arr_set 直存位模式，运行期对象头
-            // 自解释）；无公共祖先（跨树无公共字段前缀）拒编不错编
+            // t115/t118 同规则）；无公共祖先（跨树无公共字段前缀）收敛到
+            // cls 空的动态 object 元素（t141，对齐解释器数组动态存任意实例）：
+            // print/len/== 经 rt kind 5 全承载、索引读出落空 cls → 方法调用走
+            // t133 全体定义者分派、字段访问维持拒编（无公共前缀不可静态解码）
             const std::string nca = nearest_common_ancestor(elem_cls, v.cls);
-            if (nca.empty()) {
-                unsupported("heterogeneous array literal (mixed classes)",
-                            bracket.line(), bracket.column());
-            }
-            elem_cls = nca;
+            elem_cls = nca; // 空串=动态 object 元素
         }
         elements.push_back(v);
     }
@@ -1670,13 +1668,16 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         }
     }
     if (object.elem == CGType::Obj && v.type == CGType::Obj &&
+        !object.cls.empty() &&
         v.cls != object.cls && !is_subclass_of(v.cls, object.cls) &&
         !is_subclass_of(object.cls, v.cls)) {
         // 实例数组整槽写（t100/t118）：同类或同继承树互赋放行（镜像整体互赋
         // t115 L1138——upcast/downcast 任一方向）。同树内元素类沿链前缀布局
         // 兼容：d[0].field 按 object.cls（声明元素类）偏移解码，父类级字段
         // 偏移前缀一致；d[0].method() 按对象头类 id 动态分派。兄弟类/无关类
-        //（互不为子类）特有字段偏移错位可能错值，拒编不错编
+        //（互不为子类）特有字段偏移错位可能错值，拒编不错编。
+        // object.cls 空（动态 object 数组 t141）：槽 kind 5 承载任意实例 ptr，
+        // 读回落空 cls → 方法走 t133 分派、字段拒编，无从错值，整槽写放行
         unsupported("array element class mismatch in index assignment",
                     expr.bracket().line(), expr.bracket().column());
     }
@@ -2266,6 +2267,13 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         return;
     }
     if (object.type == CGType::Obj) {
+        // 空 cls = 动态 object 元素（跨树实例数组读出 t141 / object 变量 S69/S70）：
+        // 无静态布局，字段前缀偏移无从解码，保守拒编不错编（方法调用走 t133 分派）
+        if (object.cls.empty()) {
+            unsupported("undefined property '" + std::string(expr.name().lexeme()) +
+                            "' on dynamic object",
+                        expr.name().line(), expr.name().column());
+        }
         // 类实例字段读（t60/t102/t103）：同树定义者收集——downcast 放行后
         // 动态类可为整棵继承树上任意类（旁支可经共同祖先中转写入槽）；
         // 单类树维持直 GEP + load 零开销，多类树读对象头类 id switch 到

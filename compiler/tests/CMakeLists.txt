@@ -121,7 +121,7 @@ if(COLLIE_ENABLE_LLVM)
             s74_uninit_object s75_number_index s76_method_overload s77_block_function
             s78_ctor_definite_assign s79_ctor_flow_definite s80_block_class s81_function_class
             s82_method_class s83_block_scoped_class s84_topfn_overload
-            s85_object_param s86_tribool_array)
+            s85_object_param s86_tribool_array s87_cross_tree_array)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -134,7 +134,7 @@ if(COLLIE_ENABLE_LLVM)
 
     # 拒编门禁（t136 引入）：拒编面用例须 colliec rc=1 且 stderr 含
     # "not yet supported"（保守拒编不错编面的回归锁，禁止降差分用例迁就测试）
-    foreach(_rej s86_reject_bool_num_array s86_reject_tribool_num_write)
+    foreach(_rej s86_reject_bool_num_array s86_reject_tribool_num_write s87_reject_dynamic_object_field)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

@@ -1,0 +1,70 @@
+// t137 S84 差分用例：跨树（无公共祖先）实例数组字面量解锁——NCA 空收敛到
+// cls 空的动态 object 元素（kind 5 复用）。解释器数组本就动态存任意实例，
+// print 逐元素 <object>、len/== 经 rt kind 5 全承载；索引读回落空 cls →
+// 方法调用走 t133 全体定义者动态分派（不限同树），字段访问无静态前缀维持
+// 拒编（见 s87_reject_dynamic_object_field）；整槽写任意实例放行（槽自解释）。
+
+class A {
+    function tag() string { return "A"; }
+}
+class B {
+    function tag() string { return "B"; }
+}
+
+// 1) 跨树字面量 + print/len
+array a = [new A(), new B()];
+print(a.length);                    // 2
+print(a);                           // [<object>, <object>]
+
+// 2) 索引读出（空 cls）→ 方法调用走 t133 动态分派
+print(a[0].tag());                  // A
+print(a[1].tag());                  // B
+
+// 3) 非常量索引读出 + 方法
+integer n = 1;
+print(a[n].tag());                  // B
+
+// 4) object 变量承接空 cls 元素再分派
+object o = a[0];
+print(o.tag());                     // A
+
+// 5) 整槽写任意实例（kind 5 槽承载 ptr，运行期对象头自解释）
+a[1] = new A();
+print(a[1].tag());                  // A
+
+// 6) 数组深比较：kind 5 元素恒不等（对齐解释器 values_equal 无 Instance 分支）
+array b = [new A(), new B()];
+print(a == b);                      // false
+print(a != b);                      // true
+
+// 7) 整体重赋跨树数组
+a = [new B(), new A()];
+print(a);                           // [<object>, <object>]
+
+// 8) 动态域透传：跨树数组过函数签名，print/len 全 kind 面天然工作
+//（不经动态域索引读出路径——元素静态类型不可定落 CG9 陷阱）
+function show(arr array) string {
+    print(arr);
+    print(arr.length);
+    return "";
+}
+show(a);                            // [<object>, <object>] 换行 2
+
+// 9) 同树混合类仍收敛 NCA（回归 S68，非本任务新增面但同代码路径）
+class Animal {
+    string name = "animal";
+    function speak() string { return "..."; }
+}
+class Dog extends Animal {
+    function speak() string { return "woof"; }
+}
+class Cat extends Animal {
+    function speak() string { return "meow"; }
+}
+array z = [new Dog(), new Cat()];
+print(z);                           // [<object>, <object>]
+print(z[0].speak());                // woof（对象头 id 动态分派）
+print(z[1].speak());                // meow
+print(z[0].name);                   // animal（NCA 前缀字段偏移解码）
+
+print("END");

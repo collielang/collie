@@ -744,24 +744,31 @@
     - 验证：探针 t136_p1（字面量/print/索引读写/三态比较）、t136_p2（bool 数组×tribool 数组跨 kind 深比较）、t136_p3（动态域透传 print/len）三端逐字节一致；新差分用例 s86_tribool_array（混排收敛、全 Tri、索引三态互写、跨 kind ==、动态域透传、toString、循环读写；未定类型 array 的 `a[i]==字面量` 两端语义层同拒 "Incomparable operand types" 非活跃差分面，用例经显式 tribool 变量承接比较）；新增**拒编门禁机制**：run_reject_test.cmake 断言 colliec rc=1 + stderr 含 "not yet supported" + stdout 为空 + 不产出可执行文件，注册 codegen_reject_* 两例（s86_reject_bool_num_array：bool×number 混排字面量拒编；s86_reject_tribool_num_write：Tri 数组写数字拒编），拒编面禁止降格为差分用例迁就测试；.gitignore 的 `*.cmake` 通配豁免扩为 `!codegen/tests/*.cmake`；ctest -C Release 全量 93/93（差分 85 + 拒编 2 + 单元 4 + CLI 2）
     - 范围外：tribool 进元组维持拒编；bool×number 等跨 kind 数值混排字面量维持拒编（解释器元素级 values_equal 恒不等面不经 codegen 承载路径）；动态域 kind 6 元素索引读出落 CG9 陷阱不错值；未定类型 array 元素与字面量直接比较属语义层两端同拒面（非 codegen 拒编）
 
+- [x] 跨树（无公共祖先）实例数组字面量（t137，codegen visitArrayLiteral 混合类 NCA 空拒编 "heterogeneous array literal (mixed classes)" 缺口；解释器数组动态存任意实例、print 逐元素 `<object>`，此前 S68 t119 仅解锁有公共祖先者，跨树为补集，S84）
+    - 方案：visitArrayLiteral 的 `elem==Obj && v.cls != elem_cls` 分支——NCA 空时不再 `unsupported`，改 `elem_cls = nca`（空串=动态 object 元素），后续元素遇空 elem_cls 二次求 NCA 仍返回空、稳定收敛；kind 5（object 槽存实例 ptr 位模式）复用，print/len/== 经既有 rt 全承载（arr_to_str kind 5 `<object>`、arr_eq kind 5 恒不等对齐解释器 values_equal 无 Instance 分支）；索引读出（visitIndex 静态路径 line 1588）传播 `object.cls`（空）→ Obj 空 cls，方法调用落 S82/t133 全体定义者动态分派（不限同树），字段访问在 visitProperty 入口加空 cls 守卫 `unsupported("undefined property 'X' on dynamic object")`（杜绝 `classes_.at("")` 抛 out_of_range，即 t133 历史崩溃面）；visitIndexAssign 整槽写守卫加 `!object.cls.empty()` 前置——动态 object 数组跳过同树校验，任意实例写入放行（kind 5 槽 ptr 自解释，读回落空 cls 无从错值）；同树混合类 NCA 收敛路径不变（S68 回归）；零新增 rt 接口
+    - 验证：探针 t140_p3（跨树 [new A(),new B()] print/len）、t141_p2（索引常量/非常量读出方法动态分派 + object 变量承接）、t141_p4（非常量索引读出 `<object>`）、t141_p5（深比较恒 false）、t141_p6（同树 NCA 字段/方法回归）、t141_p7（动态域透传 print/len）、t141_p8（object 承接再分派 + 整槽写异类 + 整体重赋）双端逐字节一致；t141_p3 字段访问落拒编（rc=1 "undefined property 'v' on dynamic object"）非崩溃；新差分用例 s87_cross_tree_array（跨树 print/len/索引方法分派常量+非常量/object 承接/整槽写异类/深比较/整体重赋/动态域透传 + 同树 NCA 回归段，16 行输出双端逐字节一致）；新拒编用例 s87_reject_dynamic_object_field；ctest -C Release 全量 95/95（差分 86 + 拒编 3 + 单元 4 + CLI 2）
+    - 范围外：跨树数组元素**字段访问**维持拒编（无公共字段前缀偏移不可静态解码，方法调用不受此限走 t133）；动态域（数组过签名/字段/返回值）obj 元素索引读出落 CG9 陷阱不错值；异质基本类型（bool×number×string）数组字面量、tuple 进函数签名、三元/==? 分支 tuple 形状不一致仍为活跃差分面（见路线图）；整槽写异类经空 cls 放行后读出落空 cls 字段拒编，无从错值
+
 ---
 
 ## 三续、codegen 剩余 parity 缺口与路线图（task 2 扫描结论）
 
-**扫描结论（t131 后复核）**：对 `code_generator.cpp` 全量 153 处 `unsupported` 复查，函数重载缺口（原唯一活跃差分）已由 t131 消除。结论：codegen 在「已支持面」上与解释器实质特性对齐，**无活跃差分**。剩余 `unsupported` 归三类——
+**扫描结论（t137 后复核）**：对 `code_generator.cpp` 全量 `unsupported` 复查，双端探针实证以下为**活跃差分**（解释器 rc=0、codegen 拒编）：跨树实例数组字面量（已由 t137/S84 消除）、异质基本类型数组字面量 `[1,"two",true]`、tuple 进函数签名、三元/`==?` 分支 tuple 形状不一致、闭包捕获外层局部、函数名作值。剩余 `unsupported` 归三类——
 1. 合法拒绝：解释器同样拒/报错（rc 一致），属非差分面，维持；
-2. 解析器层面已禁用（如 tuple 类型字段），不会到达 codegen；
+2. 解析器/语义层已禁用（如 tuple 类型字段、未定类型 array 元素比较），不会到达 codegen 或两端同拒；
 3. 解释器支持但 codegen 尚未实现（真实 parity 缺口，见下路线图）。
 
-**真实 parity 缺口路线图（候选，按价值/风险粗排；实现前需细查解释器是否真支持，避免把"解释器也拒"误列为缺口）**：
-- 嵌套函数捕获外层局部（closure）：高价值 / 高复杂
-- 异质 tuple 非常量索引 / 动态键（含 Bool/Str）/ 进函数签名 / 进数组：中
-- 三元 / `==?` 分支 tuple 形状不一致合流：中低
+**真实 parity 缺口路线图（候选，按价值/风险粗排；实现前需双端探针实证，避免把"解释器也拒"误列为缺口）**：
+- 嵌套函数捕获外层局部（closure）：高价值 / 高复杂（需真实帧捕获，现为无捕获 lambda 提升）
+- 异质基本类型数组字面量 `[1,"two",true]`（含 Bool/Str/数值混排）：中（需 tagged 变体元素槽 + 动态读出）
+- tuple 进函数签名（形参/返回）：中（跨 ABI 动态值传递，仿 t70 数组 elem 动态化）
+- 三元 / `==?` 分支 tuple 形状不一致合流：中低（统一最宽形状或动态化）
+- 函数名作值传递 / 一等公民：低（实用面窄，高复杂）
 - 整槽写异类 / 动态域 obj 元素读出落 CG9 陷阱：中（CG9 为 deliberate trap，非静默错编）
 - tribool 进元组：低
 - BigInt 运行时化（CG1 远期）：大工程
 
-注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）、object 动态值方法调用运行期分派（S82 t133）、tribool 进数组（S83 t136）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
+注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）、object 动态值方法调用运行期分派（S82 t133）、tribool 进数组（S83 t136）、跨树实例数组字面量（S84 t137）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
 
 ## 四、模块解耦方案
 
