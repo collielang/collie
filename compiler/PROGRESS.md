@@ -734,6 +734,16 @@
     - 验证：新差分用例 s85_object_param（object 形参收 Dog/Cat 实例方法沿动态类分派 describe()/sound()、object 返回值 make() 按条件返回不同类实例、object 变量承接返回值后续分派，输出双端一致）；对齐解释器 object 为一切类型之父、任意实例可经 object 形参/返回传递；ctest -C Release codegen_diff 含 s85 预期逐字节一致（本沙箱无 LLVM 构建，交由用户 ctest 验收）
     - 范围外：非实例值（string/number/bool 等）经 object 形参/返回维持拒编——对齐 codegen object 变量"限 Obj 初始值"既定边界（解释器允许任意值赋 object，属 codegen 动态值表示未覆盖面，拒编不错编）；tuple 进函数签名仍拒编（t68 形状跨边界不可知）
 
+- [x] object 动态值（空 cls）方法调用运行期分派（t133，visitMethodCall 不处理 Obj 空 cls 缺口；S81/t132 文档已声明"函数体内动态分派"但其提交自述沙箱无 LLVM 构建未验证，本树 s85 原版在参数化方法调用处 `classes_.at("")` 抛 out_of_range → colliec 崩溃，S82）
+    - 方案：visitMethodCall 的 Obj 分支入口新增空 cls（object 动态值）路径——收集**全体定义了该方法的类**为 switch case（不限同一继承树，object 可承载任意实例），加载对象头槽 0 类 id，`switch(clsid, trap_bb, defs)` 分派到各定义者单态化实例 `cls.instances[key]`（沿用 t102/t103 单态化机制，本面按"方法定义者"而非继承树枚举）；动态类未定义该方法落 default 陷阱臂 `rt_trap_undefined_method`（消息对齐解释器运行期 "Undefined method 'X'"），toString 兜底沿用 t102 规则（find_method 优先、无用户定义落内建 "<object>" 常量）；全体类均未定义该方法报 "undefined method 'X' on object dynamic value" 拒编；各定义者签名一致性校验沿用 t86 防御（不一致拒编不错编）；实参经 coerce_call_arg、结果 CGValue 取合流 ret_type/ret_cls；零新增 rt 接口
+    - 验证：三门禁全绿——ctest -C Release 差分 84/84（含 s85_object_param 原版全量动态分派场景：object 形参收 Dog/Cat 实例调 describe()/sound()、跨类承载），单元 4/4，CLI 2/2；探针 p5（object 形参方法调用）与 p8（object 动态值跨类调用）双端逐字节一致；修复 HEAD 7188ac5 s85 崩溃回归
+    - 范围外：空 cls object 值的**字段访问**维持拒编（无静态布局，偏移无从解码，属 S69/S70 object 变量既有边界）；非实例值经 object 形参/返回维持拒编；方法重载 first-wins/跨树同名签名不一致维持拒编不错编
+
+- [x] tribool 进数组（t136，codegen 数组元素不处理 Tri 缺口；解释器数组可存三态值并 print/==/索引读写，此前字面量/槽转换拒编，S83）
+    - 方案：visitArrayLiteral 对 bool/tribool 混排收敛 elem=Tri（`elem ∈ {Bool,Tri}` 且元素值 ∈ {Bool,Tri}` 时取 Tri，bool 字面量经 to_tri 加宽 false→0/true→2 直存三态槽）；elem_to_bits 加 Tri 臂 i8 zext→i64、bits_to_elem 加独立 Tri 臂 i64 trunc→i8（0/1/2 截断无损，不与 Obj/Str 的 IntToPtr 臂共用）；arr_kind_of 新增 kind 6（槽存三态 0=false/1=unset/2=true，与解释器 value.h Tri 编码一致）；rt 面：collie_rt.c kind 注释扩展、trap_arr_kind 消息加 "tribool"、arr_to_str 新增 case 6（false/unset/true 对齐解释器 Value::to_string Tribool 分支）、arr_eq 新增 bool(kind2)×tribool(kind6) 跨 kind 配对（bool 槽 ×2 镜像解释器 values_equal tri_of(bool)：false→0/true→2，unset 与任何 bool 恒不等），同 kind 6 相等复用既有整数位模式直比臂；visitIndexAssign 动态域整槽写放行 Bool/Str/Tri（rt_arr_set_num_ 带 arr_kind_of tag）、静态 Tri 数组写 bool 经 to_tri 加宽直存；动态域元素读出 kind≥2 落 CG9 陷阱面不变（本面仅 print/len/== 全 kind 安全）；零新增 rt 接口（复用既有 arr 全套）
+    - 验证：探针 t136_p1（字面量/print/索引读写/三态比较）、t136_p2（bool 数组×tribool 数组跨 kind 深比较）、t136_p3（动态域透传 print/len）三端逐字节一致；新差分用例 s86_tribool_array（混排收敛、全 Tri、索引三态互写、跨 kind ==、动态域透传、toString、循环读写；未定类型 array 的 `a[i]==字面量` 两端语义层同拒 "Incomparable operand types" 非活跃差分面，用例经显式 tribool 变量承接比较）；新增**拒编门禁机制**：run_reject_test.cmake 断言 colliec rc=1 + stderr 含 "not yet supported" + stdout 为空 + 不产出可执行文件，注册 codegen_reject_* 两例（s86_reject_bool_num_array：bool×number 混排字面量拒编；s86_reject_tribool_num_write：Tri 数组写数字拒编），拒编面禁止降格为差分用例迁就测试；.gitignore 的 `*.cmake` 通配豁免扩为 `!codegen/tests/*.cmake`；ctest -C Release 全量 93/93（差分 85 + 拒编 2 + 单元 4 + CLI 2）
+    - 范围外：tribool 进元组维持拒编；bool×number 等跨 kind 数值混排字面量维持拒编（解释器元素级 values_equal 恒不等面不经 codegen 承载路径）；动态域 kind 6 元素索引读出落 CG9 陷阱不错值；未定类型 array 元素与字面量直接比较属语义层两端同拒面（非 codegen 拒编）
+
 ---
 
 ## 三续、codegen 剩余 parity 缺口与路线图（task 2 扫描结论）
@@ -748,28 +758,10 @@
 - 异质 tuple 非常量索引 / 动态键（含 Bool/Str）/ 进函数签名 / 进数组：中
 - 三元 / `==?` 分支 tuple 形状不一致合流：中低
 - 整槽写异类 / 动态域 obj 元素读出落 CG9 陷阱：中（CG9 为 deliberate trap，非静默错编）
-- tribool 进数组元素 / 元组：低
+- tribool 进元组：低
 - BigInt 运行时化（CG1 远期）：大工程
 
-注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
-
-## 三续、codegen 剩余 parity 缺口与路线图（task 2 扫描结论）
-
-**扫描结论（t131 后复核）**：对 `code_generator.cpp` 全量 153 处 `unsupported` 复查，函数重载缺口（原唯一活跃差分）已由 t131 消除。结论：codegen 在「已支持面」上与解释器实质特性对齐，**无活跃差分**。剩余 `unsupported` 归三类——
-1. 合法拒绝：解释器同样拒/报错（rc 一致），属非差分面，维持；
-2. 解析器层面已禁用（如 tuple 类型字段），不会到达 codegen；
-3. 解释器支持但 codegen 尚未实现（真实 parity 缺口，见下路线图）。
-
-**真实 parity 缺口路线图（候选，按价值/风险粗排；实现前需细查解释器是否真支持，避免把"解释器也拒"误列为缺口）**：
-- 嵌套函数捕获外层局部（closure）：高价值 / 高复杂
-- `object` 动态类型作函数形参与返回值（非具体类名）：中高价值 / 中复杂 —— **已于 t132/S81 解锁**
-- 异质 tuple 非常量索引 / 动态键（含 Bool/Str）/ 进函数签名 / 进数组：中
-- 三元 / `==?` 分支 tuple 形状不一致合流：中低
-- 整槽写异类 / 动态域 obj 元素读出落 CG9 陷阱：中（CG9 为 deliberate trap，非静默错编）
-- tribool 进数组元素 / 元组：低
-- BigInt 运行时化（CG1 远期）：大工程
-
-注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
+注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）、object 动态值方法调用运行期分派（S82 t133）、tribool 进数组（S83 t136）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
 
 ## 四、模块解耦方案
 
