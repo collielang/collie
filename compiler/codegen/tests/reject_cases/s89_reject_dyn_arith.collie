@@ -1,0 +1,5 @@
+// t139 S86 拒编用例：异质数组变量索引读出（Dyn）参与算术
+// 解释器 a[i] + 1 得 2，codegen Dyn 非数值域 → "non-numeric operand of '+'" 拒编不错编
+array a = [1, "two", true];
+integer i = 0;
+print(a[i] + 1);

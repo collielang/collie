@@ -476,7 +476,9 @@ private:
 
     /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
     int arr_kind_of(CGType elem);
-
+    /// @brief 异质动态标量数组（kind 7，t139）可承载元素判定：
+    /// ∈ {Int/Double/Num/Bool/Str/Tri/Dyn}；Arr/Obj/Tup 不入（各有专属路径/维持拒编）
+    static bool is_dyn_scalar(CGType t);
     /// @brief AST 层常量整数解析（t68 tuple 索引用）：整数字面量与一元负号包
     /// 字面量（-1 的 AST 为 UnaryExpr('-')+LiteralExpr，emit 会走溢出检查出非常量）
     bool const_int_of(const Expr* e, long long& out);
@@ -552,6 +554,8 @@ private:
     llvm::FunctionCallee rt_arr_to_str_; // ptr(ptr)，[1, 2, 3] 格式对齐 Value::to_string
     llvm::FunctionCallee rt_arr_kind_;   // i64(ptr)，动态域索引读拼 number 用（t70）
     llvm::FunctionCallee rt_arr_set_num_; // void(ptr, i64, i64 tag, i64 bits)，动态域索引写（t70，含 CG7 陷阱）
+    llvm::FunctionCallee rt_arr_set_dyn_; // void(ptr, i64 i, i64 tag, i64 bits)，kind 7 异质槽写（t139）
+    llvm::FunctionCallee rt_arr_get_dyn_; // void(ptr, i64 i, ptr otag, ptr obits)，kind 7 异质槽读（t139）
     llvm::FunctionCallee rt_arr_eq_;     // i64(ptr, ptr)，数组深比较返 1/0（t79）
     llvm::FunctionCallee rt_tuple_get_;  // i64(ptr names, ptr vals, ptr key)，tuple 动态键 get（t84）
     /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧

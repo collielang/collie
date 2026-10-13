@@ -320,6 +320,18 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
             void_ty,
             {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty()},
             false));
+    // 异质动态标量数组读写（t139，kind 7）：{tag,bits} 步长 2 槽，出参写回
+    rt_arr_set_dyn_ = module_->getOrInsertFunction(
+        "collie_rt_arr_set_dyn",
+        llvm::FunctionType::get(
+            void_ty,
+            {ptr_ty, builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty()},
+            false));
+    rt_arr_get_dyn_ = module_->getOrInsertFunction(
+        "collie_rt_arr_get_dyn",
+        llvm::FunctionType::get(
+            void_ty,
+            {ptr_ty, builder_.getInt64Ty(), ptr_ty, ptr_ty}, false));
     // 数组深比较（t79）：C 层先比 len 再逐元素按运行时 kind（数值系混合
     // double 视图、string strcmp），对齐解释器 values_equal Array 分支，返 1/0
     rt_arr_eq_ = module_->getOrInsertFunction(
@@ -1232,7 +1244,7 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
                             "global '" + name + "' across functions",
                             expr.name().line(), expr.name().column());
             }
-            var->elem = CGType::Num;
+            var->elem = v.elem == CGType::Dyn ? CGType::Dyn : CGType::Num;
             var->cls.clear();
         } else if (var->elem == CGType::Obj && v.cls != var->cls &&
                    !is_subclass_of(v.cls, var->cls) &&
@@ -1405,6 +1417,12 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                 // tri_of(bool) 映射一致（value.h Tri::False=0/True=2），
                 // 后续读出为 Tri、与 bool 比较走 t65 Tri×Bool 加宽既有面
                 elem = CGType::Tri;
+            } else if (is_dyn_scalar(elem) && is_dyn_scalar(v.type)) {
+                // 异质基本类型混排（t139）：收敛 elem=Dyn（运行时 kind 7 双步长
+                // {tag,bits} 槽），解锁 print/len/索引读/== 显示与比较面；后续
+                // 标量元素经 is_dyn_scalar(Dyn) 持续吸收，非基本类型（Arr/Obj/Tup）
+                // 落下方拒编（各有专属表示，混合维持拒编不错编）
+                elem = CGType::Dyn;
             } else {
                 unsupported("heterogeneous array literal",
                             bracket.line(), bracket.column());
@@ -1432,6 +1450,23 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         "arrnew");
     for (size_t i = 0; i < elements.size(); ++i) {
         CGValue v = elements[i];
+        if (elem == CGType::Dyn) {
+            // 异质动态标量写（t139）：静态标量元素打常量 tag + elem_to_bits；
+            // Num/Dyn 取运行期 num_tag/num_bits（Dyn 元素透传，支持二次物化）
+            llvm::Value* tag = nullptr;
+            llvm::Value* bits = nullptr;
+            if (v.type == CGType::Num || v.type == CGType::Dyn) {
+                tag = num_tag(v.value);
+                bits = num_bits(v.value);
+            } else {
+                tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(v.type)));
+                bits = elem_to_bits(v);
+            }
+            builder_.CreateCall(
+                rt_arr_set_dyn_,
+                {arr, builder_.getInt64(static_cast<uint64_t>(i)), tag, bits});
+            continue;
+        }
         if (elem == CGType::Double &&
             (v.type == CGType::Int || v.type == CGType::Num)) {
             v = {to_double(v), CGType::Double}; // 同质提升：Int/Num 元素升 double
@@ -1584,6 +1619,23 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         index_to_int(index, expr.bracket().line(), expr.bracket().column());
     index.type = CGType::Int;
     if (object.type == CGType::Arr) {
+        if (object.elem == CGType::Dyn) {
+            // 异质动态标量数组读（t139，kind 7）：rt_arr_get_dyn 一次取回
+            // {tag,bits} 拼 CGType::Dyn——负索引归一化/越界陷阱均在 rt 内；
+            // 消费面同 t138 tuple Dyn：print/toString/插值/再入异质数组写放行，
+            // 算术/比较/进类型化槽/进签名经既有 default 面拒编不错编
+            llvm::AllocaInst* otag =
+                create_entry_alloca(builder_.getInt64Ty(), "dyn.otag");
+            llvm::AllocaInst* obits =
+                create_entry_alloca(builder_.getInt64Ty(), "dyn.obits");
+            builder_.CreateCall(rt_arr_get_dyn_,
+                                {object.value, index.value, otag, obits});
+            last_value_ = {make_num(
+                               builder_.CreateLoad(builder_.getInt64Ty(), otag, "dyntag"),
+                               builder_.CreateLoad(builder_.getInt64Ty(), obits, "dynbits")),
+                           CGType::Dyn};
+            return;
+        }
         // 8 字节槽位模式按元素类型解码（字面量同质推断/变量槽记录，t59）
         llvm::Value* bits = builder_.CreateCall(
             rt_arr_get_, {object.value, index.value}, "arrget");
@@ -1638,6 +1690,28 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         index_to_int(index, expr.bracket().line(), expr.bracket().column());
     index.type = CGType::Int;
     CGValue v = emit(expr.value());
+    if (object.elem == CGType::Dyn) {
+        // 异质动态标量数组整槽写（t139，kind 7）：任意基本标量写入自带 tag，
+        // 解释器异质数组本就容任意元素；Dyn 值透传分量，静态标量打常量 tag。
+        // Arr/Obj/Tup 值无 kind 7 编码，维持拒编不错编
+        if (!is_dyn_scalar(v.type)) {
+            unsupported("array element type mismatch in index assignment",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        llvm::Value* tag = nullptr;
+        llvm::Value* bits = nullptr;
+        if (v.type == CGType::Num || v.type == CGType::Dyn) {
+            tag = num_tag(v.value);
+            bits = num_bits(v.value);
+        } else {
+            tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(v.type)));
+            bits = elem_to_bits(v);
+        }
+        builder_.CreateCall(rt_arr_set_dyn_,
+                            {object.value, index.value, tag, bits});
+        last_value_ = v;
+        return;
+    }
     if (object.elem == CGType::Arr) {
         // 嵌套数组整槽替换（t85/t89）：外层槽写入新内层数组 ptr 位模式；
         // 值须为数组（任意元素，t89 放宽——kind 随内层对象自带），
@@ -5389,8 +5463,17 @@ int CodeGenerator::arr_kind_of(CGType elem) {
         case CGType::Arr:    return 4; // 嵌套数组：槽存内层数组 ptr 位模式（t85）
         case CGType::Obj:    return 5; // 实例数组：槽存实例 ptr 位模式（t100）
         case CGType::Tri:    return 6; // tribool 数组：槽存三态 0/1/2（t136）
+        case CGType::Dyn:    return 7; // 异质动态标量数组：{tag,bits} 步长 2（t139）
         default:             unsupported("array element type", 0, 0);
     }
+}
+
+bool CodeGenerator::is_dyn_scalar(CGType t) {
+    // 异质数组 kind 7 承载范围（t139）：基本标量 + 已动态化标量（Dyn，支持
+    // 嵌套异质数组字面量二次物化透传）；Arr/Obj/Tup 各有专属表示，混入维持拒编
+    return t == CGType::Int || t == CGType::Double || t == CGType::Num ||
+           t == CGType::Bool || t == CGType::Str || t == CGType::Tri ||
+           t == CGType::Dyn;
 }
 
 // ---------------- tuple 静态展开（t68） ----------------

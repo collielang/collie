@@ -1,4 +1,0 @@
-// t136 拒编门禁：bool × number 混排数组字面量维持拒编（t136 解锁的仅
-// bool/tribool 混排收敛 Tri 与三态数组；跨数值 kind 仍保守拒编不错编）
-array x = [true, 2];
-print(x);

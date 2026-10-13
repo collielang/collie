@@ -57,6 +57,11 @@
  *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
  *     4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100)
  *     6=tribool(三态 0=false/1=unset/2=true，t136)
+ *     7=异质动态标量（t139）：槽为 2×len 步长，每元素 {tag,bits} 两 i64
+ *   void collie_rt_arr_set_dyn(void* arr, long long i, long long tag, long long bits);
+ *     // kind 7 写（t139）：负索引归一化 + 越界陷阱，写 slots[2i]=tag/2i+1=bits
+ *   void collie_rt_arr_get_dyn(void* arr, long long i, long long* otag, long long* obits);
+ *     // kind 7 读（t139）：同上索引规则，经出参写回 tag/bits
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -363,7 +368,10 @@ void collie_rt_trap_shift_count(void) {
  * 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）。
  * kind：0=integer(i64 直存) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
  * 4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100)
- * 6=tribool(三态 0/1/2，t136) */
+ * 6=tribool(三态 0/1/2，t136)
+ * 7=异质动态标量（t139）：槽为 2×len 步长，每元素 {tag, bits} 两 i64
+ *   （tag 复用 kind 编码 0=int/1=dec/2=bool/3=str/6=tribool），承载异质
+ *   基本类型数组字面量 [1,"two",true]；len 字段仍为元素个数（非槽个数） */
 typedef struct {
     long long len;
     long long kind;
@@ -371,11 +379,13 @@ typedef struct {
 } collie_rt_array;
 
 void* collie_rt_arr_new(long long len, long long kind) {
+    /* kind 7 每元素两槽（tag+bits），其余单槽 */
+    size_t stride = kind == 7 ? 2 : 1;
     collie_rt_array* a = (collie_rt_array*)collie_rt_alloc(
-        sizeof(collie_rt_array) + (size_t)len * sizeof(long long));
+        sizeof(collie_rt_array) + stride * (size_t)len * sizeof(long long));
     a->len = len;
     a->kind = kind;
-    memset(a->slots, 0, (size_t)len * sizeof(long long));
+    memset(a->slots, 0, stride * (size_t)len * sizeof(long long));
     return a;
 }
 
@@ -436,12 +446,32 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
     exit(1);
 }
 
+/* 异质动态标量数组读写（t139，kind 7）：每元素 {tag, bits} 两 i64 步长槽。
+ * 索引归一化 + 越界陷阱复用 collie_rt_arr_norm_index（len 为元素个数）。
+ * 仅 codegen 静态 elem==Dyn 路径调用；经签名/字段动态域透传后 elem 降 Num，
+ * 索引读走 rt_arr_kind UGT 1 落 CG9 陷阱（kind 7 > 1，安全不错值） */
+void collie_rt_arr_set_dyn(void* arr, long long index, long long tag, long long bits) {
+    collie_rt_array* a = (collie_rt_array*)arr;
+    long long i = collie_rt_arr_norm_index(a, index);
+    a->slots[2 * i] = tag;
+    a->slots[2 * i + 1] = bits;
+}
+
+void collie_rt_arr_get_dyn(void* arr, long long index,
+                           long long* otag, long long* obits) {
+    collie_rt_array* a = (collie_rt_array*)arr;
+    long long i = collie_rt_arr_norm_index(a, index);
+    *otag = a->slots[2 * i];
+    *obits = a->slots[2 * i + 1];
+}
+
 /* 动态域索引读 kind>=2 陷阱（t88）：bool/str/嵌套数组经透传（签名/字段/返回值）
  * 后元素静态类型不可定，codegen 读出无法承载——报错退出不错值（缺口 CG9，
  * 解释器动态类型可行；print/len/== 不经此路径，全 kind 天然工作） */
 void collie_rt_trap_arr_kind(long long kind) {
     const char* what = kind == 2 ? "bool" : kind == 3 ? "string"
-                     : kind == 5 ? "object" : kind == 6 ? "tribool" : "nested";
+                     : kind == 5 ? "object" : kind == 6 ? "tribool"
+                     : kind == 7 ? "dynamic" : "nested";
     fprintf(stderr, "runtime error: reading %s array element in dynamic "
                     "context (element type not statically known, gap CG9)\n", what);
     exit(1);
@@ -475,6 +505,49 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
     const collie_rt_array* r = (const collie_rt_array*)rhs;
     if (l->len != r->len) {
         return 0;
+    }
+    /* 异质动态标量数组（kind 7，t139）：每元素 {tag,bits} 步长 2。
+     * 一侧 kind7 一侧非 kind7 恒不等：kind7 必含 ≥2 种基本类型（异质），
+     * 非 kind7 数组同质，逐元素至少一元素 kind 失配（对齐解释器 values_equal
+     * 按 Value::kind 分支）；两侧 kind7 逐元素按 tag/bits 比较 */
+    if (l->kind == 7 || r->kind == 7) {
+        if (l->kind != 7 || r->kind != 7) {
+            return 0;
+        }
+        long long k;
+        for (k = 0; k < l->len; ++k) {
+            long long lt = l->slots[2 * k];
+            long long lb = l->slots[2 * k + 1];
+            long long rt_ = r->slots[2 * k];
+            long long rb = r->slots[2 * k + 1];
+            if (lt == rt_) {
+                if (lt == 1) { /* decimal 按 double 值 */
+                    double x, y;
+                    memcpy(&x, &lb, sizeof x);
+                    memcpy(&y, &rb, sizeof y);
+                    if (!(x == y)) return 0;
+                } else if (lt == 3) { /* string strcmp 内容 */
+                    if (strcmp((const char*)(intptr_t)lb,
+                               (const char*)(intptr_t)rb) != 0) return 0;
+                } else { /* int/bool/tribool：位模式即值 */
+                    if (lb != rb) return 0;
+                }
+            } else if ((lt == 0 || lt == 1) && (rt_ == 0 || rt_ == 1)) {
+                /* int × decimal 混合表示：double 视图（5 == 5.0） */
+                double x, y;
+                if (lt == 0) { x = (double)lb; } else { memcpy(&x, &lb, sizeof x); }
+                if (rt_ == 0) { y = (double)rb; } else { memcpy(&y, &rb, sizeof y); }
+                if (!(x == y)) return 0;
+            } else if ((lt == 2 && rt_ == 6) || (lt == 6 && rt_ == 2)) {
+                /* bool × tribool：bool 0/1 → 三态 0/2 后直比（t136 同规则） */
+                long long xt = lt == 2 ? lb * 2 : lb;
+                long long yt = rt_ == 2 ? rb * 2 : rb;
+                if (xt != yt) return 0;
+            } else {
+                return 0; /* tag 失配（str/bool 对数值等）恒不等 */
+            }
+        }
+        return 1;
     }
     long long i;
     for (i = 0; i < l->len; ++i) {
@@ -594,6 +667,37 @@ const char* collie_rt_arr_to_str(void* arr) {
             case 5: /* object：实例转串固定 <object>（对齐解释器 Value::to_string Instance 分支，t100） */
                 collie_rt_sb_append(&out, &n, &cap, "<object>");
                 break;
+            case 7: { /* 异质动态标量（t139）：逐元素 {tag,bits} 按 tag 格式化，
+                       * 串不加引号（对齐解释器 Array 分支递归 to_string） */
+                long long tag = a->slots[2 * i];
+                long long bits = a->slots[2 * i + 1];
+                switch ((int)tag) {
+                    case 0: /* integer */
+                        snprintf(tmp, sizeof tmp, "%lld", bits);
+                        collie_rt_sb_append(&out, &n, &cap, tmp);
+                        break;
+                    case 1: { /* decimal */
+                        double v;
+                        memcpy(&v, &bits, sizeof v);
+                        collie_rt_format_f64(tmp, sizeof tmp, v);
+                        collie_rt_sb_append(&out, &n, &cap, tmp);
+                        break;
+                    }
+                    case 2: /* bool */
+                        collie_rt_sb_append(&out, &n, &cap, bits ? "true" : "false");
+                        break;
+                    case 6: /* tribool */
+                        collie_rt_sb_append(&out, &n, &cap,
+                                            bits == 2 ? "true"
+                                            : bits == 1 ? "unset" : "false");
+                        break;
+                    default: /* 3 = string：指针位模式还原，原样不加引号 */
+                        collie_rt_sb_append(&out, &n, &cap,
+                                            (const char*)(intptr_t)bits);
+                        break;
+                }
+                break;
+            }
             default: /* 4 = array：指针位模式还原后递归转串（嵌套数组，t85） */
                 collie_rt_sb_append(&out, &n, &cap,
                                     collie_rt_arr_to_str((void*)(intptr_t)a->slots[i]));

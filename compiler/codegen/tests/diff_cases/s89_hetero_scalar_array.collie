@@ -1,0 +1,79 @@
+// t139 S86 差分用例：异质基本类型数组字面量 [1,"two",true] 收敛 CGType::Dyn
+// （运行时 kind 7，双步长 {tag,bits} 槽），解锁 print/len/索引读/索引写/== 深比较。
+// 元素含 Arr/Obj/Tup、Dyn 进类型化槽/算术均维持拒编（见 reject_cases）；
+// 对齐解释器数组动态存任意元素 + Value::to_string Array 分支
+
+// 1) 基本异质字面量：整数组 + 长度
+array a = [1, "two", true];
+print(a);
+print(len(a));
+
+// 2) 常量索引读出（各元素类型不同）
+print(a[0]);
+print(a[1]);
+print(a[2]);
+
+// 3) 变量索引 + 负索引
+integer i = 1;
+print(a[i]);
+print(a[-1]);
+
+// 4) toString / 插值消费
+print(toString(a));
+string s = "v=" + toString(a[2]);
+print(s);
+
+// 5) 整数×小数×字符串混排（小数走 double 视图格式化）
+array b = [1.5, "x", 7];
+print(b);
+
+// 6) 布尔×字符串混排（无数值）
+array c = [true, "y", false];
+print(c);
+print(len(c));
+
+// 6b) 布尔×数值混排（t136 曾保守拒编，t139 起收敛 Dyn 解锁）
+array cn = [true, 2];
+print(cn);
+print(cn[0]);
+print(cn[1]);
+
+// 7) 三态 unset 混排
+array t = [1, unset, "z"];
+print(t);
+print(t[1]);
+
+// 8) 循环遍历读出
+for (integer k = 0; k < len(a); k = k + 1) {
+    print(a[k]);
+}
+
+// 9) 异质整槽写（任意标量覆写，tag 随值自带）
+a[0] = 99;
+a[1] = "new";
+a[2] = false;
+print(a);
+print(a[0]);
+print(a[1]);
+print(a[2]);
+
+// 10) 深比较：异质 × 异质
+array d = [1, "two", true];
+array e = [1, "two", true];
+print(d == e);
+print(a == d);
+
+// 11) int × decimal 混合表示按 double 视图相等（5 == 5.0）
+array g = [5, "x"];
+array h = [5.0, "x"];
+print(g == h);
+
+// 12) 同质数值系仍走 Double 收敛（非 kind 7）
+array f = [1, 2.5];
+print(f);
+
+// 13) Int 数组变量重赋异质数组：元素类型保持 Dyn 解码
+array k = [1, 2, 3];
+k = [7, "eight", true];
+print(k);
+print(k[1]);

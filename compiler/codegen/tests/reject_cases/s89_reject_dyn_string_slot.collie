@@ -1,0 +1,6 @@
+// t139 S86 拒编用例：异质数组索引读出（Dyn）进 string 类型化槽
+// 解释器 string s = a[1] 得 "two"，codegen Dyn 值无静态 string 表示，
+// coerce_for_slot 落 default → "implicit conversion for variable" 拒编不错编
+array a = [1, "two", true];
+string s = a[1];
+print(s);

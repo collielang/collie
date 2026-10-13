@@ -1,0 +1,6 @@
+// t139 S86 拒编用例：异质数组含实例元素（Obj 不入 kind 7 标量承载范围）
+// 解释器可容 [1, new A()] 打印 [1, <object>]，codegen 收敛判定遇 Obj 落
+// is_dyn_scalar=false → 维持 "heterogeneous array literal" 拒编不错编
+class A {}
+array a = [1, new A()];
+print(a);
