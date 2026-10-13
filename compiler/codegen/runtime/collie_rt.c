@@ -761,20 +761,44 @@ int collie_rt_num_cmp(long long op, long long atag, long long abits,
 }
 
 /* number 转串：整数表示 %lld（对齐 BigInt::to_string 在 i64 域的输出），
- * 小数表示四步格式；复用既有转串接口，malloc 新串不 free（缺口 CG6） */
+ * 小数表示四步格式；复用既有转串接口，malloc 新串不 free（缺口 CG6）。
+ * tag 2/3/6 为异质 tuple Dyn 动态标量扩展（t138，编码同数组 kind）：
+ * number 值恒为 tag 0/1，两域共用此分派 */
 const char* collie_rt_num_to_str(long long tag, long long bits) {
-    if (tag == 0) {
-        return collie_rt_i64_to_str(bits);
+    switch (tag) {
+        case 0:
+            return collie_rt_i64_to_str(bits);
+        case 2:
+            return bits ? "true" : "false"; /* Dyn bool，静态串勿 free */
+        case 3:
+            return (const char*)(intptr_t)bits; /* Dyn string：bits 即串 ptr */
+        case 6:
+            /* Dyn tribool：0=false/1=unset/2=true（对齐 Value::to_string） */
+            return bits == 1 ? "unset" : (bits == 2 ? "true" : "false");
+        default:
+            return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
     }
-    return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
 }
 
-/* number 打印：与 print_i64/print_f64 同格式（对齐 Value::to_string Number 分支） */
+/* number 打印：与 print_i64/print_f64 同格式（对齐 Value::to_string Number 分支）；
+ * tag 2/3/6 为 Dyn 动态标量（t138），bool/tribool 串与解释器 to_string 对齐 */
 void collie_rt_print_num(long long tag, long long bits) {
-    if (tag == 0) {
-        printf("%lld", bits);
-    } else {
-        collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));
+    switch (tag) {
+        case 0:
+            printf("%lld", bits);
+            return;
+        case 2:
+            fputs(bits ? "true" : "false", stdout);
+            return;
+        case 3:
+            collie_rt_print_str((const char*)(intptr_t)bits);
+            return;
+        case 6:
+            fputs(bits == 1 ? "unset" : (bits == 2 ? "true" : "false"), stdout);
+            return;
+        default:
+            collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));
+            return;
     }
 }
 

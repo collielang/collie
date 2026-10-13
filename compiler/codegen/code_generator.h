@@ -109,6 +109,9 @@ private:
         Int,     // i64（integer，妥协点 CG1）
         Double,  // double（decimal）
         Num,     // {i64 tag, i64 bits}（number tagged 双表示：tag 0=整数/1=小数，t62）
+        Dyn,     // {i64 tag, i64 bits}（异质 tuple 非常量访问的动态标量承载，t138：
+                 // tag 复用数组 kind 编码 0=int/1=dec/2=bool/3=str/6=tribool；
+                 // 仅 print/toString/插值可消费，其余消费点拒编不错编）
         Bool,    // i1
         Tri,     // i8（tribool 三态编码 False=0 < Unset=1 < True=2，Kleene min/max，t65）
         Str,     // ptr → 常量字符串
@@ -454,6 +457,11 @@ private:
     /// @brief 数组元素值 → 8 字节槽位模式 i64（t59）：Int 直存/Double bitcast/
     /// Bool zext/Str ptrtoint（collie_rt 数组对象槽统一为 i64）
     llvm::Value* elem_to_bits(const CGValue& v);
+
+    /// @brief 异质 tuple 动态访问的 Dyn 标量物化（t138）：tags+bits 双 int 数组，
+    /// tag 复用数组 kind 编码（0=int/1=dec/2=bool/3=str/6=tribool，Num/Dyn 元素取
+    /// 运行期分量）；返回 {tags 数组, bits 数组}，调用侧同一索引/键两次取回拼 Dyn
+    std::pair<llvm::Value*, llvm::Value*> materialize_dyn_scalars(const CGTuple& t);
 
     /// @brief 8 字节槽位模式 i64 → 数组元素值（t59，elem_to_bits 的逆变换）
     llvm::Value* bits_to_elem(llvm::Value* bits, CGType elem);

@@ -1,0 +1,7 @@
+// t138 S85 拒编用例：异质 tuple（含 Str/Bool）动态索引结果参与算术
+// 索引结果落 CGType::Dyn，仅显示面可消费；算术消费点拒编不错编
+// （解释器 t[i]+1 可运行，双端在此分歧为刻意保守拒编）
+Tuple t = (1, "two", true);
+integer i = 0;
+integer n = t[i] + 1;
+print(n);

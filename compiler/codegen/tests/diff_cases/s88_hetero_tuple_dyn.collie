@@ -1,0 +1,63 @@
+// t138 S85 差分用例：异质 tuple（含 Bool/Str/Tribool）非常量索引/动态键 get()
+// 物化为 CGType::Dyn 动态标量（tags+bits，tag 复用数组 kind 编码），
+// 仅 print/toString/插值可消费（其余消费点拒编，见 reject_cases）
+// 对齐解释器 call_builtin_print / Value::to_string
+
+// 异质 int/str/bool tuple：变量索引取各槽
+Tuple t = (1, "two", true);
+integer i = 0;
+print("a1:", t[i]);          // 1
+print("a2:", t[i + 1]);      // two
+print("a3:", t[i + 2]);      // true
+
+// toString / 插值消费 Dyn
+print("a4:", toString(t[i + 1]));   // two
+print("a5:", @"v={t[i + 2]}");      // v=true
+
+// 含小数 + string + bool 的异质
+Tuple u = (1.5, "x", false);
+print("b1:", u[i]);          // 1.5
+print("b2:", u[i + 1]);      // x
+print("b3:", u[i + 2]);      // false
+
+// 含 number 变量（Num 元素取运行期 tag）+ string + bool
+number nb = 2.5;
+Tuple m = (nb, "s", true);
+print("c1:", m[i]);          // 2.5
+print("c2:", m[i + 1]);      // s
+print("c3:", m[i + 2]);      // true
+
+// 同质 tribool tuple（含 unset）→ Dyn
+Tuple b = (true, unset, false);
+print("d1:", b[i]);          // true
+print("d2:", b[i + 1]);      // unset
+print("d3:", b[i + 2]);      // false
+
+// 动态键 get()：异质命名 tuple
+Tuple w = (a: 3, b: "four", c: true);
+string key = "b";
+print("e1:", w.get(key));    // four
+print("e2:", w.get("c"));    // true
+print("e3:", w.get("a"));    // 3
+
+// 负索引动态变量（归一化）
+integer j = -1;
+print("f1:", t[j]);          // true（末槽）
+print("f2:", t[j - 1]);      // two
+
+// 循环遍历异质 tuple 打印全部槽
+for (integer k = 0; k < 3; k = k + 1) {
+    print("g:", t[k]);
+}
+
+// Dyn 进新 tuple 字面量（同 {i64,i64} 布局透传）
+Tuple q = (t[i + 1], 42);
+print("h1:", q);             // (two, 42)
+print("h2:", q[i]);          // two
+print("h3:", q[i + 1]);      // 42
+
+// 数值系异质保持 Num 路径（算术/比较回归，t107 不降级）
+Tuple h = (1, nb, 3.5);
+print("k1:", h[i] + 1);      // 2
+print("k2:", h[i + 1] > 0);  // true
+print("k3:", h[i + 2]);      // 3.5

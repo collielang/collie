@@ -1057,6 +1057,11 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 // number 打印（t62）：垫片按 tag 分派 %lld / 四步小数格式
                 builder_.CreateCall(rt_print_num_, {num_tag(v.value), num_bits(v.value)});
                 break;
+            case CGType::Dyn:
+                // 动态标量打印（t138）：tag 扩 kind 2/3/6，垫片按 tag 分派
+                // true/false、串内容、true/unset/false（对齐 Value::to_string）
+                builder_.CreateCall(rt_print_num_, {num_tag(v.value), num_bits(v.value)});
+                break;
             case CGType::Bool: {
                 // i1 零扩展为 i32（C 接口参数为 int）
                 llvm::Value* as_i32 = builder_.CreateZExt(v.value, builder_.getInt32Ty());
@@ -1089,6 +1094,9 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 builder_.CreateCall(rt_print_str_,
                                     {builder_.CreateGlobalString("none")});
                 break;
+            default:
+                unsupported("print of this value type", expr.paren().line(),
+                            expr.paren().column());
         }
     }
     builder_.CreateCall(rt_print_newline_, {}); // 一行结束换行
@@ -1464,9 +1472,11 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         // 数值系异质（t107）：元素全 ∈ {Int/Double/Num}（含全 Num 同质）——
         // 逐元素 to_num 后物化 tags+bits 双 int 数组，同一索引两次 rt_arr_get
         // 拼 Num 动态值（首次即越界陷阱，零新增 rt 接口）；结果型 Num，
-        // 下游算术/比较/打印走既有 Num 路径。含 Bool/Str/嵌套(Tup/Arr/Obj)
-        // 的异质、空 tuple 保持拒编——结果类型静态不可定且无统一表示，
-        // 拒编不错编
+        // 下游算术/比较/打印走既有 Num 路径。含 Bool/Str/Tri 的异质与同质
+        // tribool（t138）：物化为 CGType::Dyn 动态标量（tag 复用 kind 编码），
+        // 仅 print/toString/插值可消费，其余消费点默认拒编。含嵌套
+        // (Tup/Arr/Obj) 的异质、空 tuple 保持拒编——结果类型静态不可定且
+        // 无统一表示，拒编不错编
         if (t.elems.empty()) {
             unsupported("non-constant index on empty tuple",
                         expr.bracket().line(), expr.bracket().column());
@@ -1474,23 +1484,35 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         const auto is_numeric = [](CGType ty) {
             return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
         };
+        const auto is_scalar = [](CGType ty) {
+            return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num ||
+                   ty == CGType::Bool || ty == CGType::Str || ty == CGType::Tri ||
+                   ty == CGType::Dyn;
+        };
         bool homogeneous = true;
         bool all_numeric = true;
+        bool all_scalar = true;
         const CGType elem = t.elems.front().type;
         for (const auto& e : t.elems) {
             if (e.type != elem) homogeneous = false;
             if (!is_numeric(e.type)) all_numeric = false;
+            if (!is_scalar(e.type)) all_scalar = false;
         }
-        if (homogeneous && elem != CGType::Int && elem != CGType::Double &&
-            elem != CGType::Bool && elem != CGType::Str &&
-            elem != CGType::Arr && elem != CGType::Obj && !all_numeric) {
-            // 同质 Arr/Obj 元素（t114）：结果 CGType 静态可定（恒为 Arr/Obj），
-            // 走下方单数组物化路径 + tuple_dynamic_result 回填内层 elem/cls；
-            // 同质嵌套 Tuple（无 LLVM 承载）等其余类型仍拒编不错编
-            unsupported("non-constant tuple index on this element type",
-                        expr.bracket().line(), expr.bracket().column());
-        }
-        if (!homogeneous && !all_numeric) {
+        // Dyn 承载判定（t138）：非单数组路径、非数值系，但元素全为标量
+        // （含 Bool/Str/Tri 的异质或同质 tribool）——tags+bits 物化为 CGType::Dyn，
+        // 仅 print/toString/插值可消费；嵌套(Tup)等无统一表示仍拒编不错编
+        const bool single_array =
+            homogeneous && (elem == CGType::Int || elem == CGType::Double ||
+                            elem == CGType::Bool || elem == CGType::Str ||
+                            elem == CGType::Arr || elem == CGType::Obj);
+        const bool use_dyn = !single_array && !all_numeric && all_scalar;
+        if (!single_array && !all_numeric && !use_dyn) {
+            if (homogeneous) {
+                // 同质 Arr/Obj 元素（t114）走单数组路径已排除，此处为同质嵌套
+                // Tuple 等无统一表示类型
+                unsupported("non-constant tuple index on this element type",
+                            expr.bracket().line(), expr.bracket().column());
+            }
             unsupported("non-constant index on heterogeneous tuple",
                         expr.bracket().line(), expr.bracket().column());
         }
@@ -1498,6 +1520,17 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         index.value =
             index_to_int(index, expr.bracket().line(), expr.bracket().column());
         index.type = CGType::Int;
+        if (use_dyn) {
+            // Dyn 路径（t138）：tags+bits 双数组同一索引两次取回拼动态标量
+            // （负索引归一化/越界陷阱在首次 get，零新增 rt 接口）
+            auto [tags, bits_arr] = materialize_dyn_scalars(t);
+            llvm::Value* tag =
+                builder_.CreateCall(rt_arr_get_, {tags, index.value}, "dyntag");
+            llvm::Value* bits =
+                builder_.CreateCall(rt_arr_get_, {bits_arr, index.value}, "dynbits");
+            last_value_ = {make_num(tag, bits), CGType::Dyn};
+            return;
+        }
         if (!homogeneous || elem == CGType::Num) {
             // 数值系路径（t107）：tags+bits 双数组（均 kind 0 int），同一
             // 索引两次取回拼 Num（负索引归一化/越界陷阱在首次 get）
@@ -2046,8 +2079,9 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         // 数值系异质（t108，同 t107 索引机制）：元素全 ∈ {Int/Double/Num}
         //（含全 Num 同质）——逐元素 to_num 后物化 tags+bits 双 int 数组，
         // names 复用一份、同一键两次 rt_tuple_get 拼 Num 动态值（未命中陷阱
-        // 在首次，零新增 rt 接口）。含 Bool/Str/嵌套的异质/非 4 类元素/
-        // 空 tuple/无命名字段/非 Str 键保持拒编——结果类型静态不可定或
+        // 在首次，零新增 rt 接口）。含 Bool/Str/Tri 的异质/同质 tribool
+        //（t138）走 Dyn 承载。嵌套元素异质/无统一表示元素/空 tuple/
+        // 无命名字段/非 Str 键保持拒编——结果类型静态不可定或
         // 无统一表示，拒编不错编
         const long long n = static_cast<long long>(t.elems.size());
         if (n == 0) {
@@ -2056,21 +2090,32 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         const auto is_numeric = [](CGType ty) {
             return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
         };
+        const auto is_scalar = [](CGType ty) {
+            return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num ||
+                   ty == CGType::Bool || ty == CGType::Str || ty == CGType::Tri ||
+                   ty == CGType::Dyn;
+        };
         bool homogeneous = true;
         bool all_numeric = true;
+        bool all_scalar = true;
         const CGType elem = t.elems.front().type;
         for (const auto& e : t.elems) {
             if (e.type != elem) homogeneous = false;
             if (!is_numeric(e.type)) all_numeric = false;
+            if (!is_scalar(e.type)) all_scalar = false;
         }
-        if (homogeneous && elem != CGType::Int && elem != CGType::Double &&
-            elem != CGType::Bool && elem != CGType::Str &&
-            elem != CGType::Arr && elem != CGType::Obj && !all_numeric) {
-            // 同质 Arr/Obj 元素（t114，同 visitIndex）：结果静态可定，走下方
-            // 单数组物化路径 + tuple_dynamic_result 回填；同质嵌套 Tuple 仍拒编
-            unsupported("non-constant tuple get() on this element type", line, column);
-        }
-        if (!homogeneous && !all_numeric) {
+        // Dyn 承载判定（t138，同 visitIndex）：含 Bool/Str/Tri 的异质或同质
+        // tribool → tags+bits 物化 CGType::Dyn，仅显示面可消费；同质 Arr/Obj
+        // 走单数组路径（t114），嵌套 Tuple 等无统一表示仍拒编不错编
+        const bool single_array =
+            homogeneous && (elem == CGType::Int || elem == CGType::Double ||
+                            elem == CGType::Bool || elem == CGType::Str ||
+                            elem == CGType::Arr || elem == CGType::Obj);
+        const bool use_dyn = !single_array && !all_numeric && all_scalar;
+        if (!single_array && !all_numeric && !use_dyn) {
+            if (homogeneous) {
+                unsupported("non-constant tuple get() on this element type", line, column);
+            }
             unsupported("non-constant get() on heterogeneous tuple", line, column);
         }
         bool has_named = false;
@@ -2097,8 +2142,18 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                 {names, builder_.getInt64(static_cast<uint64_t>(i)),
                  builder_.CreatePtrToInt(nm_ptr, builder_.getInt64Ty(), "nmbits")});
         }
-        // values 数组：数值系路径（t108）tags+bits 双数组（均 kind 0）同一键
-        // 两次 rt_tuple_get 拼 Num；静态路径（t84）单数组逐元素 elem_to_bits
+        // values 数组：Dyn 路径（t138）tags+bits 同一键两次 rt_tuple_get 拼动态
+        // 标量（未命中陷阱在首次）；数值系路径（t108）tags+bits 双数组（均 kind 0）
+        // 同一键两次 rt_tuple_get 拼 Num；静态路径（t84）单数组逐元素 elem_to_bits
+        if (use_dyn) {
+            auto [tags, bits_arr] = materialize_dyn_scalars(t);
+            llvm::Value* tag = builder_.CreateCall(
+                rt_tuple_get_, {names, tags, key_val.value}, "dyntag");
+            llvm::Value* bits = builder_.CreateCall(
+                rt_tuple_get_, {names, bits_arr, key_val.value}, "dynbits");
+            last_value_ = {make_num(tag, bits), CGType::Dyn};
+            return;
+        }
         if (!homogeneous || elem == CGType::Num) {
             llvm::Value* tags = builder_.CreateCall(
                 rt_arr_new_,
@@ -3637,6 +3692,10 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Num:
             // number tagged 双表示（t62）：{i64 tag, i64 bits} first-class struct，
             // SSA 单值流转；仅 collie_rt 边界拆散标量（同模块内降级一致安全）
+            return llvm::StructType::get(builder_.getInt64Ty(), builder_.getInt64Ty());
+        case CGType::Dyn:
+            // 动态标量承载（t138）：与 Num 同构 {i64 tag, i64 bits}，tag 复用数组
+            // kind 编码；仅 print/toString/插值消费，其余落点拒编
             return llvm::StructType::get(builder_.getInt64Ty(), builder_.getInt64Ty());
         case CGType::Bool:   return builder_.getInt1Ty();
         case CGType::Tri:    return builder_.getInt8Ty(); // 三态编码（t65）
@@ -5180,6 +5239,10 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
             // number 转串（t62）：垫片按 tag 分派，对齐 Value::to_string
             return builder_.CreateCall(
                 rt_num_to_str_, {num_tag(v.value), num_bits(v.value)}, "numstr");
+        case CGType::Dyn:
+            // 动态标量转串（t138）：与打印同一垫片 tag 分派（toString/插值共用）
+            return builder_.CreateCall(
+                rt_num_to_str_, {num_tag(v.value), num_bits(v.value)}, "dynstr");
         case CGType::Bool: {
             // i1 → i32（C 接口边界），垫片返静态串
             llvm::Value* ext = builder_.CreateZExt(v.value, builder_.getInt32Ty());
@@ -5228,6 +5291,44 @@ llvm::Value* CodeGenerator::elem_to_bits(const CGValue& v) {
         case CGType::Tri:    return builder_.CreateZExt(v.value, builder_.getInt64Ty(), "bits"); // 三态 i8→i64（t136，0/1/2 直存）
         default:             unsupported("array element type", 0, 0);
     }
+}
+
+std::pair<llvm::Value*, llvm::Value*> CodeGenerator::materialize_dyn_scalars(
+    const CGTuple& t) {
+    // 异质 tuple Dyn 物化（t138）：tags+bits 双 int 数组（均 kind 0），tag 复用
+    // 数组 kind 编码 0=int/1=dec/2=bool/3=str/6=tribool（Num 元素取运行期 tag
+    // 0/1，两分支落点同编码天然兼容）；bits 编码与 elem_to_bits 同规则。
+    // 调用侧同一索引/键两次取回（首次即负索引归一化/越界/未命中陷阱）
+    const long long n = static_cast<long long>(t.elems.size());
+    llvm::Value* tags = builder_.CreateCall(
+        rt_arr_new_,
+        {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(0)},
+        "dyntags");
+    llvm::Value* bits = builder_.CreateCall(
+        rt_arr_new_,
+        {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(0)},
+        "dynbits");
+    for (long long i = 0; i < n; ++i) {
+        const CGValue& e = t.elems[static_cast<size_t>(i)];
+        llvm::Value* tag = nullptr;
+        llvm::Value* elem_bits = nullptr;
+        if (e.type == CGType::Num || e.type == CGType::Dyn) {
+            // Num 取运行期 tag 0/1；Dyn 透传自身 tag/bits（同 {i64,i64} 布局，
+            // tag 编码兼容，t138 元组套元组动态访问）
+            tag = num_tag(e.value);
+            elem_bits = num_bits(e.value);
+        } else {
+            tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(e.type)));
+            elem_bits = elem_to_bits(e);
+        }
+        builder_.CreateCall(
+            rt_arr_set_,
+            {tags, builder_.getInt64(static_cast<uint64_t>(i)), tag});
+        builder_.CreateCall(
+            rt_arr_set_,
+            {bits, builder_.getInt64(static_cast<uint64_t>(i)), elem_bits});
+    }
+    return {tags, bits};
 }
 
 llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
