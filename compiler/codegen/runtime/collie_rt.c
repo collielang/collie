@@ -82,6 +82,18 @@
  *     // 动态键 get（t84）：同质命名 tuple 物化的 names(kind 3)+values 数组按非空名
  *     // strcmp 查找，命中返对应槽 i64 位模式、未命中打 "Undefined tuple field '<key>'"
  *     // + exit(1)（核心消息对齐解释器，位置前缀缺失同越界陷阱）
+ *   void* collie_rt_tuple_new(long long len, void* names, void* values); // 动态 tuple
+ *     // 对象（t140）：三元不同形状合流/进函数签名用，names=kind3 名字表/values=kind7
+ *     // 标量数组，元素数恒 = len
+ *   long long collie_rt_tuple_len(void* t);                     // tuple 元素数（t140）
+ *   void collie_rt_tuple_get_dyn(void* t, long long i, long long* otag, long long* obits);
+ *     // 按位置索引读 {tag,bits}（t140）：负索引归一化 + 越界陷阱（复用 values norm）
+ *   void collie_rt_tuple_key_dyn(void* t, const char* key, long long* otag, long long* obits);
+ *     // 按名字动态 get() 读 {tag,bits}（t140）：未命中打 "Undefined tuple field '<key>'"
+ *   long long collie_rt_tuple_eq(void* lhs, void* rhs);         // tuple 深比较（t140）：
+ *     // len + 名字表逐位 + values 交 arr_eq，返 1/0
+ *   const char* collie_rt_tuple_to_str(void* t);                // tuple 转串（t140）：
+ *     // (1, 2) / (name: Alice) 格式，malloc 新串（不 free，缺口 CG6）
  *
  * 未定义方法/属性陷阱（t102，S39 残余面）：静态类无此成员但后代类有，
  * upcast 后按对象头类 id 分派到定义该成员的后代；动态类即静态类本身
@@ -705,6 +717,144 @@ const char* collie_rt_arr_to_str(void* arr) {
         }
     }
     collie_rt_sb_append(&out, &n, &cap, "]");
+    return out;
+}
+
+/* ---- 动态 tuple 运行时对象（t140）----
+ * 三元/==? 分支返回不同形状 tuple、tuple 进函数签名（形参/返回值）等跨静态
+ * 展开边界的场景：形状运行期才定，无法静态解构，故引入堆对象承载。
+ * 布局 {len, names, values}——names 复用 kind 3 字符串数组（无名槽存 ""），
+ * values 复用 kind 7 异质动态标量数组（每元素 {tag,bits}，t139）。二者元素数
+ * 恒等 = len。仅 print/toString/插值、length、非常量索引（读得 Dyn）、动态键
+ * get()（读得 Dyn）、==/!= 深比较消费；含 Obj/Arr/嵌套 tuple 元素的 tuple 在
+ * codegen 物化处即拒编（is_dyn_scalar 不含），进算术/类型化槽经 Dyn 既有面拒编。 */
+typedef struct {
+    long long len;
+    void* names;  /* collie_rt_array kind 3：与 values 等长的名字表，无名槽为空串 */
+    void* values; /* collie_rt_array kind 7：每元素 {tag,bits} 步长 2 */
+} collie_rt_tuple;
+
+void* collie_rt_tuple_new(long long len, void* names, void* values) {
+    collie_rt_tuple* t = (collie_rt_tuple*)collie_rt_alloc(sizeof(collie_rt_tuple));
+    t->len = len;
+    t->names = names;
+    t->values = values;
+    return t;
+}
+
+long long collie_rt_tuple_len(void* t) {
+    return ((collie_rt_tuple*)t)->len;
+}
+
+/* 按位置索引读动态标量（负索引归一化 + 越界陷阱复用 values 数组的 norm_index，
+ * 消息 "Index N out of range (size M)" 与解释器 tuple 索引一致） */
+void collie_rt_tuple_get_dyn(void* t, long long index,
+                             long long* otag, long long* obits) {
+    collie_rt_tuple* tp = (collie_rt_tuple*)t;
+    collie_rt_array* v = (collie_rt_array*)tp->values;
+    long long i = collie_rt_arr_norm_index(v, index);
+    *otag = v->slots[2 * i];
+    *obits = v->slots[2 * i + 1];
+}
+
+/* 按名字动态 get()：非空名 strcmp 扫描 names，命中读对应 values {tag,bits}，
+ * 未命中打 "Undefined tuple field '<key>'" + exit(1)（核心消息对齐解释器） */
+void collie_rt_tuple_key_dyn(void* t, const char* key,
+                             long long* otag, long long* obits) {
+    collie_rt_tuple* tp = (collie_rt_tuple*)t;
+    const collie_rt_array* nm = (const collie_rt_array*)tp->names;
+    const collie_rt_array* v = (collie_rt_array*)tp->values;
+    long long i;
+    for (i = 0; i < nm->len; ++i) {
+        const char* name = (const char*)(intptr_t)nm->slots[i];
+        if (name && name[0] != '\0' && strcmp(name, key) == 0) {
+            *otag = v->slots[2 * i];
+            *obits = v->slots[2 * i + 1];
+            return;
+        }
+    }
+    fprintf(stderr, "Undefined tuple field '%s'\n", key);
+    exit(1);
+}
+
+/* 深比较（对齐解释器 values_equal Tuple 分支）：先比元素数，再逐位比名字表
+ * （含无名槽空串），最后 values 两个 kind 7 数组交给 collie_rt_arr_eq 逐元素
+ * {tag,bits} 比较（数值系 double 视图、string strcmp、bool/tribool 加宽）。
+ * 元素含不可比较类（Obj）在物化处已拒编，此处无需 Instance 分支。返 1/0 */
+long long collie_rt_tuple_eq(void* lhs, void* rhs) {
+    const collie_rt_tuple* a = (const collie_rt_tuple*)lhs;
+    const collie_rt_tuple* b = (const collie_rt_tuple*)rhs;
+    if (a->len != b->len) {
+        return 0;
+    }
+    const collie_rt_array* an = (const collie_rt_array*)a->names;
+    const collie_rt_array* bn = (const collie_rt_array*)b->names;
+    long long i;
+    for (i = 0; i < a->len; ++i) {
+        const char* x = (const char*)(intptr_t)an->slots[i];
+        const char* y = (const char*)(intptr_t)bn->slots[i];
+        if (strcmp(x, y) != 0) {
+            return 0;
+        }
+    }
+    return collie_rt_arr_eq(a->values, b->values);
+}
+
+/* 单元素 {tag,bits} 追加到增长缓冲（对齐解释器 Value::to_string 各标量分支、
+ * 与 arr_to_str kind 7 case 同格式：整数 %lld、小数四步格式、bool/tribool
+ * 文字、string 原样不加引号） */
+static void collie_rt_append_tagged(char** buf, size_t* n, size_t* cap,
+                                    long long tag, long long bits) {
+    char tmp[64];
+    switch ((int)tag) {
+        case 0: /* integer */
+            snprintf(tmp, sizeof tmp, "%lld", bits);
+            collie_rt_sb_append(buf, n, cap, tmp);
+            break;
+        case 1: { /* decimal */
+            double v;
+            memcpy(&v, &bits, sizeof v);
+            collie_rt_format_f64(tmp, sizeof tmp, v);
+            collie_rt_sb_append(buf, n, cap, tmp);
+            break;
+        }
+        case 2: /* bool */
+            collie_rt_sb_append(buf, n, cap, bits ? "true" : "false");
+            break;
+        case 6: /* tribool */
+            collie_rt_sb_append(buf, n, cap,
+                                bits == 2 ? "true" : bits == 1 ? "unset" : "false");
+            break;
+        default: /* 3 = string：指针位模式还原，原样不加引号 */
+            collie_rt_sb_append(buf, n, cap, (const char*)(intptr_t)bits);
+            break;
+    }
+}
+
+/* tuple 转串：形如 (1, 2) / (name: Alice)（对齐解释器 Value::to_string Tuple 分支：
+ * ", " 分隔、命名字段前缀 "name: "、string 元素不加引号、空元组 "()"） */
+const char* collie_rt_tuple_to_str(void* t) {
+    collie_rt_tuple* tp = (collie_rt_tuple*)t;
+    const collie_rt_array* nm = (const collie_rt_array*)tp->names;
+    const collie_rt_array* v = (collie_rt_array*)tp->values;
+    size_t cap = 64;
+    size_t n = 0;
+    char* out = collie_rt_alloc(cap);
+    out[0] = '\0';
+    collie_rt_sb_append(&out, &n, &cap, "(");
+    long long i;
+    for (i = 0; i < tp->len; ++i) {
+        if (i > 0) {
+            collie_rt_sb_append(&out, &n, &cap, ", ");
+        }
+        const char* name = (const char*)(intptr_t)nm->slots[i];
+        if (name && name[0] != '\0') {
+            collie_rt_sb_append(&out, &n, &cap, name);
+            collie_rt_sb_append(&out, &n, &cap, ": ");
+        }
+        collie_rt_append_tagged(&out, &n, &cap, v->slots[2 * i], v->slots[2 * i + 1]);
+    }
+    collie_rt_sb_append(&out, &n, &cap, ")");
     return out;
 }
 

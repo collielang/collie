@@ -118,6 +118,9 @@ private:
         Arr,     // ptr → collie_rt 数组对象（t59，元素类型另记于 elem 字段）
         Obj,     // ptr → 类实例字段块（t60，类名另记于 cls 字段）
         Tup,     // 虚值：无 LLVM 承载（t68 静态展开，元素另记于 tuple_values_，value 恒 nullptr）
+        TupDyn,  // ptr → collie_rt 动态 tuple 对象（t140：三元不同形状合流/进函数签名，
+                 // 形状运行期才定；names(kind3)+values(kind7) 堆对象，仅 print/toString/
+                 // 插值/length/非常量索引/动态 get()/== 消费，边界经 Dyn 既有面拒编）
         Void,    // 无值（none 返回函数的调用结果，S5 t52）
     };
 
@@ -474,6 +477,15 @@ private:
     CGValue tuple_dynamic_result(llvm::Value* bits, CGType elem, const CGTuple& t,
                                  size_t line, size_t column);
 
+    /// @brief 静态展开 tuple → 动态 tuple 堆对象 ptr（t140）：names 建 kind 3 数组
+    /// （无名槽存空串）、values 建 kind 7 动态标量数组（tag/bits 编码同 materialize_dyn_scalars），
+    /// 交 collie_rt_tuple_new 打包。元素含非 dyn_scalar（Arr/Obj/嵌套 Tup）即拒编不错编
+    llvm::Value* materialize_tuple_dynamic(int tup_idx, size_t line, size_t column);
+
+    /// @brief 各合流支 tuple 是否递归同形（t140）：元素数+名字表逐层一致、嵌套位
+    /// 全支同为 tuple——真则走静态 PHI 合流（t95），假则回退动态 tuple 合流
+    bool tuple_arms_same_shape(const std::vector<int>& tups);
+
     /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
     int arr_kind_of(CGType elem);
     /// @brief 异质动态标量数组（kind 7，t139）可承载元素判定：
@@ -558,6 +570,13 @@ private:
     llvm::FunctionCallee rt_arr_get_dyn_; // void(ptr, i64 i, ptr otag, ptr obits)，kind 7 异质槽读（t139）
     llvm::FunctionCallee rt_arr_eq_;     // i64(ptr, ptr)，数组深比较返 1/0（t79）
     llvm::FunctionCallee rt_tuple_get_;  // i64(ptr names, ptr vals, ptr key)，tuple 动态键 get（t84）
+    /// collie_rt 动态 tuple 运行时对象（t140）：三元不同形状合流/进函数签名
+    llvm::FunctionCallee rt_tuple_new_;    // ptr(i64 len, ptr names, ptr values)
+    llvm::FunctionCallee rt_tuple_len_;    // i64(ptr t)
+    llvm::FunctionCallee rt_tuple_get_dyn_; // void(ptr t, i64 i, ptr otag, ptr obits)
+    llvm::FunctionCallee rt_tuple_key_dyn_; // void(ptr t, ptr key, ptr otag, ptr obits)
+    llvm::FunctionCallee rt_tuple_eq_;     // i64(ptr, ptr)，tuple 深比较返 1/0
+    llvm::FunctionCallee rt_tuple_to_str_; // ptr(ptr t)，malloc 新串
     /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧
     llvm::FunctionCallee rt_obj_new_;    // ptr(i64 size)
     /// collie_rt number 运行时（t62，CG5 收窄）：tagged 双表示，语义单点对齐解释器

@@ -342,6 +342,28 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_tuple_get_ = module_->getOrInsertFunction(
         "collie_rt_tuple_get",
         llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, ptr_ty, ptr_ty}, false));
+    // collie_rt 动态 tuple 运行时对象（t140）：三元不同形状合流/进函数签名，
+    // names(kind3)+values(kind7) 打包堆对象，len 恒等元素数
+    rt_tuple_new_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_new",
+        llvm::FunctionType::get(ptr_ty,
+                                {builder_.getInt64Ty(), ptr_ty, ptr_ty}, false));
+    rt_tuple_len_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_len",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty}, false));
+    rt_tuple_get_dyn_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_get_dyn",
+        llvm::FunctionType::get(void_ty,
+                                {ptr_ty, builder_.getInt64Ty(), ptr_ty, ptr_ty},
+                                false));
+    rt_tuple_key_dyn_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_key_dyn",
+        llvm::FunctionType::get(void_ty, {ptr_ty, ptr_ty, ptr_ty, ptr_ty}, false));
+    rt_tuple_eq_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_eq",
+        llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, ptr_ty}, false));
+    rt_tuple_to_str_ = module_->getOrInsertFunction(
+        "collie_rt_tuple_to_str", llvm::FunctionType::get(ptr_ty, {ptr_ty}, false));
 
     // collie_rt 类实例分配声明（t60）：字段块 malloc，struct 布局读写全在 codegen 侧
     rt_obj_new_ = module_->getOrInsertFunction(
@@ -706,17 +728,41 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             }
             // tuple 相等（t75）：任一侧 Tup 且 ==/!= 时静态展开深比较；
             // Tup × 非 Tup 恒 false（对齐解释器 values_equal kind 不等）；
+            // 动态 tuple（t140）：两侧皆 tuple 族时静态侧先物化为动态对象，
+            // 交 rt_tuple_eq 深比较（len+名字表+元素）；含 Obj/Arr 元素物化处拒编；
             // tuple 关系比较落下方 require_numeric 拒编（解释器同样不支持）
-            if ((lhs.type == CGType::Tup || rhs.type == CGType::Tup) &&
-                (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
-                llvm::Value* eq = lhs.type == CGType::Tup && rhs.type == CGType::Tup
-                                      ? gen_tuple_eq(lhs, rhs, op)
-                                      : builder_.getInt1(false);
-                last_value_ = {t == TokenType::OP_EQUAL
-                                   ? eq
-                                   : builder_.CreateNot(eq, "cmptmp"),
-                               CGType::Bool};
-                return;
+            {
+                const auto is_tup = [](CGType ty) {
+                    return ty == CGType::Tup || ty == CGType::TupDyn;
+                };
+                if ((is_tup(lhs.type) || is_tup(rhs.type)) &&
+                    (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
+                    llvm::Value* eq = nullptr;
+                    if (is_tup(lhs.type) && is_tup(rhs.type)) {
+                        if (lhs.type == CGType::Tup && rhs.type == CGType::Tup) {
+                            eq = gen_tuple_eq(lhs, rhs, op);
+                        } else {
+                            llvm::Value* l = lhs.type == CGType::TupDyn
+                                                 ? lhs.value
+                                                 : materialize_tuple_dynamic(
+                                                       lhs.tup, op.line(), op.column());
+                            llvm::Value* r = rhs.type == CGType::TupDyn
+                                                 ? rhs.value
+                                                 : materialize_tuple_dynamic(
+                                                       rhs.tup, op.line(), op.column());
+                            llvm::Value* c = builder_.CreateCall(
+                                rt_tuple_eq_, {l, r}, "tupeqdyn");
+                            eq = builder_.CreateICmpNE(c, builder_.getInt64(0), "cmptmp");
+                        }
+                    } else {
+                        eq = builder_.getInt1(false);
+                    }
+                    last_value_ = {t == TokenType::OP_EQUAL
+                                       ? eq
+                                       : builder_.CreateNot(eq, "cmptmp"),
+                                   CGType::Bool};
+                    return;
+                }
             }
             // 数组相等（t79）：Arr × Arr 下沉 rt_arr_eq 深比较（先比 len 再逐
             // 元素按运行时 kind，对齐解释器 values_equal Array 分支）；
@@ -1099,6 +1145,12 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 // tuple 打印（t68）：静态展开拼接后整串输出（格式对齐
                 // Value::to_string Tuple 分支）
                 builder_.CreateCall(rt_print_str_, {tuple_to_str(v, expr.paren())});
+                break;
+            case CGType::TupDyn:
+                // 动态 tuple 打印（t140）：垫片转 (1, 2) 格式整串输出
+                builder_.CreateCall(
+                    rt_print_str_,
+                    {builder_.CreateCall(rt_tuple_to_str_, {v.value}, "tupdynstr")});
                 break;
             case CGType::Void:
                 // none 打印（t81）：常量串 "none"（对齐解释器 Value::to_string
@@ -1483,6 +1535,25 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
     // 运行期（对齐解释器 normalize_index）；tuple 索引待对应类型 codegen 支持，
     // 非 Int 索引拒编不错编
     CGValue object = emit(expr.object());
+    if (object.type == CGType::TupDyn) {
+        // 动态 tuple 索引（t140）：形状运行期才定，非常量/常量索引同路——
+        // rt_tuple_get_dyn 一次取回 {tag,bits} 拼 CGType::Dyn（负索引归一化/
+        // 越界陷阱 "Index N out of range (size M)" 均在 rt 内，与解释器一致）；
+        // 结果仅 print/toString/插值可消费（Dyn 既有面），算术/进槽经 default 拒编
+        CGValue index = emit(expr.index());
+        index.value = index_to_int(index, expr.bracket().line(), expr.bracket().column());
+        index.type = CGType::Int;
+        llvm::AllocaInst* otag =
+            create_entry_alloca(builder_.getInt64Ty(), "tupdyn.otag");
+        llvm::AllocaInst* obits =
+            create_entry_alloca(builder_.getInt64Ty(), "tupdyn.obits");
+        builder_.CreateCall(rt_tuple_get_dyn_,
+                            {object.value, index.value, otag, obits});
+        last_value_ = {make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag),
+                                builder_.CreateLoad(builder_.getInt64Ty(), obits)),
+                       CGType::Dyn};
+        return;
+    }
     if (object.type == CGType::Tup) {
         // tuple 常量索引（t68）：编译期解析（含负索引归一化；越界解释器
         // 为运行期报错，codegen 静态可判，拒编不错编）
@@ -2125,6 +2196,29 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         return;
     }
 
+    if (object.type == CGType::TupDyn && name == "get") {
+        // 动态 tuple.get(key)（t140）：形状运行期才定，常量/动态键同路——
+        // 键求值为 Str 后 rt_tuple_key_dyn 按非空名 strcmp 扫描取 {tag,bits}
+        // 拼 Dyn（未命中陷阱 "Undefined tuple field '<key>'" 在 rt 内，对齐解释器）；
+        // 结果仅 print/toString/插值可消费
+        if (expr.arguments().size() != 1) {
+            unsupported("get() with this arity", line, column);
+        }
+        CGValue key_val = emit(expr.arguments()[0].get());
+        if (key_val.type != CGType::Str) {
+            unsupported("non-string tuple get() key", line, column);
+        }
+        llvm::AllocaInst* otag =
+            create_entry_alloca(builder_.getInt64Ty(), "tupdyn.otag");
+        llvm::AllocaInst* obits =
+            create_entry_alloca(builder_.getInt64Ty(), "tupdyn.obits");
+        builder_.CreateCall(
+            rt_tuple_key_dyn_, {object.value, key_val.value, otag, obits});
+        last_value_ = {make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag),
+                                builder_.CreateLoad(builder_.getInt64Ty(), obits)),
+                       CGType::Dyn};
+        return;
+    }
     if (object.type == CGType::Tup && name == "get") {
         // tuple.get(key)：编译期扫名字表（对齐解释器 get 的非空名匹配）。
         // 按值拷贝不留引用：动态键路径下方 emit(key) 可能触发 register_tuple
@@ -2496,8 +2590,21 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                        ref.cls};
         return;
     }
+    if (object.type == CGType::TupDyn) {
+        // 动态 tuple 属性（t140）：length 经 rt_tuple_len 运行期取元素数；
+        // 命名字段访问需静态名字表（形状运行期才定），解释器可动态取但编译
+        // 产物无静态偏移承载，保守拒编不错编（get("key") 走 visitMethod 动态路径）
+        const std::string name(expr.name().lexeme());
+        if (name == "length") {
+            last_value_ = {builder_.CreateCall(rt_tuple_len_, {object.value},
+                                               "tupdyn.len"),
+                           CGType::Int};
+            return;
+        }
+        unsupported("named field access on dynamic tuple",
+                    expr.name().line(), expr.name().column());
+    }
     if (object.type == CGType::Tup) {
-        // tuple 属性（t68）：length 常量折叠（优先于同名字段，对齐解释器
         // visitProperty 分支顺序）；命名字段线性扫名字表编译期解析（未
         // 找到解释器为运行期报错，codegen 静态可判，拒编不错编）
         const std::string name(expr.name().lexeme());
@@ -2998,7 +3105,13 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     CGType elem = CGType::Int;
     std::string elem_cls; // 仅 type==Arr && elem==Obj 有意义：元素类名（t100）
     llvm::Value* stored = nullptr;
-    if (type == CGType::Tup) {
+    if (type == CGType::Tup && init.type == CGType::TupDyn) {
+        // 动态 tuple 变量（t140）：初始值为三元不同形状合流/函数返回的动态对象
+        // ——单 ptr 槽（引用语义，指针拷贝），形状运行期自带于堆对象；改判类型后
+        // 落下方通用建槽（llvm_type_of(TupDyn)=ptr），消费面见各 TupDyn 臂
+        type = CGType::TupDyn;
+        stored = init.value;
+    } else if (type == CGType::Tup) {
         // Tuple 变量（t68）：解构为逐元素独立槽（无单一 slot，形状入
         // tuple_vars_）；声明无元素类型标注，形状取自初始值
         if (init.type != CGType::Tup) {
@@ -3490,6 +3603,12 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                 // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared
                 // KW_STRING 分支）
                 v = {coerce_to_string_value(v), CGType::Str};
+            } else if (current_ret_type_ == CGType::TupDyn &&
+                       v.type == CGType::Tup) {
+                // 静态 tuple 返回到动态 tuple 返回类型（t140）：物化堆对象再 ret
+                v = {materialize_tuple_dynamic(v.tup, stmt.keyword().line(),
+                                               stmt.keyword().column()),
+                     CGType::TupDyn};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -3616,9 +3735,12 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
     // 函数/方法签名类型（t61）：IDENTIFIER 视为类名（实例作参数/返回值），
     // 须已注册（类声明在前）；其余走 declared_cgtype 标量面
     if (type_token.type() == TokenType::KW_TUPLE) {
-        // tuple 进函数签名拒编（t68）：静态展开的形状跨函数边界不可知
-        unsupported("tuple in function signature",
-                    type_token.line(), type_token.column());
+        // tuple 进函数签名（t140）：静态展开形状跨函数边界不可知，改以动态
+        // tuple 堆对象承载（CGType::TupDyn，ptr）——实参/返回值在调用/返回点
+        // 物化；体内消费走各 TupDyn 臂，非 dyn_scalar 元素在物化处拒编不错编
+        type_out = CGType::TupDyn;
+        cls_out.clear();
+        return;
     }
     if (type_token.type() == TokenType::KW_OBJECT) {
         // object 动态类型作函数形参/返回值（t132）：接受任意类实例（运行期
@@ -3703,6 +3825,10 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     if (want == CGType::Tri && a.type == CGType::Bool) {
         return to_tri(a);
     }
+    // 静态 tuple 实参传给动态 tuple 形参（t140）：物化为堆对象再传 ptr
+    if (want == CGType::TupDyn && a.type == CGType::Tup) {
+        return materialize_tuple_dynamic(a.tup, line, column);
+    }
     // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared KW_STRING
     // 分支：number/bool 隐式转 string；其余类型拒编）
     if (want == CGType::Str &&
@@ -3776,6 +3902,7 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Str:    return llvm::PointerType::getUnqual(context_);
         case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
         case CGType::Obj:    return llvm::PointerType::getUnqual(context_);
+        case CGType::TupDyn: return llvm::PointerType::getUnqual(context_);
         case CGType::Tup:
             // tuple 虚值无 LLVM 承载（t68）：落到此处即进了未静态展开的
             // 位置（如类字段），拒编不错编
@@ -3824,6 +3951,11 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
                         where.line(), where.column());
         }
         return v.value;
+    }
+    // 静态 tuple 存入动态 tuple 槽（t140）：解释器整值替换，编译产物按动态
+    // 对象物化再存 ptr（换形状天然支持）；v.type==TupDyn 已在上方等值透传
+    if (slot_type == CGType::TupDyn && v.type == CGType::Tup) {
+        return materialize_tuple_dynamic(v.tup, where.line(), where.column());
     }
     // 仅 integer → decimal 隐式提升（与语义层/解释器 coerce_to_declared 一致）
     if (slot_type == CGType::Double && v.type == CGType::Int) {
@@ -4446,29 +4578,71 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         unsupported("ternary branch has no value",
                     expr.question_token().line(), expr.question_token().column());
     }
-    if (result_type == CGType::Tup) {
-        // tuple 虚值（value=nullptr）不进标量 PHI：全支同为 tuple 且形状一致
-        // 时静态展开逐元素 PHI 合流（t95），否则拒编不错编
+    {
+        // tuple 族合流（t95 静态 + t140 动态）：全支同为 tuple 且递归同形时
+        // 静态展开逐元素 PHI 合流（value=nullptr 虚值，形状编译期定）；否则
+        // （形状不同或含动态 tuple）各支物化为动态堆对象 PHI 为 TupDyn——解释器
+        // 三元/==? 择一返回整值 tuple，编译产物以运行期对象承载跨边界形状。
+        // 含 Obj/Arr/嵌套 tuple 元素的静态支在物化处拒编不错编
+        const auto is_tup = [](CGType ty) {
+            return ty == CGType::Tup || ty == CGType::TupDyn;
+        };
+        bool any_tup = false, all_tup_family = true;
         for (const auto& arm : arms) {
-            if (arm.value.type != CGType::Tup) {
-                unsupported("ternary branches have incompatible types",
-                            expr.question_token().line(),
-                            expr.question_token().column());
+            if (is_tup(arm.value.type)) any_tup = true;
+            if (!is_tup(arm.value.type)) all_tup_family = false;
+        }
+        if (any_tup && !all_tup_family) {
+            unsupported("ternary branches have incompatible types",
+                        expr.question_token().line(),
+                        expr.question_token().column());
+        }
+        if (all_tup_family) {
+            const size_t line = expr.question_token().line();
+            const size_t column = expr.question_token().column();
+            auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "tern.end", fn);
+            bool all_static = true;
+            for (const auto& arm : arms) {
+                if (arm.value.type != CGType::Tup) all_static = false;
             }
+            if (all_static) {
+                std::vector<int> tups;
+                std::vector<llvm::BasicBlock*> arm_ends;
+                for (const auto& arm : arms) {
+                    tups.push_back(arm.value.tup);
+                    arm_ends.push_back(arm.end);
+                }
+                if (tuple_arms_same_shape(tups)) {
+                    const int idx =
+                        merge_tuple_arms(tups, arm_ends, tup_merge_bb,
+                                         "ternary branches", line, column);
+                    last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
+                    return;
+                }
+            }
+            // 动态合流：逐支在其末块物化 ptr（静态支展开、动态支透传）后 Br，
+            // merge 块 PHI 为 ptr（引用语义，各支独立堆对象无别名冲突）
+            std::vector<llvm::Value*> dyn_vals;
+            dyn_vals.reserve(arms.size());
+            for (const auto& arm : arms) {
+                builder_.SetInsertPoint(arm.end);
+                llvm::Value* p = arm.value.type == CGType::TupDyn
+                                     ? arm.value.value
+                                     : materialize_tuple_dynamic(arm.value.tup,
+                                                                 line, column);
+                dyn_vals.push_back(p);
+                builder_.CreateBr(tup_merge_bb);
+            }
+            builder_.SetInsertPoint(tup_merge_bb);
+            llvm::PHINode* phi = builder_.CreatePHI(
+                llvm_type_of(CGType::TupDyn), static_cast<unsigned>(arms.size()),
+                "tupdynmerge");
+            for (size_t k = 0; k < arms.size(); ++k) {
+                phi->addIncoming(dyn_vals[k], arms[k].end);
+            }
+            last_value_ = {phi, CGType::TupDyn};
+            return;
         }
-        auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "tern.end", fn);
-        std::vector<int> tups;
-        std::vector<llvm::BasicBlock*> arm_ends;
-        for (const auto& arm : arms) {
-            tups.push_back(arm.value.tup);
-            arm_ends.push_back(arm.end);
-        }
-        const int idx = merge_tuple_arms(tups, arm_ends, tup_merge_bb,
-                                         "ternary branches",
-                                         expr.question_token().line(),
-                                         expr.question_token().column());
-        last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
-        return;
     }
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
@@ -4902,26 +5076,64 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     if (result_type == CGType::Void) {
         unsupported("'==?' branch result has no value", op.line(), op.column());
     }
-    if (result_type == CGType::Tup) {
-        // tuple 虚值（value=nullptr）不进标量 PHI：全支同为 tuple 且形状一致
-        // 时静态展开逐元素 PHI 合流（t95，同 gen_ternary），否则拒编不错编
+    {
+        // tuple 族合流（t95 静态 + t140 动态，同 gen_ternary）：全支同为 tuple
+        // 且递归同形 → 静态 PHI 合流；否则各支物化动态堆对象 PHI 为 TupDyn
+        const auto is_tup = [](CGType ty) {
+            return ty == CGType::Tup || ty == CGType::TupDyn;
+        };
+        bool any_tup = false, all_tup_family = true;
         for (const auto& arm : arms) {
-            if (arm.value.type != CGType::Tup) {
-                unsupported("'==?' branches have incompatible types",
-                            op.line(), op.column());
+            if (is_tup(arm.value.type)) any_tup = true;
+            if (!is_tup(arm.value.type)) all_tup_family = false;
+        }
+        if (any_tup && !all_tup_family) {
+            unsupported("'==?' branches have incompatible types", op.line(),
+                        op.column());
+        }
+        if (all_tup_family) {
+            auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "match.end", fn);
+            bool all_static = true;
+            for (const auto& arm : arms) {
+                if (arm.value.type != CGType::Tup) all_static = false;
             }
+            if (all_static) {
+                std::vector<int> tups;
+                std::vector<llvm::BasicBlock*> arm_ends;
+                for (const auto& arm : arms) {
+                    tups.push_back(arm.value.tup);
+                    arm_ends.push_back(arm.end);
+                }
+                if (tuple_arms_same_shape(tups)) {
+                    const int idx = merge_tuple_arms(tups, arm_ends, tup_merge_bb,
+                                                     "'==?' branches", op.line(),
+                                                     op.column());
+                    last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
+                    return;
+                }
+            }
+            std::vector<llvm::Value*> dyn_vals;
+            dyn_vals.reserve(arms.size());
+            for (const auto& arm : arms) {
+                builder_.SetInsertPoint(arm.end);
+                llvm::Value* p = arm.value.type == CGType::TupDyn
+                                     ? arm.value.value
+                                     : materialize_tuple_dynamic(arm.value.tup,
+                                                                 op.line(),
+                                                                 op.column());
+                dyn_vals.push_back(p);
+                builder_.CreateBr(tup_merge_bb);
+            }
+            builder_.SetInsertPoint(tup_merge_bb);
+            llvm::PHINode* phi = builder_.CreatePHI(
+                llvm_type_of(CGType::TupDyn), static_cast<unsigned>(arms.size()),
+                "tupdynmerge");
+            for (size_t k = 0; k < arms.size(); ++k) {
+                phi->addIncoming(dyn_vals[k], arms[k].end);
+            }
+            last_value_ = {phi, CGType::TupDyn};
+            return;
         }
-        auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "match.end", fn);
-        std::vector<int> tups;
-        std::vector<llvm::BasicBlock*> arm_ends;
-        for (const auto& arm : arms) {
-            tups.push_back(arm.value.tup);
-            arm_ends.push_back(arm.end);
-        }
-        const int idx = merge_tuple_arms(tups, arm_ends, tup_merge_bb,
-                                         "'==?' branches", op.line(), op.column());
-        last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
-        return;
     }
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
@@ -5344,6 +5556,9 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
         case CGType::Tup:
             // tuple 转串（t68）：静态展开拼接（拉通 toString/插值/'+' 拼接）
             return tuple_to_str(v, where);
+        case CGType::TupDyn:
+            // 动态 tuple 转串（t140）：垫片整对象转 (1, 2)/(name: v) 格式
+            return builder_.CreateCall(rt_tuple_to_str_, {v.value}, "tupdynstr");
         case CGType::Void:
             // none 转串（t81）："none" 常量串（对齐 Value::to_string None 分支，
             // 覆盖 toString(none) 与插值脱糖；none 拼接语义层已拦截）
@@ -5451,6 +5666,85 @@ CodeGenerator::CGValue CodeGenerator::tuple_dynamic_result(
         r.cls = cls; // 最近公共祖先（t93/t100）；方法按对象头类 id 动态分派
     }
     return r;
+}
+
+llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
+                                                      size_t column) {
+    // 静态展开 tuple → 动态 tuple 堆对象（t140）：跨函数边界/不同形状合流用。
+    // names 建 kind 3 字符串数组（无名槽存空串，供 get()/eq/转串按非空名匹配），
+    // values 建 kind 7 动态标量数组（tag/bits 编码同 materialize_dyn_scalars）。
+    // 元素含 Arr/Obj/嵌套 Tup 等非 dyn_scalar → 拒编不错编（解释器动态 tuple 可容，
+    // 编译产物无统一承载表示）
+    const CGTuple t = tuple_values_[tup_idx];
+    const long long n = static_cast<long long>(t.elems.size());
+    llvm::Value* names = builder_.CreateCall(
+        rt_arr_new_,
+        {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(3)},
+        "tupdn.names");
+    llvm::Value* values = builder_.CreateCall(
+        rt_arr_new_,
+        {builder_.getInt64(static_cast<uint64_t>(n)), builder_.getInt64(7)},
+        "tupdn.values");
+    for (long long i = 0; i < n; ++i) {
+        const CGValue& e = t.elems[static_cast<size_t>(i)];
+        if (!is_dyn_scalar(e.type)) {
+            unsupported("dynamic tuple with array/object/nested-tuple elements",
+                        line, column);
+        }
+        llvm::Value* nm = builder_.CreateGlobalString(
+            i < static_cast<long long>(t.names.size()) ? t.names[i] : std::string());
+        builder_.CreateCall(
+            rt_arr_set_,
+            {names, builder_.getInt64(static_cast<uint64_t>(i)),
+             builder_.CreatePtrToInt(nm, builder_.getInt64Ty(), "tupdn.nmbits")});
+        llvm::Value* tag = nullptr;
+        llvm::Value* bits = nullptr;
+        if (e.type == CGType::Num || e.type == CGType::Dyn) {
+            tag = num_tag(e.value);
+            bits = num_bits(e.value);
+        } else {
+            tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(e.type)));
+            bits = elem_to_bits(e);
+        }
+        builder_.CreateCall(rt_arr_set_dyn_,
+                            {values, builder_.getInt64(static_cast<uint64_t>(i)), tag, bits});
+    }
+    return builder_.CreateCall(
+        rt_tuple_new_,
+        {builder_.getInt64(static_cast<uint64_t>(n)), names, values}, "tupdn");
+}
+
+bool CodeGenerator::tuple_arms_same_shape(const std::vector<int>& tups) {
+    // 各支 tuple 递归同形判定（t140）：顶层与嵌套各层的元素数、名字表全支一致
+    // 才真——真则可静态 PHI 合流（t95）；假（含某支该位非 tuple）回退动态合流
+    std::function<bool(const std::vector<int>&)> rec =
+        [&](const std::vector<int>& idxs) -> bool {
+        const CGTuple& first = tuple_values_[idxs.front()];
+        for (size_t k = 1; k < idxs.size(); ++k) {
+            const CGTuple& other = tuple_values_[idxs[k]];
+            if (other.elems.size() != first.elems.size() || other.names != first.names) {
+                return false;
+            }
+        }
+        for (size_t j = 0; j < first.elems.size(); ++j) {
+            const bool nested = first.elems[j].type == CGType::Tup;
+            for (int idx : idxs) {
+                if ((tuple_values_[idx].elems[j].type == CGType::Tup) != nested) {
+                    return false;
+                }
+            }
+            if (!nested) continue;
+            std::vector<int> subs;
+            subs.reserve(idxs.size());
+            for (int idx : idxs) {
+                subs.push_back(tuple_values_[idx].elems[j].tup);
+            }
+            if (!rec(subs)) return false;
+        }
+        return true;
+    };
+    if (tups.empty()) return false;
+    return rec(tups);
 }
 
 int CodeGenerator::arr_kind_of(CGType elem) {

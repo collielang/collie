@@ -1,0 +1,52 @@
+// t140 S87 差分用例：动态 tuple 运行时（三元/==? 不同形状合流 + tuple 进函数签名）
+// 静态展开形状跨不了三元合流/函数边界，回退动态 tuple 堆对象（names kind3 +
+// values kind7）；消费面 print/toString/插值/length/非常量索引/动态 get()/==/!=
+// 对齐解释器 Value::to_string / normalize_index / get / values_equal
+
+// ---- c1：三元分支返回不同形状 tuple ----
+function pair() Tuple {
+    return (name: "Alice", age: 18);
+}
+function show(p Tuple) none {
+    print(p);
+    print(p.length);
+    print(p[0]);
+    print(p.get("name"));
+}
+
+integer flag = 1;
+// 命中标签分支 (1, "two", true)（3 元素）与 (3, 4)（2 元素）形状不同
+Tuple t = flag == 1 ? (1, "two", true) : (3, 4);
+print(t);            // (1, two, true)
+print(t.length);     // 3
+print(t[0]);         // 1
+print(t[2]);         // true
+print(t[-1]);        // true（负索引）
+print(t.toString()); // (1, two, true)
+print(@"got {t}");   // 插值
+
+// 命中 else 分支，形状仍不同（2 元素）
+Tuple t2 = flag == 0 ? (1, "two", true) : (3, 4);
+print(t2);           // (3, 4)
+print(t2.length);    // 2
+
+// ---- c2：tuple 进函数签名（形参 + 返回值）----
+show(pair());        // 动态实参透传
+
+// 返回值作动态 tuple：命名字段动态 get()
+Tuple r = pair();
+print(r);            // (name: Alice, age: 18)
+print(r.get("name"));// Alice
+print(r.get("age")); // 18
+
+// ---- 动态 tuple 深比较 ==/!=（含静态侧物化）----
+print(pair() == (name: "Alice", age: 18)); // true
+print(pair() == (name: "Alice", age: 19)); // false（元素值不等）
+print(t == (1, "two", true));              // true（动态 vs 静态同形状物化）
+print(t != (3, 4));                        // true（长度/元素不等）
+
+// ---- ==? 分支返回不同形状 tuple ----
+tribool tb = true;
+Tuple s = tb ==? true: (9, 8, 7), (0, 1);
+print(s);            // (9, 8, 7)
+print(s.length);     // 3

@@ -1,0 +1,6 @@
+// t140 S87 拒编用例：动态 tuple 索引读出（Dyn）进算术
+// 解释器 t[0] + 1 得 2；codegen 动态 tuple 索引落 CGType::Dyn，require_numeric
+// 无算术表示 → "non-numeric operand" 拒编不错编（Dyn 仅 print/toString/插值消费）
+integer f = 1;
+Tuple t = f == 1 ? (1, "two", true) : (3, 4);
+print(t[0] + 1);
