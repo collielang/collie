@@ -56,6 +56,7 @@
  *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
  *     kind：0=integer(i64) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
  *     4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100)
+ *     6=tribool(三态 0=false/1=unset/2=true，t136)
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -361,7 +362,8 @@ void collie_rt_trap_shift_count(void) {
 /* 数组对象：单块 malloc 的 len + kind + 8 字节槽；codegen 以不透明 ptr 持有，
  * 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）。
  * kind：0=integer(i64 直存) 1=decimal(double 位模式) 2=bool(0/1) 3=string(指针位模式)
- * 4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100) */
+ * 4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100)
+ * 6=tribool(三态 0/1/2，t136) */
 typedef struct {
     long long len;
     long long kind;
@@ -439,7 +441,7 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
  * 解释器动态类型可行；print/len/== 不经此路径，全 kind 天然工作） */
 void collie_rt_trap_arr_kind(long long kind) {
     const char* what = kind == 2 ? "bool" : kind == 3 ? "string"
-                     : kind == 5 ? "object" : "nested";
+                     : kind == 5 ? "object" : kind == 6 ? "tribool" : "nested";
     fprintf(stderr, "runtime error: reading %s array element in dynamic "
                     "context (element type not statically known, gap CG9)\n", what);
     exit(1);
@@ -502,6 +504,14 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
             if (l->kind == 0) { x = (double)lb; } else { memcpy(&x, &lb, sizeof x); }
             if (r->kind == 0) { y = (double)rb; } else { memcpy(&y, &rb, sizeof y); }
             if (!(x == y)) return 0;
+        } else if ((l->kind == 2 && r->kind == 6) ||
+                   (l->kind == 6 && r->kind == 2)) {
+            /* bool × tribool 混合 kind（t136）：bool 槽 0/1 映射三态 0/2 后直比
+             * （对齐解释器 values_equal 的 tri_of(bool)：false→0/true→2，
+             * unset=1 与任何 bool 恒不等） */
+            long long lt = l->kind == 2 ? lb * 2 : lb;
+            long long rt_ = r->kind == 2 ? rb * 2 : rb;
+            if (lt != rt_) return 0;
         } else {
             return 0; /* bool/string 与其它 kind 配对：元素 kind 不等恒 false */
         }
@@ -572,6 +582,11 @@ const char* collie_rt_arr_to_str(void* arr) {
             }
             case 2: /* bool */
                 collie_rt_sb_append(&out, &n, &cap, a->slots[i] ? "true" : "false");
+                break;
+            case 6: /* tribool：0/1/2 → false/unset/true（对齐解释器 Value::to_string Tribool 分支，t136） */
+                collie_rt_sb_append(&out, &n, &cap,
+                                    a->slots[i] == 2 ? "true"
+                                    : a->slots[i] == 1 ? "unset" : "false");
                 break;
             case 3: /* string：指针位模式还原 */
                 collie_rt_sb_append(&out, &n, &cap, (const char*)(intptr_t)a->slots[i]);

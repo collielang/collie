@@ -1,0 +1,66 @@
+// t136 S83 差分用例：tribool 进数组解锁——全 Tri 与 bool/tribool 混排字面量
+// 收敛 kind 6（槽存三态 0=false/1=unset/2=true，与解释器 value.h Tri 编码
+// 一致；bool 字面量经 to_tri 加宽 false→0/true→2）；print/len/==/索引读写/
+// 动态域透传（签名）全链路对齐解释器；动态域元素静态不可定，索引读出落
+// CG9 陷阱（本用例不触发：仅 print 整数组）；写非三态值维持拒编/陷阱面。
+
+// 1) 混排字面量收敛 Tri + 全 Tri 字面量
+array a = [true, unset, false];
+print(a.length);                    // 3
+print(a[0]);                        // true
+print(a[1]);                        // unset
+print(a[2]);                        // false
+print(a);                           // [true, unset, false]
+array only_tri = [unset, unset];
+print(only_tri);                    // [unset, unset]
+
+// 2) 索引写：三态互写与 bool 加宽直存
+a[1] = true;
+a[2] = unset;
+print(a);                           // [true, true, unset]
+a[0] = false;
+// 三态比较：未定类型 array 的 a[i]==字面量 两端语义层同拒（Incomparable，
+// 非活跃差分面），故经显式 tribool 变量承接索引值再比较——两端一致放行
+tribool x0 = a[0];
+print(x0 == false);                 // true
+
+// 3) 三态比较（tribool 变量承接读出值，与 bool/unset 比较走 t65 加宽既有面）
+tribool x2 = a[2];
+tribool x1 = a[1];
+print(x2 == unset);                 // true
+print(x2 == true);                  // false
+print(x1 == true);                  // true
+
+// 4) 数组深比较：同 kind 6 直比 + bool 数组 × tribool 数组跨 kind 配对
+//（解释器 values_equal tri_of(bool)：false→0/true→2，unset 与任何 bool 恒不等）
+print(a == [false, true, unset]);   // true
+print(a != [true, true, unset]);    // true
+array b = [true, false];
+array c = [true, unset];
+print(b == c);                      // false（false 槽 0 × unset 1）
+array d = [true, false];
+print(b == d);                      // true
+//（bool × number 混排字面量 [true, 2] 仍拒编，跨 kind 数值配对不可作字面量，
+// 解释器元素级 values_equal 恒不等面不经 codegen 承载路径）
+
+// 5) 动态域透传：tribool 数组过函数签名，print/len 全 kind 面天然工作
+//（不经动态域索引读出路径——kind 6 读出落 CG9 陷阱）
+function show(arr array) string {
+    print(arr);
+    print(arr.length);
+    return "";
+}
+show(a);                            // [false, true, unset] 换行 3
+array t = [unset, true];
+show(t);                            // [unset, true] 换行 2
+
+// 6) toString/插值复用 rt 数组转串
+print(toString(a));                 // [false, true, unset]
+
+// 7) 循环内读写三态数组
+integer i = 0;
+while (i < 3) {
+    print(a[i]);
+    i = i + 1;
+}
+print("END");

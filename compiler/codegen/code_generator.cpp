@@ -1390,6 +1390,13 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
             };
             if (numlike(elem) && numlike(v.type)) {
                 elem = CGType::Double;
+            } else if ((elem == CGType::Bool || elem == CGType::Tri) &&
+                       (v.type == CGType::Bool || v.type == CGType::Tri)) {
+                // bool/tribool 混排（t136）：整体收敛 Tri——bool 字面量经
+                // to_tri 加宽（false→0/true→2），与解释器 values_equal 的
+                // tri_of(bool) 映射一致（value.h Tri::False=0/True=2），
+                // 后续读出为 Tri、与 bool 比较走 t65 Tri×Bool 加宽既有面
+                elem = CGType::Tri;
             } else {
                 unsupported("heterogeneous array literal",
                             bracket.line(), bracket.column());
@@ -1422,6 +1429,8 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         if (elem == CGType::Double &&
             (v.type == CGType::Int || v.type == CGType::Num)) {
             v = {to_double(v), CGType::Double}; // 同质提升：Int/Num 元素升 double
+        } else if (elem == CGType::Tri && v.type == CGType::Bool) {
+            v = {to_tri(v), CGType::Tri}; // bool/tribool 混排收敛（t136）
         }
         builder_.CreateCall(rt_arr_set_,
                             {arr, builder_.getInt64(i), elem_to_bits(v)});
@@ -1615,7 +1624,10 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         // 动态域写（t70/t88）：数值系值转 Num 表示下沉 rt 按运行时 kind 对齐
         //（tag==kind 直存 / int→double 提升 / mismatch 陷阱 CG7）；bool/str
         // 值打对应 kind tag 直写（t88，rt 侧 tag==kind 直存、mismatch 同陷阱）
-        if (v.type == CGType::Bool || v.type == CGType::Str) {
+        if (v.type == CGType::Bool || v.type == CGType::Str ||
+            v.type == CGType::Tri) {
+            // tribool 值动态写（t136）：tag 6 与 kind 6 直存对齐；写非
+            // tribool 数组落 tag/kind 失配陷阱（CG7 面，同 bool/str）
             builder_.CreateCall(
                 rt_arr_set_num_,
                 {object.value, index.value,
@@ -1638,6 +1650,10 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     if (v.type != object.elem) {
         if (object.elem == CGType::Double && v.type == CGType::Int) {
             v = {to_double(v), CGType::Double};
+        } else if (object.elem == CGType::Tri && v.type == CGType::Bool) {
+            // bool 写 tribool 槽（t136）：to_tri 加宽后直存（0/2 与解释器
+            // tri_of(bool) 编码一致，读出再比较不受影响）
+            v = {to_tri(v), CGType::Tri};
         } else if (v.type == CGType::Num &&
                    (object.elem == CGType::Int ||
                     object.elem == CGType::Double)) {
@@ -5201,6 +5217,7 @@ llvm::Value* CodeGenerator::elem_to_bits(const CGValue& v) {
         case CGType::Str:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
         case CGType::Arr:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits");
         case CGType::Obj:    return builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "bits"); // 实例数组：槽存实例 ptr 位模式（t100）
+        case CGType::Tri:    return builder_.CreateZExt(v.value, builder_.getInt64Ty(), "bits"); // 三态 i8→i64（t136，0/1/2 直存）
         default:             unsupported("array element type", 0, 0);
     }
 }
@@ -5214,6 +5231,8 @@ llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
         case CGType::Arr:
         case CGType::Obj:    // 实例数组读出（t100）：位模式还原实例 ptr，cls 由调用点传播
             return builder_.CreateIntToPtr(bits, llvm::PointerType::getUnqual(context_), "elemtmp");
+        case CGType::Tri:    // 三态还原 i64→i8（t136）：槽恒 0/1/2，截断无损
+            return builder_.CreateTrunc(bits, builder_.getInt8Ty(), "elemtmp");
         default:             unsupported("array element type", 0, 0);
     }
 }
@@ -5260,6 +5279,7 @@ int CodeGenerator::arr_kind_of(CGType elem) {
         case CGType::Str:    return 3;
         case CGType::Arr:    return 4; // 嵌套数组：槽存内层数组 ptr 位模式（t85）
         case CGType::Obj:    return 5; // 实例数组：槽存实例 ptr 位模式（t100）
+        case CGType::Tri:    return 6; // tribool 数组：槽存三态 0/1/2（t136）
         default:             unsupported("array element type", 0, 0);
     }
 }
