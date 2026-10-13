@@ -1677,6 +1677,105 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     size_t column = expr.name().column();
     CGValue object = emit(expr.object());
 
+    if (object.type == CGType::Obj && object.cls.empty()) {
+        // object 动态值方法调用（t133，S81 残余面解锁）：静态 cls 未知，
+        // 全体定义了该方法的类均为 switch case（不限同树——object 可承载
+        // 任意实例），按对象头类 id 运行期分派；动态类未定义该方法落
+        // default 陷阱臂（解释器同为运行期报错，消息对齐面非 stdout）；
+        // toString 兜底同 t102 规则；全体均未定义时拒编不错编。
+        // 字段访问不在此面（空 cls 无静态布局，维持拒编）
+        std::vector<const CGClass*> defs;
+        for (const auto& entry : classes_) {
+            if (entry.second.dispatch.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
+        }
+        if (defs.empty()) {
+            if (name == "toString" && expr.arguments().empty()) {
+                last_value_ = {to_str(object, expr.name()), CGType::Str};
+                return;
+            }
+            unsupported("undefined method '" + name +
+                            "' on object dynamic value",
+                        line, column);
+        }
+        const CGMethod& dm = defs[0]->instances.at(defs[0]->dispatch.at(name));
+        const auto& arguments = expr.arguments();
+        if (arguments.size() != dm.param_types.size()) {
+            // 解释器运行期报错；codegen 静态可判，拒编不错编（同命中路径）
+            unsupported("method arity mismatch for '" + name + "'", line, column);
+        }
+        std::vector<llvm::Value*> args{object.value};
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            CGValue a = emit(arguments[i].get());
+            args.push_back(coerce_call_arg(a, dm.param_types[i], dm.param_cls[i],
+                                           line, column));
+        }
+        std::sort(defs.begin(), defs.end(),
+                  [](const CGClass* a, const CGClass* b) {
+                      return a->id < b->id;
+                  });
+        // 各定义者签名须一致（t86 防御，同 t102）：不一致统一 PHI 不可行，
+        // 拒编不错编——object 面跨树同名异签无法静态排除
+        for (const CGClass* sub : defs) {
+            const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+            if (m.ret_type != dm.ret_type || m.ret_cls != dm.ret_cls ||
+                m.param_types != dm.param_types || m.param_cls != dm.param_cls) {
+                unsupported("method '" + name +
+                                "' with a different signature across classes",
+                            line, column);
+            }
+        }
+        llvm::Value* clsid = builder_.CreateLoad(
+            builder_.getInt64Ty(), object.value, "clsid");
+        llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+        auto* trap_bb = llvm::BasicBlock::Create(context_, "dispatch.trap", fn);
+        auto* merge_bb = llvm::BasicBlock::Create(context_, "dispatch.end", fn);
+        llvm::SwitchInst* sw = builder_.CreateSwitch(
+            clsid, trap_bb, static_cast<unsigned>(defs.size()));
+        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+        for (const CGClass* sub : defs) {
+            auto* bb = llvm::BasicBlock::Create(
+                context_,
+                "dispatch." + std::string(sub->stmt->name().lexeme()), fn);
+            sw->addCase(builder_.getInt64(sub->id), bb);
+            builder_.SetInsertPoint(bb);
+            const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+            llvm::Value* call = builder_.CreateCall(m.fn, args);
+            incoming.emplace_back(builder_.GetInsertBlock(), call);
+            builder_.CreateBr(merge_bb);
+        }
+        builder_.SetInsertPoint(trap_bb);
+        if (name == "toString" && dm.ret_type == CGType::Str &&
+            arguments.empty()) {
+            // 动态类无用户 toString → 内建兜底 "<object>"（对齐解释器）
+            incoming.emplace_back(trap_bb,
+                                  builder_.CreateGlobalString("<object>"));
+            builder_.CreateBr(merge_bb);
+        } else {
+            builder_.CreateCall(rt_trap_undefined_method_,
+                                {builder_.CreateGlobalString(name)});
+            builder_.CreateUnreachable();
+        }
+        builder_.SetInsertPoint(merge_bb);
+        llvm::Value* result = nullptr;
+        if (dm.ret_type != CGType::Void) {
+            llvm::PHINode* phi = builder_.CreatePHI(
+                llvm_type_of(dm.ret_type),
+                static_cast<unsigned>(incoming.size()), "dispatchtmp");
+            for (const auto& in : incoming) {
+                phi->addIncoming(in.second, in.first);
+            }
+            result = phi;
+        }
+        last_value_ = (dm.ret_type == CGType::Void)
+                          ? CGValue{nullptr, CGType::Void}
+                          : CGValue{result, dm.ret_type,
+                                    dm.ret_type == CGType::Arr ? CGType::Num
+                                                               : CGType::Int,
+                                    dm.ret_cls};
+        return;
+    }
     if (object.type == CGType::Obj) {
         // 类实例方法（t60/t61/t86）：查分派表后，静态 cls 无后代类 → 直调
         // 本类单态化实例（现状零开销）；有后代类（upcast 后动态类可能为任一
