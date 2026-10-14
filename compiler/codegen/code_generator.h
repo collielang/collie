@@ -289,8 +289,8 @@ private:
                                  const char* dyn_target_name = nullptr);
 
     /// @brief Dyn 拆槽目标判定（t147）：解释器 coerce_to_declared 有运行期
-    /// 校验的六个标量落点；Obj/Arr/Tup/TupDyn/Fn/Void 需静态类名/元素 kind/
-    /// 形状，Dyn 值进这些落点维持拒编不错编
+    /// 校验的六个标量落点；Arr/Tup/TupDyn/Fn/Void 需静态元素 kind/形状，Dyn 值
+    /// 进这些落点维持拒编不错编（Obj 落点由 dyn_unbox_to_obj 单独处理，t158）
     static bool is_dyn_unbox_target(CGType t);
 
     /// @brief 位类型落点名（t147）：bit_max 255/65535 即 byte/word，0 即非位
@@ -306,6 +306,14 @@ private:
     /// （byte/word 落点）；调用侧保证 slot_type 属六类之一
     llvm::Value* dyn_unbox_to(llvm::Value* dyn, CGType slot_type, size_t line,
                               size_t column, const char* target_name = nullptr);
+
+    /// @brief 动态承载值进类名（Obj 非空 cls）落点（t158）：解释器 coerce_to_declared
+    /// 对类名 default 直存不校验，codegen 需静态布局才可解码——运行期守卫 tag==5
+    /// 且对象头类 id ∈ {声明类 ∪ 其后代类}（字段沿继承链前缀偏移、方法按 id 动态
+    /// 分派）时还原实例 ptr，其余落 collie_rt_trap_dyn_convert（消息用声明类名作
+    /// 落点类型）；调用侧保证 cls 已注册
+    llvm::Value* dyn_unbox_to_obj(llvm::Value* dyn, const std::string& cls,
+                                  size_t line, size_t column);
 
     /// @brief 动态承载值参与算术的数值化（t148）：Dyn（{tag,bits}）侧插运行期
     /// 守卫——tag < 2（整数态/小数态）时与 Num 同构直接透传，其余（bool/串/

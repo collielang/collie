@@ -1750,6 +1750,18 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
             last_value_ = {v.value, CGType::Fn};
             return;
         }
+        if (v.type == CGType::Dyn && !var->cls.empty()) {
+            // 动态承载值重赋类名变量（t158）：同声明初始化规则——tag 5 且类 id
+            // 属静态 cls 或其后代类才还原实例 ptr（守卫不中陷阱退出），cls 保持
+            // 声明类不变；cls 空的无初始化 object 首赋仍需静态类名，维持下方拒编
+            llvm::Value* ptr = dyn_unbox_to_obj(v.value, var->cls,
+                                                expr.name().line(),
+                                                expr.name().column());
+            builder_.CreateStore(ptr, var->slot);
+            var->uninit = false;
+            last_value_ = {ptr, CGType::Obj, CGType::Int, var->cls};
+            return;
+        }
         if (v.type != CGType::Obj ||
             (v.cls != var->cls && !is_subclass_of(v.cls, var->cls) &&
              !is_subclass_of(var->cls, v.cls))) {
@@ -2375,6 +2387,15 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
                 {object.value, index.value, num_tag(v.value), num_bits(v.value)});
             last_value_ = v;
             return;
+        } else if (object.elem == CGType::Obj && v.type == CGType::Dyn &&
+                   !object.cls.empty()) {
+            // 动态承载值写实例数组元素槽（t158）：同声明槽规则——运行期守卫
+            // tag 5 且对象头类 id 属声明元素类或后代类后按实例 ptr 位模式写
+            // kind 5 槽（读出仍按 object.cls 前缀偏移解码、方法按 id 分派，
+            // t100/t118 同树规则）；守卫不中陷阱退出
+            v = {dyn_unbox_to_obj(v.value, object.cls, expr.bracket().line(),
+                                  expr.bracket().column()),
+                 CGType::Obj, CGType::Int, object.cls};
         } else {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
@@ -3815,6 +3836,21 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
                         stmt.type().line(), stmt.type().column());
         }
         CGValue init = emit(stmt.initializer());
+        if (init.type == CGType::Dyn) {
+            // 动态承载值初始化类名变量（t158）：运行期守卫 tag 5 + 类 id 属
+            // 声明类或后代类后还原实例 ptr，槽静态 cls 记声明类（与静态初始化
+            // 同规则：字段按前缀偏移解码、方法按对象头 id 动态分派）；守卫不中
+            // 陷阱退出
+            llvm::Value* ptr = dyn_unbox_to_obj(
+                init.value, cls_name, stmt.name().line(), stmt.name().column());
+            const std::string name(stmt.name().lexeme());
+            llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
+            builder_.CreateStore(ptr, slot);
+            CGVar var{slot, CGType::Obj, CGType::Int, cls_name};
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
+            scopes_.back()[name] = var;
+            return;
+        }
         // 同一继承树内 upcast/downcast 均可初始化（t86/t103，静态 cls 记
         // 声明类，解释器不校验类）；跨树拒编不错编
         if (init.type != CGType::Obj ||
@@ -4408,6 +4444,16 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                                   stmt.keyword().column(),
                                   bit_type_name(current_ret_bit_max_)),
                      current_ret_type_};
+            } else if (v.type == CGType::Dyn &&
+                       current_ret_type_ == CGType::Obj &&
+                       !current_ret_cls_.empty()) {
+                // 动态承载值作类名返回值（t158）：解释器在 return 处对类名
+                // default 直存不校验，codegen 需运行期守卫 tag 5 + 实例类 id 属
+                // 声明返回类或其后代类才可静态解码；守卫不中陷阱退出
+                v = {dyn_unbox_to_obj(v.value, current_ret_cls_,
+                                      stmt.keyword().line(),
+                                      stmt.keyword().column()),
+                     CGType::Obj, CGType::Int, current_ret_cls_};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -4640,6 +4686,11 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     if (a.type == CGType::Dyn && is_dyn_unbox_target(want)) {
         return dyn_unbox_to(a.value, want, line, column);
     }
+    if (a.type == CGType::Dyn && want == CGType::Obj && !want_cls.empty()) {
+        // 动态承载值进类名形参（t158）：同声明槽规则——tag 5 且类 id 属形参声明
+        // 类或其后代类才可静态解码，守卫不中陷阱退出
+        return dyn_unbox_to_obj(a.value, want_cls, line, column);
+    }
     unsupported("argument type mismatch", line, column);
 }
 
@@ -4795,11 +4846,18 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
     }
     // 动态承载值进类型化槽（t147）：kind 7 数组元素/动态域读出与 object
     // 动态承载槽（t146）的值 tag 运行期才定——按解释器 coerce_to_declared
-    // 的接受表插运行期守卫拆槽（不符者陷阱退出，两端同报错）；Obj/Arr/Tup/
-    // Fn 目标静态表示需类名/元素 kind/形状，维持下方拒编不错编
+    // 的接受表插运行期守卫拆槽（不符者陷阱退出，两端同报错）；Arr/Tup/
+    // Fn 目标静态表示需元素 kind/形状，维持下方拒编不错编
     if (allow_dyn_unbox && v.type == CGType::Dyn && is_dyn_unbox_target(slot_type)) {
         return dyn_unbox_to(v.value, slot_type, where.line(), where.column(),
                             dyn_target_name);
+    }
+    if (allow_dyn_unbox && v.type == CGType::Dyn && slot_type == CGType::Obj &&
+        !slot_cls.empty()) {
+        // 动态承载值进类名槽（t158）：字段/元素等带静态 cls 的 Obj 落点同声明
+        // 槽规则——tag 5 且类 id 属声明类或后代类才还原实例 ptr，守卫不中陷阱
+        // 退出；cls 空（动态 object 落点）无静态布局，维持下方拒编
+        return dyn_unbox_to_obj(v.value, slot_cls, where.line(), where.column());
     }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
@@ -6377,6 +6435,63 @@ llvm::Value* CodeGenerator::dyn_unbox_to(llvm::Value* dyn, CGType slot_type,
         phi->addIncoming(inc.first, inc.second);
     }
     return phi;
+}
+
+llvm::Value* CodeGenerator::dyn_unbox_to_obj(llvm::Value* dyn,
+                                             const std::string& cls,
+                                             size_t line, size_t column) {
+    // 动态承载值进类名落点（t158）：静态解码需两件事同时成立——tag 5（实例位）
+    // 且对象头类 id 属声明类或其后代类（字段沿继承链前缀布局偏移可定、方法按
+    // id 走 t61/t86 动态分派）。解释器 coerce_to_declared 对类名 default 分支
+    // 直存不校验，故其余情形（标量/数组位、跨树或兄弟类实例）在解释器可运行
+    // 到成员访问才报错；codegen 无运行期动态字段解码面，落既有
+    // collie_rt_trap_dyn_convert 陷阱（消息核心对齐 "Type mismatch: cannot
+    // assign <kind> to '<cls>' variable"，拒错编从陷阱）
+    const auto class_it = classes_.find(cls);
+    if (class_it == classes_.end()) {
+        unsupported("class '" + cls + "' for dynamic value", line, column);
+    }
+    std::vector<uint64_t> ids{class_it->second.id};
+    for (const auto& entry : classes_) {
+        if (entry.first != cls && is_subclass_of(entry.first, cls)) {
+            ids.push_back(entry.second.id);
+        }
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* ok_bb = llvm::BasicBlock::Create(context_, "dynobj.ok", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dynobj.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dynobj.cont", fn);
+    builder_.CreateCondBr(
+        builder_.CreateICmpEQ(num_tag(dyn), builder_.getInt64(5), "dynobjis"),
+        ok_bb, trap_bb);
+    builder_.SetInsertPoint(ok_bb);
+    llvm::Value* ptr = builder_.CreateIntToPtr(num_bits(dyn),
+                                               llvm_type_of(CGType::Obj),
+                                               "dynobjptr");
+    llvm::Value* clsid =
+        builder_.CreateLoad(builder_.getInt64Ty(), ptr, "dynobjclsid");
+    if (ids.size() == 1) {
+        builder_.CreateCondBr(
+            builder_.CreateICmpEQ(clsid, builder_.getInt64(ids[0]), "dynobjsame"),
+            cont_bb, trap_bb);
+    } else {
+        // 后代类并存：各合法 id 汇入同一命中块（id 顺序无关，switch 去重由
+        // LLVM 处理）
+        auto* hit_bb = llvm::BasicBlock::Create(context_, "dynobj.hit", fn);
+        llvm::SwitchInst* sw =
+            builder_.CreateSwitch(clsid, trap_bb, static_cast<unsigned>(ids.size()));
+        for (uint64_t id : ids) {
+            sw->addCase(builder_.getInt64(id), hit_bb);
+        }
+        builder_.SetInsertPoint(hit_bb);
+        builder_.CreateBr(cont_bb);
+    }
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_dyn_convert_,
+                        {num_tag(dyn), builder_.CreateGlobalString(cls)});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return ptr;
 }
 
 llvm::Value* CodeGenerator::dyn_num_operand(const CGValue& v, const Token& op) {

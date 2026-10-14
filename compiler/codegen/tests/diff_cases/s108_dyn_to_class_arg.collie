@@ -1,0 +1,7 @@
+// t158 S105 差分用例：动态承载值（Dyn）进类名（Obj）形参槽
+// 原 t147 S94 拒编锁面退役——coerce_call_arg 对 Obj 形参同样拆槽（守卫不中
+// 落 collie_rt_trap_dyn_convert，消息用形参声明类名）
+class Dog { public integer legs = 4; }
+array a = [7, "x", new Dog()];
+function describe(d Dog) string { return @"legs={d.legs}"; }
+print(describe(a[2]));

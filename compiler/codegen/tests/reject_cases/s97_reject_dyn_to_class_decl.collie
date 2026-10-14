@@ -1,9 +1,0 @@
-// t147 S94 拒编用例：动态承载值（Dyn）进类名（Obj）声明槽
-// 解释器 Dog dd = a[2] 按运行期值直接绑定，codegen 静态类槽按声明类字段偏移
-// 取址，Dyn 位模式无法保证运行期类一致（错类即错偏移/错宽），继续保守拒编不错编
-// 标量落点（integer/decimal/number/bool/tribool/string/byte/word/char）已由
-// dyn_unbox_to 运行期 tag 守卫解锁，Obj/Arr 落点仍属范围外
-class Dog { public integer legs = 4; }
-array a = [7, "x", new Dog()];
-Dog dd = a[2];
-print(dd.legs);

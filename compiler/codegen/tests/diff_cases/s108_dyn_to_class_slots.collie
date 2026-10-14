@@ -1,0 +1,79 @@
+// t158 S105 差分用例：动态承载值（Dyn）进类名（Obj）五类落点
+// 声明初始化 / 形参实参 / 返回值 / 变量重赋 / 字段槽（含 kind 5 实例数组元素槽）；
+// 来源含 kind 7 元素读出、object 动态承载槽（t146）、动态域非常量下标、三元臂
+class Dog {
+    public integer legs = 4;
+    public string breed = "collie";
+
+    public function speak() string {
+        return "woof";
+    }
+}
+
+class Kennel {
+    public Dog pet = new Dog();
+    public array bag = [0];
+
+    public function adopt(i integer) none {
+        this.pet = this.bag[i];
+    }
+
+    public function show() string {
+        return this.pet.breed + " " + this.pet.speak();
+    }
+}
+
+array a = [1, new Dog(), "x"];
+
+// 落点 1：类名变量声明初始化
+Dog d = a[1];
+print("A:", d.legs, d.speak());
+
+// 落点 2：类名形参实参
+function legs_of(x Dog) integer {
+    return x.legs;
+}
+print("B:", legs_of(a[1]));
+
+// 落点 3：类名返回值
+function pick(i integer) Dog {
+    return a[i];
+}
+print("C:", pick(1).breed, pick(1).speak());
+
+// 落点 4：类名变量重赋
+Dog cur = new Dog();
+cur.legs = 3;
+cur = a[1];
+print("D:", cur.legs, d.legs);
+
+// 落点 5：类名字段槽（方法内 this.pet = this.bag[i]，右值为动态域元素）
+Kennel k = new Kennel();
+k.bag = a;
+k.adopt(1);
+print("E:", k.show(), k.pet.legs);
+k.pet.legs = 12;
+print("F:", a[1].legs, k.pet.legs);
+
+// 来源：object 动态承载槽读出后进类名落点
+object o = a[1];
+Dog from_obj = o;
+print("G:", from_obj.legs);
+
+// kind 5 同质实例数组元素槽写入动态承载值
+array dogs = [new Dog(), new Dog()];
+dogs[0] = a[1];
+print("H:", dogs[0].legs, dogs[1].legs);
+
+// 循环体内非常量下标元素进类名落点
+for (integer i = 0; i < 2; i = i + 1) {
+    Dog loop_d = a[1];
+    if (i == 1) {
+        print("I:", loop_d.legs);
+    }
+}
+
+// 三元臂动态承载值进类名落点 + 消费面（插值/相等/算术）
+bool flag = true;
+Dog t = flag ? a[1] : a[1];
+print("J:", @"breed={t.breed}", t == dogs[0], t.legs + 1, t.speak() + "!");

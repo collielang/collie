@@ -1,0 +1,52 @@
+// t158 S105 差分用例：动态承载值（Dyn）进类名（Obj）落点的继承树面
+// 后代实例进父类槽（id 守卫放行声明类及其后代）、多后代实参走 switch 按对象头
+// 类 id 动态分派、子类特有字段经父类槽读（t142 动态字段分派）
+class Animal {
+    public string name = "?";
+    public integer legs = 4;
+
+    public function sound() string {
+        return "...";
+    }
+
+    public function describe() string {
+        return this.name + " says " + this.sound();
+    }
+}
+
+class Dog extends Animal {
+    public string breed = "collie";
+
+    @override
+    public function sound() string {
+        return "woof";
+    }
+}
+
+class Cat extends Animal {
+    @override
+    public function sound() string {
+        return "meow";
+    }
+}
+
+array a = [1, new Dog(), new Cat(), "x"];
+
+Animal an = a[1];
+print("A:", an.name, an.legs);
+print("B:", an.sound(), an.describe());
+
+an.name = "rex";
+an.legs = 6;
+print("C:", a[1].describe(), an.breed, a[1].legs);
+
+Animal second = a[2];
+print("D:", second.describe());
+
+function shout(x Animal) string {
+    return x.describe();
+}
+print("E:", shout(a[1]), shout(a[2]));
+
+Cat c = a[2];
+print("F:", c.sound(), c.legs);

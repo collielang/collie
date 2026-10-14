@@ -128,7 +128,9 @@ if(COLLIE_ENABLE_LLVM)
             s101_dyn_domain_read s102_dyn_length s103_dyn_nested_index s104_dyn_string_methods
             s105_dyn_to_number s105_dyn_same_name_method
             s106_dyn_number_methods s106_dyn_same_name_number_method
-            s107_dyn_tribool_methods s107_dyn_same_name_tribool_method)
+            s107_dyn_tribool_methods s107_dyn_same_name_tribool_method
+            s108_dyn_to_class_slots s108_dyn_to_class_inherit
+            s108_dyn_to_class_decl s108_dyn_to_class_arg s108_dyn_to_class_return)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -145,7 +147,7 @@ if(COLLIE_ENABLE_LLVM)
             s93_reject_function_as_argument s93_reject_function_in_array s93_reject_function_return_value
             s94_reject_obj_nested_array_mix
             s96_reject_obj_slot_scalar_reassign s96_reject_object_slot_array_init
-            s97_reject_dyn_to_class_decl s97_reject_dyn_to_class_arg s97_reject_dyn_to_class_return s97_reject_dyn_to_homog_array_slot
+            s97_reject_dyn_to_homog_array_slot
             s100_reject_obj_param_index s102_reject_obj_param_length)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}

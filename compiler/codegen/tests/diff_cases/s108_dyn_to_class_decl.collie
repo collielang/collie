@@ -1,0 +1,7 @@
+// t158 S105 差分用例：动态承载值（Dyn）进类名（Obj）声明槽
+// 原 t147 S94 拒编锁面退役——运行期守卫 tag 5 且对象头类 id 属声明类后还原
+// 实例 ptr，槽静态 cls 记声明类（字段按前缀偏移解码、方法按 id 动态分派）
+class Dog { public integer legs = 4; }
+array a = [7, "x", new Dog()];
+Dog dd = a[2];
+print(dd.legs);

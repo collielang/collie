@@ -1,0 +1,7 @@
+// t158 S105 差分用例：动态承载值（Dyn）作类名（Obj）返回值
+// 原 t147 S94 拒编锁面退役——visitReturn 对 Obj 返回类型拆槽，返回值静态 cls
+// 记声明返回类（调用侧按该类前缀偏移解码字段、按对象头 id 分派方法）
+class Dog { public integer legs = 4; }
+array a = [7, "x", new Dog()];
+function make() Dog { return a[2]; }
+print(make().legs);
