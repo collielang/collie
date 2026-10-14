@@ -1,7 +1,0 @@
-// t138 S85 拒编用例：异质 tuple（含 Str）非常量索引结果进 string 槽
-// 结果落 CGType::Dyn，隐式转串进 string 变量属范围外面（拒编不错编）；
-// 解释器可运行输出 "two"，双端在此分歧为刻意保守拒编
-Tuple t = (1, "two", true);
-integer i = 1;
-string s = t[i];
-print(s);

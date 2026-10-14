@@ -1,0 +1,7 @@
+// t147 S94 拒编用例：动态承载值（Dyn）进类名（Obj）形参槽
+// coerce_call_arg 只对 is_dyn_unbox_target 的标量落点插拆槽守卫；Obj 形参同
+// 声明槽理由（静态字段偏移不可保证），解释器可正常运行，拒编不错编
+class Dog { public integer legs = 4; }
+array a = [7, "x", new Dog()];
+function describe(d Dog) string { return @"legs={d.legs}"; }
+print(describe(a[2]));

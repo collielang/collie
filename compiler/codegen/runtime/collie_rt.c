@@ -103,6 +103,14 @@
  *   void collie_rt_trap_undefined_property(const char* name);
  *     // 消息核心对齐解释器 "Undefined property 'X' on object"（同上）
  *
+ * 动态承载值进类型化槽的类型陷阱（t147）：kind 7 数组元素/object 动态槽
+ * 读出的 {tag,bits} 存进 integer/decimal/number/bool/tribool/string 槽时，
+ * tag 与目标类型不符即报错退出（解释器 coerce_to_declared 同为运行期报错）：
+ *   void collie_rt_trap_dyn_convert(long long tag, const char* target);
+ *     // tag 复用数组 kind 编码（0=int/1=dec/2=bool/3=str/4=arr/5=object/
+ *     // 6=tribool/7=异质数组），消息核心对齐 "Type mismatch: cannot assign
+ *     // <kind> to '<target>' variable"（integer 收小数态用特例文案）
+ *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
  *     size 由 codegen 按字段类型累计上界给定（Num 16、其余 8，t74），
@@ -505,6 +513,37 @@ void collie_rt_trap_undefined_method(const char* name) {
  * 本身（实例无此字段）时解释器报 RuntimeError，编译产物同消息报错退出 */
 void collie_rt_trap_undefined_property(const char* name) {
     fprintf(stderr, "runtime error: Undefined property '%s' on object\n", name);
+    exit(1);
+}
+
+/* 动态承载值进类型化槽的运行期类型校验陷阱（t147）：kind7 数组元素/object
+ * 动态槽的 tag 编译期不可定，解释器 coerce_to_declared 在赋值点按实际 kind
+ * 校验报错；编译产物按同一接受表守卫，未命中落此陷阱（消息核心对齐解释器
+ * "Type mismatch: cannot assign <kind> to '<type>' variable"，integer 收
+ * 小数态沿用解释器特例文案 "decimal value"）。
+ * tag 复用数组 kind 编码：0=int/1=dec/2=bool/3=str/4=arr/5=object/6=tribool/
+ * 7=异质数组（4、7 同报 array） */
+void collie_rt_trap_dyn_convert(long long tag, const char* target) {
+    const char* kind;
+    switch (tag) {
+        case 0:
+        case 1:
+            if (tag == 1 && strcmp(target, "integer") == 0) {
+                kind = "decimal value"; // 解释器 integer 特例文案
+                break;
+            }
+            kind = "number";
+            break;
+        case 2:  kind = "bool";     break;
+        case 3:  kind = "string";   break;
+        case 4:
+        case 7:  kind = "array";    break;
+        case 5:  kind = "object";   break;
+        case 6:  kind = "tribool";  break;
+        default: kind = "value";    break;
+    }
+    fprintf(stderr, "runtime error: Type mismatch: cannot assign %s to "
+                    "'%s' variable\n", kind, target);
     exit(1);
 }
 

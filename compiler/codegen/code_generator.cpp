@@ -452,6 +452,13 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_undefined_property_ = module_->getOrInsertFunction(
         "collie_rt_trap_undefined_property",
         llvm::FunctionType::get(builder_.getVoidTy(), {ptr_ty}, false));
+    // collie_rt 动态承载值进类型化槽的类型陷阱声明（t147）：Dyn 值 tag 与槽
+    // 类型不匹配时报错退出，消息对齐解释器 "Type mismatch: cannot assign
+    // <kind> to '<type>' variable"
+    rt_trap_dyn_convert_ = module_->getOrInsertFunction(
+        "collie_rt_trap_dyn_convert",
+        llvm::FunctionType::get(builder_.getVoidTy(),
+                               {builder_.getInt64Ty(), ptr_ty}, false));
 
     // collie_rt 数组运行时声明（t59）：不透明 ptr 数组对象，8 字节槽存位模式；
     // 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）
@@ -1632,7 +1639,9 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         last_value_ = {nullptr, CGType::Tup, CGType::Int, "", idx};
         return;
     }
-    llvm::Value* stored = coerce_for_slot(v, var->type, expr.name());
+    // byte/word 变量（t69）的 Dyn 拆槽消息用声明类型名（t147），范围校验随后接续
+    llvm::Value* stored = coerce_for_slot(v, var->type, expr.name(), "", true,
+                                          bit_type_name(var->bit_max));
     if (var->bit_max > 0) {
         // byte/word 变量赋值点范围陷阱（t69，对齐解释器 coerce_to_declared）
         stored = check_bit_range(stored, var->bit_max,
@@ -2959,7 +2968,8 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
         auto it = cls.field_index.find(name);
         CGValue v = emit(expr.value());
         const CGField& field = cls.fields[it->second];
-        llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls);
+        llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls,
+                                             true, bit_type_name(field.bit_max));
         if (field.bit_max > 0) {
             // byte/word 字段赋值点范围陷阱（t87，对齐解释器 coerce_to_declared）
             stored = check_bit_range(stored, field.bit_max,
@@ -2989,7 +2999,8 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
         }
     }
     CGValue v = emit(expr.value());
-    llvm::Value* stored = coerce_for_slot(v, ref.type, expr.name(), ref.cls);
+    llvm::Value* stored = coerce_for_slot(v, ref.type, expr.name(), ref.cls, true,
+                                          bit_type_name(ref.bit_max));
     if (ref.bit_max > 0) {
         stored = check_bit_range(stored, ref.bit_max,
                                  ref.bit_max == 255 ? "byte" : "word");
@@ -3111,7 +3122,8 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         CGValue v = emit(field.decl->initializer());
         // 字段初始值按声明类型对齐（解释器 coerce_to_declared 等价静态检查）
         llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name(),
-                                              field.cls);
+                                              field.cls, true,
+                                              bit_type_name(field.bit_max));
         if (field.bit_max > 0) {
             // byte/word 字段初始化范围陷阱（t87，对齐解释器 coerce_to_declared）
             stored = check_bit_range(stored, field.bit_max,
@@ -3417,18 +3429,23 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     }
     // byte/word 变量（t69）：i64 承载零类型扩散，仅声明/赋值点插范围陷阱
     //（对齐解释器 coerce_to_declared 只在赋值点校验、表达式域无截断）；
-    // 初始值须 Int（Num 整数态静态不可判、Double 拒编不错编）
+    // 初始值须 Int 或 Dyn 整数位（t147 拆槽：非整数态/非数值 kind 落类型陷阱，
+    // 消息用 byte/word 落点名，随后既有范围陷阱接续；Double 拒编不错编）
     if (stmt.type().type() == TokenType::KW_BYTE ||
         stmt.type().type() == TokenType::KW_WORD) {
         const bool is_byte = stmt.type().type() == TokenType::KW_BYTE;
         const long long max_val = is_byte ? 255 : 65535;
         CGValue bit_init = emit(stmt.initializer());
-        if (bit_init.type != CGType::Int) {
+        if (bit_init.type != CGType::Int && bit_init.type != CGType::Dyn) {
             unsupported(std::string("initializing '") + (is_byte ? "byte" : "word") +
                             "' variable with non-integer value",
                         stmt.name().line(), stmt.name().column());
         }
-        llvm::Value* checked = check_bit_range(bit_init.value, max_val,
+        llvm::Value* bit_value = bit_init.type == CGType::Int
+            ? bit_init.value
+            : dyn_unbox_to(bit_init.value, CGType::Int, stmt.name().line(),
+                           stmt.name().column(), is_byte ? "byte" : "word");
+        llvm::Value* checked = check_bit_range(bit_value, max_val,
                                                is_byte ? "byte" : "word");
         const std::string bit_name(stmt.name().lexeme());
         llvm::Value* slot = create_var_slot(builder_.getInt64Ty(), bit_name);
@@ -3978,6 +3995,15 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                 v = {materialize_tuple_dynamic(v.tup, stmt.keyword().line(),
                                                stmt.keyword().column()),
                      CGType::TupDyn};
+            } else if (v.type == CGType::Dyn &&
+                       is_dyn_unbox_target(current_ret_type_)) {
+                // 动态承载值作返回值（t147）：解释器在 return 处按声明返回
+                // 类型走同一 coerce_to_declared 校验，tag 不符运行期陷阱
+                v = {dyn_unbox_to(v.value, current_ret_type_,
+                                  stmt.keyword().line(),
+                                  stmt.keyword().column(),
+                                  bit_type_name(current_ret_bit_max_)),
+                     current_ret_type_};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -4205,6 +4231,11 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
          a.type == CGType::Num || a.type == CGType::Bool)) {
         return coerce_to_string_value(a);
     }
+    // 动态承载值做实参（t147）：形参为六个标量类型时按解释器 coerce_to_declared
+    // （绑定实参处同函数）的接受表插运行期守卫；需静态信息的形参类型维持拒编
+    if (a.type == CGType::Dyn && is_dyn_unbox_target(want)) {
+        return dyn_unbox_to(a.value, want, line, column);
+    }
     unsupported("argument type mismatch", line, column);
 }
 
@@ -4306,7 +4337,9 @@ llvm::Value* CodeGenerator::create_var_slot(llvm::Type* type,
 
 llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
                                             const Token& where,
-                                            const std::string& slot_cls) {
+                                            const std::string& slot_cls,
+                                            bool allow_dyn_unbox,
+                                            const char* dyn_target_name) {
     if (v.type == slot_type) {
         // Arr 字段槽任意元素透传（t88 解除 t71 数值系守卫：字段槽 elem 恒
         // Num 哨兵，kind 随数组对象自带——print/len/== rt 侧全 kind 覆盖，
@@ -4355,6 +4388,14 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
         (v.type == CGType::Int || v.type == CGType::Double ||
          v.type == CGType::Num || v.type == CGType::Bool)) {
         return coerce_to_string_value(v);
+    }
+    // 动态承载值进类型化槽（t147）：kind 7 数组元素/动态域读出与 object
+    // 动态承载槽（t146）的值 tag 运行期才定——按解释器 coerce_to_declared
+    // 的接受表插运行期守卫拆槽（不符者陷阱退出，两端同报错）；Obj/Arr/Tup/
+    // Fn 目标静态表示需类名/元素 kind/形状，维持下方拒编不错编
+    if (allow_dyn_unbox && v.type == CGType::Dyn && is_dyn_unbox_target(slot_type)) {
+        return dyn_unbox_to(v.value, slot_type, where.line(), where.column(),
+                            dyn_target_name);
     }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
@@ -5769,6 +5810,130 @@ llvm::Value* CodeGenerator::dyn_obj_guard(const CGValue& v,
                                    llvm_type_of(CGType::Obj), "dynobjptr");
 }
 
+bool CodeGenerator::is_dyn_unbox_target(CGType t) {
+    // 解释器 coerce_to_declared 对这六个声明类型有运行期 kind 校验，Dyn 值
+    // 的 tag 也恰好覆盖其全部可接受来源；其余落点需静态信息，拒编不误
+    return t == CGType::Int || t == CGType::Double || t == CGType::Num ||
+           t == CGType::Bool || t == CGType::Tri || t == CGType::Str;
+}
+
+const char* CodeGenerator::bit_type_name(long long bit_max) {
+    return bit_max == 255 ? "byte" : (bit_max > 0 ? "word" : nullptr);
+}
+
+llvm::Value* CodeGenerator::dyn_unbox_to(llvm::Value* dyn, CGType slot_type,
+                                         size_t line, size_t column,
+                                         const char* target_name) {
+    // 动态承载值拆槽（t147）：tag 运行期才定，按解释器 coerce_to_declared
+    // 的接受表插守卫链——命中块还原静态表示后合流，全不命中落类型陷阱
+    // （解释器同为运行期报错退出，陷阱路径 stdout 无增量，拒错编从陷阱）；
+    // target_name 为陷阱消息里的落点类型名（byte/word 落点由调用侧给定），
+    // 范围校验仍走调用侧既有 t69 check_bit_range 通道
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::Value* tag = num_tag(dyn);
+    llvm::Value* bits = num_bits(dyn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dynbox.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dynbox.cont", fn);
+    const char* target = target_name;
+    std::vector<std::pair<long long, std::function<llvm::Value*(llvm::Value*)>>> arms;
+    switch (slot_type) {
+        case CGType::Int:
+            target = "integer";
+            arms.push_back({0, [](llvm::Value* b) { return b; }});
+            break;
+        case CGType::Double:
+            target = "decimal";
+            // 整数态加宽小数表示、小数态位模式还原（对齐解释器整值隐式加宽）
+            arms.push_back({0, [this](llvm::Value* b) {
+                return builder_.CreateSIToFP(b, builder_.getDoubleTy());
+            }});
+            arms.push_back({1, [this](llvm::Value* b) {
+                return builder_.CreateBitCast(b, builder_.getDoubleTy());
+            }});
+            break;
+        case CGType::Num:
+            target = "number";
+            // 双态皆合法：整值透传（Num 与 Dyn 同 {i64,i64} 布局、tag 编码兼容）
+            arms.push_back({0, [dyn](llvm::Value*) { return dyn; }});
+            arms.push_back({1, [dyn](llvm::Value*) { return dyn; }});
+            break;
+        case CGType::Bool:
+            target = "bool";
+            arms.push_back({2, [this](llvm::Value* b) {
+                return builder_.CreateTrunc(b, builder_.getInt1Ty());
+            }});
+            break;
+        case CGType::Tri:
+            target = "tribool";
+            arms.push_back({6, [this](llvm::Value* b) {
+                return builder_.CreateTrunc(b, builder_.getInt8Ty());
+            }});
+            // bool 位加宽 tribool（解释器 t43：false→0 / true→2）
+            arms.push_back({2, [this](llvm::Value* b) {
+                llvm::Value* bo = builder_.CreateTrunc(b, builder_.getInt1Ty());
+                return builder_.CreateSelect(bo, builder_.getInt8(2),
+                                             builder_.getInt8(0), "dyntri");
+            }});
+            break;
+        case CGType::Str:
+            target = "string";
+            arms.push_back({3, [this](llvm::Value* b) {
+                return builder_.CreateIntToPtr(b, llvm_type_of(CGType::Str),
+                                               "dynstrptr");
+            }});
+            // 数值/布尔隐式转串（解释器 coerce_to_declared KW_STRING：number/
+            // bool 直存 to_string 结果，转串垫片与 to_str 同源格式）
+            arms.push_back({0, [this](llvm::Value* b) {
+                return builder_.CreateCall(rt_i64_to_str_, {b}, "dynboxstr");
+            }});
+            arms.push_back({1, [this](llvm::Value* b) {
+                llvm::Value* d = builder_.CreateBitCast(b, builder_.getDoubleTy());
+                return builder_.CreateCall(rt_f64_to_str_, {d}, "dynboxstr");
+            }});
+            arms.push_back({2, [this](llvm::Value* b) {
+                llvm::Value* ext = builder_.CreateTrunc(b, builder_.getInt32Ty());
+                return builder_.CreateCall(rt_bool_to_str_, {ext}, "dynboxstr");
+            }});
+            break;
+        default:
+            unsupported("dynamic value in this slot", line, column);
+    }
+    if (target_name != nullptr) {
+        target = target_name; // byte/word 落点消息用声明类型名（解释器同文案）
+    }
+    // 逐 tag 判定链：命中即求值并跳合流块，链末端（全不命中）落陷阱
+    std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> incoming;
+    for (const auto& arm : arms) {
+        auto* hit_bb = llvm::BasicBlock::Create(context_, "dynbox.hit", fn);
+        auto* next_bb = llvm::BasicBlock::Create(context_, "dynbox.next", fn);
+        builder_.CreateCondBr(
+            builder_.CreateICmpEQ(tag, builder_.getInt64(static_cast<uint64_t>(arm.first)),
+                                  "dynboxis"),
+            hit_bb, next_bb);
+        builder_.SetInsertPoint(hit_bb);
+        llvm::Value* unboxed = arm.second(bits);
+        incoming.emplace_back(unboxed, builder_.GetInsertBlock());
+        builder_.CreateBr(cont_bb);
+        builder_.SetInsertPoint(next_bb);
+    }
+    builder_.CreateBr(trap_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_dyn_convert_,
+                        {tag, builder_.CreateGlobalString(target)});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    if (incoming.size() == 1) {
+        return incoming.front().first;
+    }
+    llvm::PHINode* phi = builder_.CreatePHI(incoming.front().first->getType(),
+                                            static_cast<unsigned>(incoming.size()),
+                                            "dynbox");
+    for (const auto& inc : incoming) {
+        phi->addIncoming(inc.first, inc.second);
+    }
+    return phi;
+}
+
 llvm::Value* CodeGenerator::to_num(const CGValue& v) {
     // integer/decimal → number 加宽保持原表示打 tag（对齐解释器
     // coerce_to_declared 的 KW_NUMBER 分支）；Num 原样返回
@@ -6421,7 +6586,10 @@ int CodeGenerator::store_tuple_var(int var_idx, const CGValue& v,
             stored.elems.push_back({e.value, CGType::Obj, e.elem, var.cls});
             continue;
         }
-        llvm::Value* sv = coerce_for_slot(e, var.type, where);
+        // tuple 槽关 Dyn 拆槽（t147 范围外）：解释器 tuple 整值替换、元素无
+        // 类型校验，Dyn 元素存进按初始形状建的静态槽运行期可能任意 kind，
+        // 拆槽守卫会把解释器可运行面变陷阱，故维持拒编不错编
+        llvm::Value* sv = coerce_for_slot(e, var.type, where, "", false);
         builder_.CreateStore(sv, var.slot);
         stored.elems.push_back({sv, var.type});
     }

@@ -1,0 +1,137 @@
+// t147 差分用例：动态承载值（CGType::Dyn）进类型化落点的运行期拆槽解锁
+// kind 7 异质数组元素/动态 tuple 索引/命名字段 get/object 动态承载槽（t146）
+// 读出的 {tag,bits} 值此前在 coerce_for_slot/coerce_call_arg/visitReturn 一律
+// "implicit conversion for variable"/"argument type mismatch"/"return type
+// mismatch" 拒编；现按解释器 coerce_to_declared 的接受表插运行期 tag 守卫：
+// 命中还原静态表示，未命中调 collie_rt_trap_dyn_convert（两端同消息报错退出）
+// 原 s88/s89_reject_dyn_string_slot、s90_reject_dyn_tuple_string_slot 面经此解锁退役
+
+class Animal { public string tag = "A"; }
+class Dog extends Animal { public string name = "rex"; public integer legs = 4; }
+class Box {
+    public integer v = 0;
+    public string label = "n";
+    public byte nb = 3;
+    Box(seed integer) { this.v = seed; }
+    public function set(v integer) none { this.v = v; }
+    public function label_with(s string) string { return @"{this.label}:{s}"; }
+    public function show() string { return @"V({this.v},{this.label},{this.nb})"; }
+}
+
+array a = [7, 2.5, true, "x", unset, new Dog()];
+array nums = [1, 2, 3];
+
+// 1) 六个标量落点 × 各 tag 命中（integer 只收整数态、decimal 双态、number 双态、
+//    bool 只收 bool 位、tribool 收 tribool 位与 bool 位加宽、string 收串位与数值/布尔隐式转串）
+integer i = a[0];
+decimal d1 = a[0];
+decimal d2 = a[1];
+number n1 = a[0];
+number n2 = a[1];
+bool b = a[2];
+tribool t1 = a[4];
+tribool t2 = a[2];
+string s1 = a[3];
+string s2 = a[0];
+string s3 = a[1];
+string s4 = a[2];
+print("A:", i, d1, d2, n1, n2);
+print("B:", b, t1, t2);
+print("C:", s1, s2, s3, s4);
+
+// 2) 拆槽后下游消费：算术/比较/length/拼接（落点已是静态类型，走既有面）
+print("D:", i + 1, s1.length, n2 * 2, i < 8);
+
+// 3) 重赋路径（既有类型变量整槽覆写）
+decimal dd = 1.0;
+dd = a[0];
+number nn = 1;
+nn = a[1];
+string ss = "z";
+ss = a[2];
+tribool tt = unset;
+tt = a[4];
+print("E:", dd, nn, ss, tt);
+
+// 4) byte/word 落点：拆槽后接既有范围陷阱通道（越界两端同报错）
+byte bv = a[0];
+word wv = 8;
+wv = nums[1];
+print("F:", bv, wv);
+
+// 5) char 落点（解释器 char 运行期即 string，Str 承载）
+char cv = a[3];
+print("G:", cv);
+
+// 6) 动态 tuple 索引读出进类型化槽（原 s90 拒编面）
+integer flag = 1;
+Tuple dt = flag == 1 ? (1, "two", true) : (3, 4);
+string dts = dt[1];
+integer dti = dt[0];
+print("H:", dts, dti, dt);
+
+// 7) 异质 tuple 非常量索引读出进类型化槽（原 s88 拒编面）
+Tuple ht = (1, "two", true);
+integer k = 1;
+string hts = ht[k];
+print("I:", hts, hts.length);
+
+// 8) object 动态承载槽（t146）值进类型化槽
+object o = a[0];
+object p = a[3];
+integer oi = o;
+string ps = p;
+print("J:", oi, ps);
+
+// 9) 类字段槽：赋值与构造器实参
+Box bx = new Box(a[0]);
+bx.label = a[3];
+bx.nb = nums[0];
+bx.set(a[0]);
+print("K:", bx.show(), bx.label_with(a[3]));
+
+// 10) 函数实参/返回值拆槽
+function take_int(v integer) string { return @"I({v})"; }
+function take_str(v string) string { return @"S({v})"; }
+function take_num(v number) number { return v * 2; }
+function take_bool(v bool) string { return v ? "yes" : "no"; }
+function ret_int() integer { return a[0]; }
+function ret_str() string { return a[3]; }
+function ret_dec() decimal { return a[1]; }
+print("M:", take_int(a[0]), take_str(a[3]), take_num(a[1]), take_bool(a[2]));
+print("N:", ret_int(), ret_str(), ret_dec());
+
+// 11) 循环/条件区与非常量索引（拆槽守卫落循环体内，逐轮重算）
+integer acc = 0;
+for (integer idx = 0; idx < 3; idx = idx + 1) {
+    integer got = nums[idx];
+    acc = acc + got;
+}
+print("O:", acc);
+if (i > 0) {
+    string inside = a[3];
+    print("P:", inside);
+}
+while (b) {
+    integer once = a[0];
+    print("Q:", once);
+    b = false;
+}
+
+// 12) 拆槽值写进内层函数按引用捕获的外层局部（t141 捕获 + 拆槽组合）
+function runner() string {
+    integer captured = 0;
+    function bump() none {
+        captured = a[0];
+        captured = captured + 1;
+    }
+    bump();
+    return @"R({captured})";
+}
+print("R:", runner());
+
+// 13) 拆槽后的静态值写入 kind 7 异质数组槽（既有面，验证下游可用）
+array dst = [0, "s", true];
+dst[0] = i;
+dst[1] = s1;
+print("S:", dst[0], dst[1]);

@@ -1,0 +1,7 @@
+// t147 S94 拒编用例：动态承载值（Dyn）作类名（Obj）返回值
+// visitReturn 的拆槽分支同样只覆盖 is_dyn_unbox_target 标量返回类型；
+// Obj 返回需静态类 id/布局与运行期值一致，保守拒编不错编（解释器得 4）
+class Dog { public integer legs = 4; }
+array a = [7, "x", new Dog()];
+function make() Dog { return a[2]; }
+print(make().legs);

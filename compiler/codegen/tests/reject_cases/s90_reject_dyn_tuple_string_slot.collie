@@ -1,7 +1,0 @@
-// t140 S87 拒编用例：动态 tuple 索引读出（Dyn）进 string 类型化槽
-// 解释器 string s = t[0] 隐式转串得 "1"；codegen 动态 tuple 索引落 CGType::Dyn，
-// coerce_for_slot 无 string 承载 → "implicit conversion for variable" 拒编不错编
-integer f = 1;
-Tuple t = f == 1 ? (1, "two", true) : (3, 4);
-string s = t[0];
-print(s);

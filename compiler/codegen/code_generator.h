@@ -280,8 +280,32 @@ private:
 
     /// @brief 待存值对齐槽类型：仅 integer→decimal 隐式提升（与语义层一致），其余不匹配报错；
     /// slot_cls 仅槽为 Obj 时有意义（字段路径严格同类校验，t72——其余调用点 Obj 另有前置分支）
+    /// allow_dyn_unbox：Dyn 动态承载值是否允许按运行期 tag 守卫拆入类型化槽（t147）；
+    /// 仅 tuple 逐槽写路径关false（解释器 tuple 元素无类型校验，拆槽会陷阱对方可运行面）；
+    /// dyn_target_name 非空时作陷阱消息里的落点类型名（byte/word 槽传 "byte"/"word"）
     llvm::Value* coerce_for_slot(const CGValue& v, CGType slot_type, const Token& where,
-                                 const std::string& slot_cls = "");
+                                 const std::string& slot_cls = "",
+                                 bool allow_dyn_unbox = true,
+                                 const char* dyn_target_name = nullptr);
+
+    /// @brief Dyn 拆槽目标判定（t147）：解释器 coerce_to_declared 有运行期
+    /// 校验的六个标量落点；Obj/Arr/Tup/TupDyn/Fn/Void 需静态类名/元素 kind/
+    /// 形状，Dyn 值进这些落点维持拒编不错编
+    static bool is_dyn_unbox_target(CGType t);
+
+    /// @brief 位类型落点名（t147）：bit_max 255/65535 即 byte/word，0 即非位
+    /// 类型返回 nullptr（Dyn 拆槽陷阱消息沿用槽类型本名）
+    static const char* bit_type_name(long long bit_max);
+
+    /// @brief 动态承载值拆槽（t147）：CGType::Dyn（{tag,bits}，kind 7 元素读出
+    /// 或 object 动态槽值）存进 integer/decimal/number/bool/tribool/string 类型化
+    /// 槽前，按解释器 coerce_to_declared 的接受表插运行期守卫——tag 命中即还原
+    /// 静态表示（bits→i64/double/ptr、bool→i1、tribool→i8、数值/布尔→串经 rt
+    /// 转串垫片），未命中调 collie_rt_trap_dyn_convert 报错退出（解释器同为
+    /// 运行期报错，stdout 无增量）；target_name 非空时作陷阱消息的落点类型名
+    /// （byte/word 落点）；调用侧保证 slot_type 属六类之一
+    llvm::Value* dyn_unbox_to(llvm::Value* dyn, CGType slot_type, size_t line,
+                              size_t column, const char* target_name = nullptr);
 
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
@@ -607,6 +631,10 @@ private:
     /// 消息对齐解释器 "Undefined method/property 'X' on object"
     llvm::FunctionCallee rt_trap_undefined_method_;    // void(ptr name)
     llvm::FunctionCallee rt_trap_undefined_property_;  // void(ptr name)
+    /// collie_rt 动态承载值进类型化槽的类型陷阱（t147）：Dyn 值 tag 不在目标
+    /// 槽接受表内时报错退出，消息对齐解释器 "Type mismatch: cannot assign
+    /// <kind> to '<type>' variable"
+    llvm::FunctionCallee rt_trap_dyn_convert_;  // void(i64 tag, ptr type_name)
     /// collie_rt 数组运行时（t59）：不透明 ptr 数组对象，8 字节槽存位模式（引用语义）
     llvm::FunctionCallee rt_arr_new_;    // ptr(i64 len, i64 kind)
     llvm::FunctionCallee rt_arr_get_;    // i64(ptr, i64)，负索引/越界处理在运行期
