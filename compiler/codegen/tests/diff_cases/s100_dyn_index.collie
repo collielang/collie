@@ -1,0 +1,82 @@
+// t150 S97 差分用例：动态承载值（Dyn）作下标的运行期 tag 分派
+// 双端逐字节一致：解释器 normalize_index 先判 is_number() 再判 floor——整数位
+// bits 即 i64 直接透传、小数位还原 double 走既有 floor/clamp（原
+// s98_reject_dyn_index 面经此真实解锁退役）；bool/tribool/串/实例位落新增 rt
+// collie_rt_trap_index_kind，小数位非整数值落既有 "Index must be an integer"，
+// 两陷阱面运行期报错（diff 门禁要求两端 rc=0）不入本用例
+
+array src = [10, 20, 30];
+array idx = [1, 2.5, "x", -1, 0, 1.0, -2.0, true];
+array picks = [2, 0, 1, "end"];
+string s = "abcdef";
+Tuple ht = (1, "y", 2);
+array nested = [[1, 2], [3, 4]];
+
+// A. kind 7 整数位作下标（正/负索引）与小数位整数值
+print("A:", src[idx[0]], src[idx[3]], src[idx[4]], src[idx[5]], src[idx[6]]);
+
+// B. 循环内非常量下标（逐轮 tag 判定，同质整数数组下标面已由 t122 覆盖）
+for (integer i = 0; i < 3; i = i + 1) {
+    print("B:", src[picks[i]]);
+}
+
+// C. 字符串下标（含负索引与 kind 7 混合来源）
+print("C:", s[idx[0]], s[idx[3]], s[picks[0]], s[idx[5]]);
+
+// E. 异质 tuple 非常量索引读出的 Dyn 作下标（跳过串位）
+for (integer k = 0; k < 3; k = k + 1) {
+    if (k != 1) {
+        print("E:", src[ht[k]]);
+    }
+}
+
+// F. 嵌套数组下标（外层 kind 4，下标为 Dyn）与 kind 7 自指
+print("F:", nested[picks[1]][1], nested[picks[2]][0], idx[picks[0]]);
+
+// D. 下标写回：整数位作下标写同质数组槽与 kind 7 槽，写后读回可见
+src[idx[0]] = 99;
+idx[idx[4]] = 2;
+print("D:", src[1], idx[0], src[idx[0]], s[idx[0]]);
+
+// G. object 动态承载槽（t146）作下标，含重赋后可见
+object slot = idx[4];
+print("G:", src[slot], s[slot]);
+slot = -1;
+print("G2:", src[slot]);
+
+// H. 函数形参/返回值链路与类方法内下标
+function shiftBy(a array, d number) number {
+    return a[d];
+}
+print("H:", shiftBy(src, idx[4]), shiftBy(src, slot), shiftBy(src, picks[1]));
+
+class Box {
+    public array data = [7, 8, 9];
+    public function pickAt(i number) number {
+        return this.data[i];
+    }
+}
+Box b = new Box();
+print("H2:", b.pickAt(idx[4]), b.pickAt(picks[0]), b.pickAt(slot));
+
+// I. 闭包捕获外层局部（t141）改值后作下标
+function runner() string {
+    integer outer = 0;
+    function bump() none {
+        outer = outer + 2;
+    }
+    bump();
+    return "" + src[outer];
+}
+print("I:", runner());
+
+// J. 条件区内的非常量下标与算术结果作下标
+integer m = 0;
+if (m == 0) {
+    m = 2;
+}
+print("J:", src[picks[m]], src[idx[0] - 1], src[picks[1] + 1]);
+
+// K. 下标来自动态 tuple（t140）索引
+Tuple dt = m == 2 ? (1, "z") : (0, "w");
+print("K:", src[dt[0]], s[dt[0]]);

@@ -438,6 +438,11 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_index_integer_ = module_->getOrInsertFunction(
         "collie_rt_trap_index_integer",
         llvm::FunctionType::get(builder_.getVoidTy(), false));
+    // collie_rt 非数值位动态下标陷阱声明（t150）：Dyn 承载值 tag≥2 作下标时
+    // 报错退出，消息对齐解释器 "Index must be a number, got <kind>"
+    rt_trap_index_kind_ = module_->getOrInsertFunction(
+        "collie_rt_trap_index_kind",
+        llvm::FunctionType::get(builder_.getVoidTy(), {builder_.getInt64Ty()}, false));
     // collie_rt 动态域元素 kind 陷阱声明（t88，缺口 CG9）：bool/str/嵌套数组
     // 经透传后索引读出元素静态类型不可定，陷阱退出不错值
     rt_trap_arr_kind_ = module_->getOrInsertFunction(
@@ -5816,23 +5821,12 @@ llvm::Value* CodeGenerator::num_to_int_checked(llvm::Value* num) {
     return num_bits(num);
 }
 
-llvm::Value* CodeGenerator::index_to_int(const CGValue& index, size_t line,
-                                         size_t col) {
-    if (index.type == CGType::Int) {
-        return index.value;  // 静态整数下标零开销透传
-    }
-    if (index.type != CGType::Double && index.type != CGType::Num) {
-        // Bool/Str 等非数值下标：解释器报 "Index must be a number"（错误对齐面，
-        // 非 stdout 差分），维持拒编不错编
-        unsupported("non-integer index", line, col);
-    }
-    // number/decimal 下标（t122）：镜像解释器 normalize_index——转 double 视图
-    //（to_double：Num 按 tag select、Double 直用），非整数态（d != floor(d)，
+llvm::Value* CodeGenerator::index_from_double(llvm::Value* d) {
+    // double 视图下标（t122 引入，t150 抽为 helper）：非整数态（d != floor(d)，
     // NaN 经 FCmpOEQ 为 false）陷阱退出 "Index must be an integer"；整数态 floor
-    // 后 clamp ±4e18 防 ±Infinity/超大值 FPToSI poison（随后落 rt 越界陷阱，
-    // 与解释器 double 域 cast 后越界报错殊途同归），FPToSI 得 i64。负索引回绕与
+    // 后 clamp ±4e18 防 ±Infinity/超大值 FPToSI poison（随后落 rt 越界陷阱，与
+    // 解释器 double 域 cast 后越界报错殊途同归），FPToSI 得 i64。负索引回绕与
     // 越界由 rt_arr_norm_index / rt_str_index 统一处理，故此处只产 i64 下标
-    llvm::Value* d = to_double(index);
     llvm::Value* fl =
         builder_.CreateUnaryIntrinsic(llvm::Intrinsic::floor, d, nullptr, "idxfl");
     llvm::Value* is_int = builder_.CreateFCmpOEQ(d, fl, "idxisint");
@@ -5850,6 +5844,58 @@ llvm::Value* CodeGenerator::index_to_int(const CGValue& index, size_t line,
         builder_.CreateBinaryIntrinsic(llvm::Intrinsic::maxnum, fl, lo);
     cl = builder_.CreateBinaryIntrinsic(llvm::Intrinsic::minnum, cl, hi);
     return builder_.CreateFPToSI(cl, builder_.getInt64Ty(), "idx");
+}
+
+llvm::Value* CodeGenerator::index_to_int(const CGValue& index, size_t line,
+                                         size_t col) {
+    if (index.type == CGType::Int) {
+        return index.value;  // 静态整数下标零开销透传
+    }
+    if (index.type == CGType::Dyn) {
+        // 动态承载值作下标（t150）：解释器 normalize_index 先判 is_number() 再
+        // 判 floor——tag 0（整数态）bits 即 i64 直接透传；tag 1（小数态）还原
+        // double 位模式走既有 floor/clamp 路径（1.0 可用、2.5 与 NaN 落陷阱）；
+        // 其余位（bool/tribool/串/数组/实例）落新增 rt 陷阱，消息照解释器
+        // "Index must be a number, got <kind>"（拒错编从陷阱）
+        llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+        auto* tag_bb = llvm::BasicBlock::Create(context_, "dynidx.tag", fn);
+        auto* dec_bb = llvm::BasicBlock::Create(context_, "dynidx.dec", fn);
+        auto* trap_bb = llvm::BasicBlock::Create(context_, "dynidx.trap", fn);
+        auto* done_bb = llvm::BasicBlock::Create(context_, "dynidx.done", fn);
+        llvm::Value* tag = num_tag(index.value);
+        llvm::Value* bits = num_bits(index.value);
+        llvm::BasicBlock* entry_bb = builder_.GetInsertBlock();
+        llvm::Value* is_int_tag =
+            builder_.CreateICmpEQ(tag, builder_.getInt64(0), "dynidx.isint");
+        builder_.CreateCondBr(is_int_tag, done_bb, tag_bb);
+        builder_.SetInsertPoint(tag_bb);
+        llvm::Value* is_dec_tag =
+            builder_.CreateICmpEQ(tag, builder_.getInt64(1), "dynidx.isdec");
+        builder_.CreateCondBr(is_dec_tag, dec_bb, trap_bb);
+        builder_.SetInsertPoint(dec_bb);
+        llvm::Value* d =
+            builder_.CreateBitCast(bits, builder_.getDoubleTy(), "dynidx.f64");
+        llvm::Value* from_dec = index_from_double(d);
+        // helper 自带 floor 陷阱块，返回值定义在其 cont 块而非 dec 块
+        llvm::BasicBlock* dec_from_bb = builder_.GetInsertBlock();
+        builder_.CreateBr(done_bb);
+        builder_.SetInsertPoint(trap_bb);
+        builder_.CreateCall(rt_trap_index_kind_, {tag});
+        builder_.CreateUnreachable();
+        builder_.SetInsertPoint(done_bb);
+        llvm::PHINode* result = builder_.CreatePHI(builder_.getInt64Ty(), 2, "dynidx");
+        result->addIncoming(bits, entry_bb);
+        result->addIncoming(from_dec, dec_from_bb);
+        return result;
+    }
+    if (index.type != CGType::Double && index.type != CGType::Num) {
+        // Bool/Str 等非数值下标：解释器报 "Index must be a number"（错误对齐面，
+        // 非 stdout 差分），维持拒编不错编
+        unsupported("non-integer index", line, col);
+    }
+    // number/decimal 下标（t122）：镜像解释器 normalize_index——转 double 视图
+    //（to_double：Num 按 tag select、Double 直用）后走同一 floor/clamp 路径
+    return index_from_double(to_double(index));
 }
 
 llvm::Value* CodeGenerator::to_double(const CGValue& v) {

@@ -124,7 +124,7 @@ if(COLLIE_ENABLE_LLVM)
             s85_object_param s86_tribool_array s87_cross_tree_array
             s88_hetero_tuple_dyn s89_hetero_scalar_array s90_dynamic_tuple s91_closure_capture s92_dynamic_object_field
             s93_function_value s94_hetero_obj_array s95_dyn_elem_member
-            s96_object_dyn_slot s97_dyn_to_slot s98_dyn_arith s99_dyn_compare)
+            s96_object_dyn_slot s97_dyn_to_slot s98_dyn_arith s99_dyn_compare s100_dyn_index)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -142,7 +142,7 @@ if(COLLIE_ENABLE_LLVM)
             s94_reject_obj_nested_array_mix
             s96_reject_obj_slot_scalar_reassign s96_reject_object_slot_array_init
             s97_reject_dyn_to_class_decl s97_reject_dyn_to_class_arg s97_reject_dyn_to_class_return s97_reject_dyn_to_homog_array_slot
-            s98_reject_dyn_index)
+            s100_reject_obj_param_index)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

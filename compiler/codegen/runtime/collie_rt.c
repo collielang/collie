@@ -51,6 +51,9 @@
  * 非整数索引陷阱（t122）：
  *   void collie_rt_trap_index_integer(void);  // number/decimal 下标非整数态
  *     （含 NaN）报错退出，对齐解释器 normalize_index "Index must be an integer"
+ *   void collie_rt_trap_index_kind(long long tag);
+ *     // 动态承载值（kind 7 等）tag 非 0/1 作下标，按 tag 还原 kind 名报错退出，
+ *     // 对齐解释器 "Index must be a number, got <kind>"（t150）
  *
  * 数组运行时（t59，同质数组降级用）：
  *   void* collie_rt_arr_new(long long len, long long kind);  // 单块 malloc 数组对象；
@@ -385,6 +388,25 @@ void collie_rt_trap_num_narrow(void) {
  * 对齐解释器 normalize_index 的 "Index must be an integer"（裸消息同越界陷阱） */
 void collie_rt_trap_index_integer(void) {
     fprintf(stderr, "Index must be an integer\n");
+    exit(1);
+}
+
+/* 非数值位动态承载值作下标陷阱（t150）：kind 7 数组元素/异质与动态 tuple 索引/
+ * object 动态槽读出的 {tag,bits} tag 落在数值域（0/1）以外时参与索引，解释器
+ * normalize_index 先判 is_number() 再报错，此处按 tag 还原 kind 名，消息核心
+ * 对齐 "Index must be a number, got <kind>"（裸消息同越界陷阱） */
+void collie_rt_trap_index_kind(long long tag) {
+    const char* kind = "unknown";
+    switch ((int)tag) {
+        case 2: kind = "bool"; break;
+        case 3: kind = "string"; break;
+        case 4: kind = "array"; break;
+        case 5: kind = "object"; break;
+        case 6: kind = "tribool"; break;
+        case 7: kind = "array"; break;
+        default: break;
+    }
+    fprintf(stderr, "Index must be a number, got %s\n", kind);
     exit(1);
 }
 

@@ -547,6 +547,9 @@ private:
     /// （±Infinity 随后落 rt 越界陷阱）再 FPToSI；负索引回绕/越界由 rt 侧统一处理。
     /// 其余类型（Bool/Str 等）拒编不错编
     llvm::Value* index_to_int(const CGValue& index, size_t line, size_t col);
+    /// double 视图下标降为 i64（t122 逻辑，t150 抽为 helper 供 Num/Double 与
+    /// Dyn 小数态共用）：非整数态落 rt_trap_index_integer_ 后 clamp+FPToSI
+    llvm::Value* index_from_double(llvm::Value* d);
 
     /// @brief 把任意标量值转为字符串 ptr（S7 t54：拼接/toString 用，对齐 Value::to_string）
     llvm::Value* to_str(const CGValue& v, const Token& where);
@@ -644,6 +647,9 @@ private:
     llvm::FunctionCallee rt_trap_num_narrow_;   // void()
     /// collie_rt 非整数索引陷阱（t122）：number/decimal 下标非整数态报错退出
     llvm::FunctionCallee rt_trap_index_integer_; // void()
+    /// collie_rt 非数值位动态承载值作下标的类型陷阱（t150）：消息对齐解释器
+    /// normalize_index "Index must be a number, got <kind>"
+    llvm::FunctionCallee rt_trap_index_kind_;    // void(i64 tag)
     /// collie_rt 动态域元素 kind 陷阱（t88，缺口 CG9）：bool/str/嵌套数组经
     /// 透传后索引读出元素静态类型不可定，陷阱退出不错值
     llvm::FunctionCallee rt_trap_arr_kind_;     // void(i64 kind)

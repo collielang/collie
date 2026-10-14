@@ -1,8 +1,0 @@
-// t148 S95 拒编用例：kind 7 元素读出（Dyn）用作下标
-// 解释器 src[idx[i]] 运行期把整数位当索引（得 20）；codegen 索引面要求下标有
-// 静态整数表示，Dyn 落 "non-integer index" 拒编不错编
-// （注意：非整数下标解释器同为运行期报错，故本用例只用整数位探针）
-array src = [10, 20, 30];
-array idx = [1, 2.5, "x"];
-integer i = 0;
-print("idx:", src[idx[i]]);
