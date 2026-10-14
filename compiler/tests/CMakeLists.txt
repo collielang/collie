@@ -127,7 +127,8 @@ if(COLLIE_ENABLE_LLVM)
             s96_object_dyn_slot s97_dyn_to_slot s98_dyn_arith s99_dyn_compare s100_dyn_index
             s101_dyn_domain_read s102_dyn_length s103_dyn_nested_index s104_dyn_string_methods
             s105_dyn_to_number s105_dyn_same_name_method
-            s106_dyn_number_methods s106_dyn_same_name_number_method)
+            s106_dyn_number_methods s106_dyn_same_name_number_method
+            s107_dyn_tribool_methods s107_dyn_same_name_tribool_method)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

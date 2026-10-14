@@ -94,6 +94,11 @@
  *     // 动态承载值的 number 专属方法接收者守卫（t156）：tag 0/1（与 Num 表示
  *     // 重合）放行，其余位落 "Method '<name>()' is only supported on numbers,
  *     // got <kind>"，实例位落 "Undefined method '<name>' on object"
+ *   void collie_rt_dyn_tri_guard(long long tag, const char* name);
+ *     // 动态承载值的 tribool 方法接收者守卫（t157）：仅 tag 6（bits 即 i8 三态
+ *     // 编码零扩展）放行，其余位（含 bool 位）落 "Method '<name>()' is only
+ *     // supported on tribool, got <kind>"，实例位落 "Undefined method '<name>'
+ *     // on object"
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -689,6 +694,16 @@ static void collie_rt_dyn_method_trap(long long tag, const char* name,
 void collie_rt_dyn_num_guard(long long tag, const char* name) {
     if (tag > 1) {
         collie_rt_dyn_method_trap(tag, name, "numbers");
+    }
+}
+
+/* 动态承载值的 tribool 方法接收者守卫（t157）：解释器进 tribool 方法段先判
+ * is_tribool()，故仅 tag 6 放行（bits 即静态 i8 三态编码的零扩展）由 codegen
+ * trunc 后走既有 t65 常量 icmp 降级；其余位（含 bool 位——解释器对
+ * `true.isTrue()` 运行期报错）落 collie_rt_dyn_method_trap 的 tribool 消息 */
+void collie_rt_dyn_tri_guard(long long tag, const char* name) {
+    if (tag != 6) {
+        collie_rt_dyn_method_trap(tag, name, "tribool");
     }
 }
 

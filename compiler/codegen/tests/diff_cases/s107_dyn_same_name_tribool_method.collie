@@ -1,0 +1,21 @@
+// s107 差分用例：类定义同名 isTrue() 方法时，Dyn 上的 tribool 方法面整面回落
+// 实例位动态分派（t133/t145 零回归），静态 tribool 与静态实例接收者不受影响
+class Flag {
+    public integer v = 3;
+    public function isTrue() integer { return 100; }
+}
+class Other {
+    public decimal d = 1.5;
+    public function isTrue() integer { return 200; }
+}
+function read(a array) none {
+    print("A:", a[0].isTrue(), "|", a[1].isTrue());
+    object o = a[0];
+    print("B:", o.isTrue());
+}
+Flag x = new Flag();
+Other y = new Other();
+read([x, y]);
+tribool t = unset;
+print("C:", t.isTrue(), "|", t.isFalse(), "|", t.isUnset());
+print("D:", x.isTrue(), "|", y.isTrue());

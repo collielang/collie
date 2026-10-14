@@ -32,6 +32,12 @@ bool is_number_method_name(const std::string& name) {
            name == "isPositive" || name == "isNegative";
 }
 
+/// tribool 三态判定方法名集（t65 建，t157 起两路共用）：解释器 tribool 方法段
+/// 的三方法面，静态 tribool 接收者与动态承载值接收者按同一判定分派
+bool is_tribool_method_name(const std::string& name) {
+    return name == "isTrue" || name == "isFalse" || name == "isUnset";
+}
+
 /// 条件发射区深度 RAII（t117）：构造 +1 析构 -1（C++ 栈帧作用域即区内发射
 /// 作用域——区末汇合/PHI 无用户语句发射，析构时机恒等于区退出）
 struct CondDepthGuard {
@@ -525,6 +531,13 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 方法段先判 is_number()，放行 tag 0/1，其余位按解释器两类消息陷阱退出
     rt_dyn_num_guard_ = module_->getOrInsertFunction(
         "collie_rt_dyn_num_guard",
+        llvm::FunctionType::get(
+            builder_.getVoidTy(), {builder_.getInt64Ty(), ptr_ty}, false));
+    // collie_rt 动态承载值 tribool 方法接收者守卫（t157）：解释器进 tribool 方法
+    // 段先判 is_tribool()，放行 tag 6（含 bool 位在内均报错），其余位按解释器
+    // 两类消息陷阱退出
+    rt_dyn_tri_guard_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_tri_guard",
         llvm::FunctionType::get(
             builder_.getVoidTy(), {builder_.getInt64Ty(), ptr_ty}, false));
     // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
@@ -2518,14 +2531,35 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         return;
     }
 
+    if (object.type == CGType::Dyn && is_tribool_method_name(name) &&
+        expr.arguments().empty() &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [&](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.dispatch.count(name) != 0;
+                     })) {
+        // 动态承载值的 tribool 三态判定方法（t157）：解释器进该段先判
+        // is_tribool()，故 rt 守卫只放行 tag 6（其余位按解释器两类消息陷阱退出，
+        // 不静默错值；bool 位也不放行——解释器对 `true.isTrue()` 运行期报错）；
+        // tag 6 的 bits 就是静态 tribool 的 i8 三态编码零扩展（t136 装箱即
+        // zext i8），trunc 回 i8 后直接复用 t65 的常量 icmp 降级，结果 Bool
+        builder_.CreateCall(rt_dyn_tri_guard_,
+                            {num_tag(object.value),
+                             builder_.CreateGlobalString(name)});
+        gen_tribool_method(
+            builder_.CreateTrunc(num_bits(object.value), builder_.getInt8Ty(),
+                                 "dyntri"),
+            name);
+        return;
+    }
+
     if (object.type == CGType::Dyn) {
         // kind 7 元素读出（Dyn）的方法调用（t145）：tag==5 实例位守卫还原
         // 实例 ptr 后并入下方空 cls 方法动态分派（t133，全体定义者 switch
         // 按对象头类 id 调用）；非实例位落 collie_rt undefined method 陷阱
         // （解释器对 `1.abs()` 等标量自有方法可运行——number 专属方法已在上方
-        // t156 臂按运行期 tag 处理，其余标量位方法面维持拒错编从陷阱）；
-        // 串方法 trim/subString 与 toNumber 已在 t154/t155 臂处理，仅在存在
-        // 同名类方法时才落到这里
+        // t156 臂按运行期 tag 处理，tribool 三态判定已在 t157 臂处理，其余标量
+        // 位方法面维持拒错编从陷阱）；串方法 trim/subString 与 toNumber 已在
+        // t154/t155 臂处理，仅在存在同名类方法时才落到这里
         object = {dyn_obj_guard(object, name, true), CGType::Obj,
                   CGType::Int, std::string()};
     }
@@ -3030,12 +3064,9 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     }
 
     if (object.type == CGType::Tri && expr.arguments().empty() &&
-        (name == "isTrue" || name == "isFalse" || name == "isUnset")) {
+        is_tribool_method_name(name)) {
         // tribool 三态判定方法（t65）：与对应三态常量 icmp 出 bool（对齐解释器）
-        const uint8_t code = name == "isTrue" ? 2 : name == "isFalse" ? 0 : 1;
-        last_value_ = {builder_.CreateICmpEQ(object.value, builder_.getInt8(code),
-                                             "tritest"),
-                       CGType::Bool};
+        gen_tribool_method(object.value, name);
         return;
     }
 
@@ -6513,6 +6544,16 @@ llvm::Value* CodeGenerator::dyn_to_number(const CGValue& v, bool method_form) {
                          builder_.getInt64(method_form ? 1 : 0)});
     return make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag, "dyntotag"),
                     builder_.CreateLoad(builder_.getInt64Ty(), obits, "dyntobits"));
+}
+
+void CodeGenerator::gen_tribool_method(llvm::Value* tri,
+                                       const std::string& name) {
+    // tribool 三态判定方法（t65，对齐解释器 call_tribool_method）：与对应三态
+    // 常量 icmp 出 bool；静态 tribool（i8）与动态承载值 tag 6 的 bits 同编码，
+    // 故两路共用（t157）
+    const uint8_t code = name == "isTrue" ? 2 : name == "isFalse" ? 0 : 1;
+    last_value_ = {builder_.CreateICmpEQ(tri, builder_.getInt8(code), "tritest"),
+                   CGType::Bool};
 }
 
 void CodeGenerator::gen_number_method(const CGValue& object, const std::string& name,

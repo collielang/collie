@@ -520,6 +520,11 @@ private:
     /// 方法形式（实例位消息走解释器的方法查找失败分支），false 为内建形式
     llvm::Value* dyn_to_number(const CGValue& v, bool method_form);
 
+    /// @brief tribool 三态判定方法降级（t65，对齐解释器 call_tribool_method）：
+    /// isTrue/isFalse/isUnset 与对应三态常量 icmp 出 Bool；接收者为 i8 三态编码，
+    /// 静态 tribool 与动态承载值 tag 6 同编码故两路共用（t157）
+    void gen_tribool_method(llvm::Value* tri, const std::string& name);
+
     /// @brief number 专属方法降级（t67，对齐解释器 call_number_method）：
     /// abs/integerPart/decimalPart → 接收者同型数值，is* 谓词 → Bool；
     /// Int 纯 IR（abs 走 checked_int_arith 陷阱）、Double 走 fabs/trunc/floor
@@ -698,6 +703,10 @@ private:
     /// 方法段先判 is_number()，放行 tag 0/1（与 Num 表示重合），其余位复刻两类
     /// 消息（实例位 Undefined method / 其余 only supported on numbers）后退出
     llvm::FunctionCallee rt_dyn_num_guard_;   // void(i64 tag, ptr name)
+    /// collie_rt 动态承载值 tribool 方法接收者守卫（t157）：解释器进 tribool 方法
+    /// 段先判 is_tribool()，仅放行 tag 6（bits 即 i8 三态编码零扩展），其余位
+    /// （含 bool 位）复刻两类消息后退出
+    llvm::FunctionCallee rt_dyn_tri_guard_;   // void(i64 tag, ptr name)
     /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
     /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
     /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂

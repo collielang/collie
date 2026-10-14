@@ -1,0 +1,55 @@
+// s107 差分用例：tribool 三态判定方法 isTrue()/isFalse()/isUnset() 在动态承载值
+// （Dyn）上按运行期 tag 分派——tag 6 放行（bits 即 i8 三态编码），结果 Bool
+function tri(a array) none {
+    print("A:", a[0].isTrue(), "|", a[0].isFalse(), "|", a[0].isUnset());
+}
+function hetero(a array) none {
+    array tmp = [a[0], "s", a[1]];
+    print("B:", tmp[0].isTrue(), "|", tmp[2].isFalse(), "|", tmp[2].isUnset());
+}
+function carriers(a array) none {
+    object v = a[0];
+    print("C:", v.isTrue(), "|", v.isUnset());
+    v = a[1];
+    print("D:", v.isFalse(), "|", v.isTrue());
+    Tuple t = (a[0], a[1]);
+    integer i = 1;
+    print("E:", t[i].isTrue(), "|", t[i].isUnset());
+    Tuple u = (x: a[0], y: a[1]);
+    print("F:", u.get("x").isTrue(), "|", u.get("y").isFalse());
+    for (integer k = 0; k < 2; k = k + 1) {
+        print("G:", a[k].isTrue());
+    }
+    tribool r = a[0].isUnset() ? true : unset;
+    print("H:", r);
+    print("I:", a[0] == a[1], "|", a[0] == a[0]);
+    string s = @"{a[0].isTrue()}";
+    print("M:", s, "|", a[0].isTrue() == a[1].isFalse());
+}
+function nested(a array) none {
+    print("N:", a[0][0].isTrue(), "|", a[0][1].isUnset());
+}
+function closure(a array) none {
+    object v = a[1];
+    function reader() none { print("J:", v.isTrue(), "|", v.isFalse()); }
+    reader();
+}
+class Box {
+    public array flags = [unset, unset];
+    public function store(i integer, v tribool) none { this.flags[i] = v; }
+    public function show() none {
+        print("K:", this.flags[0].isTrue(), "|", this.flags[1].isUnset());
+    }
+}
+tribool tt = true;
+tribool ff = false;
+tri([tt]);
+tri([ff]);
+tri([unset]);
+hetero([tt, ff]);
+carriers([tt, ff]);
+nested([[unset, tt]]);
+closure([unset, tt]);
+Box b = new Box();
+b.store(0, true);
+b.show();
