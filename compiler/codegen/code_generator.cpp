@@ -459,6 +459,15 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_trap_dyn_convert",
         llvm::FunctionType::get(builder_.getVoidTy(),
                                {builder_.getInt64Ty(), ptr_ty}, false));
+    // collie_rt 动态承载值长度面声明（t152）：Dyn 上的 .length / len() 按运行期
+    // tag 分派（3=串码点、4/7=数组元素数、其余按 mode 落解释器同消息陷阱），
+    // mode 0 = .length 属性、1 = len() 内建
+    rt_dyn_len_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_len",
+        llvm::FunctionType::get(builder_.getInt64Ty(),
+                               {builder_.getInt64Ty(), builder_.getInt64Ty(),
+                                builder_.getInt64Ty()},
+                               false));
     // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
     // 态（0/1 以外）时报错退出，消息对齐解释器
     // "Arithmetic operands must be numbers"
@@ -1299,6 +1308,17 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
         }
         if (v.type == CGType::Str) {
             last_value_ = {builder_.CreateCall(rt_str_len_, {v.value}, "lentmp"),
+                           CGType::Int};
+            return;
+        }
+        if (v.type == CGType::Dyn) {
+            // 动态承载值长度面（t152）：解释器 call_builtin_len 只认 array/string，
+            // 其余运行期报错，故按 tag 运行期分派（3=串码点、4/7=数组元素数，
+            // 其余落 "len() expects a string or array, got <kind>" 陷阱）
+            last_value_ = {builder_.CreateCall(rt_dyn_len_,
+                                               {num_tag(v.value), num_bits(v.value),
+                                                builder_.getInt64(1)},
+                                               "dynlen"),
                            CGType::Int};
             return;
         }
@@ -2900,12 +2920,33 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                        CGType::Int};
         return;
     }
+    if (object.type == CGType::Dyn && expr.name().lexeme() == "length" &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.field_index.count("length") != 0;
+                     })) {
+        // 动态承载值的 .length（t152）：tag 运行期才定，按解释器 visitProperty
+        // 的 length 接受表分派——串位取 UTF-8 码点数、数组位（kind 4/7）取元素
+        // 个数、其余位落 "Property 'length' is only supported on strings and
+        // arrays, got <kind>" 陷阱；实例位 tag 5 由上方守卫静态保证无类声明
+        // length 字段，解释器同为 "Undefined property 'length' on object"，
+        // 故此处一并按 tag 5 陷阱即对齐（有类声明该字段时整面回落 t145 的
+        // 实例位字段分派，见范围外）；来源复用全部既有 Dyn 通道
+        last_value_ = {builder_.CreateCall(rt_dyn_len_,
+                                           {num_tag(object.value),
+                                            num_bits(object.value),
+                                            builder_.getInt64(0)},
+                                           "dynlen"),
+                       CGType::Int};
+        return;
+    }
     if (object.type == CGType::Dyn) {
         // kind 7 元素读出（Dyn）的字段读（t145）：tag==5 实例位守卫还原实例
         // ptr 后并入下方空 cls 动态分派（t142，全体定义者 switch 按对象头
         // 类 id 取值）；非实例位落 collie_rt undefined property 陷阱（解释器
-        // 对 `1 .name` 同为运行期报错，拒错编从陷阱）；Dyn 上的 .length
-        // 经下方 defs 空判定维持拒编（解释器字符串位可读长，非本期面）
+        // 对 `1 .name` 同为运行期报错，拒错编从陷阱）；.length 已在上方按
+        // 运行期 tag 解锁（t152），仅当某类声明了 length 字段时落到此处
+        // 实例位分派（此时非实例位的串/数组长度面维持陷阱）
         object = {dyn_obj_guard(object, std::string(expr.name().lexeme()),
                                 false),
                   CGType::Obj, CGType::Int, std::string()};

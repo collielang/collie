@@ -663,6 +663,9 @@ private:
     /// （0/1 以外）时报错退出，消息对齐解释器
     /// "Arithmetic operands must be numbers"
     llvm::FunctionCallee rt_trap_non_numeric_arith_; // void()
+    /// collie_rt 动态承载值长度面（t152）：Dyn 上的 `.length`（mode 0）与
+    /// len()（mode 1）按运行期 tag 分派取长度，非串/数组位落解释器同消息陷阱
+    llvm::FunctionCallee rt_dyn_len_;  // i64(i64 tag, i64 bits, i64 mode)
     /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
     /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
     /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂

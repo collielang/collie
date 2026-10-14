@@ -1,0 +1,9 @@
+// t152 S99 拒编用例：object 动态类型形参取 .length
+// 解释器按承载值（串/数组）运行期可取长；codegen 的 object 形参为 CGType::Obj
+// 空 cls（t132），承载无静态数值/串表示，落
+// "undefined property 'length' on dynamic object" 拒编不错编
+// （Dyn 通道的长度面已于 S99 解锁，形参面需先设计 Obj→tagged 承载转换）
+function p(o object) none {
+    print("P:", o.length);
+}
+p("abcd");

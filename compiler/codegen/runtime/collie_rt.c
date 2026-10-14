@@ -74,6 +74,10 @@
  *     kind 0/1 与 number tag 0/1 编码重合，bits+kind 直接拼 number 零转换；
  *     kind 2/3/4/5/6 槽位模式即 Dyn 的 bits 编码，kind 7 经 arr_get_dyn 取回
  *     真实 {tag,bits}——四路统一产出 Dyn（t151，原 kind>=2 陷阱面解锁）
+ *   long long collie_rt_dyn_len(long long tag, long long bits, long long mode);
+ *     // 动态承载值长度面（t152）：Dyn 上的 .length（mode 0）与 len()（mode 1）
+ *     // 按运行期 tag 分派——3=串 UTF-8 码点数 / 4、7=数组元素个数 / 其余按
+ *     // 解释器同消息报错退出（拒错编从陷阱）
  *   void collie_rt_arr_set_num(void* arr, long long i, long long tag, long long bits);
  *     // 动态域索引写（t70/t88）：tag==kind 直存（数值系与 bool/str 同规则）；
  *     // integer 写 decimal 数组提升 double 位模式；其余 tag/kind 失配陷阱退出
@@ -477,6 +481,46 @@ long long collie_rt_arr_len(void* arr) {
  * 进动态域的数组 codegen 静态保证 kind ∈ {0,1}（bool/str 数组作实参/返回值拒编） */
 long long collie_rt_arr_kind(void* arr) {
     return ((collie_rt_array*)arr)->kind;
+}
+
+/* 动态承载值长度面（t152）：Dyn（kind 7 元素读/动态域元素读/object 动态槽/
+ * 动态 tuple 索引/算术结果）上的 `.length` 属性与 len() 内建按运行期 tag 分派。
+ * 解释器接受表（visitProperty 的 length 分支 / call_builtin_len）：string 按
+ * UTF-8 码点、array 按元素个数，其余运行期报错；tag 5 实例位在 codegen 侧由
+ * "无类定义 length 字段"守卫保证解释器同为 Undefined property 报错。
+ * mode 0 = `.length` 属性，mode 1 = len() 内建（两者报错文案不同）：
+ *   0 → "Property 'length' is only supported on strings and arrays, got <kind>"
+ *   1 → "len() expects a string or array, got <kind>"
+ * tag 复用数组 kind 编码（0=int 1=dec 2=bool 3=str 4=arr 5=object 6=tribool
+ * 7=异质数组），kind 名对齐 Value::kind_name（0/1 同报 number、4/7 同报 array） */
+long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
+    switch (tag) {
+        case 3:
+            return collie_rt_str_len((const char*)(intptr_t)bits);
+        case 4:
+        case 7:
+            return collie_rt_arr_len((void*)(intptr_t)bits);
+        case 5:
+            fprintf(stderr, mode == 0
+                                ? "runtime error: Undefined property 'length' on object\n"
+                                : "runtime error: len() expects a string or array, got object\n");
+            exit(1);
+        default:
+            break;
+    }
+    const char* kind = "unknown";
+    switch ((int)tag) {
+        case 0:
+        case 1: kind = "number"; break;
+        case 2: kind = "bool"; break;
+        case 6: kind = "tribool"; break;
+        default: break;
+    }
+    fprintf(stderr, mode == 0
+                        ? "runtime error: Property 'length' is only supported on strings and arrays, got %s\n"
+                        : "runtime error: len() expects a string or array, got %s\n",
+            kind);
+    exit(1);
 }
 
 /* 动态域索引写（t70/t88）：写入值带 kind tag（0/1=number 两态，2=bool，3=string），

@@ -1,0 +1,89 @@
+// t152 S99 差分用例：动态承载值（Dyn）的长度面——`.length` 属性与 len() 内建
+// Dyn 来源（kind 7 元素读 / 动态域元素读 / object 动态槽 / 动态 tuple 索引与
+// get / 拼接结果 / 闭包捕获）按运行期 tag 分派：3=串 UTF-8 码点数、4/7=数组元素个数
+function showStr(a array) none {
+    print("A:", a[0].length, a[1].length, len(a[0]), len(a[1]));
+}
+function showArr(a array) none {
+    print("B:", a[0].length, a[1].length, len(a[0]), len(a[1]));
+}
+function showMix(a array) none {
+    print("C:", a[1].length, len(a[1]));
+}
+function loopIndex(a array) none {
+    integer i = 0;
+    while (i < 2) {
+        print("D", i, ":", a[i].length, len(a[i]));
+        i = i + 1;
+    }
+}
+function carrier() none {
+    object o = "hello";
+    print("E1:", o.length, len(o));
+    o = "中文 x";
+    print("E2:", o.length);
+}
+function dynTuple() none {
+    Tuple t = (1, "abcd");
+    integer i = 1;
+    print("F:", t[i].length, len(t[i]));
+}
+function concat() none {
+    object s = "ab";
+    object r = s + "cde";
+    print("G:", r.length, len(r));
+}
+class Box {
+    public array items = ["a", "bb", "ccc"];
+    public function show() none {
+        print("H:", this.items[0].length, this.items[2].length, len(this.items[1]));
+    }
+}
+function makeArr() array {
+    return ["xy", "z"];
+}
+function consume(a array) none {
+    integer n = a[0].length + a[1].length;
+    print("J:", n, n * 2, [a[0].length, a[1].length], (a[0].length, a[1].length));
+}
+function outer() none {
+    object v = "abcd";
+    function reader() none {
+        print("K:", v.length, len(v));
+    }
+    reader();
+}
+function useAsIndex(a array) none {
+    print("L:", a[a[0].length - 1], @"{a[0].length}", a[0].length > 1,
+          a[0].length == 2);
+    if (a[0].length < 5) {
+        print("M:", a[0].length + a[1].length);
+    }
+    string s = "";
+    s = s + a[1];
+    print("N:", s.length, a[0].length * 3);
+}
+function viaGet() none {
+    Tuple t = (name: "collie", age: 3);
+    print("O:", t.get("name").length, len(t.get("name")));
+}
+function reassignSlot(a array) none {
+    object v = a[0];
+    v = a[1];
+    print("P:", v.length, len(v));
+}
+showStr(["ab", "中文 x"]);
+showArr([[1, 2, 3], ["a"]]);
+showMix([1, "hello", true]);
+loopIndex(["q", "wer"]);
+carrier();
+dynTuple();
+concat();
+Box b = new Box();
+b.show();
+print("I:", makeArr()[0].length, len(makeArr()[1]));
+consume(["abc", "de"]);
+outer();
+useAsIndex(["ab", "cdef"]);
+viaGet();
+reassignSlot(["abc", "de"]);
