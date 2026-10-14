@@ -1,0 +1,69 @@
+// t144 差分用例：异质数组含类实例元素（kind 7 tag 5）解锁
+// 覆盖实例与基本标量混排字面量、整体/逐元素 print/toString/插值、== 深比较
+// （含实例位恒不等，对齐解释器 values_equal 无 Instance 分支）、整槽写（标量
+// ↔实例互覆）、实例变量重赋、动态 object 变量入数组、子类实例入数组——
+// 元素读出为 Dyn 动态值，字段/方法访问落 s94 reject 用例
+
+class Animal { public string name = "generic"; }
+class Dog extends Animal { public integer legs = 4; }
+class Cat { public string name = "miaow"; }
+Dog d = new Dog();
+Cat c = new Cat();
+
+// 1) 整体显示：字面量混排 / toString / 插值
+array a = [d, 1, "two", true];
+print("full:", a);
+print("tostr:", toString(a));
+print("interp:", @"{a}");
+
+// 2) 逐元素读出（实例位 <object>，标量位原样）
+print("elem:", a[0], a[1], a[2], a[3]);
+print("neg:", a[-1], a[-4]);
+print("elemstr:", toString(a[0]));
+
+// 3) length 与循环遍历
+print("len:", a.length);
+for (integer i = 0; i < a.length; i = i + 1) {
+    print("walk:", i, a[i]);
+}
+
+// 4) == 深比较：含实例位恒 false（同字面量亦然）；kind7×非 kind7 恒 false
+array b = [d, 1, "two", true];
+print("eq:", a == b, a != b);
+array sc = [1, "two", true, 4];
+print("eq-xkind:", a == sc);
+print("eq-same:", a == a);
+
+// 5) 整槽写：标量覆实例位、实例覆标量位、Dyn 值透传
+a[0] = 42;
+print("ov1:", a[0]);
+a[0] = d;
+print("ov2:", a[0]);
+a[1] = c;
+print("ov3:", a, a[1]);
+a[2] = a[0];
+print("ov4:", a[2]);
+
+// 6) 跨树两实例 + 混排（Dog/Cat 无公共祖先）
+array x = [new Dog(), new Cat(), "end"];
+print("cross:", x);
+
+// 7) 动态 object 变量（空 cls）入数组
+object o = c;
+array y = [o, 7];
+print("dynobj:", y, y[0]);
+
+// 8) 子类实例入数组（Animal 静态变量赋 Dog）
+Animal an = d;
+array z = [an, 3.5];
+print("sub:", z, z[0]);
+
+// 9) 标量数组变量整体重赋含实例异质数组（elem 保持 Dyn）
+array e = [1, 2];
+e = [d, 2];
+print("re:", e, e[0]);
+
+// 10) bool/tribool/decimal 与实例混排
+array t = [true, d, unset, 2.5];
+print("mix:", t);
+print("mix-eq:", t == [true, d, unset, 2.5]);

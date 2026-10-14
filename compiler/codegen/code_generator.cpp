@@ -1690,11 +1690,16 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                 // tri_of(bool) 映射一致（value.h Tri::False=0/True=2），
                 // 后续读出为 Tri、与 bool 比较走 t65 Tri×Bool 加宽既有面
                 elem = CGType::Tri;
-            } else if (is_dyn_scalar(elem) && is_dyn_scalar(v.type)) {
-                // 异质基本类型混排（t139）：收敛 elem=Dyn（运行时 kind 7 双步长
-                // {tag,bits} 槽），解锁 print/len/索引读/== 显示与比较面；后续
-                // 标量元素经 is_dyn_scalar(Dyn) 持续吸收，非基本类型（Arr/Obj/Tup）
-                // 落下方拒编（各有专属表示，混合维持拒编不错编）
+            } else if ((is_dyn_scalar(elem) || elem == CGType::Obj) &&
+                       (is_dyn_scalar(v.type) || v.type == CGType::Obj)) {
+                // 异质基本类型混排（t139）+ 类实例混入（t144）：收敛 elem=Dyn
+                // （运行时 kind 7 双步长 {tag,bits} 槽），解锁 print/len/索引读/
+                // == 显示与比较面；实例元素 tag 5 槽存实例 ptr 位模式（镜像
+                // t100 kind 5 单数组 elem_to_bits 表示），读出为 Dyn、print/
+                // toString/插值落 <object>、== 恒不等（对齐解释器 values_equal
+                // 无 Instance 分支）；后续元素经 is_dyn_scalar(Dyn) 持续吸收，
+                // Arr/Tup（含嵌套数组、元组与实例混排）维持拒编不错编——
+                // is_dyn_scalar 本体不收 Obj，tuple 物化处（t140）不受影响
                 elem = CGType::Dyn;
             } else {
                 unsupported("heterogeneous array literal",
@@ -1725,7 +1730,8 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         CGValue v = elements[i];
         if (elem == CGType::Dyn) {
             // 异质动态标量写（t139）：静态标量元素打常量 tag + elem_to_bits；
-            // Num/Dyn 取运行期 num_tag/num_bits（Dyn 元素透传，支持二次物化）
+            // Num/Dyn 取运行期 num_tag/num_bits（Dyn 元素透传，支持二次物化）；
+            // Obj 元素走 else 分支常量 tag 5 + 实例 ptr 位模式（t144）
             llvm::Value* tag = nullptr;
             llvm::Value* bits = nullptr;
             if (v.type == CGType::Num || v.type == CGType::Dyn) {
@@ -1985,8 +1991,9 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     if (object.elem == CGType::Dyn) {
         // 异质动态标量数组整槽写（t139，kind 7）：任意基本标量写入自带 tag，
         // 解释器异质数组本就容任意元素；Dyn 值透传分量，静态标量打常量 tag。
-        // Arr/Obj/Tup 值无 kind 7 编码，维持拒编不错编
-        if (!is_dyn_scalar(v.type)) {
+        // 实例值放行（t144）：tag 5 + ptr 位模式，读出为 Dyn 显示 <object>、
+        // 字段/方法访问维持拒编；Arr/Tup 值无 kind 7 编码，维持拒编不错编
+        if (!is_dyn_scalar(v.type) && v.type != CGType::Obj) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
         }

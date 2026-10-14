@@ -110,8 +110,8 @@ private:
         Double,  // double（decimal）
         Num,     // {i64 tag, i64 bits}（number tagged 双表示：tag 0=整数/1=小数，t62）
         Dyn,     // {i64 tag, i64 bits}（异质 tuple 非常量访问的动态标量承载，t138：
-                 // tag 复用数组 kind 编码 0=int/1=dec/2=bool/3=str/6=tribool；
-                 // 仅 print/toString/插值可消费，其余消费点拒编不错编）
+                 // tag 复用数组 kind 编码 0=int/1=dec/2=bool/3=str/5=object(t144)/
+                 // 6=tribool；仅 print/toString/插值可消费，其余消费点拒编不错编）
         Bool,    // i1
         Tri,     // i8（tribool 三态编码 False=0 < Unset=1 < True=2，Kleene min/max，t65）
         Str,     // ptr → 常量字符串

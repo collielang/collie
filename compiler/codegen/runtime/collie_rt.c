@@ -382,8 +382,10 @@ void collie_rt_trap_shift_count(void) {
  * 4=array(内层数组指针位模式，嵌套数组 t85) 5=object(实例指针位模式，t100)
  * 6=tribool(三态 0/1/2，t136)
  * 7=异质动态标量（t139）：槽为 2×len 步长，每元素 {tag, bits} 两 i64
- *   （tag 复用 kind 编码 0=int/1=dec/2=bool/3=str/6=tribool），承载异质
- *   基本类型数组字面量 [1,"two",true]；len 字段仍为元素个数（非槽个数） */
+ *   （tag 复用 kind 编码 0=int/1=dec/2=bool/3=str/5=object(t144)/6=tribool），
+ *   承载异质基本类型数组字面量 [1,"two",true] 及含实例混排 [d,1]（t144，
+ *   tag 5 bits 存实例 ptr 位模式，print/toString=<object>、== 恒不等）；
+ *   len 字段仍为元素个数（非槽个数） */
 typedef struct {
     long long len;
     long long kind;
@@ -541,6 +543,10 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
                 } else if (lt == 3) { /* string strcmp 内容 */
                     if (strcmp((const char*)(intptr_t)lb,
                                (const char*)(intptr_t)rb) != 0) return 0;
+                } else if (lt == 5) { /* object：实例恒不等（对齐解释器
+                                      * values_equal 无 Instance 分支，同 kind 5
+                                      * 单数组 t100 同规则，t144） */
+                    return 0;
                 } else { /* int/bool/tribool：位模式即值 */
                     if (lb != rb) return 0;
                 }
@@ -702,6 +708,9 @@ const char* collie_rt_arr_to_str(void* arr) {
                         collie_rt_sb_append(&out, &n, &cap,
                                             bits == 2 ? "true"
                                             : bits == 1 ? "unset" : "false");
+                        break;
+                    case 5: /* object：实例固定 <object>（t144，对齐 kind 5 t100） */
+                        collie_rt_sb_append(&out, &n, &cap, "<object>");
                         break;
                     default: /* 3 = string：指针位模式还原，原样不加引号 */
                         collie_rt_sb_append(&out, &n, &cap,
@@ -1029,6 +1038,8 @@ const char* collie_rt_num_to_str(long long tag, long long bits) {
         case 6:
             /* Dyn tribool：0=false/1=unset/2=true（对齐 Value::to_string） */
             return bits == 1 ? "unset" : (bits == 2 ? "true" : "false");
+        case 5:
+            return "<object>"; /* Dyn 实例（t144）：静态串勿 free，对齐 Value::to_string Instance */
         default:
             return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
     }
@@ -1049,6 +1060,9 @@ void collie_rt_print_num(long long tag, long long bits) {
             return;
         case 6:
             fputs(bits == 1 ? "unset" : (bits == 2 ? "true" : "false"), stdout);
+            return;
+        case 5:
+            fputs("<object>", stdout); /* Dyn 实例（t144，对齐 print 的 kind 5 t100） */
             return;
         default:
             collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));
