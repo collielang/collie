@@ -1,0 +1,10 @@
+// t150 S97 拒编用例：object 动态类型形参（CGType::Obj 空 cls，t132）作下标
+// 解释器 at(src, idx[0]) 运行期按承载的整数值取元素（得 20）；codegen 下标面
+// 只认 Int/Double/Num/Dyn，Obj 承载无静态数值表示 → "non-integer index" 拒编
+// 不错编（需先设计 Obj 动态承载到数值域的转换，另任务处理）
+array src = [10, 20, 30];
+array idx = [1, "x"];
+function at(a array, i object) number {
+    return a[i];
+}
+print(at(src, idx[0]));
