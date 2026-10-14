@@ -1,0 +1,18 @@
+// t159 S106 差分用例：bool×tribool 混排字面量按元素保型（kind 7）后的消费面
+array b = [unset, true];
+print("1", b);
+bool x = b[1];
+tribool t = b[0];
+print("2", x, t);
+print("3", b[0].toString(), b[1].toString());
+print("4", @"{b}");
+if (x) { print("5 bool-true"); } else { print("5 bool-false"); }
+if (t == unset) { print("6 unset"); } else { print("6 other"); }
+b[0] = false;
+print("7", b, b[0].toString());
+b[1] = unset;
+print("8", b);
+array c = [true, false, unset];
+print("9", c, len(c), c.length);
+object o = b[1];
+print("10", o.toString());

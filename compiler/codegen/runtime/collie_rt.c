@@ -117,7 +117,8 @@
  *     // integer 写 decimal 数组提升 double 位模式；其余 tag/kind 失配陷阱退出
  *     // （解释器动态异质可容、编译产物同质表示不可，拒错编从陷阱，缺口 CG7）
  *   long long collie_rt_arr_eq(void* lhs, void* rhs);         // 数组深比较（t79）：先比
- *     // len 再逐元素按运行时 kind（数值系混合 double 视图、string strcmp），返 1/0
+ *     // len 再逐元素按运行期 {tag,bits} 交 collie_rt_dyn_eq（kind 7 取双步长槽，
+ *     // 其余 kind 整组同 tag、值即槽），返 1/0
  *   long long collie_rt_tuple_get(void* names, void* vals, const char* key); // tuple
  *     // 动态键 get（t84）：同质命名 tuple 物化的 names(kind 3)+values 数组按非空名
  *     // strcmp 查找，命中返对应槽 i64 位模式、未命中打 "Undefined tuple field '<key>'"
@@ -819,109 +820,34 @@ void collie_rt_trap_non_numeric_arith(void) {
     exit(1);
 }
 
-/* 数组深比较（t79）：对齐解释器 values_equal Array 分支——先比 len 再逐元素。
- * 同 kind：integer/bool i64 直比、decimal 位模式还原 double 后按值比较
- * （NaN != NaN 与解释器 as_number() == 一致）、string strcmp 内容比较、
- * array 递归深比较（嵌套数组，t85）；
- * kind {0,1} 混合按 double 视图（对齐解释器 Number 混合表示 5 == 5.0）；
- * bool/string/array 与其它 kind 配对元素 kind 不等恒不等；len==0 天然相等。返 1/0 */
+/* 数组深比较（t79）：对齐解释器 values_equal Array 分支——先比 len 再逐元素，
+ * len==0 天然相等。元素比较统一交 collie_rt_dyn_eq（NaN != NaN、串 strcmp、
+ * 嵌套数组递归等表已在 dyn_eq 单点维护） */
+/* 动态承载值比较（t149，定义在文件后段）：数组逐元素深比较复用其
+ * values_equal 复刻表（含 int×decimal double 视图、bool×tribool 三态映射、
+ * 串 strcmp、数组递归、实例位恒不等），故此处需前向声明 */
+long long collie_rt_dyn_eq(long long atag, long long abits,
+                           long long btag, long long bbits);
+
 long long collie_rt_arr_eq(void* lhs, void* rhs) {
     const collie_rt_array* l = (const collie_rt_array*)lhs;
     const collie_rt_array* r = (const collie_rt_array*)rhs;
     if (l->len != r->len) {
         return 0;
     }
-    /* 异质动态标量数组（kind 7，t139）：每元素 {tag,bits} 步长 2。
-     * 一侧 kind7 一侧非 kind7 恒不等：kind7 必含 ≥2 种基本类型（异质），
-     * 非 kind7 数组同质，逐元素至少一元素 kind 失配（对齐解释器 values_equal
-     * 按 Value::kind 分支）；两侧 kind7 逐元素按 tag/bits 比较 */
-    if (l->kind == 7 || r->kind == 7) {
-        if (l->kind != 7 || r->kind != 7) {
-            return 0;
-        }
-        long long k;
-        for (k = 0; k < l->len; ++k) {
-            long long lt = l->slots[2 * k];
-            long long lb = l->slots[2 * k + 1];
-            long long rt_ = r->slots[2 * k];
-            long long rb = r->slots[2 * k + 1];
-            if (lt == rt_) {
-                if (lt == 1) { /* decimal 按 double 值 */
-                    double x, y;
-                    memcpy(&x, &lb, sizeof x);
-                    memcpy(&y, &rb, sizeof y);
-                    if (!(x == y)) return 0;
-                } else if (lt == 3) { /* string strcmp 内容 */
-                    if (strcmp((const char*)(intptr_t)lb,
-                               (const char*)(intptr_t)rb) != 0) return 0;
-                } else if (lt == 5) { /* object：实例恒不等（对齐解释器
-                                      * values_equal 无 Instance 分支，同 kind 5
-                                      * 单数组 t100 同规则，t144） */
-                    return 0;
-                } else if (lt == 4 || lt == 7) { /* 数组位（动态域嵌套数组读出 /
-                                      * 嵌套数组写 kind 7 槽，t153）：bits 即内层
-                                      * 数组 ptr，递归深比较——此前按指针直比，
-                                      * 结构相等的两个内层数组会静默判不等 */
-                    if (!collie_rt_arr_eq((void*)(intptr_t)lb,
-                                          (void*)(intptr_t)rb)) return 0;
-                } else { /* int/bool/tribool：位模式即值 */
-                    if (lb != rb) return 0;
-                }
-            } else if ((lt == 0 || lt == 1) && (rt_ == 0 || rt_ == 1)) {
-                /* int × decimal 混合表示：double 视图（5 == 5.0） */
-                double x, y;
-                if (lt == 0) { x = (double)lb; } else { memcpy(&x, &lb, sizeof x); }
-                if (rt_ == 0) { y = (double)rb; } else { memcpy(&y, &rb, sizeof y); }
-                if (!(x == y)) return 0;
-            } else if ((lt == 2 && rt_ == 6) || (lt == 6 && rt_ == 2)) {
-                /* bool × tribool：bool 0/1 → 三态 0/2 后直比（t136 同规则） */
-                long long xt = lt == 2 ? lb * 2 : lb;
-                long long yt = rt_ == 2 ? rb * 2 : rb;
-                if (xt != yt) return 0;
-            } else {
-                return 0; /* tag 失配（str/bool 对数值等）恒不等 */
-            }
-        }
-        return 1;
-    }
+    /* 逐元素归一化为 {tag,bits} 后交 collie_rt_dyn_eq（t159 统一）：kind 7 数组
+     * 槽本身即 {tag,bits} 步长 2，其余 kind 的 tag 恒 = kind、bits = 槽位模式。
+     * 数值系字面量按元素保型落 kind 7 后，保型数组与结构相等的静态 kind 数组
+     * （如 [10, 20] 的 kind 0）必须按元素值判定，故不做一侧 kind 7 即恒不等
+     * 的短路，统一由 dyn_eq 复刻 values_equal */
     long long i;
     for (i = 0; i < l->len; ++i) {
-        long long lb = l->slots[i];
-        long long rb = r->slots[i];
-        if (l->kind == r->kind) {
-            if (l->kind == 1) { /* decimal：按 double 值比较 */
-                double x, y;
-                memcpy(&x, &lb, sizeof x);
-                memcpy(&y, &rb, sizeof y);
-                if (!(x == y)) return 0;
-            } else if (l->kind == 3) { /* string：指针位模式还原后内容比较 */
-                if (strcmp((const char*)(intptr_t)lb,
-                           (const char*)(intptr_t)rb) != 0) return 0;
-            } else if (l->kind == 4) { /* array：递归深比较（嵌套数组，t85） */
-                if (!collie_rt_arr_eq((void*)(intptr_t)lb,
-                                      (void*)(intptr_t)rb)) return 0;
-            } else if (l->kind == 5) { /* object：实例恒不等（对齐解释器 values_equal 无 Instance 分支，t100） */
-                return 0;
-            } else { /* integer / bool：位模式即值 */
-                if (lb != rb) return 0;
-            }
-        } else if ((l->kind == 0 || l->kind == 1) &&
-                   (r->kind == 0 || r->kind == 1)) {
-            /* integer × decimal 混合 kind：double 视图比较 */
-            double x, y;
-            if (l->kind == 0) { x = (double)lb; } else { memcpy(&x, &lb, sizeof x); }
-            if (r->kind == 0) { y = (double)rb; } else { memcpy(&y, &rb, sizeof y); }
-            if (!(x == y)) return 0;
-        } else if ((l->kind == 2 && r->kind == 6) ||
-                   (l->kind == 6 && r->kind == 2)) {
-            /* bool × tribool 混合 kind（t136）：bool 槽 0/1 映射三态 0/2 后直比
-             * （对齐解释器 values_equal 的 tri_of(bool)：false→0/true→2，
-             * unset=1 与任何 bool 恒不等） */
-            long long lt = l->kind == 2 ? lb * 2 : lb;
-            long long rt_ = r->kind == 2 ? rb * 2 : rb;
-            if (lt != rt_) return 0;
-        } else {
-            return 0; /* bool/string 与其它 kind 配对：元素 kind 不等恒 false */
+        long long lt = l->kind == 7 ? l->slots[2 * i] : l->kind;
+        long long lb = l->kind == 7 ? l->slots[2 * i + 1] : l->slots[i];
+        long long rt_ = r->kind == 7 ? r->slots[2 * i] : r->kind;
+        long long rb = r->kind == 7 ? r->slots[2 * i + 1] : r->slots[i];
+        if (!collie_rt_dyn_eq(lt, lb, rt_, rb)) {
+            return 0;
         }
     }
     return 1;

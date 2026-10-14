@@ -1915,28 +1915,18 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
             elem = v.type;
             elem_cls = v.cls;
         } else if (v.type != elem) {
-            // 数值系互混（t90 扩展含 Num）：统一提升 Double 视图——Num 运行期
-            // tag 静态不可判，double 槽承载（rt format_f64 整数值省 .0，
-            // print 输出与解释器混合表示一致）
-            const auto numlike = [](CGType t) {
-                return t == CGType::Int || t == CGType::Double ||
-                       t == CGType::Num;
-            };
-            if (numlike(elem) && numlike(v.type)) {
-                elem = CGType::Double;
-            } else if ((elem == CGType::Bool || elem == CGType::Tri) &&
-                       (v.type == CGType::Bool || v.type == CGType::Tri)) {
-                // bool/tribool 混排（t136）：整体收敛 Tri——bool 字面量经
-                // to_tri 加宽（false→0/true→2），与解释器 values_equal 的
-                // tri_of(bool) 映射一致（value.h Tri::False=0/True=2），
-                // 后续读出为 Tri、与 bool 比较走 t65 Tri×Bool 加宽既有面
-                elem = CGType::Tri;
-            } else if ((is_dyn_scalar(elem) || elem == CGType::Obj) &&
-                       (is_dyn_scalar(v.type) || v.type == CGType::Obj)) {
-                // 异质基本类型混排（t139）+ 类实例混入（t144）：收敛 elem=Dyn
-                // （运行时 kind 7 双步长 {tag,bits} 槽），解锁 print/len/索引读/
-                // == 显示与比较面；实例元素 tag 5 槽存实例 ptr 位模式（镜像
-                // t100 kind 5 单数组 elem_to_bits 表示），读出为 Dyn、print/
+            if ((is_dyn_scalar(elem) || elem == CGType::Obj) &&
+                (is_dyn_scalar(v.type) || v.type == CGType::Obj)) {
+                // 异质基本类型混排（t139）+ 类实例混入（t144）+ 数值系互混与
+                // bool×tribool 互混（t159：Int/Double/Num 不再整体拍平为 Double
+                // 视图、bool/tribool 不再整体加宽为 Tri）：收敛
+                // elem=Dyn（运行时 kind 7 双步长 {tag,bits} 槽），解锁 print/
+                // len/索引读/== 显示与比较面；元素按运行期 tag 保型对齐解释器
+                // 逐元素保型（integer i = [3, 4.5][0]、bool x = [unset, true][1]
+                // 不再因静态最宽 kind 视图失配，标量位上的方法调用也不再答出
+                // 解释器运行期报错的结果），整值 double 省 .0 的 print 输出仍一致；
+                // 实例元素 tag 5 槽存实例 ptr 位模式（镜像 t100 kind 5 单数组
+                // elem_to_bits 表示），读出为 Dyn、print/
                 // toString/插值落 <object>、== 恒不等（对齐解释器 values_equal
                 // 无 Instance 分支）；后续元素经 is_dyn_scalar(Dyn) 持续吸收，
                 // Arr/Tup（含嵌套数组、元组与实例混排）维持拒编不错编——
@@ -1960,7 +1950,10 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
         elements.push_back(v);
     }
     if (elem == CGType::Num) {
-        elem = CGType::Double; // 全 Num 字面量（t90）：同上落 double 视图
+        // 全 Num 字面量（t90 落 double 视图 → t159 改走 kind 7）：Num 的运行期
+        // tag 静态不可判，double 槽会把整数位定宽成小数（integer i = [x, y][0]
+        // 两端分歧）；按元素保型透传 {tag,bits} 对齐解释器逐元素保型
+        elem = CGType::Dyn;
     }
     llvm::Value* arr = builder_.CreateCall(
         rt_arr_new_,
@@ -1987,12 +1980,8 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                 {arr, builder_.getInt64(static_cast<uint64_t>(i)), tag, bits});
             continue;
         }
-        if (elem == CGType::Double &&
-            (v.type == CGType::Int || v.type == CGType::Num)) {
-            v = {to_double(v), CGType::Double}; // 同质提升：Int/Num 元素升 double
-        } else if (elem == CGType::Tri && v.type == CGType::Bool) {
-            v = {to_tri(v), CGType::Tri}; // bool/tribool 混排收敛（t136）
-        }
+        // 同质字面量（elem 与元素类型一致）：直接写单值槽（t159 后任何跨 kind
+        // 混排都收敛 kind 7，此处不再有整体加宽分支）
         builder_.CreateCall(rt_arr_set_,
                             {arr, builder_.getInt64(i), elem_to_bits(v)});
     }
@@ -2519,6 +2508,21 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         return;
     }
 
+    if (object.type == CGType::Dyn && name == "toString" &&
+        expr.arguments().empty() &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [&](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.dispatch.count(name) != 0;
+                     })) {
+        // 动态承载值的 toString()（t159）：解释器把它列为通用内建方法，任意标量
+        // 位均可转串（实例位转 "<object>"），故复用动态标量转串垫片
+        // collie_rt_num_to_str 按运行期 tag 分派（与插值/print 同一格式面，零新增
+        // rt 接口）；静态守卫「无类定义同名方法」同 t154~t157，命中守卫的极程序
+        // 整面回落 t145 实例位分派
+        last_value_ = {to_str(object, expr.name()), CGType::Str};
+        return;
+    }
+
     if (object.type == CGType::Dyn && name == "toNumber" &&
         expr.arguments().empty() &&
         std::none_of(classes_.begin(), classes_.end(),
@@ -2573,16 +2577,49 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         return;
     }
 
+    // t159：Dyn 接收者走 toString 拆分时携带的 {tag,bits} 与哨兵类 id，
+    // 供下方空 cls 分派的 default 臂转串使用（其余路径恒为 nullptr）
+    llvm::Value* dyn_tag = nullptr;
+    llvm::Value* dyn_bits = nullptr;
+    llvm::Value* dyn_cls_override = nullptr;
     if (object.type == CGType::Dyn) {
-        // kind 7 元素读出（Dyn）的方法调用（t145）：tag==5 实例位守卫还原
-        // 实例 ptr 后并入下方空 cls 方法动态分派（t133，全体定义者 switch
-        // 按对象头类 id 调用）；非实例位落 collie_rt undefined method 陷阱
-        // （解释器对 `1.abs()` 等标量自有方法可运行——number 专属方法已在上方
-        // t156 臂按运行期 tag 处理，tribool 三态判定已在 t157 臂处理，其余标量
-        // 位方法面维持拒错编从陷阱）；串方法 trim/subString 与 toNumber 已在
-        // t154/t155 臂处理，仅在存在同名类方法时才落到这里
-        object = {dyn_obj_guard(object, name, true), CGType::Obj,
-                  CGType::Int, std::string()};
+        const bool split_tostring =
+            name == "toString" && expr.arguments().empty() &&
+            std::any_of(classes_.begin(), classes_.end(),
+                        [this](const std::pair<const std::string, CGClass>& entry) {
+                            const auto it = entry.second.dispatch.find("toString");
+                            if (it == entry.second.dispatch.end()) {
+                                return false;
+                            }
+                            // 仅当定义者的 toString 是无参 string 返回时才可拆分
+                            //（异签名统一 PHI 不可行，交下方既有分派/拒编路径）
+                            const CGMethod& m = entry.second.instances.at(it->second);
+                            return m.ret_type == CGType::Str && m.param_types.empty();
+                        });
+        if (split_tostring) {
+            // 动态承载值的 toString()（t159）：解释器把它列为通用内建方法（任意
+            // 标量位转自身表示串），而实例位在同名类方法存在时须走 t133 用户方法
+            // 分派——按运行期 tag 拆分：tag==5 取对象头类 id 入分派 switch，其余
+            // 位以哨兵 id 落 default 臂转串（collie_rt_num_to_str 同 print/插值
+            // 的 tag 分派表，实例位兜底 "<object>" 与解释器一致）；无同名类方法时
+            // 上方 t159 臂已整值走转串，不会到这里
+            dyn_tag = num_tag(object.value);
+            dyn_bits = num_bits(object.value);
+            llvm::Value* ptr = builder_.CreateIntToPtr(
+                dyn_bits, llvm_type_of(CGType::Obj), "dynobjptr");
+            dyn_cls_override = dyn_obj_clsid_or_sentinel(dyn_tag, ptr);
+            object = {ptr, CGType::Obj, CGType::Int, std::string()};
+        } else {
+            // kind 7 元素读出（Dyn）的方法调用（t145）：tag==5 实例位守卫还原
+            // 实例 ptr 后并入下方空 cls 方法动态分派（t133，全体定义者 switch
+            // 按对象头类 id 调用）；非实例位落 collie_rt undefined method 陷阱
+            // （解释器对 `1.abs()` 等标量自有方法可运行——number 专属方法已在上方
+            // t156 臂按运行期 tag 处理，tribool 三态判定已在 t157 臂处理，其余标量
+            // 位方法面维持拒错编从陷阱）；串方法 trim/subString 与 toNumber 已在
+            // t154/t155 臂处理，仅在存在同名类方法时才落到这里
+            object = {dyn_obj_guard(object, name, true), CGType::Obj,
+                      CGType::Int, std::string()};
+        }
     }
 
     if (object.type == CGType::Obj && object.cls.empty()) {
@@ -2634,8 +2671,12 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                             line, column);
             }
         }
-        llvm::Value* clsid = builder_.CreateLoad(
-            builder_.getInt64Ty(), object.value, "clsid");
+        // Dyn 接收者的 toString 拆分（t159）：类 id 由 tag==5 分支的守卫载入
+        // （哨兵路径不解引用非指针位模式）；其余方法调用沿用无条件载入
+        llvm::Value* clsid = dyn_cls_override
+                                 ? dyn_cls_override
+                                 : builder_.CreateLoad(builder_.getInt64Ty(),
+                                                       object.value, "clsid");
         llvm::Function* fn = builder_.GetInsertBlock()->getParent();
         auto* trap_bb = llvm::BasicBlock::Create(context_, "dispatch.trap", fn);
         auto* merge_bb = llvm::BasicBlock::Create(context_, "dispatch.end", fn);
@@ -2656,9 +2697,16 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         builder_.SetInsertPoint(trap_bb);
         if (name == "toString" && dm.ret_type == CGType::Str &&
             arguments.empty()) {
-            // 动态类无用户 toString → 内建兜底 "<object>"（对齐解释器）
-            incoming.emplace_back(trap_bb,
-                                  builder_.CreateGlobalString("<object>"));
+            // 动态类无用户 toString → 内建兜底（对齐解释器）：哨兵 id 落此臂的
+            // 是 Dyn 非实例位（t159），按运行期 tag 转自身表示串（num_to_str 的
+            // tag 5 仍兜底 "<object>"）；静态 cls 接收者维持常量 "<object>"
+            llvm::Value* fallback =
+                dyn_tag
+                    ? builder_.CreateCall(rt_num_to_str_, {dyn_tag, dyn_bits},
+                                          "dynstr")
+                    : static_cast<llvm::Value*>(
+                          builder_.CreateGlobalString("<object>"));
+            incoming.emplace_back(trap_bb, fallback);
             builder_.CreateBr(merge_bb);
         } else {
             builder_.CreateCall(rt_trap_undefined_method_,
@@ -6311,6 +6359,32 @@ llvm::Value* CodeGenerator::dyn_obj_guard(const CGValue& v,
     builder_.SetInsertPoint(obj_bb);
     return builder_.CreateIntToPtr(num_bits(v.value),
                                    llvm_type_of(CGType::Obj), "dynobjptr");
+}
+
+llvm::Value* CodeGenerator::dyn_obj_clsid_or_sentinel(llvm::Value* tag,
+                                                      llvm::Value* ptr) {
+    // Dyn 接收者的实例位类 id 取址拆分（t159）：只有 tag==5 的 bits 才是实例
+    // ptr，非实例位若直接解引用会把标量位模式读成类 id（可能撞真类 id 而错派）；
+    // 故 tag!=5 走哨兵 id（~0，注册序从 0 起永不命中）落分派 default 臂，
+    // 该臂按 {tag,bits} 转串。this 实参在哨兵路径不被使用（default 不调方法）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* load_bb = llvm::BasicBlock::Create(context_, "dynobj.load", fn);
+    auto* sentinel_bb = llvm::BasicBlock::Create(context_, "dynobj.sentinel", fn);
+    auto* join_bb = llvm::BasicBlock::Create(context_, "dynobj.join", fn);
+    builder_.CreateCondBr(
+        builder_.CreateICmpEQ(tag, builder_.getInt64(5), "isdynobj"),
+        load_bb, sentinel_bb);
+    builder_.SetInsertPoint(load_bb);
+    llvm::Value* id =
+        builder_.CreateLoad(builder_.getInt64Ty(), ptr, "dynclsid");
+    builder_.CreateBr(join_bb);
+    builder_.SetInsertPoint(sentinel_bb);
+    builder_.CreateBr(join_bb);
+    builder_.SetInsertPoint(join_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(builder_.getInt64Ty(), 2, "dynobjclsid");
+    phi->addIncoming(id, load_bb);
+    phi->addIncoming(builder_.getInt64(~0ULL), sentinel_bb);
+    return phi;
 }
 
 bool CodeGenerator::is_dyn_unbox_target(CGType t) {

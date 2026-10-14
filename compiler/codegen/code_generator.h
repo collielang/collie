@@ -508,6 +508,13 @@ private:
     llvm::Value* dyn_obj_guard(const CGValue& v, const std::string& member,
                                bool is_method);
 
+    /// @brief Dyn 实例位类 id 取址拆分（t159）：接收者为 CGType::Dyn 且该方法
+    /// 存在类定义（须走 t133 空 cls 动态分派）时，tag==5 才解引用对象头取类 id，
+    /// 其余标量位以哨兵 id 落分派 default 臂（避免对非指针位模式解引用）；返回
+    /// join 块上的类 id PHI，调用点同时以 IntToPtr(bits) 作 this 实参（哨兵路径
+    /// 不会调用任何方法，该 ptr 不被解引用）
+    llvm::Value* dyn_obj_clsid_or_sentinel(llvm::Value* tag, llvm::Value* bits);
+
     /// @brief Int/Double/Num → Num（t62）：integer/decimal→number 加宽保持
     /// 原表示打 tag（对齐解释器 coerce_to_declared），Num 原样返回
     llvm::Value* to_num(const CGValue& v);

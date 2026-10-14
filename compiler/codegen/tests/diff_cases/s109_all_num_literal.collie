@@ -1,0 +1,23 @@
+// t159 S106 差分用例：全 number 字面量按元素保型（kind 7）后的消费面
+number x = 3;
+number y = 4.5;
+array a = [x, y];
+print("1", a);
+integer i = a[0];
+decimal d = a[1];
+print("2", i + 1, d + 1);
+print("3", a[0].isInteger(), a[1].isInteger());
+print("4", a[0].toString(), a[1].toString());
+print("5", a[0] + a[1], a[0] == a[1], a[0] < a[1]);
+print("6", @"{a}");
+a[0] = 2.5;
+print("7", a, a[0].isDecimal());
+number z = 10;
+array b = [z, 20, 3.5];
+print("8", b);
+print("9", b[0].isInteger(), b[2].isDecimal());
+for (integer j = 0; j < len(b); j = j + 1) {
+    print("10", b[j]);
+}
+object o = a[1];
+print("11", o.toString(), o.toNumber());

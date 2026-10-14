@@ -1,0 +1,41 @@
+// t159 S106 差分用例：保型数组进函数动态域、类字段与返回值后的逐元素保型消费面
+function first(v array) integer {
+    integer i = v[0];
+    return i;
+}
+function describe(v array) string {
+    return v[0].toString() + "/" + v[1].toString();
+}
+function build() array {
+    array inner = [1, 2.5];
+    return inner;
+}
+class Sheet {
+    public array row = [7, 3.5];
+    public function head() integer {
+        integer i = this.row[0];
+        return i;
+    }
+    public function set(i integer, v number) none {
+        this.row[i] = v;
+    }
+}
+array a = [3, 4.5];
+print("1", first(a));
+print("2", describe(a));
+array b = build();
+print("3", b, first(b), describe(b));
+print("4", b[0].isInteger(), b[1].isDecimal());
+Sheet s = new Sheet();
+print("5", s.row, s.head());
+s.set(1, 9);
+print("6", s.row, s.row[1].isInteger());
+s.set(0, 0.5);
+print("7", s.row[0].isDecimal(), s.row);
+array c = [1, 2.5, 3];
+number total = 0;
+for (integer i = 0; i < len(c); i = i + 1) {
+    number piece = c[i];
+    total = total + piece;
+}
+print("8", total);

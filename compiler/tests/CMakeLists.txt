@@ -130,7 +130,10 @@ if(COLLIE_ENABLE_LLVM)
             s106_dyn_number_methods s106_dyn_same_name_number_method
             s107_dyn_tribool_methods s107_dyn_same_name_tribool_method
             s108_dyn_to_class_slots s108_dyn_to_class_inherit
-            s108_dyn_to_class_decl s108_dyn_to_class_arg s108_dyn_to_class_return)
+            s108_dyn_to_class_decl s108_dyn_to_class_arg s108_dyn_to_class_return
+            s109_numeric_kind_literal s109_all_num_literal s109_tribool_bool_mix
+            s109_tribool_num_write s109_arr_eq_cross_kind
+            s109_dyn_tostring_same_name_method s109_dyn_array_slots)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -143,7 +146,7 @@ if(COLLIE_ENABLE_LLVM)
 
     # 拒编门禁（t136 引入）：拒编面用例须 colliec rc=1 且 stderr 含
     # "not yet supported"（保守拒编不错编面的回归锁，禁止降差分用例迁就测试）
-    foreach(_rej s86_reject_tribool_num_write s90_reject_dynamic_tuple_field s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture s92_reject_dynamic_object_field_type_mismatch
+    foreach(_rej s90_reject_dynamic_tuple_field s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture s92_reject_dynamic_object_field_type_mismatch
             s93_reject_function_as_argument s93_reject_function_in_array s93_reject_function_return_value
             s94_reject_obj_nested_array_mix
             s96_reject_obj_slot_scalar_reassign s96_reject_object_slot_array_init

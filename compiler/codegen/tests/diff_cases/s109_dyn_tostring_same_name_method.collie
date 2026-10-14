@@ -1,0 +1,31 @@
+// t159 S106 差分用例：存在同名类方法 toString 时的双端一致面：数值 Dyn 位转串 + 实例位走用户方法
+class Box {
+    public integer n = 5;
+    public function toString() string {
+        return "Box";
+    }
+}
+class Bag {
+    public string tag = "bag";
+    public function toString() string {
+        return "Bag";
+    }
+}
+array a = [3, 4.5];
+print("1", a[0].toString(), a[1].toString());
+Box b = new Box();
+Bag g = new Bag();
+print("2", b.toString(), g.toString());
+array mixed = [1, new Box(), "s", new Bag()];
+print("3", mixed[0].toString());
+print("4", mixed[1].toString());
+print("5", mixed[2].toString());
+print("6", mixed[3].toString());
+object o = a[0];
+print("7", o.toString());
+o = b;
+print("8", o.toString());
+array nums = [10, 20];
+print("9", nums[0].toString(), nums);
+print("10", a, mixed);
+print("11", a[0] + 1, mixed[0] + 1);

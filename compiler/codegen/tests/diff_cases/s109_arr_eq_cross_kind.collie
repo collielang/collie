@@ -1,0 +1,26 @@
+// t159 S106 差分用例：保型（kind 7）数组与静态 kind 数组的深比较：跨 kind 逐元素按值判定
+array mix = [3, 4.5];
+print("1", mix == [3, 4.5]);
+print("2", mix == [3.0, 4.5]);
+print("3", mix == [4, 4.5]);
+print("4", mix == [3, 4.5, 7]);
+array ints = [10, 20];
+number p = 10;
+number q = 20;
+array numarr = [p, q];
+print("5", numarr == ints);
+print("6", numarr == [10, 21]);
+array decs = [1.5, 2];
+print("7", decs == [1.5, 2.0]);
+print("8", decs == [1.5, 2]);
+array tri = [unset, true];
+print("9", tri == [unset, true]);
+print("10", tri == [false, true]);
+array nest = [[1, 2.5], [3]];
+print("11", nest == [[1, 2.5], [3]]);
+print("12", nest == [[1.0, 2.5], [3]]);
+array het = [1, "x", 2.5];
+print("13", het == [1, "x", 2.5]);
+print("14", het == [1, "y", 2.5]);
+array plain = [1, 2];
+print("15", plain == [1.0, 2.0]);

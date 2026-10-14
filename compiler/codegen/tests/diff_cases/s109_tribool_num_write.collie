@@ -1,0 +1,7 @@
+// t159 S106 差分用例：原 t136 S83 拒编锁面（number 值写 bool×tribool 混排数组槽）退役：
+// 混排字面量落 kind 7 后按解释器逐元素保型可容任意标量写
+array a = [unset, true];
+a[0] = 1;
+print(a);
+a[1] = "s";
+print(a, a[0].isInteger(), a[1].length);
