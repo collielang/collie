@@ -447,6 +447,14 @@ private:
     llvm::Value* num_tag(llvm::Value* num);
     llvm::Value* num_bits(llvm::Value* num);
 
+    /// @brief Dyn 实例位守卫（t145）：CGType::Dyn（kind 7 {tag,bits}）上做
+    /// 字段读/写或方法调用前，运行期校验 tag==5（实例位）并经 IntToPtr 还原
+    /// 实例 ptr（交既有空 cls 动态分派 t142/t133）；非实例位落既有
+    /// undefined method/property 陷阱报错退出（解释器同为运行期报错；
+    /// 标量自有成员如数值 .abs 亦落陷阱，拒错编从陷阱不静默错值）
+    llvm::Value* dyn_obj_guard(const CGValue& v, const std::string& member,
+                               bool is_method);
+
     /// @brief Int/Double/Num → Num（t62）：integer/decimal→number 加宽保持
     /// 原表示打 tag（对齐解释器 coerce_to_declared），Num 原样返回
     llvm::Value* to_num(const CGValue& v);

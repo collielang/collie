@@ -782,7 +782,12 @@
 - [x] 异质数组含类实例元素（t144，codegen `[d, 1, "two"]` 实例×标量混排落 "heterogeneous array literal" 拒编；解释器数组动态存任意元素，print/==/整槽写均可运行，S91）
     - 方案：把 Obj 纳入 t139 kind 7 承载——`is_dyn_scalar` 本体不收 Obj（t140 tuple 物化面拒编不受影响），visitArrayLiteral 第三收敛判定与 visitIndexAssign elem==Dyn 两处 `|| == CGType::Obj` 放行；物化/写槽复用既有 `arr_kind_of(Obj)=5` + `elem_to_bits` PtrToInt 通道（tag 5 槽存实例 ptr 位模式，镜像 kind 5 单数组 t100 表示），读出仍为 CGType::Dyn；消费面按 Dyn 既有臂补 tag 5：rt `print_num`/`num_to_str` 加 tag 5 → `<object>`、`arr_to_str` case 7 内层 tag switch 加 case 5、`arr_eq` kind7 同 tag 分支加 `lt==5 → 不等`（解释器 values_equal 无 Instance 分支，实例恒不等含 `a == a`）；零新增 collie_rt 接口
     - 验证：探针 p3/p5b/p6b/p9/p10 双端逐字节一致；新差分用例 s94_hetero_obj_array（整体打印/toString/插值、逐元素与负索引读 `<object>`、length/循环遍历、`==`/`!=` 含实例位恒不等与 kind7×非 kind7、整槽写实例覆标量/标量覆实例/Dyn 透传、跨树 `[new Dog(), new Cat(), "end"]`、动态 object 变量入数组、父类静态实例入数组、Int 数组重赋含实例异质数组、bool/tribool/decimal 混排，双端逐字节一致）；拒编实证 3 例注册 codegen_reject_*——Dyn 元素字段访问 `a[0].name`（"property access"，解释器 `rex`）、Dyn 进 object 槽 `object o = a[0]`（"initializing 'object' variable with non-object value"）、Obj×Arr 混排 `[d, [1, 2]]`（维持 "heterogeneous array literal"）；退役 S86 拒编用例 s89_reject_hetero_obj_array（`[1, new A()]` 经此真实解锁，双端一致，非降格迁就测试）；ctest -C Release 全量 117/117（差分 93 + 拒编 18 + 单元 4 + CLI 2）
-    - 范围外：Dyn 元素上的字段/方法访问、进 object 槽、Obj×Arr/Tup 混排字面量维持拒编不错编（已锁 s94 拒编用例）；kind 7 经签名/字段/返回值动态域透传索引读落 CG9 陷阱（既有边界）；含实例位数组参与重载解析等非差分面；零新增 collie_rt 接口
+    - 范围外：Dyn 元素上的字段/方法访问（已于 S92 t145 解锁）、进 object 槽、Obj×Arr/Tup 混排字面量维持拒编不错编（s94_reject_dyn_elem_field_access 已退役，其余两例保留）；kind 7 经签名/字段/返回值动态域透传索引读落 CG9 陷阱（既有边界）；含实例位数组参与重载解析等非差分面；零新增 collie_rt 接口
+
+- [x] kind 7 元素读出（Dyn）上的字段读/写与方法调用（t145，codegen `a[0].name`/`a[0].bark()` 落 "property access" / "method call 'X'" 拒编；解释器数组元素为实例时字段读写与方法调用均可运行，S92）
+    - 方案：新增成员 helper `dyn_obj_guard`（tag 与 5 运行期 icmp → 命中 `IntToPtr(bits)` 还原实例 ptr 出 `{Obj, cls 空}`、未命中 `collie_rt_trap_undefined_property`/`trap_undefined_method` 陷阱 + unreachable），在 visitProperty / visitPropertyAssign / visitMethodCall 三接口的接收者求值后并入，转换值直接落入既有空 cls 动态分派——字段读写复用 t142 全体定义者对象头类 id switch + 字段声明全等守卫 + PHI，方法调用复用 t133 全体定义者 switch（含 toString 内建 `<object>` 兜底、跨类签名全等守卫）；守卫置于实参/写值求值前，陷阱路径 stdout 无增量；继承字段由 t142 子类前缀布局臂自然承载（探针 `[an,0][0].tag` 实证）；零新增 collie_rt 接口
+    - 验证：探针 t145_a/b/c/e/g/i/j 双端逐字节一致（字段读/负索引/写回别名可见、跨树 Dog/Cat 同名字段读写、方法无参/带参/none 副作用、this 字段、toString() 兜底、链式 .name.length、循环变量索引守卫、整槽重写后新实例解码、父类静态入数组按类 id 分派子类覆写）；新差分用例 s95_dyn_elem_member；退役 t144 拒编用例 s94_reject_dyn_elem_field_access（经此真实解锁，非降格迁就测试），s94_reject_dyn_elem_to_object_slot/s94_reject_obj_nested_array_mix 维持；ctest -C Release 全量 117/117（差分 94 + 拒编 17 + 单元 4 + CLI 2）
+    - 范围外：Dyn 标量位的成员访问（数值 `.abs()`、字符串位 `.length`/`.trim()` 等解释器可运行面）无统一标量成员承载，落运行期陷阱拒错编从陷阱；Dyn 进 object 槽、Obj×Arr/Tup 混排维持拒编（既有锁）；异质 tuple（含 Obj 元素）非常量索引仍落 t138 判定外拒编面；零新增 collie_rt 接口
 
 ---
 
@@ -796,7 +801,7 @@
 **真实 parity 缺口路线图（候选，按价值/风险粗排；实现前需双端探针实证，避免把"解释器也拒"误列为缺口）**：
 - 异质 tuple（含 Bool/Str/Tri）非常量索引/动态键 get()：~~真实缺口（元素结果静态不可定）~~ **已由 t138/S85 解锁**——CGType::Dyn 承载物化 tags+bits、显示面（print/toString/插值）双端一致；算术/比较/进类型化槽/进签名/异质含 Arr/Obj/Tup 元素经既有 default 保守拒编（跨 ABI/递归承载面，非显示缺口）
 - 嵌套函数捕获外层局部（closure）：~~高价值 / 高复杂（需真实帧捕获，现为无捕获 lambda 提升）~~ **已由 t141/S88 解锁**——每个真实存储槽 cell_id 自增取号、嵌套原型尾随 ptr 捕获参数转发宿主槽指针、体内读写直达共享单元；类方法体内嵌套捕获与 Tuple 捕获维持拒编
-- 异质基本类型数组字面量 `[1,"two",true]`（含 Bool/Str/数值混排）：~~中（需 tagged 变体元素槽 + 动态读出）~~ **已由 t139/S86 解锁**——运行时 kind 7 双步长 {tag,bits} 槽，本地 print/len/索引读写/== 深比较双端一致；含 Obj/Arr/Tup 元素的异质数组、Dyn 进算术/类型化槽/签名维持拒编 → **含类实例元素已由 t144/S91 解锁**（tag 5 存实例 ptr 位模式，显示/比较/整槽写双端一致，`s89_reject_hetero_obj_array` 退役）；Arr/Tup 混入、Dyn 进算术/类型化槽/签名/字段访问维持拒编
+- 异质基本类型数组字面量 `[1,"two",true]`（含 Bool/Str/数值混排）：~~中（需 tagged 变体元素槽 + 动态读出）~~ **已由 t139/S86 解锁**——运行时 kind 7 双步长 {tag,bits} 槽，本地 print/len/索引读写/== 深比较双端一致；含 Obj/Arr/Tup 元素的异质数组、Dyn 进算术/类型化槽/签名维持拒编 → **含类实例元素已由 t144/S91 解锁**（tag 5 存实例 ptr 位模式，显示/比较/整槽写双端一致，`s89_reject_hetero_obj_array` 退役）；实例位字段读/写与方法调用已由 t145/S92 解锁（tag==5 运行期守卫后并入 t142/t133 动态分派，标量位成员落运行期陷阱）；Arr/Tup 混入、Dyn 进算术/类型化槽/object 槽/签名维持拒编
 - tuple 进函数签名（形参/返回）：~~中（跨 ABI 动态值传递，仿 t70 数组 elem 动态化）~~ **已由 t140/S87 解锁**——KW_TUPLE 签名产出 CGType::TupDyn，实参/返回值 Tup→TupDyn 经 materialize 物化传递；含 Arr/Obj/嵌套 Tup 元素的 tuple 物化维持拒编
 - 三元 / `==?` 分支 tuple 形状不一致合流：~~中低（统一最宽形状或动态化）~~ **已由 t140/S87 解锁**——同形状仍走 t95 静态展开，形状/名字不一致逐支物化为 TupDyn 后 PHI 合流；tuple 进数组仍拒编
 - 动态 object（空 cls）字段读/写：~~中（跨树数组元素/object 形参与返回值承载任意实例，字段偏移无静态布局承载）~~ **已由 t142/S89 解锁**——镜像 t133 方法动态分派，全体定义该字段的类按对象头类 id switch 取值/存储、同名字段声明类型全等守卫后 PHI 合流；同名字段跨类声明类型不一致维持 "inherited field with a different type" 拒编不错编
@@ -805,7 +810,7 @@
 - tribool 进元组：~~低~~（t138/S85 顺带解锁：同质 tribool/混排 tuple 非常量索引落 Dyn 显示面；常量索引 tuple 含 tribool 元素本经静态展开可用）
 - BigInt 运行时化（CG1 远期）：大工程
 
-注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）、object 动态值方法调用运行期分派（S82 t133）、tribool 进数组（S83 t136）、跨树实例数组字面量（S84 t137）、异质 tuple 动态索引/get 显示面（S85 t138）、异质基本类型数组字面量 kind 7（S86 t139）、动态 tuple 运行时（三元/==? 形状不一致合流 + tuple 进签名，S87 t140）、闭包按引用捕获外层形参/局部（S88 t141）、动态 object 字段读写（S89 t142）、函数名作值静态直接消费面（S90 t143）、异质数组含类实例元素（S91 t144）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
+注：方法重载 first-wins（S72 t123）、顶层函数重载 last-wins（S80 t131）、object 动态类型作形参/返回值（S81 t132）、object 动态值方法调用运行期分派（S82 t133）、tribool 进数组（S83 t136）、跨树实例数组字面量（S84 t137）、异质 tuple 动态索引/get 显示面（S85 t138）、异质基本类型数组字面量 kind 7（S86 t139）、动态 tuple 运行时（三元/==? 形状不一致合流 + tuple 进签名，S87 t140）、闭包按引用捕获外层形参/局部（S88 t141）、动态 object 字段读写（S89 t142）、函数名作值静态直接消费面（S90 t143）、异质数组含类实例元素（S91 t144）、Dyn 元素字段读写与方法调用（S92 t145）均已解锁；其余 `unsupported` 非差分面不计入上述路线图。
 
 ## 四、模块解耦方案
 
@@ -857,6 +862,8 @@
 ## 七、变更日志
 
 > 与 git 提交一一对应，最新在上。
+
+- 2026-10-14 `feat(codegen)`: kind 7 元素读出（Dyn）上的字段读/写与方法调用解锁（t145，S92）：新增成员 helper `dyn_obj_guard`——接收者静态类型为 Dyn 时在 `visitProperty`/`visitPropertyAssign`/`visitMethodCall` 三入口的接收者求值后并入运行期分派守卫：tag 与 5 icmp 命中经 `IntToPtr(bits)` 还原实例 ptr 并重绑 `{ptr, Obj, cls 空}` 直接并入既有动态 object 分派面（字段读写走 t142 全体定义者对象头类 id switch + 字段声明全等守卫 + PHI 合流，方法调用走 t133 全体定义者 switch 含 toString 内建 `<object>` 兜底与跨类签名全等守卫），未命中（标量位）落既有 `collie_rt_trap_undefined_property`/`trap_undefined_method` 陷阱报错退出（拒错编从陷阱：解释器对 `1.name` 同为运行期报错；数值 `.abs()`、字符串位 `.length`/`.trim()` 等标量自有成员解释器可运行而 codegen 无统一标量成员承载，同归陷阱面非静默错值）；守卫置于实参/写值求值前，陷阱路径 stdout 无增量；继承字段实证由 t142 子类前缀布局臂自然承载；零新增 collie_rt 接口；新差分用例 s95_dyn_elem_member（字段读/负索引/写回别名、跨树同名字段读写、方法无参/带参/none 副作用、this 字段、toString() 兜底、链式 `.name.length`、循环变量索引守卫、整槽重写新实例解码、父类静态入数组按类 id 分派子类覆写、object 变量共面回归，双端逐字节一致）；退役 t144 拒编用例 s94_reject_dyn_elem_field_access（经此真实解锁，非降格迁就测试），s94_reject_dyn_elem_to_object_slot/s94_reject_obj_nested_array_mix 维持拒编锁面，ctest -C Release 全量 117/117（差分 94 + 拒编 17 + 单元 4 + CLI 2）
 
 - 2026-10-14 `feat(codegen)`: 异质数组含类实例元素（kind 7 tag 5）解锁（t144，S91）：把 Obj 纳入 t139 的异质动态标量承载——`is_dyn_scalar` 本体不收 Obj（t140 tuple 物化面 "dynamic tuple with array/object/nested-tuple elements" 拒编不受影响），改在两处以 `|| == CGType::Obj` 放行（`visitArrayLiteral` 第三收敛判定、`visitIndexAssign` elem==Dyn 整槽写）；物化与写槽复用既有 `arr_kind_of(Obj)=5` + `elem_to_bits` PtrToInt 通道，tag 5 槽存实例 ptr 位模式（镜像 kind 5 单数组 t100 表示），元素读出仍为 `CGType::Dyn`；消费面按 Dyn 既有臂补 tag 5：rt `collie_rt_print_num`/`num_to_str` 加 tag 5 → `<object>`（对齐 `Value::to_string` Instance 分支）、`arr_to_str` case 7 内层 tag switch 加 case 5（整体打印/toString/插值得 `[<object>, 2]`）、`arr_eq` kind7 同 tag 分支加 `lt == 5 → 不等`（解释器 `values_equal` 无 Instance 分支，实例恒不等，含同一实例 `a == a` 实证 false）；零新增 collie_rt 接口；新差分用例 s94_hetero_obj_array（整体打印/toString/插值、逐元素与负索引读、length/循环遍历、`==`/`!=` 含实例位恒不等与 kind7×非 kind7、整槽写实例覆标量/标量覆实例/Dyn 透传、跨树两实例混排、动态 object 变量入数组、父类静态实例入数组、Int 数组整体重赋含实例异质数组、bool/tribool/decimal 混排，双端逐字节一致）+ 拒编用例 s94_reject_dyn_elem_field_access（Dyn 元素字段访问 `a[0].name`，解释器 `rex`）/s94_reject_dyn_elem_to_object_slot（`object o = a[0]`）/s94_reject_obj_nested_array_mix（`[d, [1, 2]]` 维持 "heterogeneous array literal"），退役 S86 拒编用例 s89_reject_hetero_obj_array（`[1, new A()]` 经此真实解锁双端一致，非降格迁就测试），ctest -C Release 全量 117/117（差分 93 + 拒编 18 + 单元 4 + CLI 2）
 

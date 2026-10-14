@@ -1,7 +1,0 @@
-// t144 拒编用例：kind 7 数组元素读出（Dyn）上的字段访问维持保守拒编
-// 解释器按运行期实际实例输出 rex；codegen 元素静态类型为动态值 Dyn，
-// 无实例布局可解码，落 "property access" 拒编不错编
-class Dog { public string name = "rex"; }
-Dog d = new Dog();
-array a = [d, 1];
-print(a[0].name);

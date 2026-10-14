@@ -2100,6 +2100,16 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     size_t column = expr.name().column();
     CGValue object = emit(expr.object());
 
+    if (object.type == CGType::Dyn) {
+        // kind 7 元素读出（Dyn）的方法调用（t145）：tag==5 实例位守卫还原
+        // 实例 ptr 后并入下方空 cls 方法动态分派（t133，全体定义者 switch
+        // 按对象头类 id 调用）；非实例位落 collie_rt undefined method 陷阱
+        // （解释器对 `1.abs()` 等标量自有方法可运行——codegen 无统一标量
+        // 方法承载，拒错编从陷阱，范围外面）；string 方法的 Dyn 承载同理
+        object = {dyn_obj_guard(object, name, true), CGType::Obj,
+                  CGType::Int, std::string()};
+    }
+
     if (object.type == CGType::Obj && object.cls.empty()) {
         // object 动态值方法调用（t133，S81 残余面解锁）：静态 cls 未知，
         // 全体定义了该方法的类均为 switch case（不限同树——object 可承载
@@ -2717,6 +2727,16 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                        CGType::Int};
         return;
     }
+    if (object.type == CGType::Dyn) {
+        // kind 7 元素读出（Dyn）的字段读（t145）：tag==5 实例位守卫还原实例
+        // ptr 后并入下方空 cls 动态分派（t142，全体定义者 switch 按对象头
+        // 类 id 取值）；非实例位落 collie_rt undefined property 陷阱（解释器
+        // 对 `1 .name` 同为运行期报错，拒错编从陷阱）；Dyn 上的 .length
+        // 经下方 defs 空判定维持拒编（解释器字符串位可读长，非本期面）
+        object = {dyn_obj_guard(object, std::string(expr.name().lexeme()),
+                                false),
+                  CGType::Obj, CGType::Int, std::string()};
+    }
     if (object.type == CGType::Obj) {
         // 类实例字段读（t60/t102/t103）：同树定义者收集——downcast 放行后
         // 动态类可为整棵继承树上任意类（旁支可经共同祖先中转写入槽）；
@@ -2867,6 +2887,14 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     // 字段赋值（t60）：求值顺序 object → value（对齐解释器 visitPropertyAssign）；
     // 按字段声明类型对齐（仅 integer→decimal 提升，与四处 coerce 等价）
     CGValue object = emit(expr.object());
+    if (object.type == CGType::Dyn) {
+        // kind 7 元素读出（Dyn）的字段写（t145）：与读路径对称——tag==5
+        // 守卫还原实例 ptr 并入下方空 cls 动态分派（t142）；非实例位落
+        // undefined property 陷阱（解释器对标量接收者同为运行期报错）
+        object = {dyn_obj_guard(object, std::string(expr.name().lexeme()),
+                                false),
+                  CGType::Obj, CGType::Int, std::string()};
+    }
     if (object.type != CGType::Obj) {
         unsupported("property assignment on this value type",
                     expr.name().line(), expr.name().column());
@@ -5688,6 +5716,28 @@ llvm::Value* CodeGenerator::num_tag(llvm::Value* num) {
 
 llvm::Value* CodeGenerator::num_bits(llvm::Value* num) {
     return builder_.CreateExtractValue(num, 1, "numbits");
+}
+
+llvm::Value* CodeGenerator::dyn_obj_guard(const CGValue& v,
+                                          const std::string& member,
+                                          bool is_method) {
+    // kind 7 动态槽上的实例消费（t145）：tag 5 才是类实例，非 5 落运行期
+    // 陷阱退出——解释器对非实例接收者同为运行期报错，拒错编从陷阱
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* obj_bb = llvm::BasicBlock::Create(context_, "dynobj", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dynobj.trap", fn);
+    llvm::Value* tag = num_tag(v.value);
+    builder_.CreateCondBr(
+        builder_.CreateICmpEQ(tag, builder_.getInt64(5), "isdynobj"),
+        obj_bb, trap_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(
+        is_method ? rt_trap_undefined_method_ : rt_trap_undefined_property_,
+        {builder_.CreateGlobalString(member)});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(obj_bb);
+    return builder_.CreateIntToPtr(num_bits(v.value),
+                                   llvm_type_of(CGType::Obj), "dynobjptr");
 }
 
 llvm::Value* CodeGenerator::to_num(const CGValue& v) {

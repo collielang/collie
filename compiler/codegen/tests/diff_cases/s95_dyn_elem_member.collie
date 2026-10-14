@@ -1,0 +1,61 @@
+// t145 差分用例：kind 7 元素读出（Dyn）上的字段读/写与方法调用解锁
+// 实例位（tag 5）经运行期守卫还原实例指针后并入既有空 cls 动态分派
+// （字段 t142 / 方法 t133，按对象头类 id switch）；非实例位落运行期陷阱
+// （解释器同为运行期报错）；原 s94_reject_dyn_elem_field_access 面经此解锁退役
+
+class Animal { public string tag = "A"; public function sound() string { return "generic"; } }
+class Dog extends Animal { public string name = "rex"; public integer legs = 4;
+    public function sound() string { return "woof"; } }
+class Cat { public string name = "miaow"; }
+class Counter { public integer n = 0;
+    public function bump(v integer) none { this.n = this.n + v; }
+    public function show() string { return @"N({this.n})"; } }
+
+Dog d = new Dog();
+Counter k = new Counter();
+
+// 1) 实例位字段读 / 负索引 / 写回再读
+array a = [d, 1, "two"];
+print("r:", a[0].name, a[-3].name);
+a[0].legs = 3;
+print("w:", a[0].legs);
+a[0].name = "bow";
+print("w2:", a[0].name, d.name);
+
+// 2) 跨树两类字段（Dog/Cat 无公共祖先，同名同型字段）
+array x = [new Dog(), new Cat(), "end"];
+print("cross:", x[0].name, x[1].name);
+x[1].name = "kitty";
+print("cross-w:", x[1].name);
+
+// 3) 方法调用：无参、带参、none 返回副作用、读取 this 字段
+k.bump(5);
+print("m:", a[0].sound(), x[0].sound());
+array c = [k, 7];
+c[0].bump(2);
+print("m2:", c[0].n, c[0].show());
+
+// 4) toString() 方法形式（类未定义 → 内建 <object>）
+print("ts:", a[0].toString());
+
+// 5) 字段读结果静态可定：链式 .name.length
+print("chain:", a[0].name.length);
+
+// 6) 循环守卫实例位后字段读（i 为变量索引）
+for (integer i = 0; i < a.length; i = i + 1) {
+    if (i == 0) { print("loop:", a[i].name); }
+}
+
+// 7) 整槽重写后新实例字段解码
+a[0] = new Cat();
+print("re:", a[0].name);
+
+// 8) 父类静态类型实例入数组，方法按对象头类 id 分派到子类覆写
+Animal an = d;
+array p = [an, 0];
+print("disp:", p[0].sound(), p[0].tag);
+
+// 9) 与 object 动态变量共面：object 承载后字段读写回归（t142 路径不变）
+object o = d;
+o.name = "od";
+print("ov:", o.name);
