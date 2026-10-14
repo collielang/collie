@@ -1,0 +1,24 @@
+// t160 S107 差分用例：数组位参与 kind 7 深比较与引用语义（同一数组位别名）
+object x = [1, [2]];
+object y = [1, 2];
+print("1", x == y, y == x);
+object p = [1, [2, 3]];
+object q = [1, [2, 3]];
+object r = [1, [2, 4]];
+print("2", p == q, p == r, p == p);
+array u = [1, [2]];
+array v = [1, [2]];
+array w = [1, [3]];
+print("3", u == v, u == u, u == w);
+array deep = [1, [[2, [3]], 4]];
+print("4", deep, deep[1][0][1][0], deep[1][0][-1]);
+object o = [1, 2];
+o[0] = 9;
+print("5", o, o[0], o.length);
+object z = o;
+print("6", z == o, z[0]);
+o[0] = 42;
+print("7", z[0], o);
+object mixed = [unset, [true, 2]];
+object mixed2 = [unset, [true, 2]];
+print("8", mixed, mixed == mixed2);

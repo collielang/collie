@@ -1,0 +1,16 @@
+// t160 S107 差分用例：object 动态槽以数组初始化（tag 4 承载）后的显示、
+// 长度、索引读、嵌套索引、toString 与插值消费面
+object o = [1, 2];
+print("1", o);
+print("2", o.length, len(o));
+print("3", o[0], o[1]);
+print("4", @"interp {o}");
+print("5", o.toString(), toString(o));
+object p = [1, [2, 3]];
+print("6", p, p[1], p[1][0], p[1].length);
+object q = ["x", true];
+print("7", q, q[0], q[1]);
+object r = [];
+print("8", r, r.length);
+object s = [[1, 2], [3, 4]];
+print("9", s, s[0][1], s[1].length);

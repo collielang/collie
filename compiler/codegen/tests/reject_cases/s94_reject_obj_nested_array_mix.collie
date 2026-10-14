@@ -1,7 +1,0 @@
-// t144 拒编用例：实例与嵌套数组混排维持 "heterogeneous array literal" 拒编
-// t144 仅把 Obj 纳入 kind 7（tag 5）；Arr 元素无 {tag,bits} 编码位，
-// 混入依旧拒编不错编（解释器可输出 [<object>, [1, 2]]）
-class Dog { public string name = "rex"; }
-Dog d = new Dog();
-array a = [d, [1, 2]];
-print(a);

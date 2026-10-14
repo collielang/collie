@@ -1,0 +1,25 @@
+// t160 S107 差分用例：含数组位的 Dyn 槽被闭包捕获、循环与条件消费及重赋换形状
+function outer() none {
+    object c = [1, [2]];
+    function inner() none {
+        print("a", c, c[1][0], c.length);
+    }
+    inner();
+    c = [5, [6]];
+    inner();
+}
+outer();
+array bag = [[1, 2], 3];
+integer i = 0;
+while (i < bag.length) {
+    print("loop", bag[i]);
+    i = i + 1;
+}
+object pick = bag[0];
+print("1", pick, pick[1]);
+if (i > 0) {
+    print("2", bag[0][0], pick.length);
+}
+for (integer k = 0; k < pick.length; k = k + 1) {
+    print("for", pick[k]);
+}

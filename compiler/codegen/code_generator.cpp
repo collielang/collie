@@ -1789,9 +1789,10 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     }
     if (var->type == CGType::Dyn) {
         // object 动态承载槽重赋（t146）：标量/Dyn/Obj（tag 5）统一经 to_dyn
-        // 组装整槽替换，解释器 coerce default 直存任意值同规则；Arr/Tup/Fn
-        // 等无 kind7 表示，拒编不错编
-        if (v.type != CGType::Obj && !is_dyn_scalar(v.type)) {
+        // 组装整槽替换，解释器 coerce default 直存任意值同规则；数组位放行
+        // （t160）：tag 4 + 内层数组 ptr 位模式；Tup/Fn 等无 kind7 表示，
+        // 拒编不错编
+        if (!is_dyn_carrier(v.type)) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
@@ -1915,22 +1916,23 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
             elem = v.type;
             elem_cls = v.cls;
         } else if (v.type != elem) {
-            if ((is_dyn_scalar(elem) || elem == CGType::Obj) &&
-                (is_dyn_scalar(v.type) || v.type == CGType::Obj)) {
+            if (is_dyn_carrier(elem) && is_dyn_carrier(v.type)) {
                 // 异质基本类型混排（t139）+ 类实例混入（t144）+ 数值系互混与
                 // bool×tribool 互混（t159：Int/Double/Num 不再整体拍平为 Double
-                // 视图、bool/tribool 不再整体加宽为 Tri）：收敛
-                // elem=Dyn（运行时 kind 7 双步长 {tag,bits} 槽），解锁 print/
-                // len/索引读/== 显示与比较面；元素按运行期 tag 保型对齐解释器
-                // 逐元素保型（integer i = [3, 4.5][0]、bool x = [unset, true][1]
-                // 不再因静态最宽 kind 视图失配，标量位上的方法调用也不再答出
-                // 解释器运行期报错的结果），整值 double 省 .0 的 print 输出仍一致；
-                // 实例元素 tag 5 槽存实例 ptr 位模式（镜像 t100 kind 5 单数组
-                // elem_to_bits 表示），读出为 Dyn、print/
-                // toString/插值落 <object>、== 恒不等（对齐解释器 values_equal
-                // 无 Instance 分支）；后续元素经 is_dyn_scalar(Dyn) 持续吸收，
-                // Arr/Tup（含嵌套数组、元组与实例混排）维持拒编不错编——
-                // is_dyn_scalar 本体不收 Obj，tuple 物化处（t140）不受影响
+                // 视图、bool/tribool 不再整体加宽为 Tri）+ 嵌套数组混入（t160：
+                // `[1, [2, 3], "x"]` 的数组位 tag 4）：收敛 elem=Dyn（运行时
+                // kind 7 双步长 {tag,bits} 槽），解锁 print/len/索引读/== 显示与
+                // 比较面；元素按运行期 tag 保型对齐解释器逐元素保型（integer i =
+                // [3, 4.5][0]、bool x = [unset, true][1] 不再因静态最宽 kind 视图
+                // 失配，标量位上的方法调用也不再答出解释器运行期报错的结果），
+                // 整值 double 省 .0 的 print 输出仍一致；实例元素 tag 5、数组元素
+                // tag 4 均存 ptr 位模式（镜像 t100 kind 5 / t85 kind 4 单数组
+                // elem_to_bits 表示），读出为 Dyn、print/toString/插值走 rt 按
+                // tag 分派（数组位递归 arr_to_str、实例位 <object>），== 经 dyn_eq
+                // 数组位递归深比较、实例位恒不等（对齐解释器 values_equal）；
+                // 后续元素经 is_dyn_scalar(Dyn)/is_dyn_carrier(Dyn) 持续吸收，
+                // Tup/Fn/Void 维持拒编不错编——is_dyn_scalar 本体不收 Obj/Arr，
+                // tuple 物化处（t140）的「含数组元素」面不受本面影响
                 elem = CGType::Dyn;
             } else {
                 unsupported("heterogeneous array literal",
@@ -2273,9 +2275,8 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         // kind 对齐、int→dec 提升与 CG7 失配陷阱；3=串不可变陷阱；其余=
         // "Only arrays can be index-assigned, got <kind>" 陷阱）；写入值统一经
         // to_dyn 打 tag（Arr 值打 tag 4 存内层数组 ptr，读回即 Dyn）。值类型
-        // 守卫与 kind 7 写侧同源：静态可判的非承载值维持拒编不错编
-        if (!is_dyn_scalar(v.type) && v.type != CGType::Obj &&
-            v.type != CGType::Arr) {
+        // 守卫与 kind 7 写侧同源（is_dyn_carrier）：静态可判的非承载值维持拒编不错编
+        if (!is_dyn_carrier(v.type)) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
         }
@@ -2289,9 +2290,10 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     if (object.elem == CGType::Dyn) {
         // 异质动态标量数组整槽写（t139，kind 7）：任意基本标量写入自带 tag，
         // 解释器异质数组本就容任意元素；Dyn 值透传分量，静态标量打常量 tag。
-        // 实例值放行（t144）：tag 5 + ptr 位模式，读出为 Dyn 显示 <object>、
-        // 字段/方法访问维持拒编；Arr/Tup 值无 kind 7 编码，维持拒编不错编
-        if (!is_dyn_scalar(v.type) && v.type != CGType::Obj) {
+        // 实例值放行（t144）：tag 5 + ptr 位模式；数组值放行（t160）：tag 4 +
+        // 内层数组 ptr 位模式，读出为 Dyn 后 print/==/len/索引走 rt 按 tag 分派，
+        // 字段/方法访问维持拒编；Tup 值无 kind 7 编码，维持拒编不错编
+        if (!is_dyn_carrier(v.type)) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
         }
@@ -3852,10 +3854,11 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             // object 动态承载槽（t146，镜像 t144 kind7 编码）：解释器
             // coerce_to_declared default 直存任意值；标量/Dyn 初始化建
             // CGType::Dyn 槽（{tag,bits}），读经 visitIdentifier 出 Dyn 值喂
-            // print/toString/插值消费面、成员访问走 t145 实例位守卫；重赋
-            // 走 visitAssign Dyn 分支（含 Obj tag 5）；Arr/Tup/Void 等维持
-            // 拒编不错编
-            if (!is_dyn_scalar(init.type)) {
+            // print/toString/插值消费面、成员访问走 t145 实例位守卫；数组初
+            // 始值放行（t160）：tag 4 + 内层数组 ptr 位模式，读出为 Dyn 后
+            // print/len/索引/== 走 rt 既有 tag 4 通道；重赋走 visitAssign Dyn
+            // 分支（含 Obj tag 5）；Tup/Void 等维持拒编不错编
+            if (!is_dyn_carrier(init.type)) {
                 unsupported("initializing 'object' variable with non-object value",
                             stmt.name().line(), stmt.name().column());
             }
@@ -6673,8 +6676,9 @@ llvm::Value* CodeGenerator::to_num(const CGValue& v) {
 
 llvm::Value* CodeGenerator::to_dyn(const CGValue& v) {
     // 动态承载组装（t146）：Num/Dyn 原样透传（同 {i64,i64} 布局、tag 编码
-    // 兼容）；Obj 打 tag 5 存实例 ptr 位模式（同 t144 kind7）；其余标量按
-    // arr_kind_of/elem_to_bits 编码；Arr/Tup/Fn 等经调用侧守卫不落此处
+    // 兼容）；Obj 打 tag 5 存实例 ptr 位模式（同 t144 kind7）；Arr 打 tag 4
+    // 存内层数组 ptr 位模式（同 t160 kind7，与 t85 kind 4 单数组表示重合）；
+    // 其余标量按 arr_kind_of/elem_to_bits 编码；Tup/Fn 等经调用侧守卫不落此处
     switch (v.type) {
         case CGType::Num:
         case CGType::Dyn:
@@ -7147,9 +7151,18 @@ int CodeGenerator::arr_kind_of(CGType elem) {
 bool CodeGenerator::is_dyn_scalar(CGType t) {
     // 异质数组 kind 7 承载范围（t139）：基本标量 + 已动态化标量（Dyn，支持
     // 嵌套异质数组字面量二次物化透传）；Arr/Obj/Tup 各有专属表示，混入维持拒编
+    // （Obj/Arr 由 is_dyn_carrier 在数组字面量与动态承载槽处另行放行）
     return t == CGType::Int || t == CGType::Double || t == CGType::Num ||
            t == CGType::Bool || t == CGType::Str || t == CGType::Tri ||
            t == CGType::Dyn;
+}
+
+bool CodeGenerator::is_dyn_carrier(CGType t) {
+    // kind 7 动态承载全集（t160）：标量（t139）+ 实例位 tag 5（t144）+ 数组位
+    // tag 4（t160，bits 即内层数组 ptr 位模式，镜像 kind 4 单数组表示）；
+    // Tup/Fn/Void 无 {tag,bits} 编码维持拒编不错编。tuple 物化（t140）仍按
+    // is_dyn_scalar 判定，其含数组元素的面不在本面范围
+    return is_dyn_scalar(t) || t == CGType::Obj || t == CGType::Arr;
 }
 
 // ---------------- tuple 静态展开（t68） ----------------

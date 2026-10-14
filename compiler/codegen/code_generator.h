@@ -618,8 +618,13 @@ private:
     /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
     int arr_kind_of(CGType elem);
     /// @brief 异质动态标量数组（kind 7，t139）可承载元素判定：
-    /// ∈ {Int/Double/Num/Bool/Str/Tri/Dyn}；Arr/Obj/Tup 不入（各有专属路径/维持拒编）
+    /// ∈ {Int/Double/Num/Bool/Str/Tri/Dyn}；Arr/Obj/Tup 不入（各有专属路径/维持拒编），
+    /// 数组字面量与动态承载槽处另放的 Obj/Arr 位见 `is_dyn_carrier`（t160）
     static bool is_dyn_scalar(CGType t);
+    /// @brief kind 7 动态承载全集判定（t160）：is_dyn_scalar ∪ {Obj, Arr}——
+    /// 数组字面量混排与动态承载槽另放行的实例位（tag 5）/嵌套数组位（tag 4）；
+    /// tuple 物化（t140）不用本判定，含数组/实例元素的 tuple 维持拒编
+    static bool is_dyn_carrier(CGType t);
     /// @brief AST 层常量整数解析（t68 tuple 索引用）：整数字面量与一元负号包
     /// 字面量（-1 的 AST 为 UnaryExpr('-')+LiteralExpr，emit 会走溢出检查出非常量）
     bool const_int_of(const Expr* e, long long& out);
