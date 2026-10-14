@@ -1,0 +1,63 @@
+// t146 差分用例：object 动态承载槽解锁
+// 非 Obj 初始值（标量/Dyn）的 object 变量建 CGType::Dyn {tag,bits} 槽
+// （镜像 t144 kind7 编码，Obj 重赋打 tag 5）；消费走既有面：print/toString/
+// 插值/拼接（t138/t144 武装）、字段读写与方法调用经 t145 实例位守卫并入
+// 动态分派；原 s94_reject_dyn_elem_to_object_slot 面经此解锁退役
+
+class Animal { public string tag = "A"; public function sound() string { return "generic"; } }
+class Dog extends Animal { public string name = "rex";
+    public function sound() string { return "woof"; } }
+
+Dog d = new Dog();
+Animal an = new Animal();
+
+// 1) kind 7 元素读出（Dyn）初始化 object 槽：实例位/标量位承载与打印
+array a = [d, 7, "s"];
+object o = a[0];
+print("dyn:", o, a[1], a[2]);
+
+// 2) 标量直接初始化：整数/小数/串/bool
+object n = 42;
+object f = 1.5;
+object s = "abc";
+object b = true;
+print("sc:", n, f, s, b);
+
+// 3) toString / 插值 / "+" 双向拼接消费面
+print("cs:", o.toString(), toString(s));
+print("ip:", @"V({n})");
+print("cc:", "x" + s, s + "y", n + "");
+
+// 4) 实例位成员访问：字段读/方法调用（t145 守卫 + 动态分派）
+print("mem:", o.name, o.sound(), o.tag);
+
+// 5) 重赋面：标量→标量、Obj→槽（tag 5）、Dyn→槽
+object q = 1;
+q = d;
+print("r1:", q.name, q);
+q = a[1];
+print("r2:", q);
+q = "tail";
+print("r3:", q);
+
+// 6) 相等折叠（解释器 values_equal 无 Instance 分支恒 false）
+print("eq:", o == d, o != d);
+
+// 7) 入异质数组字面量（Dyn 透传 kind 7）
+array mix = [o, 1];
+print("arr:", mix);
+
+// 8) 闭包捕获 object 动态槽（t141 按引用机制自动覆盖）
+object g = 9;
+function show() string {
+    return @"G({g})";
+}
+print("cap:", show());
+g = s;
+print("cap2:", show());
+
+// 9) 循环局部 object 槽逐元素承载
+for (integer i = 0; i < a.length; i = i + 1) {
+    object e = a[i];
+    print("loop:", e);
+}

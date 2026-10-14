@@ -1,8 +1,0 @@
-// t144 拒编用例：object 变量以 kind 7 元素读出（Dyn）初始化维持保守拒编
-// 解释器动态承载可存实例；codegen 的 object 槽限类实例值（t120 边界），
-// Dyn 无运行期类名可记，落拒编不错编
-class Dog { public string name = "rex"; }
-Dog d = new Dog();
-array a = [d, 1];
-object o = a[0];
-print(o);

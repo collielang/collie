@@ -1,0 +1,4 @@
+// t146 拒编用例：object 槽以数组初始化维持拒编（kind 7 无 Arr 承载位，
+// 解释器动态可存；codegen 落拒编不错编）
+object o = [1, 2];
+print(o);

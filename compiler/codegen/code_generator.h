@@ -459,6 +459,11 @@ private:
     /// 原表示打 tag（对齐解释器 coerce_to_declared），Num 原样返回
     llvm::Value* to_num(const CGValue& v);
 
+    /// @brief 动态承载组装（t146）：标量/Num/Dyn → Dyn {tag,bits}（tag 复用
+    /// arr_kind_of 编码，Obj 按 tag 5 存实例 ptr 位模式，同 t144 kind7）；
+    /// 其余类型经 arr_kind_of/elem_to_bits 的拒编守卫兜底
+    llvm::Value* to_dyn(const CGValue& v);
+
     /// @brief toNumber 降级（t63，对齐解释器 to_number_value）：Bool → 0/1
     /// 整数表示、Str 解析下沉 collie_rt（失败返 NaN）、Int/Double/Num 复用
     /// to_num；其余参数拒编（解释器此处为运行期报错）

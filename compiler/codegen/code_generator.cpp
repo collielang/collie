@@ -1562,6 +1562,20 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         last_value_ = {v.value, CGType::Fn};
         return;
     }
+    if (var->type == CGType::Dyn) {
+        // object 动态承载槽重赋（t146）：标量/Dyn/Obj（tag 5）统一经 to_dyn
+        // 组装整槽替换，解释器 coerce default 直存任意值同规则；Arr/Tup/Fn
+        // 等无 kind7 表示，拒编不错编
+        if (v.type != CGType::Obj && !is_dyn_scalar(v.type)) {
+            unsupported("assigning incompatible value to '" + name + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        llvm::Value* boxed = to_dyn(v);
+        builder_.CreateStore(boxed, var->slot);
+        var->uninit = false;
+        last_value_ = {boxed, CGType::Dyn};
+        return;
+    }
     if (var->type == CGType::Tup) {
         if (var->tup < 0) {
             // 无初始化 Tuple 首赋（t112）：按 RHS 形状建解构槽组，形状自此
@@ -3350,8 +3364,23 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             return;
         }
         if (init.type != CGType::Obj) {
-            unsupported("initializing 'object' variable with non-object value",
-                        stmt.name().line(), stmt.name().column());
+            // object 动态承载槽（t146，镜像 t144 kind7 编码）：解释器
+            // coerce_to_declared default 直存任意值；标量/Dyn 初始化建
+            // CGType::Dyn 槽（{tag,bits}），读经 visitIdentifier 出 Dyn 值喂
+            // print/toString/插值消费面、成员访问走 t145 实例位守卫；重赋
+            // 走 visitAssign Dyn 分支（含 Obj tag 5）；Arr/Tup/Void 等维持
+            // 拒编不错编
+            if (!is_dyn_scalar(init.type)) {
+                unsupported("initializing 'object' variable with non-object value",
+                            stmt.name().line(), stmt.name().column());
+            }
+            const std::string name(stmt.name().lexeme());
+            llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
+            builder_.CreateStore(to_dyn(init), slot);
+            CGVar var{slot, CGType::Dyn};
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141 机制自动覆盖）
+            scopes_.back()[name] = var;
+            return;
         }
         const std::string name(stmt.name().lexeme());
         llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
@@ -5750,6 +5779,26 @@ llvm::Value* CodeGenerator::to_num(const CGValue& v) {
             return make_num(builder_.getInt64(1),
                             builder_.CreateBitCast(v.value, builder_.getInt64Ty(), "bits"));
         default:             unsupported("conversion to 'number'", 0, 0);
+    }
+}
+
+llvm::Value* CodeGenerator::to_dyn(const CGValue& v) {
+    // 动态承载组装（t146）：Num/Dyn 原样透传（同 {i64,i64} 布局、tag 编码
+    // 兼容）；Obj 打 tag 5 存实例 ptr 位模式（同 t144 kind7）；其余标量按
+    // arr_kind_of/elem_to_bits 编码；Arr/Tup/Fn 等经调用侧守卫不落此处
+    switch (v.type) {
+        case CGType::Num:
+        case CGType::Dyn:
+            return v.value;
+        case CGType::Obj:
+            return make_num(builder_.getInt64(5),
+                            builder_.CreatePtrToInt(
+                                v.value, builder_.getInt64Ty(), "dynobjbits"));
+        default:
+            return make_num(
+                builder_.getInt64(
+                    static_cast<uint64_t>(arr_kind_of(v.type))),
+                elem_to_bits(v));
     }
 }
 
