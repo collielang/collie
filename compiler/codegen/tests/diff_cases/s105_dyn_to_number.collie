@@ -1,0 +1,71 @@
+// t155 S102 差分用例：动态承载值（Dyn）上的 toNumber——内建形式与 `.toNumber()`
+// 方法形式同一 rt 分派（0/1 数值位透传、2 bool 转 0/1、3 串解析复用 str_to_num，
+// 其余位落解释器同消息的运行期陷阱）；Dyn 来源覆盖动态域元素、kind 7 异质元素、
+// object 动态承载槽（含重赋）、动态 tuple 索引与 get、拼接结果、类数组字段、
+// 闭包捕获、嵌套索引读出；消费面覆盖算术/比较/插值/number 与 integer 类型化槽
+function f(a array) none {
+    print("A:", a[0].toNumber(), "|", a[1].toNumber(), "|", a[2].toNumber());
+    print("B:", toNumber(a[3]), "|", a[4].toNumber());
+    print("C:", a[0].toNumber() + 1, "|", a[1].toNumber() * 2, "|", a[0].toNumber() == 42);
+    number n = a[0].toNumber();
+    print("D:", n, "|", n > 41, "|", @"{a[0].toNumber()}");
+    print("E:", a[5].toNumber(), "|", a[6].toNumber(), "|", a[7].toNumber());
+}
+function g(a array) none {
+    array tmp = ["7", " 8.5 ", "abc", true, unset, 3, 4.5];
+    print("F:", tmp[0].toNumber(), "|", tmp[1].toNumber(), "|", tmp[2].toNumber());
+    print("G:", tmp[3].toNumber(), "|", tmp[4], "|", tmp[5].toNumber(), tmp[6].toNumber());
+}
+function h(a array) none {
+    object v = a[0];
+    print("H:", v.toNumber(), "|", v.toNumber() < 100);
+    v = a[1];
+    print("I:", v.toNumber());
+}
+function t(a array) none {
+    Tuple tup = (a[0], a[1]);
+    integer i = 1;
+    print("J:", tup[i].toNumber());
+    Tuple u = (x: a[0], y: a[2]);
+    print("K:", u.get("x").toNumber(), "|", u.get("y").toNumber());
+}
+function c(a array) none {
+    print("L:", ("12" + "").toNumber(), "|", (" 3 " + " 4 ").toNumber());
+}
+class Num2 {
+    public array items = ["5", "6"];
+    public function show() none { print("M:", this.items[0].toNumber(), this.items[1].toNumber()); }
+}
+function outer(a array) none {
+    object v = a[0];
+    function reader() none { print("N:", v.toNumber()); }
+    reader();
+    v = a[1];
+    reader();
+}
+function idx(a array) none {
+    print("O:", a[0][0].toNumber(), "|", a[0][1].toNumber());
+}
+function integral(a array) none {
+    print("P:", a[0].toNumber(), "|", a[2].toNumber(), "|", a[0].toNumber() + a[2].toNumber());
+    integer i = a[0].toNumber();
+    print("Q:", i + 1);
+    number n = a[2].toNumber();
+    print("R:", n * 2);
+}
+function loop(a array) none {
+    for (integer i = 0; i < a.length; i = i + 1) {
+        print("S:", a[i].toNumber());
+    }
+}
+f(["42", " 1.5 ", "abc", "+Infinity", "-Infinity", "infinity", "1e3", "0x10"]);
+g(["x"]);
+h(["10", "2.5"]);
+t(["1", "2", "3"]);
+c(["x"]);
+Num2 b = new Num2();
+b.show();
+outer(["7", "8"]);
+idx([["1", "2.5"]]);
+integral([3, true, 4.5]);
+loop(["1", true, 2.5]);

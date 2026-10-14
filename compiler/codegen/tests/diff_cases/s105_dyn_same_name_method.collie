@@ -1,0 +1,18 @@
+// t155 S102 零回归用例：程序存在同名类方法 toNumber() 时，Dyn 臂的静态守卫
+// 整面回落 t145 实例位分派——实例位仍按对象头类 id 调用用户方法（解释器同解），
+// 非实例位的转数面属该守卫的既有残余（见 README S102 范围外）
+class Conv {
+    public integer v = 7;
+    public function toNumber() integer { return this.v * 2; }
+}
+class Other {
+    public integer v = 40;
+    public function toNumber() integer { return this.v + 2; }
+}
+function read(a array) none {
+    print("A:", a[0].toNumber(), "|", a[1].toNumber());
+    object v = a[0];
+    print("B:", v.toNumber());
+    print("C:", a[0].toNumber() + a[1].toNumber());
+}
+read([new Conv(), new Other()]);

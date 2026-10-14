@@ -502,6 +502,16 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
             {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty(),
              builder_.getInt64Ty(), ptr_ty},
             false));
+    // collie_rt 动态承载值 toNumber 声明（t155）：按运行期 tag 复刻解释器
+    // to_number_value 接受表，结果经出参写回 {tag,bits}；mode 1 = 方法形式
+    //（实例位报 Undefined method），mode 0 = 内建形式（实例位报 cannot convert object）
+    rt_dyn_to_number_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_to_number",
+        llvm::FunctionType::get(
+            builder_.getVoidTy(),
+            {builder_.getInt64Ty(), builder_.getInt64Ty(), ptr_ty, ptr_ty,
+             builder_.getInt64Ty()},
+            false));
     // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
     // 态（0/1 以外）时报错退出，消息对齐解释器
     // "Arithmetic operands must be numbers"
@@ -1360,7 +1370,8 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
                     expr.paren().line(), expr.paren().column());
     }
     // toNumber 内建（t63）：结果恒为 number（tagged 双表示）；string 解析
-    // 下沉 collie_rt，bool/integer/decimal/number 纯 IR 内联转 Num；
+    // 下沉 collie_rt，bool/integer/decimal/number 纯 IR 内联转 Num；动态承载值
+    // 下沉 collie_rt_dyn_to_number 按运行期 tag 分派（t155）；
     // array/tuple/实例参数拒编（解释器此处为运行期报错）
     if (callee && callee->name().lexeme() == "toNumber") {
         const auto& arguments = expr.arguments();
@@ -2456,6 +2467,20 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                             builder_.CreateGlobalString(name)},
                            "dyntrim"),
                        CGType::Str};
+        return;
+    }
+
+    if (object.type == CGType::Dyn && name == "toNumber" &&
+        expr.arguments().empty() &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [&](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.dispatch.count(name) != 0;
+                     })) {
+        // 动态承载值的 toNumber()（t155）：与内建形式同一 rt 分派，仅 mode 取
+        // 1（解释器对实例接收者的方法调用走方法查找失败分支，消息不同）；
+        // 结果静态类型 Num，消费面（算术/比较/进类型化槽/print）全走既有臂；
+        // 静态守卫「无类定义同名方法」同 t154，命中则整面回落 t145 实例位分派
+        last_value_ = {dyn_to_number(object, true), CGType::Num};
         return;
     }
 
@@ -6436,9 +6461,28 @@ llvm::Value* CodeGenerator::to_number_num(const CGValue& v, size_t line, size_t 
             return make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag, "numtag"),
                             builder_.CreateLoad(builder_.getInt64Ty(), obits, "numbits"));
         }
+        case CGType::Dyn:
+            // 动态承载值（t155）：tag 运行期才定，下沉 rt 按 tag 复刻解释器
+            // to_number_value 接受表（内建形式 mode 0）
+            return dyn_to_number(v, false);
         default:
             unsupported("toNumber() of this value type", line, column);
     }
+}
+
+llvm::Value* CodeGenerator::dyn_to_number(const CGValue& v, bool method_form) {
+    // 动态承载值（Dyn）的 toNumber（t155）：0/1 数值位透传、2 bool→整数 0/1、
+    // 3 串复用 collie_rt_str_to_num 解析，其余位运行期报错（方法形式的实例位
+    // 走解释器方法查找失败分支，其余与内建形式同报 toNumber() cannot convert
+    // <kind>）；结果经 entry alloca 出参写回 {tag,bits}，静态类型恒 Num
+    //（消费面全走既有 Num 臂，无需 Dyn 拆框）
+    llvm::AllocaInst* otag = create_entry_alloca(builder_.getInt64Ty(), "dynto.otag");
+    llvm::AllocaInst* obits = create_entry_alloca(builder_.getInt64Ty(), "dynto.obits");
+    builder_.CreateCall(rt_dyn_to_number_,
+                        {num_tag(v.value), num_bits(v.value), otag, obits,
+                         builder_.getInt64(method_form ? 1 : 0)});
+    return make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag, "dyntotag"),
+                    builder_.CreateLoad(builder_.getInt64Ty(), obits, "dyntobits"));
 }
 
 void CodeGenerator::gen_number_method(const CGValue& object, const std::string& name,

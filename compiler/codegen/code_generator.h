@@ -511,8 +511,14 @@ private:
 
     /// @brief toNumber 降级（t63，对齐解释器 to_number_value）：Bool → 0/1
     /// 整数表示、Str 解析下沉 collie_rt（失败返 NaN）、Int/Double/Num 复用
-    /// to_num；其余参数拒编（解释器此处为运行期报错）
+    /// to_num、Dyn 下沉 rt_dyn_to_number 按运行期 tag 分派（t155）；
+    /// 其余参数拒编（解释器此处为运行期报错）
     llvm::Value* to_number_num(const CGValue& v, size_t line, size_t column);
+
+    /// @brief 动态承载值（Dyn）的 toNumber 降级（t155）：下沉 rt_dyn_to_number
+    /// 按运行期 tag 分派，结果 Num {tag,bits}；method_form = true 为 `d.toNumber()`
+    /// 方法形式（实例位消息走解释器的方法查找失败分支），false 为内建形式
+    llvm::Value* dyn_to_number(const CGValue& v, bool method_form);
 
     /// @brief number 专属方法降级（t67，对齐解释器 call_number_method）：
     /// abs/integerPart/decimalPart → 接收者同型数值，is* 谓词 → Bool；
@@ -684,6 +690,10 @@ private:
     /// 按运行期 tag 分派（3=串复用既有垫片，其余落解释器同消息陷阱）
     llvm::FunctionCallee rt_dyn_str_trim_;      // ptr(i64 tag, i64 bits, i64 mode, ptr name)
     llvm::FunctionCallee rt_dyn_str_substring_; // ptr(i64 tag, i64 bits, i64 start, i64 end, ptr name)
+    /// collie_rt 动态承载值 toNumber（t155）：按运行期 tag 复刻解释器
+    /// to_number_value 接受表（0/1 透传、2→0/1、3 串解析、其余报错退出），
+    /// 结果经出参写回 {tag,bits}；mode 1 = 方法形式（实例位消息不同）
+    llvm::FunctionCallee rt_dyn_to_number_; // void(i64 tag, i64 bits, ptr otag, ptr obits, i64 mode)
     /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
     /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
     /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂

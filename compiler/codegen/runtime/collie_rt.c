@@ -83,6 +83,13 @@
  *     // collie_rt_str_substring；实例位（5）落 "Undefined method '<name>'
  *     // on object"，其余位落 "Method '<name>()' is only supported on
  *     // strings, got <kind>"
+ *   void collie_rt_dyn_to_number(long long tag, long long bits,
+ *                                long long* otag, long long* obits,
+ *                                long long mode);
+ *     // 动态承载值的 toNumber（t155）：0/1 透传、2→整数 0/1、3 复用
+ *     // collie_rt_str_to_num；其余位 mode 1（方法形式）的实例位报
+ *     // "Undefined method 'toNumber' on object"，其余报
+ *     // "toNumber() cannot convert <kind>"
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -689,6 +696,41 @@ const char* collie_rt_dyn_str_substring(long long tag, long long bits,
         collie_rt_dyn_str_method_trap(tag, name);
     }
     return collie_rt_str_substring((const char*)(intptr_t)bits, start, end);
+}
+
+/* collie_rt_str_to_num 定义在文件后段，此处先行声明供 dyn_to_number 调用 */
+void collie_rt_str_to_num(const char* s, long long* otag, long long* obits);
+
+/* 动态承载值的 toNumber（t155）：复刻解释器 to_number_value 的接受表——
+ * tag 0/1 数值位原样透传（整数态保持整数表示）、tag 2 bool 转整数 0/1、
+ * tag 3 串解析复用 collie_rt_str_to_num（剥空白/严格 Infinity/纯整数精确/
+ * strtod 等价，不可解析得 NaN）；其余位报错：方法形式（mode 1）的实例位走
+ * 解释器实例接收者的方法查找失败分支 "Undefined method 'toNumber' on object"，
+ * 其余与内建形式（mode 0）报 "toNumber() cannot convert <kind>"（kind 名对齐
+ * Value::kind_name）；结果经出参写回 {tag,bits}（同 str_to_num 的 ABI 规避） */
+void collie_rt_dyn_to_number(long long tag, long long bits, long long* otag,
+                             long long* obits, long long mode) {
+    if (tag == 0 || tag == 1) {
+        *otag = tag;
+        *obits = bits;
+        return;
+    }
+    if (tag == 2) {
+        *otag = 0;
+        *obits = bits != 0;
+        return;
+    }
+    if (tag == 3) {
+        collie_rt_str_to_num((const char*)(intptr_t)bits, otag, obits);
+        return;
+    }
+    if (tag == 5 && mode == 1) {
+        fprintf(stderr, "Undefined method 'toNumber' on object\n");
+        exit(1);
+    }
+    fprintf(stderr, "toNumber() cannot convert %s\n",
+            collie_rt_dyn_kind_name(tag));
+    exit(1);
 }
 
 /* ---- 未定义方法/属性陷阱（t102，S39 残余面）---- */
