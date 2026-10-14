@@ -1,0 +1,58 @@
+// t161 S108 差分用例：object 形参收实例（tag 5）——方法动态分派与直接字段读写
+// 实例位经 Dyn 承载后仍并入 S81/S91/S92 既有空 cls 动态分派面（dyn_obj_guard
+// 还原实例 ptr 后按对象头类 id 分派），原 s85/s92 面零回归
+class Animal {
+    public string tag = "A";
+    public Animal(n string) { this.tag = n; }
+    public function sound() string { return "generic"; }
+    public function describe() string { return this.tag + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public string name = "rex";
+    public Dog(n string) : base(n) { }
+    public function sound() string { return "woof"; }
+}
+class Cat extends Animal {
+    public integer legs = 4;
+    public Cat(n string) : base(n) { }
+    public function sound() string { return "meow"; }
+}
+
+function show(a object) none {
+    print("V1:", a.sound(), a.describe());
+    print("V2:", a.tag);
+    print("V3:", a);
+    print("V4:", a.toString());
+}
+show(new Dog("Rex"));
+show(new Cat("Tom"));
+show(new Animal("Generic"));
+
+// 直接字段读（跨类同名字段沿继承链前缀偏移）与写回（引用语义对调用侧可见）
+function rename(o object, s string) string {
+    o.name = s;
+    return o.name;
+}
+Dog d = new Dog("Buddy");
+print("V5:", rename(d, "Max"), d.name);
+print("V6:", rename(d, "Neo"), d.name);
+
+// 不同类各带专属字段：经同一 object 形参读取
+function legsOf(o object) integer {
+    return o.legs;
+}
+print("V7:", legsOf(new Cat("Z")));
+
+// object 返回值进类名落点（tag 5 + 类 id 守卫，S105 t158 面）
+function keep(o object) object { return o; }
+Cat c = keep(new Cat("K"));
+print("V8:", c.legs, c.sound(), c.tag);
+
+// 实例位与标量位混在同一数组后逐个经形参消费（打印面）
+array mix = [d, 1, "s", new Cat("M")];
+function echo(o object) none {
+    print("V9:", o, o.toString());
+}
+for (integer i = 0; i < mix.length; i = i + 1) {
+    echo(mix[i]);
+}

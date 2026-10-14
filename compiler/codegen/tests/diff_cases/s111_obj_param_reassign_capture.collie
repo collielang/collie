@@ -1,0 +1,58 @@
+// t161 S108 差分用例：object 形参重赋、闭包捕获与 tribool/number 专属方法面
+function t(o object) none {
+    print("W1:", o, o.toString());
+    // 形参在体内重赋（Dyn 槽赋值面）后按新承载消费
+    o = "reassigned";
+    print("W2:", o, o.length);
+    // 闭包捕获形参单元（t141 按引用机制）：重赋前后各读一次
+    function show() string {
+        return @"C({o})";
+    }
+    print("W3:", show());
+    o = 7;
+    print("W4:", show(), o + 1);
+}
+t(unset);
+t(false);
+t("init");
+
+// tribool 位上的专属方法面（isTrue/isUnset，S104）经 object 形参
+// ——bool 位不在方法守卫的接受表内（解释器同为运行期报错），故以 tribool
+// 变量加宽后的 tag 6 承载传入
+function tri(o object) none {
+    print("W5:", o.isTrue(), o.isUnset());
+}
+tribool t_true = true;
+tribool t_unset = unset;
+tri(t_true);
+tri(t_unset);
+tri(unset);
+
+// number 位上的 number 方法面（S103）经 object 形参——串位的 isInteger()
+// 两端同为运行期报错（"only supported on numbers, got string"），不在成功用例内
+function num(o object) none {
+    print("W6:", o.isInteger(), o.toNumber() + 1);
+}
+num(5);
+num(1.5);
+
+// 形参转传给另一 object 形参（Dyn 透传）与进类名槽（tag 5 守卫）
+class Dog { public string name = "rex"; public function sound() string { return "woof"; } }
+function forward(o object) object { return o; }
+function use(d object) none {
+    print("W7:", d.name, d.sound());
+}
+Dog dog = new Dog();
+use(forward(dog));
+Dog alias = forward(dog);
+print("W8:", alias.name);
+
+// 循环体内以 object 形参逐元素承载并消费
+function sweep(items array) none {
+    for (integer i = 0; i < items.length; i = i + 1) {
+        use(items[i]);
+    }
+}
+array bag = [dog, forward(1), "s"];
+print("W9:", bag[1]);
+sweep([dog]);

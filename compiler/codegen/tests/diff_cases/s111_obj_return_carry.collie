@@ -1,0 +1,35 @@
+// t161 S108 差分用例：object 返回值承载任意可承载值并在调用点直接消费
+// 此前 object 返回类型只能返回实例（非实例落 "return type mismatch" 拒编）；
+// 改 {tag,bits} 后 return 点打 tag，调用侧按 Dyn 既有面消费
+function keep(o object) object {
+    return o;
+}
+print("K1:", keep("abcd").length);
+print("K2:", keep(7) + 1);
+print("K3:", keep([1, 2, 3]));
+print("K4:", keep(true).toString());
+print("K5:", @"V({keep(unset)})");
+
+// 返回值守卫后的落点：object 槽 / 类名槽 / 异质数组元素 / 再次传参
+object r = keep("tail");
+print("K6:", r, r.length);
+class Dog { public string name = "rex"; public function sound() string { return "woof"; } }
+Dog d = new Dog();
+Dog q = keep(d);
+print("K7:", q.name, q.sound());
+array slot = [keep(1), keep("s"), keep([4, 5])];
+print("K8:", slot, slot.length);
+function sum(a object, b object) number {
+    return a + b;
+}
+print("K9:", sum(keep(2), keep(3)));
+print("K9b:", keep("x").toString() + keep("y").toString());
+
+// 条件返回不同 kind：运行期 tag 决定消费路径
+function maybe(flag bool) object {
+    if (flag) {
+        return "hit";
+    }
+    return 42;
+}
+print("K10:", maybe(true).length, maybe(false) + 1, maybe(true), maybe(false));

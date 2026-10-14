@@ -4505,6 +4505,12 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                                       stmt.keyword().line(),
                                       stmt.keyword().column()),
                      CGType::Obj, CGType::Int, current_ret_cls_};
+            } else if (current_ret_type_ == CGType::Dyn &&
+                       is_dyn_carrier(v.type)) {
+                // 任意可承载返回值出 object 返回类型（t161，S108）：解释器对
+                // object 返回走 coerce_to_declared default 直存；codegen 统一打
+                // {tag,bits}，调用侧按 Dyn 既有消费面（打印/长度/下标/成员/方法）取用
+                v = {to_dyn(v), CGType::Dyn};
             } else {
                 unsupported("return type mismatch",
                             stmt.keyword().line(), stmt.keyword().column());
@@ -4639,10 +4645,14 @@ void CodeGenerator::declared_signature_type(const Token& type_token,
         return;
     }
     if (type_token.type() == TokenType::KW_OBJECT) {
-        // object 动态类型作函数形参/返回值（t132）：接受任意类实例（运行期
-        // cls 驱动）——与 codegen object 变量（S69/S70）同语义：非实例值
-        // （string/number 等需动态值表示）维持拒编，对齐"限 Obj 初始值"边界
-        type_out = CGType::Obj;
+        // object 动态类型作函数形参/返回值（t132 起为 CGType::Obj 空 cls，
+        // 仅能承载实例）→ 动态承载 {tag,bits}（t161，S108）：解释器对 object
+        // 签名按 coerce_to_declared default 直存任意值，形参/返回值运行期可带
+        // 标量、数组或实例，故与 object 变量（t146/t159/t160 的 Dyn 槽）统一表示。
+        // 实例位打 tag 5 后仍并入既有空 cls 动态分派（t133/t142/t145 经
+        // dyn_obj_guard），方法/字段面零回归；串/数组/tribool 等标量位经 S92–S107
+        // 全部既有 tag 分派消费。Tup/Fn/Void 无 {tag,bits} 编码，维持拒编不错编
+        type_out = CGType::Dyn;
         cls_out.clear();
         return;
     }
@@ -4741,6 +4751,12 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
         // 动态承载值进类名形参（t158）：同声明槽规则——tag 5 且类 id 属形参声明
         // 类或其后代类才可静态解码，守卫不中陷阱退出
         return dyn_unbox_to_obj(a.value, want_cls, line, column);
+    }
+    if (want == CGType::Dyn && is_dyn_carrier(a.type)) {
+        // 任意可承载实参进 object 形参（t161，S108）：解释器对 object 签名
+        // default 直存不校验，codegen 统一打 {tag,bits}（实例 tag 5、数组 tag 4、
+        // 标量按 arr_kind_of）；Tup/Fn 等非承载类型仍落下方拒编
+        return to_dyn(a);
     }
     unsupported("argument type mismatch", line, column);
 }

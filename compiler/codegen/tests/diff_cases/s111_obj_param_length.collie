@@ -1,0 +1,19 @@
+// t161 S108 差分用例：object 形参取 .length（退役 s102_reject_obj_param_length）
+// 解释器按承载值运行期取长；codegen 的 object 形参改为 {tag,bits} 动态承载后，
+// .length 走 S99 既有 dyn_len 面——串按字符数、数组按元素数
+function p(o object) none {
+    print("L1:", o.length);
+    print("L2:", o);
+}
+p("abcd");
+p("");
+p([1, 2, 3]);
+p(["a", "b"]);
+array bag = [10, "x"];
+p(bag[1]);
+
+// 返回 .length 作整数消费
+function size(o object) integer {
+    return o.length;
+}
+print("L3:", size("hello"), size([1, 2]) + 1);

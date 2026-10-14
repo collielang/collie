@@ -1,0 +1,29 @@
+// t161 S108 差分用例：object 形参作下标（退役 s100_reject_obj_param_index）
+// 解释器运行期按承载的整数值取元素；codegen object 形参改 {tag,bits} 后，
+// 下标面走 S97 既有 dyn_index 面（整数态可用、小数态运行期陷阱）
+array src = [10, 20, 30];
+array idx = [1, "x"];
+function at(a array, i object) number {
+    return a[i];
+}
+print("I1:", at(src, idx[0]));
+print("I2:", at(src, 2));
+print("I3:", at(src, -1));
+
+// 来自 object 动态槽/三元臂/object 返回值的下标承载
+object direct = 0;
+print("I4:", at(src, direct));
+function pick(flag bool) object {
+    return flag ? idx[0] : direct;
+}
+print("I5:", at(src, pick(true)), at(src, pick(false)));
+function wrap(o object) object {
+    return o;
+}
+print("I6:", at(src, wrap(1)), at(src, wrap(idx[0])));
+
+// 下标表达式内含 object 形参参与算术后再取下标
+function offset(a array, pos object) number {
+    return a[pos + 1];
+}
+print("I7:", offset(src, 0), offset(src, direct), offset(src, wrap(1)));

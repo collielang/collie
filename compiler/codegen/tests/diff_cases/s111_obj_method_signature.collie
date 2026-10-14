@@ -1,0 +1,52 @@
+// t161 S108 差分用例：object 进类方法/构造器签名（形参与返回值）
+// 方法面与构造器面共用 declared_signature_type，实例/标量/数组位皆可承载，
+// 方法体内消费走 Dyn 既有面；this 的静态布局不受影响
+//（object 型类字段仍落 "variable type 'object'" 拒编，不在本面范围）
+class Box {
+    public integer count = 0;
+    public Box(init object) { this.count = 1; }
+    public function label(o object) string {
+        return "L=" + o.toString();
+    }
+    public function size(o object) integer {
+        return o.length;
+    }
+    public function memo(o object) object {
+        return o;
+    }
+}
+Box a = new Box(42);
+print("X1:", a.count, a.label("hello"), a.label([1, 2, 3]), a.label(7));
+print("X2:", a.size("hello"), a.size([1, 2, 3]));
+
+class Dog { public string name = "rex"; public function sound() string { return "woof"; } }
+Dog d = new Dog();
+print("X3:", a.label(d), a.memo(d).name, a.memo(d).sound());
+
+// 方法返回的 object 承载进类名槽（tag 5 + 类 id 守卫，S105 t158 面）
+Dog q = a.memo(d);
+print("X4:", q.name);
+
+// 方法返回承载直接在调用点消费（长度/算术/打印）
+print("X5:", a.memo("abcd").length, a.memo(7) + 1, a.memo([1, "s"]));
+
+// 构造器形参与方法形参转传给函数形参（Dyn 透传）
+function echo(o object) none {
+    print("X6:", o, o.toString());
+}
+Box b = new Box("ctor");
+echo(b.memo("tail"));
+echo(b.memo([4, 5]));
+echo(b.count);
+
+// 方法形参在体内重赋后返回（Dyn 局部语义）
+function swap(o object) object {
+    o = "rewritten";
+    return o;
+}
+print("X7:", swap(1), a.label(swap("x")));
+
+// 同名方法撞名守卫下的实例位/标量位拆分（S106 t159 面经签名传递）
+class Speak { public function toString() string { return "speak"; } }
+Speak sp = new Speak();
+print("X8:", a.memo(sp).toString(), a.memo(3).toString(), a.memo("t").toString());

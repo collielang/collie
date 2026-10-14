@@ -1,0 +1,40 @@
+// t161 S108 差分用例：object 形参收标量承载（打印/toString/插值/算术/拼接）
+// object 签名此前为 CGType::Obj 空 cls（仅能承载实例，标量实参落
+// "argument type mismatch" 拒编）；改为 {tag,bits} 动态承载后，体内全部
+// 消费走 S92–S107 既有运行期 tag 分派面
+
+function show(o object) none {
+    print("A1:", o);
+    print("A2:", o.toString());
+    print("A3:", @"V({o})");
+}
+show(5);
+show(1.5);
+show(true);
+show(unset);
+show("s");
+
+function arith(o object) none {
+    print("A4:", o + 1, 1 + o, o + "");
+}
+arith(5);
+arith(1.5);
+arith("s");
+
+function cat(o object) string {
+    return "x" + o;
+}
+print("A5:", cat(7), cat("y"));
+
+// 内建函数形式与串方法形式在同一 object 形参上的消费面
+function methods(o object) none {
+    print("A6:", o.trim(), o.subString(1, 2));
+    print("A7:", len(o), toString(o));
+}
+methods(" b ");
+methods("abcd");
+
+function toNum(o object) none {
+    print("A8:", o.toNumber() + 1);
+}
+toNum("12");

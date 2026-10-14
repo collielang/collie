@@ -1,0 +1,39 @@
+// t161 S108 差分用例：object 形参收数组承载（长度/下标/打印/toString/嵌套）
+// 数组位打 tag 4（S107 t160 承载集）后经 object 签名传递，体内消费走
+// S99/S100/S103 既有 dyn_len/dyn_index/dyn_set 面
+function p(o object) none {
+    print("R1:", o.length);
+    print("R2:", o[0]);
+    print("R3:", o);
+    print("R4:", o.toString());
+    print("R5:", o[-1]);
+}
+p([1, 2, 3]);
+p(["a", "b"]);
+p([1, "x", true]);
+p([[1, 2], [3]]);
+
+class Dog { public string name = "rex"; }
+Dog d = new Dog();
+p([d, 1]);
+
+// 数组写入后经形参对调用侧可见（引用语义，解释器同源）
+function wr(o object) none {
+    o[0] = 99;
+}
+array live = [1, 2];
+wr(live);
+print("R6:", live);
+
+// 嵌套下标：数组位的元素再取下标
+function nested(o object) none {
+    print("R7:", o[0][1], o[0].length);
+}
+nested([[7, 8], [9]]);
+
+// 数组承载进 object 返回值再消费
+function carry(a array) object {
+    return a;
+}
+object back = carry([1, "s"]);
+print("R8:", back, back.length, back[1]);
