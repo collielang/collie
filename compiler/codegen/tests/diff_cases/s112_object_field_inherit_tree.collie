@@ -1,0 +1,37 @@
+// t162 S109 差分用例：object 型类字段在继承树上的读写（多类树 switch/PHI）
+class Animal {
+    public object tag = "a";
+    public function show() string {
+        return "A:" + this.tag;
+    }
+}
+class Dog extends Animal {
+    public object toy = 0;
+    public function show() string {
+        return "D:" + this.tag;
+    }
+}
+// 向上转型：静态类 Animal、动态类 Dog——字段读按对象头类 id 分派
+Animal up = new Dog();
+print("R1:", up.show());
+print("R2:", up.tag);
+up.tag = 42;
+print("R3:", up.tag, up.show());
+// 子类专属字段经父类静态类型的字段写不可达，此处按子类静态类型读写
+Dog d = new Dog();
+d.toy = [1, 2];
+print("R4:", d.toy, d.toy.length);
+// 以 object 接收者读写同名继承字段（空 cls 全体定义者分派）
+function via(o object) string {
+    o.tag = "z";
+    return o.tag.toString();
+}
+Dog d2 = new Dog();
+print("R5:", via(d2), d2.tag);
+print("R6:", via(up));
+// 函数返回值进类名字段（t158 落点）：动态类须属声明类或其后代
+function make() object {
+    return new Dog();
+}
+Animal made = make();
+print("R7:", made.show(), made.tag);

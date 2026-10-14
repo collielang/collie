@@ -1,0 +1,33 @@
+// t162 S109 差分用例：object 型类字段承载实例位（方法/字段读、向下转型解码）
+class Dog {
+    public string name = "rex";
+    public function speak() string {
+        return "woof " + this.name;
+    }
+}
+class Kennel {
+    public object occupant = 0;
+}
+Kennel k = new Kennel();
+Dog d = new Dog();
+k.occupant = d;
+print("R1:", k.occupant);
+print("R2:", k.occupant.speak());
+print("R3:", k.occupant.name);
+k.occupant.name = "bud";
+print("R4:", k.occupant.name, d.name);
+// 字段读出的实例位进类名落点（t158 守卫：类 id 属声明类才解码）
+function down(o object) Dog {
+    return o;
+}
+Dog back = down(k.occupant);
+print("R5:", back.speak());
+// 字段初值直接是实例
+class Home {
+    public object pet = new Dog();
+}
+Home hm = new Home();
+print("R6:", hm.pet.speak(), hm.pet.name);
+// 实例位与标量位在同字段上换形状
+hm.pet = 1;
+print("R7:", hm.pet);

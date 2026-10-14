@@ -1,0 +1,38 @@
+// t162 S109 差分用例：object 型类字段承载数组位（长度/下标/深比较/引用语义）
+class Bag {
+    public object items = [1, 2];
+}
+Bag g = new Bag();
+print("R1:", g.items, g.items.length, len(g.items));
+print("R2:", g.items[0], g.items[-1]);
+g.items = [3, 4.5, true, "x"];
+print("R3:", g.items);
+print("R4:", g.items[1], g.items[2].toString());
+// 嵌套数组位：内层数组再取长度与下标
+g.items = [[1, 2], [3]];
+print("R5:", g.items[0][1], g.items[0].length, g.items);
+// 引用语义：字段槽存同一数组对象，经 object 变量别名写入两侧可见
+g.items = [1, 2];
+object alias = g.items;
+alias[0] = 99;
+print("R6:", g.items[0], alias[0]);
+// kind 7 承载位的别名写（异类值入动态槽）
+g.items = [1, "x"];
+object alias2 = g.items;
+alias2[0] = [7];
+print("R7:", g.items, g.items[0][0]);
+// 数组承载换形状
+Bag h = new Bag();
+h.items = 7;
+print("R8:", h.items);
+h.items = ["s", [true]];
+print("R9:", h.items, h.items[1][0]);
+// 跨 kind 深比较：字段槽两侧各取一份再比（引用语义下同对象恒等）
+Bag k = new Bag();
+k.items = [1, 2];
+object left = k.items;
+object right = k.items;
+print("R10:", left == right);
+k.items = [1, 2];
+object other = k.items;
+print("R11:", left == other);

@@ -139,7 +139,10 @@ if(COLLIE_ENABLE_LLVM)
             s110_dyn_array_closure_loop
             s111_obj_param_scalar_carry s111_obj_param_length s111_obj_param_index
             s111_obj_param_array_carry s111_obj_param_instance_carry
-            s111_obj_param_reassign_capture s111_obj_method_signature)
+            s111_obj_param_reassign_capture s111_obj_method_signature
+            s112_object_field_scalar_init s112_object_field_array_bit
+            s112_object_field_instance_bit s112_object_field_inherit_tree
+            s112_object_field_reassign_capture s112_object_field_methods)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -156,7 +159,7 @@ if(COLLIE_ENABLE_LLVM)
             s93_reject_function_as_argument s93_reject_function_in_array s93_reject_function_return_value
             s96_reject_obj_slot_scalar_reassign
             s97_reject_dyn_to_homog_array_slot
-            s111_reject_obj_param_tuple)
+            s111_reject_obj_param_tuple s112_reject_object_field_tuple)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

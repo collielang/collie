@@ -3577,7 +3577,8 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
     }
     uint64_t size = 8; // i64 类 id 头部（t86）
     for (const CGField& field : cls.fields) {
-        size += field.type == CGType::Num ? 16 : 8;
+        // Num/Dyn 均为 {i64,i64} 双字槽（t62/t162），其余字段 ≤ 8 字节
+        size += (field.type == CGType::Num || field.type == CGType::Dyn) ? 16 : 8;
     }
     llvm::Value* obj =
         builder_.CreateCall(rt_obj_new_, {builder_.getInt64(size)}, "objnew");
@@ -4911,6 +4912,13 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
          v.type == CGType::Num || v.type == CGType::Bool)) {
         return coerce_to_string_value(v);
     }
+    // 任意可承载值进 object 动态承载槽（t162，S109）：解释器对 object 声明
+    // 的字段槽 default 直存不校验，codegen 统一打 {tag,bits}（实例 tag 5、
+    // 数组 tag 4、标量按 arr_kind_of），与 object 变量/动态签名同一表示；
+    // v.type == Dyn 已在上方等值透传，Tup/Fn 等非承载类型落下方拒编
+    if (slot_type == CGType::Dyn && is_dyn_carrier(v.type)) {
+        return to_dyn(v);
+    }
     // 动态承载值进类型化槽（t147）：kind 7 数组元素/动态域读出与 object
     // 动态承载槽（t146）的值 tag 运行期才定——按解释器 coerce_to_declared
     // 的接受表插运行期守卫拆槽（不符者陷阱退出，两端同报错）；Arr/Tup/
@@ -5276,6 +5284,15 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
                             field->name().line(), field->name().column());
             }
             ftype = CGType::Obj;
+        } else if (field->type().type() == TokenType::KW_OBJECT) {
+            // object 型类字段（t162，S109）：解释器对 object 声明走
+            // coerce_to_declared default 直存任意值，字段槽运行期可带标量、
+            // 数组或实例——与 object 变量（t146/t160）及动态签名（t161）统一
+            // 以 {tag,bits} 承载（CGType::Dyn，无静态 cls）；读出即 Dyn，消费
+            // 走 S92–S108 全部既有 tag 分派；实例位经 dyn_obj_guard 并回
+            // t133/t142 方法/字段动态分派。Tup/Fn 无编码，落 coerce_for_slot
+            // 拒编不错编
+            ftype = CGType::Dyn;
         } else if (field->type().type() == TokenType::KW_BYTE ||
                    field->type().type() == TokenType::KW_WORD) {
             // byte/word 字段（t87）：i64 槽承载 + 记 bit_max，初始化/赋值

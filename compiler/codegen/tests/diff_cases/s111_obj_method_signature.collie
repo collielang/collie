@@ -1,7 +1,7 @@
 // t161 S108 差分用例：object 进类方法/构造器签名（形参与返回值）
 // 方法面与构造器面共用 declared_signature_type，实例/标量/数组位皆可承载，
 // 方法体内消费走 Dyn 既有面；this 的静态布局不受影响
-//（object 型类字段仍落 "variable type 'object'" 拒编，不在本面范围）
+//（object 型类字段已于 S109 t162 同为 {tag,bits} 承载解锁，见 s112_ 用例）
 class Box {
     public integer count = 0;
     public Box(init object) { this.count = 1; }

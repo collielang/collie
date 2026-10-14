@@ -1,0 +1,31 @@
+// t162 S109 差分用例：object 型类字段值上的方法面（串/数值/三态判定、两形式转串）
+class Slot {
+    public object v = 0;
+}
+Slot s = new Slot();
+s.v = "  hi  ";
+print("R1:", "[" + s.v.trim() + "]", "[" + s.v.trimLeft() + "]");
+print("R2:", s.v[0], s.v.subString(1, 3));
+s.v = "12";
+print("R3:", toNumber(s.v) + 1);
+print("R4:", s.v.toNumber() + 1);
+s.v = 7;
+print("R5:", s.v.isInteger(), s.v.toString(), s.v.abs());
+print("R6:", toString(s.v));
+s.v = 2.5;
+print("R7:", s.v.isInteger(), s.v.integerPart(), s.v.isDecimal());
+s.v = unset;
+print("R8:", s.v.isTrue(), s.v.isFalse());
+s.v = true;
+print("R9:", s.v.toString());
+// 同名字段与内建 toString 方法并存时按运行期 tag 拆分（t159 面）
+class Named {
+    public object v = 3;
+    public function toString() string {
+        return "named";
+    }
+}
+Named m1 = new Named();
+print("R10:", m1.toString());
+object alias = m1.v;
+print("R11:", alias.toString());

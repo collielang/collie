@@ -1,0 +1,23 @@
+// t162 S109 差分用例：object 型类字段承载标量位（打印/类型化槽拆槽/长度）
+// 解释器对 object 声明走 coerce_to_declared default 直存任意值，codegen
+// 此前落 "variable type 'object'" 拒编；字段槽现以 {tag,bits} 承载
+class Box {
+    public object payload = 0;
+    public decimal ratio = 1.5;
+}
+Box b = new Box();
+print("R1:", b.payload, b.ratio);
+b.payload = 3;
+integer i = b.payload;
+print("R2:", i);
+b.payload = 2.5;
+decimal d = b.payload;
+print("R3:", d);
+print("R4:", b.payload + 1);
+b.payload = true;
+bool flag = b.payload;
+print("R5:", flag, b.payload);
+b.payload = "hello";
+print("R6:", b.payload, b.payload.length);
+object q = b.payload;
+print("R7:", q);

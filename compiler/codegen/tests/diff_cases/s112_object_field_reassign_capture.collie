@@ -1,0 +1,34 @@
+// t162 S109 差分用例：object 型类字段换形状 + 闭包捕获 + 循环/分支消费
+class Box {
+    public object payload = 0;
+    public Box(v object) {
+        this.payload = v;
+    }
+}
+Box b = new Box("seed");
+print("R1:", b.payload);
+b.payload = [1, 2];
+object keep = b.payload;
+function describe() string {
+    return "captured:" + keep;
+}
+print("R2:", describe());
+// 循环内换形状，字段读按运行期 tag 消费
+integer n = 0;
+while (n < 3) {
+    b.payload = n * 10;
+    print("R3:", b.payload);
+    n = n + 1;
+}
+for (integer i = 0; i < 2; i = i + 1) {
+    b.payload = ["s", true];
+    print("R4:", b.payload, b.payload[0].trim(), b.payload[1].toString());
+}
+if (b.payload.toString() == "[s, true]") {
+    print("R5:", "yes");
+} else {
+    print("R5:", "no");
+}
+// 构造器实参走 object 形参（t161）落进字段槽
+Box c = new Box([3, [4]]);
+print("R6:", c.payload, c.payload[1][0]);
