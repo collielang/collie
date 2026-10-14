@@ -941,11 +941,13 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                                CGType::Bool};
                 return;
             }
-            // 实例（Obj）相等（t82）：解释器 values_equal 无 Instance 分支落
-            // default 恒 false（含同一实例 a==a），故 ==/!= 常量折叠——Obj×Obj
-            // 与 Obj×非Obj（kind 不等，语义层通常更早拦截，此为双保险）均 false；
-            // 关系比较落下方 require_numeric 拒编（解释器同样不支持）
-            if ((lhs.type == CGType::Obj || rhs.type == CGType::Obj) &&
+            // 实例（Obj）/函数值（Fn）相等（t82/t143）：解释器 values_equal 无
+            // Instance/Function 分支落 default 恒 false（含同一实例 a==a、同一
+            // 函数 add==add——实证 false），故 ==/!= 常量折叠：同族与跨族
+            // （kind 不等语义层多已拦截，此为双保险）均恒 false；关系比较
+            // 落下方 require_numeric 拒编（解释器同为运行期报错，非差分面）
+            if ((lhs.type == CGType::Obj || rhs.type == CGType::Obj ||
+                 lhs.type == CGType::Fn || rhs.type == CGType::Fn) &&
                 (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL)) {
                 llvm::Value* eq = builder_.getInt1(false);
                 last_value_ = {t == TokenType::OP_EQUAL
@@ -1316,6 +1318,12 @@ void CodeGenerator::gen_print(const CallExpr& expr) {
                 builder_.CreateCall(rt_print_str_,
                                     {builder_.CreateGlobalString("<object>")});
                 break;
+            case CGType::Fn:
+                // 函数值打印固定 "<function>"（t143，对齐解释器 Value::to_string
+                // Function 分支）
+                builder_.CreateCall(rt_print_str_,
+                                    {builder_.CreateGlobalString("<function>")});
+                break;
             case CGType::Tup:
                 // tuple 打印（t68）：静态展开拼接后整串输出（格式对齐
                 // Value::to_string Tuple 分支）
@@ -1406,13 +1414,28 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
     const std::string name(expr.name().lexeme());
     CGVar* var = lookup_var(name);
     if (!var) {
+        // 顶层函数名作值（t143）：functions_ 第一遍已建齐，裸名直查命中即
+        // 出 Fn 值（改编键含 '.' 不会误命中嵌套/方法）；解释器 env 中函数
+        // 名即函数值（value.h Kind::Function），print/toString/插值消费
+        // "<function>"（Value::to_string Function 分支）
+        auto fit = functions_.find(name);
+        if (fit != functions_.end()) {
+            last_value_ = {fit->second.fn, CGType::Fn};
+            return;
+        }
         unsupported("identifier '" + name + "'",
                     expr.name().line(), expr.name().column());
     }
     if (!var->fn_key.empty()) {
-        // 嵌套函数绑定（t91）：函数值非一等公民，作值使用拒编不错编
-        unsupported("function '" + name + "' used as a value",
-                    expr.name().line(), expr.name().column());
+        // 嵌套函数绑定作值（t91 登记，t143 解锁消费）：出 Fn 值；间接调用
+        // 经变量名语义层已拦（callee 需 FUNCTION 符号），非差分面
+        auto fit = functions_.find(var->fn_key);
+        if (fit == functions_.end()) {
+            unsupported("function '" + name + "' used as a value",
+                        expr.name().line(), expr.name().column());
+        }
+        last_value_ = {fit->second.fn, CGType::Fn};
+        return;
     }
     if (var->uninit) {
         // 无初始化声明未经支配性定赋（t92/t110）：解释器此值为 none（流不
@@ -1503,6 +1526,17 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         if (var->cls.empty() && v.type == CGType::Obj) {
             var->cls = v.cls;
         }
+        if (var->cls.empty() && var->type == CGType::Obj &&
+            v.type == CGType::Fn) {
+            // 无初始化 object 首赋函数值（t143，镜像 t120 声明初始化）：槽
+            // 重绑 Fn（同为 ptr 布局，store 合法）；自此读经 visitIdentifier
+            // 出 Fn 值喂消费面；后续异型重赋落上方 Fn 分支/本守卫拒编不错编
+            var->type = CGType::Fn;
+            builder_.CreateStore(v.value, var->slot);
+            var->uninit = false;
+            last_value_ = {v.value, CGType::Fn};
+            return;
+        }
         if (v.type != CGType::Obj ||
             (v.cls != var->cls && !is_subclass_of(v.cls, var->cls) &&
              !is_subclass_of(var->cls, v.cls))) {
@@ -1514,6 +1548,18 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // 区域跟踪：条件发射区已快照隔离，此处无条件清）
         var->uninit = false;
         last_value_ = {v.value, CGType::Obj, CGType::Int, var->cls};
+        return;
+    }
+    if (var->type == CGType::Fn) {
+        // Fn 槽同型重赋（t143）：另一函数名/Fn 变量直接换 ptr；异型（数字/
+        // 串等）解释器 coerce default 可直存任意值，此处拒编不错编
+        if (v.type != CGType::Fn) {
+            unsupported("assigning non-function value to '" + name + "'",
+                        expr.name().line(), expr.name().column());
+        }
+        builder_.CreateStore(v.value, var->slot);
+        var->uninit = false;
+        last_value_ = {v.value, CGType::Fn};
         return;
     }
     if (var->type == CGType::Tup) {
@@ -3255,6 +3301,19 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     // 维持拒编不错编
     if (stmt.type().type() == TokenType::KW_OBJECT) {
         CGValue init = emit(stmt.initializer());
+        if (init.type == CGType::Fn) {
+            // 函数值初始化 object 变量（t143）：解释器 coerce_to_declared
+            // default 分支函数值直存；槽存 Fn ptr（静态函数指针），读经
+            // visitIdentifier 出 Fn 值喂 print/拼接/相等消费面；异型重赋
+            // 落 visitAssign Fn 分支拒编不错编
+            const std::string name(stmt.name().lexeme());
+            llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Fn), name);
+            builder_.CreateStore(init.value, slot);
+            CGVar var{slot, CGType::Fn};
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141 机制自动覆盖）
+            scopes_.back()[name] = var;
+            return;
+        }
         if (init.type != CGType::Obj) {
             unsupported("initializing 'object' variable with non-object value",
                         stmt.name().line(), stmt.name().column());
@@ -4149,6 +4208,7 @@ llvm::Type* CodeGenerator::llvm_type_of(CGType type) {
         case CGType::Arr:    return llvm::PointerType::getUnqual(context_);
         case CGType::Obj:    return llvm::PointerType::getUnqual(context_);
         case CGType::TupDyn: return llvm::PointerType::getUnqual(context_);
+        case CGType::Fn:     return llvm::PointerType::getUnqual(context_);
         case CGType::Tup:
             // tuple 虚值无 LLVM 承载（t68）：落到此处即进了未静态展开的
             // 位置（如类字段），拒编不错编
@@ -5847,6 +5907,10 @@ llvm::Value* CodeGenerator::to_str(const CGValue& v, const Token& where) {
         case CGType::Obj:
             // 实例转串固定 "<object>"（对齐 Value::to_string Instance 分支，t60）
             return builder_.CreateGlobalString("<object>");
+        case CGType::Fn:
+            // 函数值转串固定 "<function>"（t143，对齐 Value::to_string Function
+            // 分支；toString/插值/"+" 拼接共用）
+            return builder_.CreateGlobalString("<function>");
         case CGType::Tup:
             // tuple 转串（t68）：静态展开拼接（拉通 toString/插值/'+' 拼接）
             return tuple_to_str(v, where);

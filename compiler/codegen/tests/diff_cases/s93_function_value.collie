@@ -1,0 +1,71 @@
+// t143 差分用例：函数名作值（静态直接消费面）解锁
+// 函数名可作值：print/toString/插值/字符串拼接渲染 <function>（对齐解释器
+// Value::to_string Function 分支）；==/!= 常量折叠恒 false/true（对齐
+// values_equal 无 Function 分支落 default）；object 声明变量可承载函数值
+// （Fn ptr 槽，同型重赋/无初值首赋吸收）；静态 tuple 元素、三元臂、
+// 嵌套函数名（t91 作值拒编面本次打开）、闭包捕获 Fn 变量（t141 机制复用）。
+// 范围外（拒编不错编，见 s93 reject 用例）：作实参传参、返回值、进数组、
+// 进类字段；间接调用经变量语义层已拦（callee 需 FUNCTION 符号），非差分面。
+
+function add(a integer) integer {
+    return a + 1;
+}
+function sub(a integer) integer {
+    return a - 1;
+}
+
+// 直接作值：print / toString / 插值 / 拼接
+print(add);
+print(add, sub);
+print(toString(add));
+print(@"[{add}]");
+print("x" + add);
+print(add + "x");
+
+// 相等比较恒 false（!= 恒 true），对齐解释器 kind 判定
+print(add == add);
+print(add == sub);
+print(add != sub);
+print(add == 1);
+print(add == 1.5);
+
+// object 声明变量承载函数值 + 同型重赋
+object g = add;
+print(g);
+g = sub;
+print(g);
+print(g == g);
+
+// 无初值 object 首赋函数值（t121 路径的 Fn 吸收）
+object h;
+h = add;
+print(h);
+
+// 静态 tuple 含函数值：整体打印 / 常量下标深读 / 深比较
+Tuple tp = (add, 1);
+print(tp);
+print(tp[0]);
+print(tp == tp);
+
+// 三目臂合流
+print((true ? add : sub));
+
+// 嵌套函数名作值 + 正常直接调用不受影响
+function outer() none {
+    function inner() integer {
+        return 7;
+    }
+    print(inner);
+    print(inner());
+}
+outer();
+
+// 闭包捕获外层持函数值的 object 变量（t141 按引用机制自动覆盖 Fn 槽）
+function outer2() none {
+    object c = add;
+    function show() none {
+        print(c);
+    }
+    show();
+}
+outer2();

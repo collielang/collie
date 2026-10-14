@@ -121,6 +121,11 @@ private:
         TupDyn,  // ptr → collie_rt 动态 tuple 对象（t140：三元不同形状合流/进函数签名，
                  // 形状运行期才定；names(kind3)+values(kind7) 堆对象，仅 print/toString/
                  // 插值/length/非常量索引/动态 get()/== 消费，边界经 Dyn 既有面拒编）
+        Fn,      // 函数值（t143）：ptr 承载 llvm::Function* 自身（静态可知，无运行期
+                 // 对象）；仅 print/toString/插值/字符串拼接/==·!= 常量折叠（对齐
+                 // 解释器 values_equal 无 Function 分支恒 false）/object 声明变量
+                 // 槽存取消费；传参/返回/进容器/字段/关系比较落点拒编不错编；
+                 // 间接调用经变量语义层已拦（callee 需 FUNCTION 符号），非差分面
         Void,    // 无值（none 返回函数的调用结果，S5 t52）
     };
 
