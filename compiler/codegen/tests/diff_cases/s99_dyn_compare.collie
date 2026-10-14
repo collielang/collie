@@ -1,0 +1,89 @@
+// t149 S96 差分用例：动态承载值（Dyn）参与比较的运行期 tag 分派
+// 双端逐字节一致：解释器 values_equal 的接受表（tribool×bool 加宽、Number 跨
+// tag double 视图、串内容、kind 失配与实例位恒 false）由 rt collie_rt_dyn_eq
+// 复刻；eval_comparison 要求双侧同数值或同串，其余落 collie_rt_dyn_rel 的
+// 运行期陷阱（原 s98_reject_dyn_compare 面经此真实解锁退役）
+
+array a = [7, 2.5, "x", true, unset, 7, 5, 5.0];
+array c = ["ab", "a", 3, 3.0];
+array z = [0 / 0, 1, 2.5 / 0];
+integer i = 0;
+integer iv = 7;
+number nv = 7;
+decimal dv = 2.5;
+string sv = "x";
+
+// A. 关系比较：Dyn × 静态数值/串、Dyn × Dyn（四式）
+print("A:", a[0] < a[1], a[1] <= 2.5, a[i] > 3, a[2] < "y");
+print("B:", a[2] > "x", 3 < a[0], a[1] >= a[1], a[0] <= iv);
+print("C:", sv < a[2], a[0] < nv, dv >= a[1], a[6] >= a[7]);
+
+// D. 等值：跨 tag 数值（5 == 5.0）、串内容、bool、tribool、kind 失配恒 false
+print("D:", a[0] == a[5], a[0] == a[1], a[2] == a[2], c[0] == c[1], c[2] == c[3]);
+print("E:", a[3] == a[3], a[4] == a[4], a[4] != a[3], a[0] == a[2], a[0] == a[3], a[3] == a[4]);
+
+// F. NaN/Inf 的 IEEE 比较语义（与解释器 double 视图一致）
+print("F:", z[0] == z[0], z[0] != z[0], z[0] < z[1], z[2] > z[1], z[2] == z[2]);
+
+// G. object 动态承载槽（t146）与 tuple 索引（t138/t140）读出的 Dyn 参与比较
+object o = a[0];
+object s = a[2];
+print("G:", o == o, o < a[5], s > "a", o != a[1]);
+Tuple ht = (1, "two", true);
+integer f = 1;
+Tuple dt = f == 1 ? (1, "two", true) : (3, 4);
+print("H:", ht[0] == ht[0], ht[2] == ht[2], ht[i] < 2, dt[0] == dt[0], dt[1] < "x");
+
+// I. 循环/条件区内的比较（守卫块不污染区域外）与结果进 bool 槽
+array nums = [7, 2.5, 9, 1];
+integer n = 0;
+for (integer k = 0; k < 4; k = k + 1) {
+    if (nums[k] > 2) {
+        n = n + 1;
+    }
+}
+bool flag = a[0] < a[1];
+print("I:", n, flag, flag && true, flag || a[6] > a[7]);
+
+// J. 函数实参/返回值上的比较
+function verdict(x number, y number) string {
+    return x < y ? "lt" : "ge";
+}
+function both_dyn(p integer) bool {
+    return a[p] == a[p + 1];
+}
+print("J:", verdict(a[0], a[1]), verdict(3, a[0]), both_dyn(6), both_dyn(0));
+
+// K. 类字段与方法内的比较（this 字段与 Dyn 实参；this.field == x 属语义层
+//    两端同拒面，故此处用关系式）
+class Gate {
+    public integer limit = 5;
+    public function allow(v integer) string {
+        return v > this.limit ? "open" : "shut";
+    }
+    public function notless(v number) bool {
+        return this.limit <= v;
+    }
+}
+Gate g = new Gate();
+print("K:", g.allow(a[0]), g.allow(a[6]), g.notless(a[6]), g.notless(a[1]));
+
+// L. 闭包捕获外层局部参与比较
+function runner() string {
+    integer captured = 0;
+    function bump() none {
+        captured = captured + a[0] - 6;
+    }
+    bump();
+    if (captured >= a[6] - 4) {
+        return @"R({captured})";
+    }
+    return @"r";
+}
+print("L:", runner());
+
+// M. 比较结果写回 kind 7 数组槽与整槽重写后再比较（Dyn 承载自洽）
+array out = [false, 0, "e"];
+out[0] = a[0] < a[1];
+out[1] = a[6] == a[7];
+print("M:", out[0], out[1], out[0] == out[1], out[1] != out[0]);

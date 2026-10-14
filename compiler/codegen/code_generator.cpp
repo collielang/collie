@@ -556,6 +556,16 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_num_cmp",
         llvm::FunctionType::get(builder_.getInt32Ty(),
                                 {i64_ty, i64_ty, i64_ty, i64_ty, i64_ty}, false));
+    // collie_rt 动态承载值比较（t149）：tag 运行期才定，判等复刻解释器
+    // values_equal 接受表，关系比较数值/同串两路 + 其余陷阱
+    rt_dyn_eq_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_eq",
+        llvm::FunctionType::get(builder_.getInt32Ty(),
+                                {i64_ty, i64_ty, i64_ty, i64_ty}, false));
+    rt_dyn_rel_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_rel",
+        llvm::FunctionType::get(builder_.getInt32Ty(),
+                                {i64_ty, i64_ty, i64_ty, i64_ty, i64_ty}, false));
     rt_num_to_str_ = module_->getOrInsertFunction(
         "collie_rt_num_to_str",
         llvm::FunctionType::get(ptr_ty, {i64_ty, i64_ty}, false));
@@ -1059,6 +1069,52 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                                      ? builder_.CreateICmpEQ(lhs.value, rhs.value, "cmptmp")
                                      : builder_.CreateICmpNE(lhs.value, rhs.value, "cmptmp");
                 last_value_ = {v, CGType::Bool};
+                return;
+            }
+            // Dyn 参与比较（t149）：kind 7 数组元素/异质与动态 tuple 索引/
+            // object 动态承载槽读出的 {tag,bits}，值 kind 只有运行期可知——
+            // 等值下沉 rt_dyn_eq（复刻解释器 values_equal：tribool×bool 加宽、
+            // Number 跨 tag double 视图、串内容、数组深比较、实例位与 kind 失配
+            // 恒 false，该路径解释器不报错）；关系比较下沉 rt_dyn_rel（双侧数值
+            // 态走 num_cmp、同串走 strcmp，其余落 "Comparison operands must be
+            // both numbers or both strings" 陷阱，与解释器 eval_comparison 同为
+            // 运行期报错，陷阱路径 stdout 无增量）。静态侧仅 Int/Double/Num/Str
+            // 可盒化为比较表示，其余（含 Obj/Arr/Tup——语义层多已同拒）维持拒编
+            // 不错编：既有 Obj/Fn/Tup/Arr 等值折叠臂在本分支之前，行为不变
+            if (has_dyn) {
+                const auto cmp_side_ok = [](CGType ty) {
+                    return ty == CGType::Dyn || ty == CGType::Int ||
+                           ty == CGType::Double || ty == CGType::Num ||
+                           ty == CGType::Str;
+                };
+                if (!cmp_side_ok(lhs.type) || !cmp_side_ok(rhs.type)) {
+                    unsupported("comparison of dynamic value with this type",
+                                op.line(), op.column());
+                }
+                // 求值顺序固定先 lhs 后 rhs（同 t148，避开参数求值顺序未定）
+                llvm::Value* a = dyn_cmp_box(lhs, op);
+                llvm::Value* b = dyn_cmp_box(rhs, op);
+                if (t == TokenType::OP_EQUAL || t == TokenType::OP_NOT_EQUAL) {
+                    llvm::Value* c = builder_.CreateCall(
+                        rt_dyn_eq_, {num_tag(a), num_bits(a), num_tag(b), num_bits(b)},
+                        "dyneq");
+                    llvm::Value* eq =
+                        builder_.CreateICmpNE(c, builder_.getInt32(0), "cmptmp");
+                    last_value_ = {t == TokenType::OP_EQUAL
+                                       ? eq
+                                       : builder_.CreateNot(eq, "cmptmp"),
+                                   CGType::Bool};
+                    return;
+                }
+                const int op_code = t == TokenType::OP_LESS    ? 2
+                                  : t == TokenType::OP_LESS_EQ ? 3
+                                  : t == TokenType::OP_GREATER ? 4 : 5;
+                llvm::Value* c = builder_.CreateCall(
+                    rt_dyn_rel_, {builder_.getInt64(static_cast<uint64_t>(op_code)),
+                                  num_tag(a), num_bits(a), num_tag(b), num_bits(b)},
+                    "dynrel");
+                last_value_ = {builder_.CreateICmpNE(c, builder_.getInt32(0), "cmptmp"),
+                               CGType::Bool};
                 return;
             }
             if (has_num) {
@@ -6057,6 +6113,28 @@ llvm::Value* CodeGenerator::dyn_concat_or_add(const CGValue& lhs,
     phi->addIncoming(boxed, str_end);
     phi->addIncoming(sum, num_end);
     return phi;
+}
+
+llvm::Value* CodeGenerator::dyn_cmp_box(const CGValue& v, const Token& op) {
+    // 比较侧统一盒化为 {tag,bits}（t149，编码同数组 kind）：Dyn/Num 原样，
+    // Int 打 tag 0、Double 打 tag 1（位模式），Str 打 tag 3 存串 ptr 位模式；
+    // 其余侧由 visitBinary 的 cmp_side_ok 先行拒编，此处防御
+    switch (v.type) {
+        case CGType::Dyn:
+        case CGType::Num:
+            return v.value;
+        case CGType::Int:
+            return make_num(builder_.getInt64(0), v.value);
+        case CGType::Double:
+            return make_num(builder_.getInt64(1),
+                            builder_.CreateBitCast(v.value, builder_.getInt64Ty(), "bits"));
+        case CGType::Str:
+            return make_num(builder_.getInt64(3),
+                            builder_.CreatePtrToInt(v.value, builder_.getInt64Ty(), "strbits"));
+        default:
+            unsupported("comparison of dynamic value with this type",
+                        op.line(), op.column());
+    }
 }
 
 llvm::Value* CodeGenerator::to_num(const CGValue& v) {

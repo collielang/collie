@@ -321,6 +321,13 @@ private:
     llvm::Value* dyn_concat_or_add(const CGValue& lhs, const CGValue& rhs,
                                    const Token& op);
 
+    /// @brief 动态承载值参与比较的侧盒化（t149）：把比较的一侧统一成
+    /// {tag,bits}（与 Num/Dyn 同构）交运行期分派——Dyn/Num 原样透传、Int 打
+    /// tag 0、Double 打 tag 1（位模式）、Str 打 tag 3 存 ptr 位模式（编码同
+    /// 数组 kind）；其余侧（bool/tribool/Obj/Arr/Tup/Fn/Void）由调用侧先行
+    /// 拒编，此处落 unsupported 防御
+    llvm::Value* dyn_cmp_box(const CGValue& v, const Token& op);
+
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
 
@@ -653,6 +660,14 @@ private:
     /// （0/1 以外）时报错退出，消息对齐解释器
     /// "Arithmetic operands must be numbers"
     llvm::FunctionCallee rt_trap_non_numeric_arith_; // void()
+    /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
+    /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
+    /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂
+    llvm::FunctionCallee rt_dyn_eq_;     // i32(i64 atag, i64 abits, i64 btag, i64 bbits)
+    /// collie_rt 动态承载值关系比较（t149）：双侧数值态走 num_cmp、同串走
+    /// strcmp，其余落 "Comparison operands must be both numbers or both
+    /// strings" 陷阱退出，返 0/1
+    llvm::FunctionCallee rt_dyn_rel_;    // i32(i64 op, i64 atag, i64 abits, i64 btag, i64 bbits)
     /// collie_rt 数组运行时（t59）：不透明 ptr 数组对象，8 字节槽存位模式（引用语义）
     llvm::FunctionCallee rt_arr_new_;    // ptr(i64 len, i64 kind)
     llvm::FunctionCallee rt_arr_get_;    // i64(ptr, i64)，负索引/越界处理在运行期

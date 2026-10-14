@@ -134,6 +134,14 @@
  *   const char* collie_rt_num_to_str(long long tag, long long bits); // malloc 新串
  *   void collie_rt_print_num(long long tag, long long bits);         // 格式对齐 to_string
  *
+ * 动态承载值比较运行时（t149，tag 编码同数组 kind：0=整数 1=小数 2=bool
+ * 3=串 4=数组 5=实例 6=tribool 7=异质数组；值 kind 只有运行期可知）：
+ *   long long collie_rt_dyn_eq(atag, abits, btag, bbits);
+ *     // 复刻解释器 values_equal 接受表，返 0/1，无陷阱臂（该路径不报错）
+ *   int collie_rt_dyn_rel(op, atag, abits, btag, bbits);
+ *     // op 2='<' 3='<=' 4='>' 5='>='；双侧非数值且非同串时打
+ *     // "Comparison operands must be both numbers or both strings" 后 exit(1)
+ *
  * toNumber 字符串解析（t63，内建 toNumber/方法形式共用）：
  *   void collie_rt_str_to_num(s, otag, obits);
  *     // 复刻解释器 to_number_value 的 string 分支，解析失败返 NaN 不报错；
@@ -1075,6 +1083,74 @@ int collie_rt_num_cmp(long long op, long long atag, long long abits,
             default: return a >= b;
         }
     }
+}
+
+/* 动态承载值判等（t149）：kind 7 数组元素/异质与动态 tuple 索引/object 动态
+ * 承载槽读出的 {tag,bits}，值 kind 只有运行期可知，故按 tag 复刻解释器
+ * values_equal 的接受表——tribool 参与时双侧限 tribool/bool（bool 加宽为三态
+ * false→0/true→2）三态直比、与其它类型恒不等；kind 失配恒 false；Number
+ * （tag 0/1，含跨 tag 混合表示）下沉 num_cmp（双整数直比、混合 double 视图，
+ * 5 == 5.0）；串位 strcmp 内容比较；数组位（kind 4 单类型 / kind 7 异质）
+ * arr_eq 递归深比较；实例位（tag 5）与未列 tag 恒 false（解释器 values_equal
+ * 无 Instance 分支）。解释器此路径不报错，故本函数无陷阱臂。返 1/0 */
+long long collie_rt_dyn_eq(long long atag, long long abits,
+                           long long btag, long long bbits) {
+    if (atag == 6 || btag == 6) {
+        if (atag != 6 && atag != 2) return 0;
+        if (btag != 6 && btag != 2) return 0;
+        long long a = atag == 2 ? abits * 2 : abits;
+        long long b = btag == 2 ? bbits * 2 : bbits;
+        return a == b;
+    }
+    if (atag != btag) {
+        if ((atag == 0 || atag == 1) && (btag == 0 || btag == 1)) {
+            return collie_rt_num_cmp(0, atag, abits, btag, bbits);
+        }
+        return 0;
+    }
+    switch (atag) {
+        case 0:
+        case 1:
+            return collie_rt_num_cmp(0, atag, abits, btag, bbits);
+        case 2:
+            return abits == bbits; /* bool：位模式即值 */
+        case 3:
+            return strcmp((const char*)(intptr_t)abits,
+                          (const char*)(intptr_t)bbits) == 0;
+        case 4:
+        case 7:
+            return collie_rt_arr_eq((void*)(intptr_t)abits,
+                                    (void*)(intptr_t)bbits);
+        default:
+            return 0; /* 实例位等：解释器 default 恒 false */
+    }
+}
+
+/* 动态承载值关系比较（t149）：解释器 eval_comparison 要求双侧同为数值
+ * （双整数精确、混合 double 视图）或同串（逐字节字典序），否则报
+ * "Comparison operands must be both numbers or both strings"；tag 运行期才定，
+ * 故数值态（tag 0/1）下沉 num_cmp，串位（tag 3）走 strcmp，其余（bool/
+ * tribool/数组/实例位与跨 kind 混排）落陷阱报错退出（消息核心对齐解释器，
+ * 位置前缀缺失同既有陷阱约定；陷阱路径 stdout 无增量）。
+ * op 编码同 num_cmp：2='<' 3='<=' 4='>' 5='>='。返 1/0 */
+int collie_rt_dyn_rel(long long op, long long atag, long long abits,
+                      long long btag, long long bbits) {
+    if ((atag == 0 || atag == 1) && (btag == 0 || btag == 1)) {
+        return collie_rt_num_cmp(op, atag, abits, btag, bbits);
+    }
+    if (atag == 3 && btag == 3) {
+        int c = strcmp((const char*)(intptr_t)abits,
+                      (const char*)(intptr_t)bbits);
+        switch ((int)op) {
+            case 2:  return c < 0;
+            case 3:  return c <= 0;
+            case 4:  return c > 0;
+            default: return c >= 0;
+        }
+    }
+    fprintf(stderr, "runtime error: Comparison operands must be both numbers or both strings\n");
+    exit(1);
+    return 0;
 }
 
 /* number 转串：整数表示 %lld（对齐 BigInt::to_string 在 i64 域的输出），
