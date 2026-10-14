@@ -1,0 +1,99 @@
+// t151 S98 差分用例：动态域（数组经签名/字段/返回值边界）元素读出按运行期 kind 承载
+// 原 kind ≥ 2 落 CG9 运行期陷阱的面（缺口 CG9，t88 引入）经此消除：读出统一产出
+// Dyn（{tag,bits} 与 Num 同构），kind 7 经 rt_arr_get_dyn 取回真实 {tag,bits}；
+// print/转串/插值/比较/算术/作下标/进类型化槽/写回动态域全走 t147–t151 消费面
+function showAll(a array) string {
+    string out = "";
+    for (integer i = 0; i < a.length; i = i + 1) {
+        out = out + "<" + a[i] + ">";
+    }
+    return out;
+}
+
+function swapAt(a array, i integer, j integer) none {
+    object t = a[i];
+    a[i] = a[j];
+    a[j] = t;
+}
+
+function kinds(a array) none {
+    print("eq:", a[0] == a[1], a[0] != a[1]);
+    print("interp:", @"{a[0]}/{a[1]}", showAll(a));
+}
+
+// A-F. 动态域逐 kind 读出转串（kind 0/1/2/3/6/4/7）
+print("A:", showAll([1, 2]));
+print("B:", showAll([1.5, 2.5]));
+print("C:", showAll([true, false, unset]));
+print("D:", showAll(["x", "yy", "x"]));
+print("E:", showAll([[1, 2], [3], ["a", true]]));
+print("F:", showAll([1, "two", true]));
+kinds([true, false]);
+kinds(["x", 5]);
+kinds([[1], [2]]);
+
+// G-I. 动态域读→写回（就地交换，引用语义跨签名边界；kind 7 写回落双步长槽）
+array bs = [true, false, true];
+swapAt(bs, 0, 2);
+print("G:", bs);
+array ss = ["p", "q", "r"];
+swapAt(ss, 0, 1);
+print("H:", ss);
+array hs = [1, "two", true];
+swapAt(hs, 0, 2);
+print("I:", hs);
+
+class Box {
+    public array flags = [true, false];
+    public array names = ["x", "yy"];
+    public array mix = [1, "two", true];
+    public integer v = 7;
+    public string name = "b";
+
+    public function describe() string {
+        return showAll(this.flags) + showAll(this.names) + showAll(this.mix);
+    }
+
+    public function show() string {
+        return @"{this.name}={this.v}";
+    }
+}
+
+// J-M. 类数组字段动态域读/写（字段槽 elem 恒 Num 哨兵）
+Box b = new Box();
+print("J:", b.describe());
+b.flags[0] = false;
+b.names[1] = "zz";
+print("K:", b.flags, b.names);
+print("L:", b.mix[0], b.mix[1], b.mix[2]);
+b.mix[1] = b.mix[2];
+print("M:", b.mix);
+
+// N-O. 动态域读出的实例位（kind 5）：转串 <object>，进 object 槽后字段/方法可用
+function viaParam(a array) none {
+    print("N:", a[0], a[1]);
+}
+function dynSlot(a array) none {
+    object o = a[0];
+    print("O:", o, o.v, o.show());
+}
+viaParam([new Box(), new Box()]);
+dynSlot([new Box(), new Box()]);
+
+// P-R. 动态域数值读出进类型化槽/tuple/数组字面量（读出静态类型 Num→Dyn 不缩面）
+function typedSlots(a array) none {
+    number n = a[0];
+    print("P:", n, n + 1, n * 2, n % 2, n > a[1]);
+}
+function mkTuple(a array) none {
+    Tuple t = (a[0], a[1]);
+    print("Q:", t, t[0], t[1]);
+}
+function inLiteral(a array) none {
+    array c = [a[0], a[1]];
+    print("R:", c, c[0] + c[1]);
+}
+typedSlots([10, 20]);
+typedSlots([1.5, 2.5]);
+mkTuple([3, 4]);
+inLiteral([3, 4]);

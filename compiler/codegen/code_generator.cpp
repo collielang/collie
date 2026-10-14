@@ -443,11 +443,6 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_trap_index_kind_ = module_->getOrInsertFunction(
         "collie_rt_trap_index_kind",
         llvm::FunctionType::get(builder_.getVoidTy(), {builder_.getInt64Ty()}, false));
-    // collie_rt 动态域元素 kind 陷阱声明（t88，缺口 CG9）：bool/str/嵌套数组
-    // 经透传后索引读出元素静态类型不可定，陷阱退出不错值
-    rt_trap_arr_kind_ = module_->getOrInsertFunction(
-        "collie_rt_trap_arr_kind",
-        llvm::FunctionType::get(builder_.getVoidTy(), {builder_.getInt64Ty()}, false));
     // collie_rt 未定义方法/属性陷阱声明（t102，S39 残余面）：静态类无此成员
     // 但后代类有，upcast 分派 default 臂（动态类即静态类本身）报错退出，
     // 消息对齐解释器 "Undefined method/property 'X' on object"
@@ -1599,7 +1594,7 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         }
         if (var->elem == CGType::Num) {
             // 动态 elem 槽（t70/t88）：任意元素数组透传（kind 随数组对象自带，
-            // print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
+            // print/len/== rt 侧全 kind 覆盖；索引读按运行期 kind 产出 Dyn，t151）
         } else if (v.elem != var->elem) {
             // 异型互赋（t106）：槽 elem 降级 Num 动态域哨兵（t94 先例）——
             // 整数组替换 kind 随新对象自带，后续读写走动态路径；两面拒编
@@ -1800,7 +1795,7 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     // Int（print 得 []，索引必越界报错，行为与解释器一致）。
     // 嵌套数组（t85/t89）：全 Arr 元素放行为 kind 4（槽存内层数组 ptr 位模式），
     // 内层元素任意（bool/str/更深嵌套均可，t89 放宽）——print/==/整槽替换
-    // rt 侧全 kind 递归覆盖；内层经动态域索引读出 kind ≥ 2 落 CG9 陷阱（t88）
+    // rt 侧全 kind 递归覆盖；内层经动态域索引读出按运行期 kind 产出 Dyn（t151）
     const Token& bracket = expr.bracket();
     std::vector<CGValue> elements;
     elements.reserve(expr.elements().size());
@@ -2081,7 +2076,8 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         if (object.elem == CGType::Arr) {
             // 嵌套数组内层读（t85/t89）：槽存内层数组 ptr 位模式，还原后
             // elem 记 Num 动态域哨兵——内层 kind 可为任意（t89 放宽），
-            // 数值系内层索引读写照常，kind ≥ 2 内层索引读落 CG9 陷阱（t88）；
+            // 内层索引读同样按运行期 kind 产出 Dyn（t151 消除 CG9），写侧
+            // tag/kind 失配仍落 CG7 陷阱；
             // print/len/== 全 kind 天然工作
             llvm::Value* inner = builder_.CreateIntToPtr(
                 bits, llvm::PointerType::getUnqual(context_), "inner");
@@ -2089,22 +2085,48 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
             return;
         }
         if (object.elem == CGType::Num) {
-            // 动态域读（t70/t88）：运行时 kind 0/1 即 number tag，bits+kind
-            // 直接拼 Num 零转换；kind ≥ 2（bool/str/嵌套数组经透传，t88）
-            // 元素静态类型不可定，陷阱退出不错值（缺口 CG9，解释器可行）
+            // 动态域读（t70/t88 引入，t151 消除缺口 CG9）：运行时 kind 决定承载
+            // 形态——kind 0/1 与 number tag 编码重合，bits 原样即数值位；kind 2/3/
+            // 5/6（bool/str/实例/tribool）槽位模式与 Dyn 的 bits 编码同源；kind 7 为
+            // 双步长 {tag,bits} 槽，须经 rt_arr_get_dyn 取回真实元素。四路统一产出
+            // CGType::Dyn（{tag,bits} 与 Num 同构，数值位读出行为不变），消费面全走
+            // Dyn 既有臂：print/toString/插值/拼接（rt 按 tag 分派，t151 补 tag 4/7
+            // → 数组转串）、==/!=（t149 dyn_eq，数组走 arr_eq 深比较）、算术（t148
+            // tag<2 守卫）、比较（t149）、作下标（t150）、进标量类型化槽/形参/返回
+            // （t147 拆槽）——原 kind ≥ 2 陷阱退出面（解释器动态类型可行）经此解锁
             llvm::Value* kind = builder_.CreateCall(
                 rt_arr_kind_, {object.value}, "arrkind");
             llvm::Function* fn = builder_.GetInsertBlock()->getParent();
-            auto* trap_bb = llvm::BasicBlock::Create(context_, "dynkind.trap", fn);
+            auto* dyn_bb = llvm::BasicBlock::Create(context_, "dynkind.seven", fn);
+            auto* plain_bb = llvm::BasicBlock::Create(context_, "dynkind.plain", fn);
             auto* cont_bb = llvm::BasicBlock::Create(context_, "dynkind.cont", fn);
-            llvm::Value* bad = builder_.CreateICmpUGT(
-                kind, builder_.getInt64(1), "dynkind.bad");
-            builder_.CreateCondBr(bad, trap_bb, cont_bb);
-            builder_.SetInsertPoint(trap_bb);
-            builder_.CreateCall(rt_trap_arr_kind_, {kind});
-            builder_.CreateUnreachable();
+            llvm::Value* is7 = builder_.CreateICmpEQ(
+                kind, builder_.getInt64(7), "dynkind.is7");
+            builder_.CreateCondBr(is7, dyn_bb, plain_bb);
+            builder_.SetInsertPoint(dyn_bb);
+            llvm::AllocaInst* otag =
+                create_entry_alloca(builder_.getInt64Ty(), "d7.otag");
+            llvm::AllocaInst* obits =
+                create_entry_alloca(builder_.getInt64Ty(), "d7.obits");
+            builder_.CreateCall(
+                rt_arr_get_dyn_, {object.value, index.value, otag, obits});
+            llvm::Value* d7tag =
+                builder_.CreateLoad(builder_.getInt64Ty(), otag, "d7.tag");
+            llvm::Value* d7bits =
+                builder_.CreateLoad(builder_.getInt64Ty(), obits, "d7.bits");
+            builder_.CreateBr(cont_bb);
+            builder_.SetInsertPoint(plain_bb);
+            builder_.CreateBr(cont_bb);
             builder_.SetInsertPoint(cont_bb);
-            last_value_ = {make_num(kind, bits), CGType::Num};
+            llvm::PHINode* dyn_tag =
+                builder_.CreatePHI(builder_.getInt64Ty(), 2, "dynkind.tag");
+            dyn_tag->addIncoming(d7tag, dyn_bb);
+            dyn_tag->addIncoming(kind, plain_bb);
+            llvm::PHINode* dyn_bits =
+                builder_.CreatePHI(builder_.getInt64Ty(), 2, "dynkind.bits");
+            dyn_bits->addIncoming(d7bits, dyn_bb);
+            dyn_bits->addIncoming(bits, plain_bb);
+            last_value_ = {make_num(dyn_tag, dyn_bits), CGType::Dyn};
             return;
         }
         last_value_ = {bits_to_elem(bits, object.elem), object.elem,
@@ -2178,6 +2200,16 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
                 {object.value, index.value,
                  builder_.getInt64(static_cast<uint64_t>(arr_kind_of(v.type))),
                  elem_to_bits(v)});
+            last_value_ = v;
+            return;
+        }
+        if (v.type == CGType::Dyn) {
+            // Dyn 值写动态域（t151）：读出即 {tag,bits}，与 Num 同构，分量直传
+            // rt_arr_set_num 按数组实际 kind 对齐（tag==kind 直存，失配落 CG7
+            // 陷阱）——动态域读→算术→写回的就地修改链路无需静态类型知识
+            builder_.CreateCall(rt_arr_set_num_,
+                                {object.value, index.value,
+                                 num_tag(v.value), num_bits(v.value)});
             last_value_ = v;
             return;
         }
@@ -3413,7 +3445,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         if (tt == TokenType::KW_ARRAY) {
             // 无初始化 array 变量（t101）：elem 无从静态推断，记 Num 动态域
             // 哨兵（t70/t88）——后续赋值走 visitAssign Arr 动态域透传（任意元素
-            // 数组指针直存）、读出 kind 随对象自带、kind ≥ 2 落 CG9 陷阱；
+            // 数组指针直存）、读出 kind 随对象自带并按 kind 产出 Dyn（t151）；
             // uninit 期读拒编（同块赋值后清，t92）
             const std::string name(stmt.name().lexeme());
             CGVar var;
@@ -4136,7 +4168,7 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                         stmt.keyword().line(), stmt.keyword().column());
         }
         // Arr 返回值任意元素透传（t88 解除 t70 数值系守卫：kind 随数组对象
-        // 自带，print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
+        // 自带，print/len/== rt 侧全 kind 覆盖；索引读按运行期 kind 产出 Dyn，t151）
         if (current_ret_bit_max_ > 0) {
             // byte/word 返回类型（t97）：值已对齐 Int，赋值点式插 check_bit_range
             // ——越界调 rt_trap_bit_range 报错退出，对齐解释器 coerce_to_declared
@@ -4313,7 +4345,7 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
                         line, column);
         }
         // Arr 实参任意元素透传（t88 解除 t70 数值系守卫：kind 随数组对象
-        // 自带，print/len/== rt 侧全 kind 覆盖；索引读 kind ≥ 2 落 CG9 陷阱）
+        // 自带，print/len/== rt 侧全 kind 覆盖；索引读按运行期 kind 产出 Dyn，t151）
         return a.value;
     }
     if (want == CGType::Double && a.type == CGType::Int) {
@@ -4461,7 +4493,7 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
     if (v.type == slot_type) {
         // Arr 字段槽任意元素透传（t88 解除 t71 数值系守卫：字段槽 elem 恒
         // Num 哨兵，kind 随数组对象自带——print/len/== rt 侧全 kind 覆盖，
-        // 索引读 kind ≥ 2 落 CG9 陷阱；Arr 目标仅字段路径可达）
+        // 索引读按运行期 kind 产出 Dyn，t151；Arr 目标仅字段路径可达）
         if (slot_type == CGType::Obj && v.cls != slot_cls &&
             !is_subclass_of(v.cls, slot_cls) &&
             !is_subclass_of(slot_cls, v.cls)) {
@@ -5227,8 +5259,8 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
             if (v.type == CGType::Arr && v.elem != result_elem) {
                 // 同为数组但元素类型不同：统一 elem=Num 动态域哨兵（t94）——
                 // 数组值同为不透明 ptr，PHI 无关 elem；kind 随数组对象运行期
-                // 自带，print/len/== rt 侧全 kind 覆盖，索引读 kind ≥ 2 落
-                // 既有 CG9 陷阱不错值
+                // 自带，print/len/== rt 侧全 kind 覆盖，索引读按运行期 kind
+                // 产出 Dyn（t151 消除缺口 CG9）
                 result_elem = CGType::Num;
             }
             if (v.type == CGType::Obj && v.cls != result_cls) {

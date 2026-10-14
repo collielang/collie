@@ -71,14 +71,13 @@
  *   long long collie_rt_arr_len(void* arr);                  // 元素个数
  *   const char* collie_rt_arr_to_str(void* arr);             // malloc 新串，[1, 2, 3] 格式
  *   long long collie_rt_arr_kind(void* arr);                 // 元素 kind（t70 动态域索引读：
- *     kind 0/1 与 number tag 0/1 编码重合，bits+kind 直接拼 number 零转换）
+ *     kind 0/1 与 number tag 0/1 编码重合，bits+kind 直接拼 number 零转换；
+ *     kind 2/3/4/5/6 槽位模式即 Dyn 的 bits 编码，kind 7 经 arr_get_dyn 取回
+ *     真实 {tag,bits}——四路统一产出 Dyn（t151，原 kind>=2 陷阱面解锁）
  *   void collie_rt_arr_set_num(void* arr, long long i, long long tag, long long bits);
  *     // 动态域索引写（t70/t88）：tag==kind 直存（数值系与 bool/str 同规则）；
  *     // integer 写 decimal 数组提升 double 位模式；其余 tag/kind 失配陷阱退出
  *     // （解释器动态异质可容、编译产物同质表示不可，拒错编从陷阱，缺口 CG7）
- *   void collie_rt_trap_arr_kind(long long kind);             // 动态域索引读 kind>=2
- *     // 陷阱（t88）：bool/str/嵌套数组经透传后元素静态类型不可定，报错退出
- *     // 不错值（缺口 CG9，解释器动态类型可行）
  *   long long collie_rt_arr_eq(void* lhs, void* rhs);         // 数组深比较（t79）：先比
  *     // len 再逐元素按运行时 kind（数值系混合 double 视图、string strcmp），返 1/0
  *   long long collie_rt_tuple_get(void* names, void* vals, const char* key); // tuple
@@ -482,13 +481,20 @@ long long collie_rt_arr_kind(void* arr) {
 
 /* 动态域索引写（t70/t88）：写入值带 kind tag（0/1=number 两态，2=bool，3=string），
  * 按数组实际 kind 对齐——tag==kind 直存（数值系与 bool/str 同规则）；integer 写
- * decimal 数组提升（对齐静态路径的 Int→Double 提升）；其余 tag/kind 失配无法
- * 同质承载（解释器动态异质可容，编译产物陷阱退出不静默错值，缺口 CG7） */
+ * decimal 数组提升（对齐静态路径的 Int→Double 提升）；kind 7 异质数组任意 tag
+ * 直接落 {tag,bits} 双步长槽（t151，与 arr_set_dyn 同规则，解释器异质容任意
+ * 元素）；其余 tag/kind 失配无法同质承载（解释器动态异质可容，编译产物陷阱
+ * 退出不静默错值，缺口 CG7） */
 void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long bits) {
     collie_rt_array* a = (collie_rt_array*)arr;
     long long i = collie_rt_arr_norm_index(a, index);
     if (tag == a->kind) {
         a->slots[i] = bits;
+        return;
+    }
+    if (a->kind == 7) { /* 异质数组：任意元素带 tag 入双步长槽 */
+        a->slots[2 * i] = tag;
+        a->slots[2 * i + 1] = bits;
         return;
     }
     if (tag == 0 && a->kind == 1) { /* integer 写 decimal 数组：提升 double */
@@ -506,7 +512,7 @@ void collie_rt_arr_set_num(void* arr, long long index, long long tag, long long 
 /* 异质动态标量数组读写（t139，kind 7）：每元素 {tag, bits} 两 i64 步长槽。
  * 索引归一化 + 越界陷阱复用 collie_rt_arr_norm_index（len 为元素个数）。
  * 仅 codegen 静态 elem==Dyn 路径调用；经签名/字段动态域透传后 elem 降 Num，
- * 索引读走 rt_arr_kind UGT 1 落 CG9 陷阱（kind 7 > 1，安全不错值） */
+ * 索引读先按 rt_arr_kind 分派、kind 7 同样经此取回 {tag,bits}（t151） */
 void collie_rt_arr_set_dyn(void* arr, long long index, long long tag, long long bits) {
     collie_rt_array* a = (collie_rt_array*)arr;
     long long i = collie_rt_arr_norm_index(a, index);
@@ -520,18 +526,6 @@ void collie_rt_arr_get_dyn(void* arr, long long index,
     long long i = collie_rt_arr_norm_index(a, index);
     *otag = a->slots[2 * i];
     *obits = a->slots[2 * i + 1];
-}
-
-/* 动态域索引读 kind>=2 陷阱（t88）：bool/str/嵌套数组经透传（签名/字段/返回值）
- * 后元素静态类型不可定，codegen 读出无法承载——报错退出不错值（缺口 CG9，
- * 解释器动态类型可行；print/len/== 不经此路径，全 kind 天然工作） */
-void collie_rt_trap_arr_kind(long long kind) {
-    const char* what = kind == 2 ? "bool" : kind == 3 ? "string"
-                     : kind == 5 ? "object" : kind == 6 ? "tribool"
-                     : kind == 7 ? "dynamic" : "nested";
-    fprintf(stderr, "runtime error: reading %s array element in dynamic "
-                    "context (element type not statically known, gap CG9)\n", what);
-    exit(1);
 }
 
 /* ---- 未定义方法/属性陷阱（t102，S39 残余面）---- */
@@ -1178,7 +1172,8 @@ int collie_rt_dyn_rel(long long op, long long atag, long long abits,
 /* number 转串：整数表示 %lld（对齐 BigInt::to_string 在 i64 域的输出），
  * 小数表示四步格式；复用既有转串接口，malloc 新串不 free（缺口 CG6）。
  * tag 2/3/6 为异质 tuple Dyn 动态标量扩展（t138，编码同数组 kind）：
- * number 值恒为 tag 0/1，两域共用此分派 */
+ * number 值恒为 tag 0/1，两域共用此分派；tag 4/7 为动态域读出的数组元素
+ * （t151，缺口 CG9 消除）：bits 即数组 ptr，转串走 arr_to_str */
 const char* collie_rt_num_to_str(long long tag, long long bits) {
     switch (tag) {
         case 0:
@@ -1192,6 +1187,10 @@ const char* collie_rt_num_to_str(long long tag, long long bits) {
             return bits == 1 ? "unset" : (bits == 2 ? "true" : "false");
         case 5:
             return "<object>"; /* Dyn 实例（t144）：静态串勿 free，对齐 Value::to_string Instance */
+        case 4:
+        case 7:
+            /* Dyn 数组（t151）：bits 即数组 ptr，格式与静态域转串一致 */
+            return collie_rt_arr_to_str((void*)(intptr_t)bits);
         default:
             return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
     }
@@ -1215,6 +1214,11 @@ void collie_rt_print_num(long long tag, long long bits) {
             return;
         case 5:
             fputs("<object>", stdout); /* Dyn 实例（t144，对齐 print 的 kind 5 t100） */
+            return;
+        case 4:
+        case 7:
+            /* Dyn 数组（t151）：print 输出与静态域数组一致 [1, 2, 3] */
+            collie_rt_print_str(collie_rt_arr_to_str((void*)(intptr_t)bits));
             return;
         default:
             collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));

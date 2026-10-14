@@ -1,0 +1,8 @@
+// t151 S98 拒编用例：动态域读出的字符串元素取 .length
+// 解释器 a[0].length 运行期按 String 承载可索引（得 2）；codegen 读出为动态承载
+// Dyn（t151 起统一产出，kind 3 串位模式），其属性面静态类型不可定，
+// 落 "undefined property 'length' on dynamic object" 拒编不错编
+function f(a array) none {
+    print("len:", a[0].length);
+}
+f(["ab", "c"]);

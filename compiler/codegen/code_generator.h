@@ -650,9 +650,6 @@ private:
     /// collie_rt 非数值位动态承载值作下标的类型陷阱（t150）：消息对齐解释器
     /// normalize_index "Index must be a number, got <kind>"
     llvm::FunctionCallee rt_trap_index_kind_;    // void(i64 tag)
-    /// collie_rt 动态域元素 kind 陷阱（t88，缺口 CG9）：bool/str/嵌套数组经
-    /// 透传后索引读出元素静态类型不可定，陷阱退出不错值
-    llvm::FunctionCallee rt_trap_arr_kind_;     // void(i64 kind)
     /// collie_rt 未定义方法/属性陷阱（t102，S39 残余面）：静态类无此成员但
     /// 后代类有，upcast 分派 default 臂（动态类即静态类本身）报错退出，
     /// 消息对齐解释器 "Undefined method/property 'X' on object"
