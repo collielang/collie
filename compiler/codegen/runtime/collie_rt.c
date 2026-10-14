@@ -111,6 +111,11 @@
  *     // 6=tribool/7=异质数组），消息核心对齐 "Type mismatch: cannot assign
  *     // <kind> to '<target>' variable"（integer 收小数态用特例文案）
  *
+ * 动态承载值参与算术的类型陷阱（t148）：tag 非数值态（0/1 以外）参与
+ *   + - * / % 时按解释器同消息报错退出：
+ *   void collie_rt_trap_non_numeric_arith(void);
+ *     // "runtime error: Arithmetic operands must be numbers"（stderr + exit(1)）
+ *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
  *     size 由 codegen 按字段类型累计上界给定（Num 16、其余 8，t74），
@@ -544,6 +549,16 @@ void collie_rt_trap_dyn_convert(long long tag, const char* target) {
     }
     fprintf(stderr, "runtime error: Type mismatch: cannot assign %s to "
                     "'%s' variable\n", kind, target);
+    exit(1);
+}
+
+/* 动态承载值参与算术的类型陷阱（t148）：kind 7 数组元素/动态 tuple 索引/
+ * object 动态承载槽读出的 {tag,bits} 参与 + - * / % 时，解释器 eval_arithmetic
+ * 要求双侧皆为数值（integer/decimal/number），bool/tribool/string/实例/数组
+ * 一律运行期报错；编译产物按同一规则在 tag 守卫未命中时走此陷阱（消息核心
+ * 对齐解释器 "Arithmetic operands must be numbers"，前缀差异同既有陷阱约定） */
+void collie_rt_trap_non_numeric_arith(void) {
+    fprintf(stderr, "runtime error: Arithmetic operands must be numbers\n");
     exit(1);
 }
 

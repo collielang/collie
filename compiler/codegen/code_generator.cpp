@@ -459,6 +459,12 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_trap_dyn_convert",
         llvm::FunctionType::get(builder_.getVoidTy(),
                                {builder_.getInt64Ty(), ptr_ty}, false));
+    // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
+    // 态（0/1 以外）时报错退出，消息对齐解释器
+    // "Arithmetic operands must be numbers"
+    rt_trap_non_numeric_arith_ = module_->getOrInsertFunction(
+        "collie_rt_trap_non_numeric_arith",
+        llvm::FunctionType::get(builder_.getVoidTy(), false));
 
     // collie_rt 数组运行时声明（t59）：不透明 ptr 数组对象，8 字节槽存位模式；
     // 指针拷贝即引用语义（对齐解释器 shared_ptr<ArrayStorage>）
@@ -751,10 +757,37 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
     // collie_rt，双整数精确/混合 double 视图等语义单点对齐解释器
     const bool has_num = lhs.type == CGType::Num || rhs.type == CGType::Num;
 
+    // Dyn 参与算术（t148）：kind 7 数组元素/异质 tuple 非常量索引/动态 tuple
+    // 索引/object 动态承载槽读出的 {tag,bits} 与 Num 同构（tag 0=整数 1=小数
+    // 2=bool 3=串 5=实例…），tag 运行期才定——按解释器 eval_arithmetic 的
+    // 运行期分派插守卫：'+' 任一 Dyn 侧为字符串位即拼接（双侧 to_string，
+    // 结果 Dyn -tag 3），否则双侧须数值态（tag < 2），不符落
+    // collie_rt_trap_non_numeric_arith（解释器同为 "Arithmetic operands must
+    // be numbers" 报错退出，陷阱路径 stdout 无增量）；静态非数值侧（bool/
+    // tribool/Obj/Arr 等）维持原拒编（解释器同为运行期报错，两端皆不产出值）
+    const bool has_dyn = lhs.type == CGType::Dyn || rhs.type == CGType::Dyn;
+    const auto dyn_arith_ok = [](CGType ty) {
+        return ty == CGType::Int || ty == CGType::Double ||
+               ty == CGType::Num || ty == CGType::Dyn;
+    };
+    auto require_dyn_arith = [&]() {
+        if (!dyn_arith_ok(lhs.type) || !dyn_arith_ok(rhs.type)) {
+            unsupported("non-numeric operand of '" + std::string(op.lexeme()) + "'",
+                        op.line(), op.column());
+        }
+    };
+
     switch (op.type()) {
         case TokenType::OP_DIVIDE: {
             // '/' 恒产小数（SPEC §4，Python 式 true division）；
             // 除零走 IEEE 754 得 ±Infinity/NaN（t33），fdiv 天然满足
+            if (has_dyn) {
+                require_dyn_arith();
+                llvm::Value* a = dyn_num_operand(lhs, op);
+                llvm::Value* b = dyn_num_operand(rhs, op);
+                last_value_ = {call_num_arith(3, a, b), CGType::Num};
+                return;
+            }
             require_numeric(lhs);
             require_numeric(rhs);
             if (has_num) {
@@ -768,6 +801,15 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
         case TokenType::OP_MODULO: {
             // '%' floor 取模（SPEC §4，结果符号与除数一致）：
             //   r = srem(a, b); r 非零且与 b 异号时 r += b（select 无分支实现）
+            if (has_dyn) {
+                // Dyn 参与（t148）：双侧数值守卫后下沉运行时（双整数 BigInt
+                // floor 取模、混合走 double，对齐解释器 eval_arithmetic）
+                require_dyn_arith();
+                llvm::Value* a = dyn_num_operand(lhs, op);
+                llvm::Value* b = dyn_num_operand(rhs, op);
+                last_value_ = {call_num_arith(4, a, b), CGType::Num};
+                return;
+            }
             if (has_num) {
                 // number 参与（t62）：下沉运行时（双整数 floor 取模、除零落
                 // double 路径 NaN，对齐解释器 eval_arithmetic）
@@ -838,6 +880,21 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                 last_value_ = {builder_.CreateCall(
                                    rt_concat_, {to_str(lhs, op), to_str(rhs, op)}, "concattmp"),
                                CGType::Str};
+                return;
+            }
+            if (has_dyn) {
+                // Dyn 参与（t148）：'+' 需运行期分派字符串位（解释器任一侧
+                // 字符串即拼接，结果类型只有运行期才定，故出 CGType::Dyn）；
+                // -/* 双侧强制数值守卫，结果 Num
+                require_dyn_arith();
+                if (op.type() == TokenType::OP_PLUS) {
+                    last_value_ = {dyn_concat_or_add(lhs, rhs, op), CGType::Dyn};
+                    return;
+                }
+                const int op_code = op.type() == TokenType::OP_MINUS ? 1 : 2;
+                llvm::Value* a = dyn_num_operand(lhs, op);
+                llvm::Value* b = dyn_num_operand(rhs, op);
+                last_value_ = {call_num_arith(op_code, a, b), CGType::Num};
                 return;
             }
             require_numeric(lhs);
@@ -5931,6 +5988,74 @@ llvm::Value* CodeGenerator::dyn_unbox_to(llvm::Value* dyn, CGType slot_type,
     for (const auto& inc : incoming) {
         phi->addIncoming(inc.first, inc.second);
     }
+    return phi;
+}
+
+llvm::Value* CodeGenerator::dyn_num_operand(const CGValue& v, const Token& op) {
+    // 非 Dyn 侧走既有 to_num 加宽；Dyn 侧 tag 运行期才定——整数态/小数态
+    // （tag < 2）直接透传 {tag,bits}（与 Num 同构同编码），其余（bool/串/
+    // tribool/实例/数组）落陷阱，对齐解释器 eval_arithmetic 的
+    // "Arithmetic operands must be numbers" 运行期报错
+    if (v.type != CGType::Dyn) {
+        return to_num(v);
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* ok_bb = llvm::BasicBlock::Create(context_, "dynnum.ok", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dynnum.trap", fn);
+    llvm::Value* numeric = builder_.CreateICmpULT(
+        num_tag(v.value), builder_.getInt64(2), "dynnumis");
+    builder_.CreateCondBr(numeric, ok_bb, trap_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_non_numeric_arith_);
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(ok_bb);
+    return v.value;
+}
+
+llvm::Value* CodeGenerator::dyn_concat_or_add(const CGValue& lhs,
+                                              const CGValue& rhs,
+                                              const Token& op) {
+    // '+' 含 Dyn 侧（t148）：解释器任一侧为字符串即两侧 to_string 拼接，
+    // 而 Dyn 侧是否字符串只有运行期才知道，故按 tag==3 分派两路后合流为
+    // CGType::Dyn——拼接路打 tag 3 存串 ptr，算术路经数值守卫后下沉
+    // rt_num_arith（结果自带 tag 0/1）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::Value* is_str = builder_.getInt1(false);
+    for (const CGValue* v : {&lhs, &rhs}) {
+        if (v->type != CGType::Dyn) {
+            continue;
+        }
+        llvm::Value* eq = builder_.CreateICmpEQ(num_tag(v->value),
+                                                builder_.getInt64(3),
+                                                "dynplusisstr");
+        is_str = builder_.CreateOr(is_str, eq, "dynplusstr");
+    }
+    auto* str_bb = llvm::BasicBlock::Create(context_, "dynplus.str", fn);
+    auto* num_bb = llvm::BasicBlock::Create(context_, "dynplus.num", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dynplus.cont", fn);
+    builder_.CreateCondBr(is_str, str_bb, num_bb);
+
+    builder_.SetInsertPoint(str_bb);
+    llvm::Value* cat = builder_.CreateCall(
+        rt_concat_, {to_str(lhs, op), to_str(rhs, op)}, "concattmp");
+    llvm::Value* boxed = make_num(
+        builder_.getInt64(3),
+        builder_.CreatePtrToInt(cat, builder_.getInt64Ty(), "concatbits"));
+    llvm::BasicBlock* str_end = builder_.GetInsertBlock();
+    builder_.CreateBr(cont_bb);
+
+    builder_.SetInsertPoint(num_bb);
+    // 守卫求值顺序固定（两侧陷阱块嵌套在同一区，IR 位置依赖插入点）
+    llvm::Value* a = dyn_num_operand(lhs, op);
+    llvm::Value* b = dyn_num_operand(rhs, op);
+    llvm::Value* sum = call_num_arith(0, a, b);
+    llvm::BasicBlock* num_end = builder_.GetInsertBlock();
+    builder_.CreateBr(cont_bb);
+
+    builder_.SetInsertPoint(cont_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(sum->getType(), 2, "dynplus");
+    phi->addIncoming(boxed, str_end);
+    phi->addIncoming(sum, num_end);
     return phi;
 }
 

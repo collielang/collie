@@ -307,6 +307,20 @@ private:
     llvm::Value* dyn_unbox_to(llvm::Value* dyn, CGType slot_type, size_t line,
                               size_t column, const char* target_name = nullptr);
 
+    /// @brief 动态承载值参与算术的数值化（t148）：Dyn（{tag,bits}）侧插运行期
+    /// 守卫——tag < 2（整数态/小数态）时与 Num 同构直接透传，其余（bool/串/
+    /// tribool/实例/数组位）落 collie_rt_trap_non_numeric_arith 报错退出
+    /// （解释器 eval_arithmetic 的 "Arithmetic operands must be numbers" 同
+    /// 运行期报错，陷阱路径 stdout 无增量）；非 Dyn 侧走既有 to_num 加宽
+    llvm::Value* dyn_num_operand(const CGValue& v, const Token& op);
+
+    /// @brief 含 Dyn 操作数的 '+'（t148）：解释器任一侧为字符串即两侧
+    /// to_string 拼接，而 Dyn 侧是否字符串只有运行期可知——按 tag==3 分派
+    /// 两路（拼接：rt_concat 结果打 tag 3；算术：双侧数值守卫后下沉
+    /// rt_num_arith），合流为 CGType::Dyn 值
+    llvm::Value* dyn_concat_or_add(const CGValue& lhs, const CGValue& rhs,
+                                   const Token& op);
+
     /// @brief 由内向外逐层查找变量；未找到返回 nullptr（语义层已保证先声明，防御用）
     CGVar* lookup_var(const std::string& name);
 
@@ -635,6 +649,10 @@ private:
     /// 槽接受表内时报错退出，消息对齐解释器 "Type mismatch: cannot assign
     /// <kind> to '<type>' variable"
     llvm::FunctionCallee rt_trap_dyn_convert_;  // void(i64 tag, ptr type_name)
+    /// collie_rt 动态承载值参与算术的类型陷阱（t148）：Dyn 侧 tag 非数值态
+    /// （0/1 以外）时报错退出，消息对齐解释器
+    /// "Arithmetic operands must be numbers"
+    llvm::FunctionCallee rt_trap_non_numeric_arith_; // void()
     /// collie_rt 数组运行时（t59）：不透明 ptr 数组对象，8 字节槽存位模式（引用语义）
     llvm::FunctionCallee rt_arr_new_;    // ptr(i64 len, i64 kind)
     llvm::FunctionCallee rt_arr_get_;    // i64(ptr, i64)，负索引/越界处理在运行期

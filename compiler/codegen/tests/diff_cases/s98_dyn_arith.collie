@@ -1,0 +1,92 @@
+// t148 S95 差分用例：kind 7 / 动态 tuple / object 承载槽读出的 Dyn 值参与算术
+// 双端逐字节一致：解释器 eval_arithmetic 的 int×int 精确、'/' 恒小数、floor 取模、
+// '+' 任一侧字符串位即两侧 to_string 拼接，codegen 以 tag<2 数值守卫 + tag==3
+// 运行期分派镜像同一接受表；非数值位（bool/tribool/串进 % 等）双端同为运行期报错。
+
+// A. Dyn × 静态数值、Dyn × Dyn 的四则与取模（int/decimal 混合、floor 取模、真除法）
+array a = [7, 2.5, true, "x", unset, -9];
+integer i = 0;
+print("A:", a[0] + 1, 1 + a[0], a[0] - 1, 1 - a[i], a[0] * 2, a[0] / 2, a[0] % 4);
+print("B:", a[0] + a[1], a[0] + a[0], a[1] * a[1], a[0] / a[0], a[1] % a[0], a[5] % 4, a[5] / a[1]);
+
+// C. 算术结果再参与运算，并进入 integer/decimal/number 类型化槽
+number n = a[0] + a[1];
+integer m = a[i] * 2;
+decimal d = a[0] + a[1];
+print("C:", n, m, d, (a[0] + 1) * 2, a[0] + 1 + 1, n + 1);
+
+// D. '+' 字符串位运行期分派：Dyn 侧 tag==3 时两侧转串拼接，顺序不对称可辨别
+print("D:", a[3] + a[0], a[0] + a[3], a[3] + a[2], a[3] + "y", "y" + a[3], a[0] + "y");
+print("E:", a[i] + a[3], a[1] + a[3], a[3] + 1, a[3] + 2.5, a[3] + a[3]);
+
+// F. 异质 tuple 非常量索引（原 s88 拒编面）
+Tuple ht = (1, "two", true);
+print("F:", ht[i] + 1, ht[0] + ht[0], ht[1] + 1, ht[1] + ht[0]);
+
+// G. 动态 tuple 索引（原 s90 拒编面）
+integer f = 1;
+Tuple dt = f == 1 ? (1, "two", true) : (3, 4);
+print("G:", dt[0] + 1, dt[i] * 2, dt[1] + dt[0]);
+
+// H. object 动态承载槽（t146）读出参与算术
+object o = a[0];
+object p = a[3];
+print("H:", o + 1, o * o, p + "z", p + o, o + p);
+
+// I. 循环内非常量索引逐轮拆槽（逐轮 tag 不同：整数位→整数位）
+array mix = [2, 4, "s", true];
+integer acc = 0;
+for (integer k = 0; k < 2; k = k + 1) {
+    acc = acc + mix[k];
+}
+print("I:", acc, mix[0] + mix[1], mix[2] + mix[0]);
+
+// J. 函数参数/局部/返回值上的 Dyn 算术
+function combine(x integer) integer {
+    integer local = a[0] + x;
+    return local * 2;
+}
+print("J:", combine(3), combine(a[0]));
+
+// K. 类字段与方法内的 Dyn 算术（this 字段读写经算术回写）
+class Box {
+    public integer v = 0;
+    public function set(x integer) none {
+        this.v = x;
+    }
+    public function bump(delta integer) integer {
+        this.v = this.v + delta;
+        return this.v;
+    }
+    public function show() string {
+        return @"V({this.v})";
+    }
+}
+Box b = new Box();
+b.set(a[0] + 1);
+print("K:", b.show(), b.bump(mix[1]), b.show());
+
+// L. if/while 分支体内的 Dyn 算术（守卫块不污染区域外槽；条件本身保持静态，
+//    Dyn 参与比较是另一面，不在本用例范围）
+if (m > 0) {
+    print("L1:", a[1] * 2);
+} else {
+    print("L1: no");
+}
+integer w = 0;
+while (w < 2) {
+    w = w + a[0] - 6;
+}
+print("L2:", w);
+
+// M. 闭包捕获的 enclosing 局部参与 Dyn 算术
+function runner() string {
+    integer captured = 0;
+    function bump() none {
+        captured = captured + a[0] - 6;
+    }
+    bump();
+    bump();
+    return @"R({captured})";
+}
+print("M:", runner());
