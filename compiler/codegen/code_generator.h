@@ -694,6 +694,10 @@ private:
     /// to_number_value 接受表（0/1 透传、2→0/1、3 串解析、其余报错退出），
     /// 结果经出参写回 {tag,bits}；mode 1 = 方法形式（实例位消息不同）
     llvm::FunctionCallee rt_dyn_to_number_; // void(i64 tag, i64 bits, ptr otag, ptr obits, i64 mode)
+    /// collie_rt 动态承载值 number 专属方法接收者守卫（t156）：解释器进 number
+    /// 方法段先判 is_number()，放行 tag 0/1（与 Num 表示重合），其余位复刻两类
+    /// 消息（实例位 Undefined method / 其余 only supported on numbers）后退出
+    llvm::FunctionCallee rt_dyn_num_guard_;   // void(i64 tag, ptr name)
     /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
     /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
     /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂

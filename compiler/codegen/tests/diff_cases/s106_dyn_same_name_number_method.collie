@@ -1,0 +1,23 @@
+// s106 差分用例：某类定义同名 abs() 方法时，Dyn 上的 number 方法面整面回落
+// 到实例位动态分派（t133/t145 面零回归）；静态 number/integer 接收者不受影响
+class Rounder {
+    public integer v = -3;
+    public function abs() integer { return 100; }
+}
+class Other {
+    public decimal d = -2.5;
+    public function abs() integer { return 200; }
+}
+function read(a array) none {
+    print("A:", a[0].abs(), "|", a[1].abs());
+    object o = a[0];
+    print("B:", o.abs());
+}
+Rounder r = new Rounder();
+Other s = new Other();
+print("C:", r.abs(), "|", s.abs());
+read([r, s]);
+number n = -7.5;
+print("D:", n.abs(), "|", n.integerPart(), "|", n.isFinite());
+integer i = -8;
+print("E:", i.abs(), "|", i.isNegative());

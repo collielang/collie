@@ -23,6 +23,15 @@ namespace collie {
 
 namespace {
 
+/// number 专属方法名集（t67 建，t156 起两路共用）：解释器 call_number_method
+/// 段的十方法面，静态数值接收者与动态承载值接收者按同一判定分派
+bool is_number_method_name(const std::string& name) {
+    return name == "abs" || name == "integerPart" || name == "decimalPart" ||
+           name == "isInteger" || name == "isDecimal" || name == "isNaN" ||
+           name == "isInfinity" || name == "isFinite" ||
+           name == "isPositive" || name == "isNegative";
+}
+
 /// 条件发射区深度 RAII（t117）：构造 +1 析构 -1（C++ 栈帧作用域即区内发射
 /// 作用域——区末汇合/PHI 无用户语句发射，析构时机恒等于区退出）
 struct CondDepthGuard {
@@ -512,6 +521,12 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
             {builder_.getInt64Ty(), builder_.getInt64Ty(), ptr_ty, ptr_ty,
              builder_.getInt64Ty()},
             false));
+    // collie_rt 动态承载值 number 专属方法接收者守卫（t156）：解释器进 number
+    // 方法段先判 is_number()，放行 tag 0/1，其余位按解释器两类消息陷阱退出
+    rt_dyn_num_guard_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_num_guard",
+        llvm::FunctionType::get(
+            builder_.getVoidTy(), {builder_.getInt64Ty(), ptr_ty}, false));
     // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
     // 态（0/1 以外）时报错退出，消息对齐解释器
     // "Arithmetic operands must be numbers"
@@ -2484,13 +2499,33 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         return;
     }
 
+    if (object.type == CGType::Dyn && is_number_method_name(name) &&
+        expr.arguments().empty() &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [&](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.dispatch.count(name) != 0;
+                     })) {
+        // 动态承载值的 number 专属方法（t156）：解释器进该段先判 is_number()，
+        // 故 rt 守卫只放行 tag 0/1（其余位按解释器两类消息陷阱退出，不静默错
+        // 值）；Dyn 的 {tag,bits} 与 Num 表示完全重合，放行后直接按 Num 接收者
+        // 复用 t67 双路降级（整数态/小数态各自成路，结果 Num 或 Bool），消费面
+        // 全走既有臂。静态守卫「无类定义同名方法」同 t154/t155，命中则整面
+        // 回落 t145 实例位分派
+        builder_.CreateCall(rt_dyn_num_guard_,
+                            {num_tag(object.value),
+                             builder_.CreateGlobalString(name)});
+        gen_number_method({object.value, CGType::Num}, name, line, column);
+        return;
+    }
+
     if (object.type == CGType::Dyn) {
         // kind 7 元素读出（Dyn）的方法调用（t145）：tag==5 实例位守卫还原
         // 实例 ptr 后并入下方空 cls 方法动态分派（t133，全体定义者 switch
         // 按对象头类 id 调用）；非实例位落 collie_rt undefined method 陷阱
-        // （解释器对 `1.abs()` 等标量自有方法可运行——codegen 无统一标量
-        // 方法承载，拒错编从陷阱，范围外面）；串方法 trim/subString 已在上方
-        // t154 臂按运行期 tag 处理，仅在存在同名类方法时才落到这里
+        // （解释器对 `1.abs()` 等标量自有方法可运行——number 专属方法已在上方
+        // t156 臂按运行期 tag 处理，其余标量位方法面维持拒错编从陷阱）；
+        // 串方法 trim/subString 与 toNumber 已在 t154/t155 臂处理，仅在存在
+        // 同名类方法时才落到这里
         object = {dyn_obj_guard(object, name, true), CGType::Obj,
                   CGType::Int, std::string()};
     }
@@ -3042,12 +3077,7 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     if (object.type == CGType::Int || object.type == CGType::Double ||
         object.type == CGType::Num) {
         // number 专属方法（t67）：十方法均 0 参（语义层已校验，此处防御）
-        const bool is_num_method =
-            name == "abs" || name == "integerPart" || name == "decimalPart" ||
-            name == "isInteger" || name == "isDecimal" || name == "isNaN" ||
-            name == "isInfinity" || name == "isFinite" ||
-            name == "isPositive" || name == "isNegative";
-        if (is_num_method) {
+        if (is_number_method_name(name)) {
             if (!expr.arguments().empty()) {
                 unsupported(name + "() with arguments", line, column);
             }

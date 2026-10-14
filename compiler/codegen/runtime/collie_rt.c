@@ -90,6 +90,10 @@
  *     // collie_rt_str_to_num；其余位 mode 1（方法形式）的实例位报
  *     // "Undefined method 'toNumber' on object"，其余报
  *     // "toNumber() cannot convert <kind>"
+ *   void collie_rt_dyn_num_guard(long long tag, const char* name);
+ *     // 动态承载值的 number 专属方法接收者守卫（t156）：tag 0/1（与 Num 表示
+ *     // 重合）放行，其余位落 "Method '<name>()' is only supported on numbers,
+ *     // got <kind>"，实例位落 "Undefined method '<name>' on object"
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -663,26 +667,35 @@ void collie_rt_dyn_set(long long tag, long long bits, long long index,
     exit(1);
 }
 
-/* 动态承载值的串方法（t154）：tag 运行期才定——tag 3 复用既有串方法垫片
- * （trim 只剥空格与 Tab、subString 按 UTF-8 码点区间），其余位复刻解释器两类
- * 消息：实例位（tag 5）走解释器的方法查找失败分支
- * "Undefined method '<name>' on object"，其余走
- * "Method '<name>()' is only supported on strings, got <kind>"（kind 名对齐
+/* 动态承载值的方法接收者陷阱（t154/t156 共用）：复刻解释器两类消息——实例位
+ * （tag 5）走方法查找失败分支 "Undefined method '<name>' on object"，其余走
+ * "Method '<name>()' is only supported on <accepted>, got <kind>"（accepted 取
+ * 解释器该段的措辞，串方法为 strings、number 方法为 numbers；kind 名对齐
  * Value::kind_name）；调用方仅在无任何类定义同名方法时才落到这里 */
-static void collie_rt_dyn_str_method_trap(long long tag, const char* name) {
+static void collie_rt_dyn_method_trap(long long tag, const char* name,
+                                      const char* accepted) {
     if (tag == 5) {
         fprintf(stderr, "Undefined method '%s' on object\n", name);
         exit(1);
     }
-    fprintf(stderr, "Method '%s()' is only supported on strings, got %s\n",
-            name, collie_rt_dyn_kind_name(tag));
+    fprintf(stderr, "Method '%s()' is only supported on %s, got %s\n",
+            name, accepted, collie_rt_dyn_kind_name(tag));
     exit(1);
+}
+
+/* 动态承载值的 number 专属方法接收者守卫（t156）：解释器进 number 方法段先判
+ * is_number()，故 tag 0/1（与 Num 表示完全重合）放行由 codegen 走既有 Num 双路
+ * 降级，其余位落 collie_rt_dyn_method_trap 的 numbers 消息 */
+void collie_rt_dyn_num_guard(long long tag, const char* name) {
+    if (tag > 1) {
+        collie_rt_dyn_method_trap(tag, name, "numbers");
+    }
 }
 
 const char* collie_rt_dyn_str_trim(long long tag, long long bits, long long mode,
                                    const char* name) {
     if (tag != 3) {
-        collie_rt_dyn_str_method_trap(tag, name);
+        collie_rt_dyn_method_trap(tag, name, "strings");
     }
     return collie_rt_str_trim((const char*)(intptr_t)bits, (int)mode);
 }
@@ -693,7 +706,7 @@ const char* collie_rt_dyn_str_substring(long long tag, long long bits,
                                         long long start, long long end,
                                         const char* name) {
     if (tag != 3) {
-        collie_rt_dyn_str_method_trap(tag, name);
+        collie_rt_dyn_method_trap(tag, name, "strings");
     }
     return collie_rt_str_substring((const char*)(intptr_t)bits, start, end);
 }
