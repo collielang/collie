@@ -1,0 +1,14 @@
+// t141 S88 拒编用例：被捕获的外层单元在调用点被同名内层局部遮蔽
+// f 登记捕获宿主 x（cell A），调用点 lookup 得内层块 x（cell B）≠ A →
+// 无从取回登记宿主槽指针，保守拒编不错编（解释器动态作用域返内层 2）
+function hostS() integer {
+    integer x = 1;
+    function f() integer {
+        return x;
+    }
+    {
+        integer x = 2;
+        return f();
+    }
+}
+print(hostS());

@@ -198,6 +198,167 @@ void ctor_definite_assign_stmts(
     }
 }
 
+// ---- 闭包自由变量收集（t141）----
+// 递归遍历一个函数体子树，收集其中出现的所有标识符名（IdentifierExpr 读、
+// AssignExpr 写目标），含更深层嵌套函数体内引用（供逐层按引用转发捕获），但
+// 不下探 ClassStmt 成员（类方法非闭包，不捕获宿主局部）。收集到的是"候选名"，
+// 是否真为捕获由调用侧按宿主作用域 + cell_id 一致性判定：被宿主遮蔽/命中全局/
+// 函数绑定/元组的自然被过滤或成为无害死参。set 保证去重且有序 → 原型签名稳定。
+void collect_free_idents_expr(const Expr* e, std::set<std::string>& out);
+void collect_free_idents_stmt(const Stmt* s, std::set<std::string>& out);
+
+void collect_free_idents_expr(const Expr* e, std::set<std::string>& out) {
+    if (e == nullptr) return;
+    if (const auto* id = dynamic_cast<const IdentifierExpr*>(e)) {
+        out.insert(std::string(id->name().lexeme()));
+        return;
+    }
+    if (const auto* lit = dynamic_cast<const LiteralExpr*>(e)) {
+        (void)lit;
+        return;
+    }
+    if (const auto* bin = dynamic_cast<const BinaryExpr*>(e)) {
+        collect_free_idents_expr(bin->left(), out);
+        collect_free_idents_expr(bin->right(), out);
+        return;
+    }
+    if (const auto* un = dynamic_cast<const UnaryExpr*>(e)) {
+        collect_free_idents_expr(un->operand(), out);
+        return;
+    }
+    if (const auto* asg = dynamic_cast<const AssignExpr*>(e)) {
+        out.insert(std::string(asg->name().lexeme()));
+        collect_free_idents_expr(asg->value(), out);
+        return;
+    }
+    if (const auto* ter = dynamic_cast<const TernaryExpr*>(e)) {
+        collect_free_idents_expr(ter->condition(), out);
+        collect_free_idents_expr(ter->then_expr(), out);
+        collect_free_idents_expr(ter->else_expr(), out);
+        collect_free_idents_expr(ter->unset_expr(), out);
+        return;
+    }
+    if (const auto* mm = dynamic_cast<const MultiMatchExpr*>(e)) {
+        collect_free_idents_expr(mm->target(), out);
+        for (const auto& br : mm->branches()) {
+            for (const auto& v : br.values) collect_free_idents_expr(v.get(), out);
+            collect_free_idents_expr(br.result.get(), out);
+        }
+        collect_free_idents_expr(mm->default_expr(), out);
+        return;
+    }
+    if (const auto* call = dynamic_cast<const CallExpr*>(e)) {
+        collect_free_idents_expr(call->callee(), out);
+        for (const auto& a : call->arguments()) collect_free_idents_expr(a.get(), out);
+        return;
+    }
+    if (const auto* arr = dynamic_cast<const ArrayLiteralExpr*>(e)) {
+        for (const auto& el : arr->elements()) collect_free_idents_expr(el.get(), out);
+        return;
+    }
+    if (const auto* idx = dynamic_cast<const IndexExpr*>(e)) {
+        collect_free_idents_expr(idx->object(), out);
+        collect_free_idents_expr(idx->index(), out);
+        return;
+    }
+    if (const auto* idxa = dynamic_cast<const IndexAssignExpr*>(e)) {
+        collect_free_idents_expr(idxa->object(), out);
+        collect_free_idents_expr(idxa->index(), out);
+        collect_free_idents_expr(idxa->value(), out);
+        return;
+    }
+    if (const auto* mc = dynamic_cast<const MethodCallExpr*>(e)) {
+        collect_free_idents_expr(mc->object(), out);
+        for (const auto& a : mc->arguments()) collect_free_idents_expr(a.get(), out);
+        return;
+    }
+    if (const auto* prop = dynamic_cast<const PropertyExpr*>(e)) {
+        collect_free_idents_expr(prop->object(), out);
+        return;
+    }
+    if (const auto* pa = dynamic_cast<const PropertyAssignExpr*>(e)) {
+        collect_free_idents_expr(pa->object(), out);
+        collect_free_idents_expr(pa->value(), out);
+        return;
+    }
+    if (const auto* nw = dynamic_cast<const NewExpr*>(e)) {
+        for (const auto& a : nw->arguments()) collect_free_idents_expr(a.get(), out);
+        return;
+    }
+    if (const auto* tp = dynamic_cast<const TupleExpr*>(e)) {
+        for (const auto& el : tp->elements()) collect_free_idents_expr(el.get(), out);
+        return;
+    }
+    if (const auto* bc = dynamic_cast<const BaseCallExpr*>(e)) {
+        for (const auto& a : bc->arguments()) collect_free_idents_expr(a.get(), out);
+        return;
+    }
+    if (const auto* bmc = dynamic_cast<const BaseMethodCallExpr*>(e)) {
+        for (const auto& a : bmc->arguments()) collect_free_idents_expr(a.get(), out);
+        return;
+    }
+    // ThisExpr / 其余无标识符子树
+}
+
+void collect_free_idents_stmt(const Stmt* s, std::set<std::string>& out) {
+    if (s == nullptr) return;
+    if (const auto* es = dynamic_cast<const ExpressionStmt*>(s)) {
+        collect_free_idents_expr(es->expression(), out);
+        return;
+    }
+    if (const auto* vd = dynamic_cast<const VarDeclStmt*>(s)) {
+        // 声明名引入内层局部（遮蔽捕获），不入集合；仅初值表达式含引用
+        collect_free_idents_expr(vd->initializer(), out);
+        return;
+    }
+    if (const auto* blk = dynamic_cast<const BlockStmt*>(s)) {
+        for (const auto& inner : blk->statements()) collect_free_idents_stmt(inner.get(), out);
+        return;
+    }
+    if (const auto* ifs = dynamic_cast<const IfStmt*>(s)) {
+        collect_free_idents_expr(ifs->condition(), out);
+        collect_free_idents_stmt(ifs->then_branch(), out);
+        collect_free_idents_stmt(ifs->else_branch(), out);
+        return;
+    }
+    if (const auto* wh = dynamic_cast<const WhileStmt*>(s)) {
+        collect_free_idents_expr(wh->condition(), out);
+        collect_free_idents_stmt(wh->body(), out);
+        return;
+    }
+    if (const auto* fo = dynamic_cast<const ForStmt*>(s)) {
+        collect_free_idents_stmt(fo->initializer(), out);
+        collect_free_idents_expr(fo->condition(), out);
+        collect_free_idents_expr(fo->increment(), out);
+        collect_free_idents_stmt(fo->body(), out);
+        return;
+    }
+    if (const auto* dw = dynamic_cast<const DoWhileStmt*>(s)) {
+        collect_free_idents_stmt(dw->body(), out);
+        collect_free_idents_expr(dw->condition(), out);
+        return;
+    }
+    if (const auto* sw = dynamic_cast<const SwitchStmt*>(s)) {
+        collect_free_idents_expr(sw->condition(), out);
+        for (const auto& sc : sw->cases()) {
+            for (const auto& v : sc.values) collect_free_idents_expr(v.get(), out);
+            collect_free_idents_stmt(sc.body.get(), out);
+        }
+        return;
+    }
+    if (const auto* ret = dynamic_cast<const ReturnStmt*>(s)) {
+        collect_free_idents_expr(ret->value(), out);
+        return;
+    }
+    if (const auto* fn = dynamic_cast<const FunctionStmt*>(s)) {
+        // 更深层嵌套：其体内对被本函数（宿主）可见变量的引用须由本函数捕获转发
+        for (const auto& inner : fn->body()->statements())
+            collect_free_idents_stmt(inner.get(), out);
+        return;
+    }
+    // ClassStmt / Break / Continue：类方法非闭包，不下探收集
+}
+
 } // namespace
 
 CodeGenerator::CodeGenerator() : builder_(context_) {}
@@ -1070,6 +1231,20 @@ void CodeGenerator::visitCall(const CallExpr& expr) {
                                                info->param_cls[i],
                                                expr.paren().line(),
                                                expr.paren().column()));
+            }
+            // 闭包捕获实参（t141）：签名尾随等长 ptr 形参，逐捕获传宿主单元地址。
+            // 据 cell_id 一致性取当前作用域可见的同名变量槽——一致即同一单元
+            // （宿主 alloca / 内层转发所得 ptr / 自递归自身捕获绑定），不一致即
+            // 该名已被内层新声明遮蔽，此刻无从取得登记的宿主槽指针，保守拒编不错编。
+            for (const CGFunction::Capture& cap : info->captures) {
+                CGVar* cv = lookup_var(cap.name);
+                if (cv == nullptr || cv->cell_id != cap.cell_id ||
+                    cv->slot == nullptr) {
+                    unsupported("closure variable '" + cap.name +
+                                    "' not capturable at this call",
+                                expr.paren().line(), expr.paren().column());
+                }
+                args.push_back(cv->slot);
             }
             llvm::CallInst* call = builder_.CreateCall(info->fn, args);
             // Arr 返回值 elem 记 Num 哨兵（t70：跨签名边界元素类型动态化）
@@ -2961,6 +3136,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Int;
             var.bit_max = tt == TokenType::KW_BYTE ? 255 : 65535;
             var.uninit = true;
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
         }
@@ -2976,6 +3152,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.slot = create_var_slot(llvm_type_of(type), name);
             var.type = type;
             var.uninit = true;
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
         }
@@ -2990,6 +3167,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Arr;
             var.elem = CGType::Num;
             var.uninit = true;
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
         }
@@ -3005,6 +3183,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.type = CGType::Obj;
             var.cls = cls_name;
             var.uninit = true;
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
         }
@@ -3032,6 +3211,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             var.slot = create_var_slot(llvm_type_of(CGType::Obj), name);
             var.type = CGType::Obj;
             var.uninit = true;
+            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
         }
@@ -3053,7 +3233,9 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         const std::string name(stmt.name().lexeme());
         llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
         builder_.CreateStore(init.value, slot);
-        scopes_.back()[name] = {slot, CGType::Obj, CGType::Int, init.cls};
+        CGVar var{slot, CGType::Obj, CGType::Int, init.cls};
+        var.cell_id = next_cell_id_++; // 可捕获单元（t141）
+        scopes_.back()[name] = var;
         return;
     }
     // 类类型变量（t60）：声明类型为已注册类名的 IDENTIFIER token（语义层
@@ -3076,7 +3258,9 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         const std::string name(stmt.name().lexeme());
         llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
         builder_.CreateStore(init.value, slot);
-        scopes_.back()[name] = {slot, CGType::Obj, CGType::Int, cls_name};
+        CGVar var{slot, CGType::Obj, CGType::Int, cls_name};
+        var.cell_id = next_cell_id_++; // 可捕获单元（t141）
+        scopes_.back()[name] = var;
         return;
     }
     // byte/word 变量（t69）：i64 承载零类型扩散，仅声明/赋值点插范围陷阱
@@ -3097,7 +3281,9 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         const std::string bit_name(stmt.name().lexeme());
         llvm::Value* slot = create_var_slot(builder_.getInt64Ty(), bit_name);
         builder_.CreateStore(checked, slot);
-        scopes_.back()[bit_name] = {slot, CGType::Int, CGType::Int, "", -1, max_val};
+        CGVar bit_var{slot, CGType::Int, CGType::Int, "", -1, max_val};
+        bit_var.cell_id = next_cell_id_++; // 可捕获单元（t141）
+        scopes_.back()[bit_name] = bit_var;
         return;
     }
     CGType type = declared_cgtype(stmt.type());
@@ -3144,6 +3330,7 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     CGVar var{slot, type, elem, elem_cls}; // 同名直接遮蔽（重复声明由语义层拦截）
     var.loop_depth = loops_.size();        // 异型互赋降级限同层（t106）
     var.fn_gen_at = fn_gen_count_;         // 全局槽快照守卫基准（t106）
+    var.cell_id = next_cell_id_++;         // 可捕获单元（t141）
     scopes_.back()[name] = var;
 }
 
@@ -3454,6 +3641,14 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         return;
     }
 
+    // 闭包按引用捕获物化（t141）：仅普通函数/块作用域内的嵌套函数——宿主
+    // 非类方法（current_this_ 非空即处于方法体，其单态化副本各帧局部槽地址
+    // 不同，跨副本共享捕获 ptr 会悬垂，保守维持体内标识符不可见拒编，同 t104）。
+    // 须在搬迁宿主 scopes_ 之前调用：自由变量对宿主作用域的归属此刻才可得。
+    if (is_nested && current_this_ == nullptr) {
+        build_closure_prototype(stmt, key);
+    }
+
     // 保存 @main（或外层函数）生成现场，函数体用独立的变量环境/循环栈；
     // 顶层作用域拷贝为链底（t73）：全局槽（GlobalVariable）跨函数可见；
     // Tup 条目一并拷贝（t76：顶层 tuple 解构槽组已升全局槽，tuple_vars_
@@ -3503,27 +3698,49 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
     current_ret_bit_max_ = info.ret_bit_max;
 
     builder_.SetInsertPoint(llvm::BasicBlock::Create(context_, "entry", info.fn));
-    // 形参落栈槽（与局部变量同机制，可被赋值/遮蔽）
-    size_t i = 0;
-    for (auto& arg : info.fn->args()) {
+    // 形参落栈槽（与局部变量同机制，可被赋值/遮蔽）；闭包捕获项（t141）先行
+    // 绑定为「无 alloca 的 ptr 形参」——它们直接是宿主单元地址，体内读写经此
+    // 指针透传到宿主槽（按引用共享，对齐解释器闭包共享变量单元语义：内层改
+    // 外层可见、外层改内层迟绑定可见）。捕获先入参数层，同名形参随后覆盖即
+    // 遮蔽（对齐解释器形参遮蔽外层同名；被遮蔽的捕获成死参，无害）。
+    std::vector<llvm::Argument*> all_args;
+    for (auto& arg : info.fn->args()) all_args.push_back(&arg);
+    const size_t nparams = stmt.parameters().size();
+    for (size_t j = 0; j < info.captures.size(); ++j) {
+        const CGFunction::Capture& cap = info.captures[j];
+        llvm::Argument* slot = all_args[nparams + j];
+        slot->setName(cap.name);
+        CGVar binding;
+        binding.slot = slot; // 宿主单元地址即槽，无本地 alloca
+        binding.type = cap.type;
+        binding.elem = cap.elem;
+        binding.cls = cap.cls;
+        binding.bit_max = cap.bit_max;
+        binding.cell_id = cap.cell_id; // 透传宿主单元 id：体内更深嵌套/自递归转发时
+                                        // visitCall 据 id 一致性取本 ptr 再传
+        binding.uninit = cap.uninit;   // 宿主登记时未定赋 → 体内读保守拒编（同 t92）
+        scopes_.back()[cap.name] = binding;
+    }
+    for (size_t i = 0; i < nparams; ++i) {
         const Parameter& param = stmt.parameters()[i];
         const std::string pname(param.name.lexeme());
-        arg.setName(pname);
+        llvm::Argument* arg = all_args[i];
+        arg->setName(pname);
         llvm::AllocaInst* slot =
             create_entry_alloca(llvm_type_of(info.param_types[i]), pname);
-        builder_.CreateStore(&arg, slot);
+        builder_.CreateStore(arg, slot);
         // Arr 形参 elem 记 Num 哨兵（t70：签名处元素类型不可知，动态域路径）
         CGVar binding{slot, info.param_types[i],
                       info.param_types[i] == CGType::Arr ? CGType::Num
                                                          : CGType::Int,
                       info.param_cls[i]};
+        binding.cell_id = next_cell_id_++; // 形参亦是可捕获单元（t141）
         // byte/word 形参（t98）：置 bit_max，体内重赋走既有赋值点 check_bit_range
         const TokenType ptt = param.type.type();
         if (ptt == TokenType::KW_BYTE || ptt == TokenType::KW_WORD) {
             binding.bit_max = ptt == TokenType::KW_BYTE ? 255 : 65535;
         }
         scopes_.back()[pname] = binding;
-        ++i;
     }
 
     for (const auto& body_stmt : stmt.body()->statements()) {
@@ -4164,6 +4381,54 @@ void CodeGenerator::declare_nested_in(const Stmt* s, const std::string& prefix) 
         return;
     }
     // 其余语句（表达式/变量声明/return 等）不含语句子树，无嵌套函数可登记
+}
+
+void CodeGenerator::build_closure_prototype(const FunctionStmt& stmt,
+                                            const std::string& key) {
+    // 收集体内自由标识符（含更深层嵌套体，供逐层按引用转发捕获）后按宿主
+    // 当前 scope 解析：仅「真实存储槽且非顶层全局」的形参/局部才是捕获候选。
+    // 顶层全局经函数体链底槽拷贝直读（t73），无需 ptr；函数绑定/元组解构槽
+    // （slot 恒 nullptr）/未分配 id 者一律跳过——体内引用它们维持既有可见性。
+    // 捕获为空则保留第一遍无捕获原型，走原路径（现有嵌套函数零改动）。
+    auto& info = functions_[key];
+    std::set<std::string> free_names;
+    collect_free_idents_stmt(stmt.body(), free_names);
+
+    std::vector<CGFunction::Capture> captures;
+    for (const auto& name : free_names) {
+        CGVar* cv = lookup_var(name);
+        if (cv == nullptr) continue;                        // 非外层可见（内建/类名/未定义）
+        if (!cv->fn_key.empty()) continue;                  // 函数名绑定，非变量槽
+        if (cv->slot == nullptr) continue;                  // 元组解构无单一槽（保守不捕获）
+        if (cv->cell_id == 0) continue;                     // 未分配单元 id
+        if (llvm::isa<llvm::GlobalVariable>(cv->slot)) continue; // 顶层全局：链底直读
+        CGFunction::Capture cap;
+        cap.name = name;
+        cap.cell_id = cv->cell_id;
+        cap.type = cv->type;
+        cap.elem = cv->elem;
+        cap.cls = cv->cls;
+        cap.bit_max = cv->bit_max;
+        cap.uninit = cv->uninit;
+        captures.push_back(std::move(cap));
+    }
+    if (captures.empty()) return;
+
+    // 重建原型：原声明参数 LLVM 类型 + 等长尾随 ptr 捕获参数（宿主单元地址）。
+    // 此刻第一遍原型无任何调用引用（嵌套体的调用恒在声明语句之后生成），可安全
+    // eraseFromParent 换建；体内引用与更深层转发经 visitFunction 的捕获绑定 +
+    // visitCall 的 cell_id 一致性传参闭合。
+    std::vector<llvm::Type*> llvm_params;
+    llvm_params.reserve(info.param_types.size() + captures.size());
+    for (CGType t : info.param_types) llvm_params.push_back(llvm_type_of(t));
+    for (size_t j = 0; j < captures.size(); ++j)
+        llvm_params.push_back(llvm::PointerType::getUnqual(context_));
+    auto* fn_type = llvm::FunctionType::get(llvm_type_of(info.ret_type),
+                                            llvm_params, /*isVarArg=*/false);
+    info.fn->eraseFromParent();
+    info.fn = llvm::Function::Create(fn_type, llvm::Function::InternalLinkage,
+                                     "collie." + key, module_.get());
+    info.captures = std::move(captures);
 }
 
 void CodeGenerator::collect_classes_in_order(

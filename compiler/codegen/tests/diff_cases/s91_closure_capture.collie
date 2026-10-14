@@ -1,0 +1,118 @@
+// t141 S88 差分用例：闭包按引用捕获外层形参/局部（受限雷姆达提升 + 单元指针转发）
+// 覆盖：迟绑定读、内层写外层可见、捕获形参、多层逐层转发、自递归透传、
+// 数组/串/小数/布尔/number/byte/类实例捕获、实例重赋后捕获、插值内引用捕获
+
+function c_int() integer {
+    integer x = 1;
+    function get() integer { return x; }
+    x = 99;
+    return get();
+}
+print("late_read", c_int());
+
+function c_write() integer {
+    integer x = 1;
+    function bump() none { x = x + 10; }
+    bump();
+    bump();
+    return x;
+}
+print("inner_write", c_write());
+
+function c_param(addend integer) integer {
+    function f(k integer) integer { return k + addend; }
+    return f(4);
+}
+print("param", c_param(14));
+
+function c_multi() integer {
+    integer x = 5;
+    function mid() integer {
+        function inner() integer { return x + 1; }
+        return inner();
+    }
+    return mid();
+}
+print("multi", c_multi());
+
+function c_rec() integer {
+    integer startv = 100;
+    function go(k integer) integer {
+        if (k <= 0) { return startv; }
+        return go(k - 1) + 1;
+    }
+    return go(3);
+}
+print("self_rec", c_rec());
+
+function c_arr() integer {
+    array arr = [10, 20, 30];
+    function sum3() integer { return arr[0] + arr[1] + arr[2]; }
+    return sum3();
+}
+print("array", c_arr());
+
+function c_str() string {
+    string s = "hey";
+    function bang() string { return s + "!"; }
+    return bang();
+}
+print("string", c_str());
+
+function c_dec() decimal {
+    decimal d = 1.5;
+    function twice() decimal { return d * 2.0; }
+    return twice();
+}
+print("decimal", c_dec());
+
+function c_bool() bool {
+    bool b = true;
+    function flip() bool { b = !b; return b; }
+    return flip();
+}
+print("bool", c_bool());
+
+function c_num() number {
+    number n = 7;
+    function plus() number { return n + 1; }
+    return plus();
+}
+print("number", c_num());
+
+function c_byte() integer {
+    byte y = 200;
+    function addb() integer { return y + 1; }
+    y = 10;
+    return addb();
+}
+print("byte_late", c_byte());
+
+class Dog {
+    public string name = "?";
+    public Dog(n string) { this.name = n; }
+    public function speak() string { return this.name + " woof"; }
+}
+function c_obj() string {
+    Dog d = new Dog("rex");
+    function talk() string { return d.speak(); }
+    return talk();
+}
+print("object", c_obj());
+
+function c_obj_reassign() string {
+    Dog d = new Dog("a");
+    function talk() string { return d.speak(); }
+    d = new Dog("b");
+    return talk();
+}
+print("object_reassign", c_obj_reassign());
+
+function c_interp() string {
+    integer total = 40;
+    integer extra = 2;
+    function report() string { return @"sum={total + extra}"; }
+    total = 100;
+    return report();
+}
+print("interp_late", c_interp());

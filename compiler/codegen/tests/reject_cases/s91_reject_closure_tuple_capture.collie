@@ -1,0 +1,10 @@
+// t141 S88 拒编用例：闭包捕获 Tuple 变量（解构无单一槽，保守不捕获）
+// 解释器：t 按引用共享，f() 返回 1；codegen：体内引用 t 标识符不可见 → 拒编不错编
+function hostT() integer {
+    Tuple t = (1, 2);
+    function f() integer {
+        return t[0];
+    }
+    return f();
+}
+print(hostT());

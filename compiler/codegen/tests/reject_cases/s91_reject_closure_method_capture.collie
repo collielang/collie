@@ -1,0 +1,18 @@
+// t141 S88 拒编用例：类方法体内嵌套函数捕获方法局部
+// 单态化副本各帧重分配 cell_id，跨副本共享捕获 ptr 会悬垂，保守维持 t104  stance
+// 解释器：动态作用域下 f() 见方法局部 local=5；codegen：体内引用 local 不可见 → 拒编不错编
+class C {
+    public integer v = 0;
+    public C() {
+        this.v = 0;
+    }
+    public function run() integer {
+        integer local = 5;
+        function f() integer {
+            return local;
+        }
+        return f();
+    }
+}
+C c = new C();
+print(c.run());

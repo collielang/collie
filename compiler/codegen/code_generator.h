@@ -145,6 +145,14 @@ private:
         bool uninit = false;       // 无初始化声明（t92/t110）：读拒编；直线区域赋值清，
                                    // 条件发射区（分支/循环体/三目臂等）快照隔离，
                                    // if/else 汇合点取两分支清除集交集
+        int cell_id = 0;           // 变量单元唯一标识（t141）：闭包按引用捕获的身份键——
+                                   // 每个真实存储槽（形参/局部）创建时分配自增非零值，
+                                   // 捕获项在宿主侧登记此 id，被捕获方在体内以收到的
+                                   // ptr 形参重绑定同一 id；调用点比对 lookup 所得 CGVar
+                                   // 的 cell_id 与捕获登记值，一致才传该槽指针（一致即
+                                   // 同一单元：宿主 alloca、自递归转发 ptr、多层嵌套逐层
+                                   // 转发），不一致即名字被内层局部遮蔽 → 保守拒编不错编。
+                                   // 0 = 未分配（全局/函数绑定/元组等不可按单槽捕获者）
         size_t loop_depth = 0;     // 仅 type == Arr 有意义：声明时 loops_.size()（t106）——
                                    // 异型互赋降级仅限同层（循环回边下赋值前生成的
                                    // 静态读代码会按旧 elem 解码错值，跨层拒编不错编）
@@ -183,6 +191,21 @@ private:
         CGType ret_type = CGType::Void; // Void 即 none 返回
         std::string ret_cls;            // 仅 ret_type == Obj 有意义（t61）
         long long ret_bit_max = 0;      // byte/word 返回类型范围上限 255/65535，0 即非位类型（t97）
+        /// 闭包按引用捕获项（t141）：非空即在签名尾部追加等长 ptr 形参（宿主槽地址），
+        /// 体内以收到的 ptr 重绑定这些名字（cell_id 透传），调用点据 cell_id 一致性传参。
+        /// 空即无捕获——现有嵌套函数（仅用形参/全局/自递归/兄弟）走原路径零改动。
+        struct Capture {
+            std::string name;   // 被捕获的外层变量名
+            int cell_id = 0;    // 宿主单元 id（与 CGVar.cell_id 对应，调用点一致性校验键）
+            CGType type = CGType::Int;
+            CGType elem = CGType::Int; // 仅 type==Arr 有意义
+            std::string cls;           // 仅 type==Obj 有意义
+            long long bit_max = 0;     // byte/word 范围上限
+            bool uninit = false;       // 宿主登记时仍为无初始化态（t141）：体内读该捕获
+                                       // 落 visitIdentifier uninit 守卫保守拒编（解释器此值
+                                       // 可能为 none，槽零值会错值），写则放行
+        };
+        std::vector<Capture> captures;
     };
 
     /// @brief 单态化方法实例（t61）：分派类 C 视角下 (定义类 D, 方法 m) 的
@@ -327,6 +350,14 @@ private:
     /// While/For/DoWhile/Switch 各分支体全覆盖；命中 FunctionStmt 即以
     /// prefix 改编名 declare_function 并进 nested_fns_ 注册表
     void declare_nested_in(const Stmt* s, const std::string& prefix);
+
+    /// @brief 闭包按引用捕获的第二遍物化（t141）：嵌套函数体生成前，若其体
+    /// 引用宿主（普通函数/块作用域函数，非类方法）形参或局部，则收集这些自由
+    /// 变量、按宿主 scope 解析为捕获项，并用「原参数 + 等长 ptr 捕获参数」重建
+    /// llvm 函数原型（替换第一遍建的无捕获原型）。捕获为空则不重建（走原路径）。
+    /// 类方法体内嵌套不收集捕获（单态化副本各帧槽不同，跨副本 ptr 会悬垂/错元，
+    /// 保守维持标识符不可见拒编，同 t104）。元组/TupDyn? 元组槽非单一 ptr 亦跳过
+    void build_closure_prototype(const FunctionStmt& stmt, const std::string& key);
 
     /// @brief 作用域守卫（t130）：构造压栈、析构出栈，配合 scope_stack_ 维护声明作用域；
     /// 进入函数/方法体、if/while/for/do-while 各分支、switch 各 case 体时 RAII 压入
@@ -632,6 +663,9 @@ private:
     /// 全局槽静态 elem，全局数组槽异型互赋降级不回溯已生成代码——
     /// 声明后计数增长即拒编（CGVar.fn_gen_at 对比）
     size_t fn_gen_count_ = 0;
+    /// 变量单元 id 自增分配器（t141）：每个形参/局部建槽时取号，供闭包
+    /// 按引用捕获的身份一致性校验（见 CGVar::cell_id）；从 1 起，0 留作未分配
+    int next_cell_id_ = 1;
     /// 条件发射区深度（t117）：uninit_snapshot 各调用点配 CondDepthGuard RAII
     /// 自增自减（C++ 栈帧作用域 == 区内发射作用域，区末无用户语句发射）——
     /// tuple 换形状重赋在区内的形状运行期才定，区外读按生成时形状解码
