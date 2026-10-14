@@ -666,6 +666,14 @@ private:
     /// collie_rt 动态承载值长度面（t152）：Dyn 上的 `.length`（mode 0）与
     /// len()（mode 1）按运行期 tag 分派取长度，非串/数组位落解释器同消息陷阱
     llvm::FunctionCallee rt_dyn_len_;  // i64(i64 tag, i64 bits, i64 mode)
+    /// collie_rt 动态承载值索引读（t153）：`dyn[i]` 按运行期 tag 分派
+    /// （3=串 UTF-8 码点索引、4/7=数组按元素 kind 读、其余落解释器同消息陷阱），
+    /// 经出参写回 {tag,bits}
+    llvm::FunctionCallee rt_dyn_index_;  // void(i64 tag, i64 bits, i64 idx, ptr otag, ptr obits)
+    /// collie_rt 动态承载值索引写（t153）：`dyn[i] = v` 按运行期 tag 分派
+    /// （4/7=数组写复用 arr_set_num 的 kind 对齐与 CG7 陷阱、3=串不可变陷阱、
+    /// 其余=Only arrays can be index-assigned 陷阱）
+    llvm::FunctionCallee rt_dyn_set_;  // void(i64 tag, i64 bits, i64 idx, i64 vtag, i64 vbits)
     /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
     /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
     /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂

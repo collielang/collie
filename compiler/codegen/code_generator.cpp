@@ -468,6 +468,23 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
                                {builder_.getInt64Ty(), builder_.getInt64Ty(),
                                 builder_.getInt64Ty()},
                                false));
+    // collie_rt 动态承载值索引读写声明（t153）：`dyn[i]` / `dyn[i] = v` 按运行期
+    // tag 分派（3=串码点索引返单码点子串、4/7=数组读写、其余落解释器同消息陷阱），
+    // 读经出参写回 {tag,bits}
+    rt_dyn_index_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_index",
+        llvm::FunctionType::get(
+            builder_.getVoidTy(),
+            {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty(),
+             ptr_ty, ptr_ty},
+            false));
+    rt_dyn_set_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_set",
+        llvm::FunctionType::get(
+            builder_.getVoidTy(),
+            {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty(),
+             builder_.getInt64Ty(), builder_.getInt64Ty()},
+            false));
     // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
     // 态（0/1 以外）时报错退出，消息对齐解释器
     // "Arithmetic operands must be numbers"
@@ -2064,7 +2081,8 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
                                            expr.bracket().column());
         return;
     }
-    if (object.type != CGType::Str && object.type != CGType::Arr) {
+    if (object.type != CGType::Str && object.type != CGType::Arr &&
+        object.type != CGType::Dyn) {
         unsupported("indexing this value type",
                     expr.bracket().line(), expr.bracket().column());
     }
@@ -2072,6 +2090,26 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
     index.value =
         index_to_int(index, expr.bracket().line(), expr.bracket().column());
     index.type = CGType::Int;
+    if (object.type == CGType::Dyn) {
+        // 动态承载值作索引接收者（t153）：嵌套容器索引 `a[i][j]` 的内层接收者、
+        // object 动态槽与动态 tuple 索引读出的值——tag 运行期才定，按解释器
+        // visitIndex 接受表下沉 rt 分派（3=串按 UTF-8 码点索引返单码点子串、
+        // 4/7=数组按元素 kind 读、其余位落 "Only arrays, strings and tuples can
+        // be indexed, got <kind>" 陷阱）；负索引归一化与越界陷阱复用 rt 既有路径，
+        // 结果统一产出 CGType::Dyn（串位打 tag 3），消费面全走 t147–t152 既有 Dyn 臂
+        llvm::AllocaInst* otag =
+            create_entry_alloca(builder_.getInt64Ty(), "dynidx.otag");
+        llvm::AllocaInst* obits =
+            create_entry_alloca(builder_.getInt64Ty(), "dynidx.obits");
+        builder_.CreateCall(rt_dyn_index_,
+                            {num_tag(object.value), num_bits(object.value),
+                             index.value, otag, obits});
+        last_value_ = {make_num(
+                           builder_.CreateLoad(builder_.getInt64Ty(), otag, "dynidxtag"),
+                           builder_.CreateLoad(builder_.getInt64Ty(), obits, "dynidxbits")),
+                       CGType::Dyn};
+        return;
+    }
     if (object.type == CGType::Arr) {
         if (object.elem == CGType::Dyn) {
             // 异质动态标量数组读（t139，kind 7）：rt_arr_get_dyn 一次取回
@@ -2162,7 +2200,7 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     // 不匹配拒编不错编（解释器数组元素动态异质，codegen 同质表示无法承载）；
     // string/tuple 的索引赋值语义层已拦
     CGValue object = emit(expr.object());
-    if (object.type != CGType::Arr) {
+    if (object.type != CGType::Arr && object.type != CGType::Dyn) {
         unsupported("index assignment on this value type",
                     expr.bracket().line(), expr.bracket().column());
     }
@@ -2171,6 +2209,26 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         index_to_int(index, expr.bracket().line(), expr.bracket().column());
     index.type = CGType::Int;
     CGValue v = emit(expr.value());
+    if (object.type == CGType::Dyn) {
+        // 动态承载值索引写（t153）：`a[i][j] = v` 的内层接收者为 Dyn（动态域
+        // 嵌套数组元素、kind 7 元素、object 动态槽等），tag 运行期才定——按解释器
+        // visitIndexAssign 接受表下沉 rt 分派（4/7=数组写，复用 arr_set_num 的
+        // kind 对齐、int→dec 提升与 CG7 失配陷阱；3=串不可变陷阱；其余=
+        // "Only arrays can be index-assigned, got <kind>" 陷阱）；写入值统一经
+        // to_dyn 打 tag（Arr 值打 tag 4 存内层数组 ptr，读回即 Dyn）。值类型
+        // 守卫与 kind 7 写侧同源：静态可判的非承载值维持拒编不错编
+        if (!is_dyn_scalar(v.type) && v.type != CGType::Obj &&
+            v.type != CGType::Arr) {
+            unsupported("array element type mismatch in index assignment",
+                        expr.bracket().line(), expr.bracket().column());
+        }
+        llvm::Value* vd = to_dyn(v);
+        builder_.CreateCall(rt_dyn_set_,
+                            {num_tag(object.value), num_bits(object.value),
+                             index.value, num_tag(vd), num_bits(vd)});
+        last_value_ = v;
+        return;
+    }
     if (object.elem == CGType::Dyn) {
         // 异质动态标量数组整槽写（t139，kind 7）：任意基本标量写入自带 tag，
         // 解释器异质数组本就容任意元素；Dyn 值透传分量，静态标量打常量 tag。

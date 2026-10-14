@@ -65,6 +65,15 @@
  *     // kind 7 写（t139）：负索引归一化 + 越界陷阱，写 slots[2i]=tag/2i+1=bits
  *   void collie_rt_arr_get_dyn(void* arr, long long i, long long* otag, long long* obits);
  *     // kind 7 读（t139）：同上索引规则，经出参写回 tag/bits
+ *   void collie_rt_dyn_index(long long tag, long long bits, long long i,
+ *                            long long* otag, long long* obits);
+ *     // 动态承载值作索引接收者（t153）：3=串码点索引返单码点子串（tag 3）、
+ *     // 4/7=数组按内层运行期 kind 读、其余落 "Only arrays, strings and tuples
+ *     // can be indexed, got <kind>" 陷阱；经出参写回 {tag,bits}
+ *   void collie_rt_dyn_set(long long tag, long long bits, long long i,
+ *                          long long vtag, long long vbits);
+ *     // 动态承载值索引写（t153）：4/7 复用 collie_rt_arr_set_num（含 CG7 失配
+ *     // 陷阱）、3=串不可变陷阱、其余 "Only arrays can be index-assigned, got <kind>"
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -572,6 +581,72 @@ void collie_rt_arr_get_dyn(void* arr, long long index,
     *obits = a->slots[2 * i + 1];
 }
 
+/* 动态承载值的 kind 名（t153 索引陷阱用）：tag 复用数组 kind 编码，
+ * 名称对齐解释器 Value::kind_name（0/1 同报 number、4/7 同报 array） */
+static const char* collie_rt_dyn_kind_name(long long tag) {
+    switch ((int)tag) {
+        case 0:
+        case 1: return "number";
+        case 2: return "bool";
+        case 3: return "string";
+        case 4:
+        case 7: return "array";
+        case 5: return "object";
+        case 6: return "tribool";
+        default: return "unknown";
+    }
+}
+
+/* 动态承载值作索引接收者（t153）：`dyn[i]` 按运行期 tag 复刻解释器 visitIndex
+ * 接受表——tag 3 串按 UTF-8 码点索引、返单码点子串（打 tag 3）；tag 4/7 数组按
+ * 内层运行时 kind 读（kind 7 取回真实 {tag,bits}，其余 kind 即 tag、bits 为槽位
+ * 模式，故三层嵌套 `a[i][j][k]` 逐级工作）；其余位落解释器同消息陷阱
+ * "Only arrays, strings and tuples can be indexed, got <kind>"（tuple 无动态承载
+ * 位，此处不会出现）。负索引归一化与越界陷阱复用既有 rt 路径 */
+void collie_rt_dyn_index(long long tag, long long bits, long long index,
+                         long long* otag, long long* obits) {
+    if (tag == 3) {
+        *otag = 3;
+        *obits = (long long)(intptr_t)collie_rt_str_index(
+            (const char*)(intptr_t)bits, index);
+        return;
+    }
+    if (tag == 4 || tag == 7) {
+        collie_rt_array* a = (collie_rt_array*)(intptr_t)bits;
+        long long i = collie_rt_arr_norm_index(a, index);
+        if (a->kind == 7) {
+            *otag = a->slots[2 * i];
+            *obits = a->slots[2 * i + 1];
+            return;
+        }
+        *otag = a->kind;
+        *obits = a->slots[i];
+        return;
+    }
+    fprintf(stderr, "Only arrays, strings and tuples can be indexed, got %s\n",
+            collie_rt_dyn_kind_name(tag));
+    exit(1);
+}
+
+/* 动态承载值索引写（t153）：`dyn[i] = v` 按运行期 tag 复刻解释器
+ * visitIndexAssign——tag 4/7 走既有动态域写（kind 对齐/int→dec 提升/kind 7
+ * 双步长槽/异类失配 CG7 陷阱均在 collie_rt_arr_set_num 内）；tag 3 串不可变
+ * 陷阱；其余 "Only arrays can be index-assigned, got <kind>" */
+void collie_rt_dyn_set(long long tag, long long bits, long long index,
+                       long long vtag, long long vbits) {
+    if (tag == 3) {
+        fprintf(stderr, "Strings are immutable, cannot assign to index\n");
+        exit(1);
+    }
+    if (tag == 4 || tag == 7) {
+        collie_rt_arr_set_num((void*)(intptr_t)bits, index, vtag, vbits);
+        return;
+    }
+    fprintf(stderr, "Only arrays can be index-assigned, got %s\n",
+            collie_rt_dyn_kind_name(tag));
+    exit(1);
+}
+
 /* ---- 未定义方法/属性陷阱（t102，S39 残余面）---- */
 
 /* 父类静态类型调子类特有成员：静态类无此方法但后代类有，codegen 按对象头
@@ -669,6 +744,12 @@ long long collie_rt_arr_eq(void* lhs, void* rhs) {
                                       * values_equal 无 Instance 分支，同 kind 5
                                       * 单数组 t100 同规则，t144） */
                     return 0;
+                } else if (lt == 4 || lt == 7) { /* 数组位（动态域嵌套数组读出 /
+                                      * 嵌套数组写 kind 7 槽，t153）：bits 即内层
+                                      * 数组 ptr，递归深比较——此前按指针直比，
+                                      * 结构相等的两个内层数组会静默判不等 */
+                    if (!collie_rt_arr_eq((void*)(intptr_t)lb,
+                                          (void*)(intptr_t)rb)) return 0;
                 } else { /* int/bool/tribool：位模式即值 */
                     if (lb != rb) return 0;
                 }
@@ -833,6 +914,13 @@ const char* collie_rt_arr_to_str(void* arr) {
                         break;
                     case 5: /* object：实例固定 <object>（t144，对齐 kind 5 t100） */
                         collie_rt_sb_append(&out, &n, &cap, "<object>");
+                        break;
+                    case 4:
+                    case 7: /* 数组位（动态域嵌套数组读出 / 嵌套数组写入 kind 7 槽，
+                             * t153）：bits 即内层数组 ptr，递归转串——此前落入
+                             * 默认串分支会把数组对象指针当 char* 打印成静默错值 */
+                        collie_rt_sb_append(&out, &n, &cap,
+                                            collie_rt_arr_to_str((void*)(intptr_t)bits));
                         break;
                     default: /* 3 = string：指针位模式还原，原样不加引号 */
                         collie_rt_sb_append(&out, &n, &cap,

@@ -125,7 +125,7 @@ if(COLLIE_ENABLE_LLVM)
             s88_hetero_tuple_dyn s89_hetero_scalar_array s90_dynamic_tuple s91_closure_capture s92_dynamic_object_field
             s93_function_value s94_hetero_obj_array s95_dyn_elem_member
             s96_object_dyn_slot s97_dyn_to_slot s98_dyn_arith s99_dyn_compare s100_dyn_index
-            s101_dyn_domain_read s102_dyn_length)
+            s101_dyn_domain_read s102_dyn_length s103_dyn_nested_index)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
