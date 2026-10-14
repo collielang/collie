@@ -485,6 +485,23 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
             {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty(),
              builder_.getInt64Ty(), builder_.getInt64Ty()},
             false));
+    // collie_rt 动态承载值串方法声明（t154）：`dyn.trim()` / `dyn.subString(...)`
+    // 按运行期 tag 分派（3=串复用既有垫片），其余位落解释器同消息陷阱
+    // "Method 'x()' is only supported on strings, got <kind>"
+    rt_dyn_str_trim_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_str_trim",
+        llvm::FunctionType::get(
+            ptr_ty,
+            {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty(),
+             ptr_ty},
+            false));
+    rt_dyn_str_substring_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_str_substring",
+        llvm::FunctionType::get(
+            ptr_ty,
+            {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty(),
+             builder_.getInt64Ty(), ptr_ty},
+            false));
     // collie_rt 动态承载值参与算术的类型陷阱声明（t148）：Dyn 侧 tag 非数值
     // 态（0/1 以外）时报错退出，消息对齐解释器
     // "Arithmetic operands must be numbers"
@@ -2341,6 +2358,49 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     builder_.CreateCall(rt_arr_set_, {object.value, index.value, elem_to_bits(v)});
     last_value_ = v; // 赋值表达式的值为右侧值（与解释器一致，支持链式赋值）
 }
+// subString 下标参数降级（t105 引入，t154 提取为成员供静态串接收者与动态
+// 承载值接收者两路共用）：Int 直传（rt 侧 clamp，end==-1 取 length）；
+// Double/Num 按解释器语义预处理——end 在 floor 前判 NaN/精确 -1.0 取 length
+//（floor(-0.9) 为 -1 不特判、clamp 到 0 得空串，顺序敏感）；NaN start 归 0；
+// 其余 floor 后 clamp 转 i64 交 rt 垫片按 length 收口
+llvm::Value* CodeGenerator::sub_string_index(const CGValue& v, bool is_end,
+                                             size_t line, size_t column) {
+    if (v.type == CGType::Int) {
+        return v.value;  // rt 侧 clamp；end==-1 取 length（既有语义）
+    }
+    if (v.type != CGType::Double && v.type != CGType::Num) {
+        unsupported(std::string("non-numeric subString() ") +
+                        (is_end ? "end" : "start"),
+                    line, column);
+    }
+    llvm::Value* d = to_double(v);
+    llvm::Value* special = builder_.CreateFCmpUNO(d, d, "ssnan");
+    if (is_end) {
+        // 精确 -1.0 特判在 floor 之前（解释器 end_raw == -1.0 判定）
+        llvm::Value* is_neg1 = builder_.CreateFCmpOEQ(
+            d, llvm::ConstantFP::get(builder_.getDoubleTy(), -1.0), "ssneg1");
+        special = builder_.CreateOr(special, is_neg1, "ssspec");
+    }
+    // 特例值先中和为 0 再 floor/clamp/转换（NaN 过 fptosi 是 poison）；
+    // 上界 clamp 4e18 防超范围 fptosi poison（±Infinity/超大值随后
+    // 由 rt 垫片按 length 收口，与解释器 double 域 clamp 殊途同归）
+    llvm::Value* zero = llvm::ConstantFP::get(builder_.getDoubleTy(), 0.0);
+    llvm::Value* safe = builder_.CreateSelect(special, zero, d, "sssafe");
+    llvm::Value* fl =
+        builder_.CreateUnaryIntrinsic(llvm::Intrinsic::floor, safe);
+    fl = builder_.CreateBinaryIntrinsic(llvm::Intrinsic::maxnum, fl, zero);
+    fl = builder_.CreateBinaryIntrinsic(
+        llvm::Intrinsic::minnum, fl,
+        llvm::ConstantFP::get(builder_.getDoubleTy(), 4.0e18));
+    llvm::Value* idx = builder_.CreateFPToSI(fl, builder_.getInt64Ty(), "ssidx");
+    if (!is_end) {
+        return idx;  // NaN start 中和为 0 即解释器语义
+    }
+    // NaN/精确 -1.0 end → 哨兵 -1（rt 取 length）
+    return builder_.CreateSelect(
+        special, llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1), idx,
+        "ssend");
+}
 void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     // string 方法（S10 t57）：trim 系列/subString 降级到 collie_rt；toString()
     // 方法形式对任意标量接收者复用 to_str（与内建 toString(x) 同一降级）；
@@ -2351,12 +2411,61 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
     size_t column = expr.name().column();
     CGValue object = emit(expr.object());
 
+    if (object.type == CGType::Dyn &&
+        (name == "trim" || name == "trimLeft" || name == "trimRight" ||
+         name == "subString") &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [&](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.dispatch.count(name) != 0;
+                     })) {
+        // 动态承载值的串方法（t154）：tag 运行期才定——下沉 rt 按 tag 分派
+        // （3=串复用既有 trim/subString 垫片，其余位落解释器同消息陷阱
+        // "Method 'x()' is only supported on strings, got <kind>"）。静态守卫
+        // 「全程序无类定义同名方法」：有则接收者可能是实例，整面回落下方
+        // t145 dyn_obj_guard 的实例位方法动态分派，已交付面零回归
+        if (name == "subString") {
+            const auto& arguments = expr.arguments();
+            if (arguments.empty() || arguments.size() > 2) {
+                unsupported("subString() with this arity", line, column);
+            }
+            CGValue start = emit(arguments[0].get());
+            llvm::Value* start_v = sub_string_index(start, false, line, column);
+            llvm::Value* end =
+                llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1);
+            if (arguments.size() == 2) {
+                CGValue end_value = emit(arguments[1].get());
+                end = sub_string_index(end_value, true, line, column);
+            }
+            last_value_ = {builder_.CreateCall(
+                               rt_dyn_str_substring_,
+                               {num_tag(object.value), num_bits(object.value),
+                                start_v, end, builder_.CreateGlobalString(name)},
+                               "dynsubstr"),
+                           CGType::Str};
+            return;
+        }
+        if (!expr.arguments().empty()) {
+            // 解释器同为运行期报错；codegen 静态可判，拒编不错编（同静态串路径）
+            unsupported(name + "() with arguments", line, column);
+        }
+        int mode = name == "trim" ? 0 : name == "trimLeft" ? 1 : 2;
+        last_value_ = {builder_.CreateCall(
+                           rt_dyn_str_trim_,
+                           {num_tag(object.value), num_bits(object.value),
+                            builder_.getInt64(mode),
+                            builder_.CreateGlobalString(name)},
+                           "dyntrim"),
+                       CGType::Str};
+        return;
+    }
+
     if (object.type == CGType::Dyn) {
         // kind 7 元素读出（Dyn）的方法调用（t145）：tag==5 实例位守卫还原
         // 实例 ptr 后并入下方空 cls 方法动态分派（t133，全体定义者 switch
         // 按对象头类 id 调用）；非实例位落 collie_rt undefined method 陷阱
         // （解释器对 `1.abs()` 等标量自有方法可运行——codegen 无统一标量
-        // 方法承载，拒错编从陷阱，范围外面）；string 方法的 Dyn 承载同理
+        // 方法承载，拒错编从陷阱，范围外面）；串方法 trim/subString 已在上方
+        // t154 臂按运行期 tag 处理，仅在存在同名类方法时才落到这里
         object = {dyn_obj_guard(object, name, true), CGType::Obj,
                   CGType::Int, std::string()};
     }
@@ -2892,52 +3001,12 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             if (arguments.empty() || arguments.size() > 2) {
                 unsupported("subString() with this arity", line, column);
             }
-            auto coerce_index = [&](const CGValue& v, bool is_end) -> llvm::Value* {
-                if (v.type == CGType::Int) {
-                    return v.value;  // rt 侧 clamp；end==-1 取 length（既有语义）
-                }
-                if (v.type != CGType::Double && v.type != CGType::Num) {
-                    unsupported(std::string("non-numeric subString() ") +
-                                    (is_end ? "end" : "start"),
-                                line, column);
-                }
-                llvm::Value* d = to_double(v);
-                llvm::Value* special = builder_.CreateFCmpUNO(d, d, "ssnan");
-                if (is_end) {
-                    // 精确 -1.0 特判在 floor 之前（解释器 end_raw == -1.0 判定）
-                    llvm::Value* is_neg1 = builder_.CreateFCmpOEQ(
-                        d, llvm::ConstantFP::get(builder_.getDoubleTy(), -1.0),
-                        "ssneg1");
-                    special = builder_.CreateOr(special, is_neg1, "ssspec");
-                }
-                // 特例值先中和为 0 再 floor/clamp/转换（NaN 过 fptosi 是 poison）；
-                // 上界 clamp 4e18 防超范围 fptosi poison（±Infinity/超大值随后
-                // 由 rt 垫片按 length 收口，与解释器 double 域 clamp 殊途同归）
-                llvm::Value* zero =
-                    llvm::ConstantFP::get(builder_.getDoubleTy(), 0.0);
-                llvm::Value* safe = builder_.CreateSelect(special, zero, d, "sssafe");
-                llvm::Value* fl =
-                    builder_.CreateUnaryIntrinsic(llvm::Intrinsic::floor, safe);
-                fl = builder_.CreateBinaryIntrinsic(llvm::Intrinsic::maxnum, fl, zero);
-                fl = builder_.CreateBinaryIntrinsic(
-                    llvm::Intrinsic::minnum, fl,
-                    llvm::ConstantFP::get(builder_.getDoubleTy(), 4.0e18));
-                llvm::Value* idx =
-                    builder_.CreateFPToSI(fl, builder_.getInt64Ty(), "ssidx");
-                if (!is_end) {
-                    return idx;  // NaN start 中和为 0 即解释器语义
-                }
-                // NaN/精确 -1.0 end → 哨兵 -1（rt 取 length）
-                return builder_.CreateSelect(
-                    special, llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1),
-                    idx, "ssend");
-            };
             CGValue start = emit(arguments[0].get());
-            llvm::Value* start_v = coerce_index(start, false);
+            llvm::Value* start_v = sub_string_index(start, false, line, column);
             llvm::Value* end = llvm::ConstantInt::getSigned(builder_.getInt64Ty(), -1);
             if (arguments.size() == 2) {
                 CGValue end_value = emit(arguments[1].get());
-                end = coerce_index(end_value, true);
+                end = sub_string_index(end_value, true, line, column);
             }
             last_value_ = {builder_.CreateCall(
                                rt_str_substring_, {object.value, start_v, end}, "substrtmp"),

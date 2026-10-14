@@ -1,0 +1,7 @@
+// t154 拒编门禁：动态承载值（Dyn）上的 toNumber() 维持拒编不错编
+// 解释器按承载可转数（"42".toNumber() → 42），codegen 无 Dyn 的统一标量
+// 转数承载（需 out-param 出 {tag,bits} 的运行期拆数），落 t145 守卫拒编
+function f(a array) none {
+    print("N:", a[0].toNumber());
+}
+f(["42"]);

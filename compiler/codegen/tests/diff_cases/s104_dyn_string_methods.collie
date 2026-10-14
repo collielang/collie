@@ -1,0 +1,75 @@
+// t154 S101 差分用例：动态承载值（Dyn）上的串方法 `.trim()` / `.trimLeft()` /
+// `.trimRight()` / `.subString()` 按运行期 tag 分派（3=串复用既有垫片，其余位
+// 落解释器同消息陷阱）；Dyn 来源覆盖动态域元素、kind 7 异质元素、object 动态
+// 承载槽、动态 tuple 索引与 get、拼接结果、类数组字段、闭包捕获、嵌套索引读出
+function f(a array) none {
+    print("A:", a[0].trim(), "|", a[0].trimLeft(), "|", a[0].trimRight());
+    print("B:", a[1].subString(1), "|", a[1].subString(1, 3), "|", a[1].subString(2, 2));
+}
+function g(a array) none {
+    array tmp = [1, "  padded  ", true];
+    print("C:", tmp[1].trim(), "|", tmp[1].subString(2, 8));
+}
+function h(a array) none {
+    object v = a[0];
+    print("D:", v.trim(), "|", v.subString(1, 4));
+    v = a[1];
+    print("E:", v.trim());
+}
+function i(a array) none {
+    integer k = 1;
+    print("F:", a[0].subString(k), "|", a[1].subString(k, k + 2));
+    print("G:", a[0].subString(1.5), "|", a[0].subString(0, -1), "|", a[0].subString(0, 99));
+}
+function j(a array) none {
+    Tuple t = (a[0], a[1]);
+    integer k = 0;
+    print("H:", t[k].trim());
+    Tuple u = (x: a[0], y: a[1]);
+    print("I:", u.get("x").subString(2, 4));
+}
+function k() none {
+    print("J:", ("  left " + "right  ").trim());
+}
+class Bag {
+    public array items = ["  a  ", " b"];
+    public function show() none { print("K:", this.items[0].trim(), "|", this.items[1].trimLeft()); }
+    public function poke(i integer) none { this.items[i] = this.items[i].subString(1, 2); }
+}
+function outer(a array) none {
+    object v = a[0];
+    function reader() none { print("M:", v.trim()); }
+    reader();
+    v = a[1];
+    reader();
+}
+function loop(a array) none {
+    integer i = 0;
+    while (i < 2) { print("N", i, ":", a[i].trim().length); i = i + 1; }
+}
+function nested(a array) none {
+    print("O:", a[0][0].trim(), "|", a[0][1].subString(0, 1));
+}
+function back(a array) none {
+    a[0] = a[0].trim();
+    print("P:", a[0], "|", a[0].length);
+}
+function interp(a array) none {
+    print("Q:", @"v={a[0].trim()}");
+    print("R:", a[0].trim() == "hi", "|", a[1].trim() == "hi");
+}
+f(["   hi there   ", "abcdef"]);
+g(["x"]);
+h(["  obj1  ", "  obj2"]);
+i(["  idx  ", "abcdef"]);
+j(["  t0  ", "  t1"]);
+k();
+Bag b = new Bag();
+b.show();
+b.poke(0);
+print("L:", b.items);
+outer(["  o1 ", " o2  "]);
+loop(["  l0 ", " l1  "]);
+nested([["  n0 ", " n1 "], ["z"]]);
+back(["  back  ", 42]);
+interp(["  hi  ", "  hi "]);

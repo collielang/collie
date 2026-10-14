@@ -521,6 +521,12 @@ private:
     void gen_number_method(const CGValue& object, const std::string& name,
                            size_t line, size_t column);
 
+    /// @brief subString 下标参数降级（t105 引入，t154 提取为成员供静态串接收者
+    /// 与动态承载值接收者两路共用）：Int 直传，Double/Num 按解释器语义做
+    /// NaN / 精确 -1.0 特判 + floor + clamp 后转 i64
+    llvm::Value* sub_string_index(const CGValue& v, bool is_end,
+                                  size_t line, size_t column);
+
     /// @brief number 算术运行时调用（t62）：op 编码见 collie_rt_num_arith
     /// （0=+ 1=- 2=* 3=/ 4=% 5=一元负号）；结果经 entry alloca 出参写回
     llvm::Value* call_num_arith(int op, llvm::Value* a, llvm::Value* b);
@@ -674,6 +680,10 @@ private:
     /// （4/7=数组写复用 arr_set_num 的 kind 对齐与 CG7 陷阱、3=串不可变陷阱、
     /// 其余=Only arrays can be index-assigned 陷阱）
     llvm::FunctionCallee rt_dyn_set_;  // void(i64 tag, i64 bits, i64 idx, i64 vtag, i64 vbits)
+    /// collie_rt 动态承载值串方法（t154）：`dyn.trim()` / `dyn.subString(...)`
+    /// 按运行期 tag 分派（3=串复用既有垫片，其余落解释器同消息陷阱）
+    llvm::FunctionCallee rt_dyn_str_trim_;      // ptr(i64 tag, i64 bits, i64 mode, ptr name)
+    llvm::FunctionCallee rt_dyn_str_substring_; // ptr(i64 tag, i64 bits, i64 start, i64 end, ptr name)
     /// collie_rt 动态承载值判等（t149）：按 tag 复刻解释器 values_equal 接受表
     /// （tribool×bool 加宽、Number 跨 tag double 视图、串内容、数组深比较、
     /// 实例位恒不等、kind 失配恒 false），返 0/1，无陷阱臂

@@ -74,6 +74,15 @@
  *                          long long vtag, long long vbits);
  *     // 动态承载值索引写（t153）：4/7 复用 collie_rt_arr_set_num（含 CG7 失配
  *     // 陷阱）、3=串不可变陷阱、其余 "Only arrays can be index-assigned, got <kind>"
+ *   const char* collie_rt_dyn_str_trim(long long tag, long long bits,
+ *                                      long long mode, const char* name);
+ *   const char* collie_rt_dyn_str_substring(long long tag, long long bits,
+ *                                           long long start, long long end,
+ *                                           const char* name);
+ *     // 动态承载值的串方法（t154）：tag 3 复用 collie_rt_str_trim /
+ *     // collie_rt_str_substring；实例位（5）落 "Undefined method '<name>'
+ *     // on object"，其余位落 "Method '<name>()' is only supported on
+ *     // strings, got <kind>"
  *   long long collie_rt_arr_get(void* arr, long long i);     // 取 8 字节槽位模式；
  *     负索引 -1 为最后一个元素；越界 stderr 报错后 exit(1)（对齐解释器）
  *   void collie_rt_arr_set(void* arr, long long i, long long bits); // 存槽，同上索引规则
@@ -645,6 +654,41 @@ void collie_rt_dyn_set(long long tag, long long bits, long long index,
     fprintf(stderr, "Only arrays can be index-assigned, got %s\n",
             collie_rt_dyn_kind_name(tag));
     exit(1);
+}
+
+/* 动态承载值的串方法（t154）：tag 运行期才定——tag 3 复用既有串方法垫片
+ * （trim 只剥空格与 Tab、subString 按 UTF-8 码点区间），其余位复刻解释器两类
+ * 消息：实例位（tag 5）走解释器的方法查找失败分支
+ * "Undefined method '<name>' on object"，其余走
+ * "Method '<name>()' is only supported on strings, got <kind>"（kind 名对齐
+ * Value::kind_name）；调用方仅在无任何类定义同名方法时才落到这里 */
+static void collie_rt_dyn_str_method_trap(long long tag, const char* name) {
+    if (tag == 5) {
+        fprintf(stderr, "Undefined method '%s' on object\n", name);
+        exit(1);
+    }
+    fprintf(stderr, "Method '%s()' is only supported on strings, got %s\n",
+            name, collie_rt_dyn_kind_name(tag));
+    exit(1);
+}
+
+const char* collie_rt_dyn_str_trim(long long tag, long long bits, long long mode,
+                                   const char* name) {
+    if (tag != 3) {
+        collie_rt_dyn_str_method_trap(tag, name);
+    }
+    return collie_rt_str_trim((const char*)(intptr_t)bits, (int)mode);
+}
+
+/* 动态承载值的 subString：start/end 已由 codegen 侧按解释器的 floor/clamp/
+ * NaN 与 -1 特例算好（与静态串接收者同一套），此处只做接收者 tag 分派 */
+const char* collie_rt_dyn_str_substring(long long tag, long long bits,
+                                        long long start, long long end,
+                                        const char* name) {
+    if (tag != 3) {
+        collie_rt_dyn_str_method_trap(tag, name);
+    }
+    return collie_rt_str_substring((const char*)(intptr_t)bits, start, end);
 }
 
 /* ---- 未定义方法/属性陷阱（t102，S39 残余面）---- */
