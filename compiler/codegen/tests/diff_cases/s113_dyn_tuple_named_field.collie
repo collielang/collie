@@ -1,0 +1,19 @@
+// t163 S110 差分用例：动态 tuple 命名字段访问（r.name）——退役 s90 锁原面并扩展
+// 动态 tuple（形状运行期才定）的命名字段此前拒编，解释器沿名字表运行期取值；
+// 现与 get(key) 同源：常量键名交 rt_tuple_key_dyn 扫描取 {tag,bits} 拼 Dyn
+function pair() Tuple {
+    return (name: "Alice", age: 18);
+}
+Tuple r = pair();
+print("1", r.name);
+print("2", r.age);
+print("3", r.length);
+print("4", r.get("name"));
+print("5", r);
+print("6", r.toString());
+print("7", @"who={r.name}, {r.age}");
+string intro = "name=" + r.name;
+print("8", intro);
+print("9", r.age + 1);
+integer y = r.age;
+print("10", y * 2);

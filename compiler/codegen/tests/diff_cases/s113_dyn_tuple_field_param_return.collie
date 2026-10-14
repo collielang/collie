@@ -1,0 +1,38 @@
+// t163 S110 差分用例：动态 tuple 经函数形参/返回值传递后的命名字段访问
+// 三类来源同面：Tuple 形参体内取字段、Tuple 返回值取字段、体内重赋换形状后取字段
+function first(t Tuple) integer {
+    return t.a;
+}
+function label(t Tuple) string {
+    return t.b;
+}
+function shape(n integer) Tuple {
+    Tuple v = (a: n);
+    v = (x: "s", y: n * 2);
+    return v;
+}
+Tuple q = true ? (a: 5, b: "two") : (z: "s");
+print("1", first(q));
+print("2", label(q));
+print("3", q.a);
+integer i = q.a;
+print("4", i + 1);
+string s = q.b;
+print("5", s);
+print("6", q.a == q.a);
+print("7", q.a > 3);
+print("8", q.length);
+Tuple w = false ? (a: 5, b: "two") : (z: "s");
+print("9", w.z);
+print("10", w);
+print("11", shape(3));
+print("12", shape(3).y);
+Tuple s2 = shape(7);
+print("13", s2.x);
+print("14", s2.y);
+print("15", first((a: 41, b: "b")));
+tribool tb = unset;
+Tuple e = tb ==? true: (a: 1), false: (b: 2), (c: "s", d: 4);
+print("16", e.c);
+print("17", e.d);
+print("18", e.length);

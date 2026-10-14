@@ -3349,8 +3349,11 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
     }
     if (object.type == CGType::TupDyn) {
         // 动态 tuple 属性（t140）：length 经 rt_tuple_len 运行期取元素数；
-        // 命名字段访问需静态名字表（形状运行期才定），解释器可动态取但编译
-        // 产物无静态偏移承载，保守拒编不错编（get("key") 走 visitMethod 动态路径）
+        // 命名字段访问（t163，S110）与 get(key) 同源——形状运行期才定，键名
+        // 作常量串交 rt_tuple_key_dyn 按非空名 strcmp 扫描取 {tag,bits} 拼
+        // Dyn，其后消费全部落 S92–S109 既有运行期 tag 分派臂；未命中落 rt
+        // 陷阱 "Undefined tuple field '<name>'"，与解释器 visitProperty 的
+        // 元组分支同消息（position 元组名字为空串，标识符永不匹配，两端一致）
         const std::string name(expr.name().lexeme());
         if (name == "length") {
             last_value_ = {builder_.CreateCall(rt_tuple_len_, {object.value},
@@ -3358,8 +3361,17 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
                            CGType::Int};
             return;
         }
-        unsupported("named field access on dynamic tuple",
-                    expr.name().line(), expr.name().column());
+        llvm::AllocaInst* otag =
+            create_entry_alloca(builder_.getInt64Ty(), "tupprop.otag");
+        llvm::AllocaInst* obits =
+            create_entry_alloca(builder_.getInt64Ty(), "tupprop.obits");
+        builder_.CreateCall(rt_tuple_key_dyn_,
+                            {object.value, builder_.CreateGlobalString(name),
+                             otag, obits});
+        last_value_ = {make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag),
+                                builder_.CreateLoad(builder_.getInt64Ty(), obits)),
+                       CGType::Dyn};
+        return;
     }
     if (object.type == CGType::Tup) {
         // visitProperty 分支顺序）；命名字段线性扫名字表编译期解析（未

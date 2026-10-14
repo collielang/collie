@@ -1,0 +1,34 @@
+// t163 S110 差分用例：动态 tuple 携带数组位/实例位时的命名字段访问与整体转串
+// 元素源自 kind 7 数组读出（恒 Dyn），其运行期 tag 可为 4（数组）/5（实例）；
+// 此前 rt 的 tuple 转串 helper 只覆盖标量位，含数组位的动态 tuple 打印为空串
+// （静默错值，本任务探针抓到并修正为按 tag 递归 arr_to_str / "<object>"）
+class Point {
+    public integer x = 3;
+    public function greet() string {
+        return "pt";
+    }
+}
+function build(flag bool) Tuple {
+    array bag = [1, [2, 3], "x", new Point(), true];
+    return flag ? (arr: bag[1], obj: bag[3], num: bag[0], str: bag[2], fl: bag[4]) : (z: 0);
+}
+Tuple t = build(true);
+print("1", t);
+print("2", t.arr);
+print("3", t.arr[0]);
+print("4", t.arr[1]);
+print("5", t.arr.length);
+print("6", t.arr[-1]);
+print("7", t.obj);
+print("8", t.num + 1);
+print("9", t.str);
+print("10", t.fl);
+print("11", t.arr == t.arr);
+print("12", t.num == t.num);
+print("13", t.toString());
+print("14", @"arr={t.arr}");
+object a = t.arr;
+print("15", a);
+print("16", a[0]);
+object o = t.obj;
+print("17", o);

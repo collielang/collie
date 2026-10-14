@@ -159,7 +159,7 @@
  *
  * 类实例运行时（t60，class 降级用）：
  *   void* collie_rt_obj_new(long long size);                 // 字段块 malloc + 零初始化；
- *     size 由 codegen 按字段类型累计上界给定（Num 16、其余 8，t74），
+ *     size 由 codegen 按字段类型累计上界给定（Num/Dyn 16、其余 8，t74/t162），
  *     字段初始值紧随 new 写入
  *
  * number 双表示运行时（t62，缺口 CG5 收窄）：值 = tag + 8 字节位模式
@@ -1084,7 +1084,19 @@ static void collie_rt_append_tagged(char** buf, size_t* n, size_t* cap,
             collie_rt_sb_append(buf, n, cap,
                                 bits == 2 ? "true" : bits == 1 ? "unset" : "false");
             break;
-        default: /* 3 = string：指针位模式还原，原样不加引号 */
+        case 3: /* string：指针位模式还原，原样不加引号 */
+            collie_rt_sb_append(buf, n, cap, (const char*)(intptr_t)bits);
+            break;
+        case 4:
+        case 7: /* 数组位/异质数组位：递归 arr_to_str（t163 修正：原 default
+                 * 分支把指针位模式当串输出，含数组位的动态 tuple 打印为空串） */
+            collie_rt_sb_append(buf, n, cap,
+                                collie_rt_arr_to_str((void*)(intptr_t)bits));
+            break;
+        case 5: /* 实例位：解释器 Tuple 分支经 Value::to_string 打 "<object>" */
+            collie_rt_sb_append(buf, n, cap, "<object>");
+            break;
+        default:
             collie_rt_sb_append(buf, n, cap, (const char*)(intptr_t)bits);
             break;
     }

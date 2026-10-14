@@ -1,0 +1,11 @@
+// t163 S110 拒编锁：静态数组值作动态 tuple 元素（物化面）
+// 解释器可直存并打印 (a: [1, 2], b: 3)；codegen 的 tuple 物化承载集仍按
+// is_dyn_scalar（不含 Arr/Obj），元素静态类型即无数码承载 → 保守拒编不错编。
+// 注：经 kind 7 数组读出（恒 Dyn）的数组位/实例位已可进动态 tuple 并正确
+// 打印/取用（t163 修正 rt tuple 转串的 tag 4/5/7 分派），本锁只钉静态类型面
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], b: 3) : (c: "x");
+}
+Tuple t = mk(true);
+print("1", t);
+print("2", t.a);

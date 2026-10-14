@@ -142,7 +142,10 @@ if(COLLIE_ENABLE_LLVM)
             s111_obj_param_reassign_capture s111_obj_method_signature
             s112_object_field_scalar_init s112_object_field_array_bit
             s112_object_field_instance_bit s112_object_field_inherit_tree
-            s112_object_field_reassign_capture s112_object_field_methods)
+            s112_object_field_reassign_capture s112_object_field_methods
+            s113_dyn_tuple_named_field s113_dyn_tuple_field_kinds
+            s113_dyn_tuple_field_array_bit s113_dyn_tuple_field_param_return
+            s113_dyn_tuple_field_loop_consume s113_dyn_tuple_field_class_capture)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -155,11 +158,12 @@ if(COLLIE_ENABLE_LLVM)
 
     # 拒编门禁（t136 引入）：拒编面用例须 colliec rc=1 且 stderr 含
     # "not yet supported"（保守拒编不错编面的回归锁，禁止降差分用例迁就测试）
-    foreach(_rej s90_reject_dynamic_tuple_field s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture s92_reject_dynamic_object_field_type_mismatch
+    foreach(_rej s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture s92_reject_dynamic_object_field_type_mismatch
             s93_reject_function_as_argument s93_reject_function_in_array s93_reject_function_return_value
             s96_reject_obj_slot_scalar_reassign
             s97_reject_dyn_to_homog_array_slot
-            s111_reject_obj_param_tuple s112_reject_object_field_tuple)
+            s111_reject_obj_param_tuple s112_reject_object_field_tuple
+            s113_reject_dyn_tuple_static_array_elem)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

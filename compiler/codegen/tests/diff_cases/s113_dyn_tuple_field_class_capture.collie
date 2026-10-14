@@ -1,0 +1,41 @@
+// t163 S110 差分用例：动态 tuple 命名字段结果进类字段/类方法/闭包/while 的消费
+// 读出恒 Dyn，落点复用 S94/S105/S109 既有拆槽与承载面（类名槽/object 槽/类型化槽）
+class Holder {
+    public integer n = 0;
+    public object payload = 0;
+    public function describe() string {
+        return @"n={this.n},p={this.payload}";
+    }
+}
+function make(k integer) Tuple {
+    return k > 0 ? (count: k, data: "abc", flag: true) : (count: -1, data: "", flag: false);
+}
+Holder h = new Holder();
+Tuple m = make(4);
+h.n = m.count;
+h.payload = m.data;
+print("1", h.n);
+print("2", h.payload);
+print("3", h.describe());
+print("4", h.payload.length);
+Holder h2 = new Holder();
+Tuple m2 = make(0);
+h2.n = m2.count;
+h2.payload = m2.flag;
+print("5", h2.n);
+print("6", h2.payload);
+print("7", h2.describe());
+integer seed = m.count;
+function closure_read() integer {
+    return seed + 1;
+}
+print("8", closure_read());
+integer i = 0;
+while (i < 2) {
+    Tuple loop_t = make(i + 1);
+    print("loop", i, loop_t.count, loop_t.data.length);
+    i = i + 1;
+}
+object carried = m.data;
+print("9", carried);
+print("10", carried.trim());

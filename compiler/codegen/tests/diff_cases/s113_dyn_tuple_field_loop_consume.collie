@@ -1,0 +1,32 @@
+// t163 S110 差分用例：动态 tuple 命名字段在循环/条件/三元与嵌套函数调用中的消费
+// 同一 tuple 内 .name 与 get("name") 恒同值；`length` 属性优先于同名字段（对齐解释器）
+function row(i integer) Tuple {
+    return i > 1 ? (v: i * 10, tag: "hi", len: 99) : (v: -1, tag: "lo", len: 99);
+}
+for (integer i = 0; i < 3; i = i + 1) {
+    Tuple r = row(i);
+    print("loop", i, r.v, r.tag, r.v == r.get("v"), r.length);
+}
+Tuple big = row(2);
+Tuple small = row(0);
+object picked = big.v;
+print("1", picked);
+print("2", small.tag);
+print("3", big.len);
+print("4", big.length);
+integer total = big.v + small.v;
+print("5", total);
+string joined = big.tag + "-" + small.tag;
+print("6", joined);
+print("7", big.v > small.v);
+print("8", big == big);
+print("9", big == small);
+function nested(t Tuple) string {
+    return t.tag;
+}
+print("10", nested(big));
+if (big.v > 0) {
+    print("11", big.v);
+} else {
+    print("12", small.v);
+}

@@ -1,8 +1,0 @@
-// t140 S87 拒编用例：动态 tuple 的命名字段直接访问（.name）
-// 解释器 r.name 沿名字表运行期取值得 "Alice"；codegen 动态 tuple 形状运行期才定，
-// 无静态偏移承载命名字段，visitProperty 非 length 分支拒编不错编（get("name") 走动态路径已解锁）
-function pair() Tuple {
-    return (name: "Alice", age: 18);
-}
-Tuple r = pair();
-print(r.name);
