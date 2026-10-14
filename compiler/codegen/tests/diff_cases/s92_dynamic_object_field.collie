@@ -1,0 +1,40 @@
+// t142 差分用例：动态 object（空 cls）字段读/写解锁
+// 覆盖跨树实例数组元素、object 形参/变量承载任意实例的字段访问——
+// 静态类无从知晓，codegen 按对象头类 id 对全体定义该字段的类 switch 取值/存储，
+// 各定义者同名字段声明类型须一致（不一致落 s92 reject 用例）
+
+class Dog { public string name = "rex"; public integer legs = 4; }
+class Cat { public string name = "miaow"; public integer legs = 4; }
+class Point { public integer x = 10; }
+
+// 跨树数组元素字段读（Dog/Cat 无公共祖先，元素读出为空 cls 动态 object）
+array zoo = [new Dog(), new Cat()];
+print("cross-tree read:", zoo[0].name, zoo[1].name);
+
+// object 形参字段读 + 写回（形参承载任意实例）
+function rename(o object, s string) string {
+    o.name = s;
+    return o.name;
+}
+Dog d = new Dog();
+print("param rw:", rename(d, "bow"), d.name);
+
+// object 形参读整数字段
+function legs(o object) integer {
+    return o.legs;
+}
+print("param int:", legs(new Cat()));
+
+// 数组元素字段写 + 读（修复空 cls 字段写此前直接崩溃的缺口）
+zoo[1].name = "kitty";
+print("elem write:", zoo[1].name);
+
+// 全体仅单一类定义该字段：case 命中本类、其余动态类落 default 陷阱
+array pts = [new Point()];
+print("lone def:", pts[0].x);
+
+// object 变量承载实例后字段读写
+Cat c = new Cat();
+object o = c;
+o.legs = 3;
+print("obj var:", o.legs, o.name);

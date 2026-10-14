@@ -2665,41 +2665,52 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         return;
     }
     if (object.type == CGType::Obj) {
-        // 空 cls = 动态 object 元素（跨树实例数组读出 t141 / object 变量 S69/S70）：
-        // 无静态布局，字段前缀偏移无从解码，保守拒编不错编（方法调用走 t133 分派）
-        if (object.cls.empty()) {
-            unsupported("undefined property '" + std::string(expr.name().lexeme()) +
-                            "' on dynamic object",
-                        expr.name().line(), expr.name().column());
-        }
         // 类实例字段读（t60/t102/t103）：同树定义者收集——downcast 放行后
         // 动态类可为整棵继承树上任意类（旁支可经共同祖先中转写入槽）；
         // 单类树维持直 GEP + load 零开销，多类树读对象头类 id switch 到
         // 定义者字段槽（各定义者按自身 field_index 下标 GEP），default
         // （动态类实例无此字段）走运行期陷阱不错值——消息对齐解释器
         // "Undefined property 'X' on object"
-        const CGClass& cls = classes_.at(object.cls);
         const std::string name(expr.name().lexeme());
         std::vector<const CGClass*> defs;
         bool lone_tree = true;
-        for (const auto& entry : classes_) {
-            if (entry.first != object.cls) {
-                if (nearest_common_ancestor(entry.first, object.cls).empty()) {
-                    continue;
+        if (object.cls.empty()) {
+            // 空 cls = 动态 object（跨树实例数组元素 t137 / object 形参与返回值
+            // S81 / 无初值变量 S69）字段读（t142）：静态类无从知晓，全体定义了
+            // 该字段的类均入 switch case（不限同树，同 t133 方法动态分派），按
+            // 对象头类 id 运行期取值；动态类未定义该字段落 default 陷阱臂（解释器
+            // 同为运行期报错，非 stdout 差分面）；lone_tree 恒 false——真实类
+            // 可能不在 defs 中，必须保留 default 兜底；各定义者字段声明类型须全等
+            // （同 t102 防御）否则 PHI 无从统一、拒编不错编
+            for (const auto& entry : classes_) {
+                if (entry.second.field_index.count(name) != 0) {
+                    defs.push_back(&entry.second);
                 }
-                lone_tree = false;
             }
-            if (entry.second.field_index.count(name) != 0) {
-                defs.push_back(&entry.second);
+            lone_tree = false;
+        } else {
+            for (const auto& entry : classes_) {
+                if (entry.first != object.cls) {
+                    if (nearest_common_ancestor(entry.first, object.cls).empty()) {
+                        continue;
+                    }
+                    lone_tree = false;
+                }
+                if (entry.second.field_index.count(name) != 0) {
+                    defs.push_back(&entry.second);
+                }
             }
         }
         if (defs.empty()) {
-            unsupported("undefined property '" + name + "' on class '" + object.cls +
-                            "'",
+            unsupported("undefined property '" + name + "' on " +
+                            (object.cls.empty()
+                                 ? std::string("dynamic object")
+                                 : "class '" + object.cls + "'"),
                         expr.name().line(), expr.name().column());
         }
         if (lone_tree) {
             // 单类树：动态类必为静态类，直 GEP + load 零开销（现状保持）
+            const CGClass& cls = classes_.at(object.cls);
             auto it = cls.field_index.find(name);
             const CGField& field = cls.fields[it->second];
             llvm::Value* slot =
@@ -2807,31 +2818,49 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
         unsupported("property assignment on this value type",
                     expr.name().line(), expr.name().column());
     }
-    const CGClass& cls = classes_.at(object.cls);
     const std::string name(expr.name().lexeme());
     // 同树定义者收集（t60/t102/t103，与读路径一致）：downcast 放行后动态
     // 类可为整棵继承树上任意类；单类树维持直 GEP 存零开销，多类树各
     // arm 按定义者布局存储，default（动态类实例无此字段）走运行期陷阱
     // 不错值——消息对齐解释器 "Undefined property 'X' on object"
+    //
+    // 空 cls = 动态 object 字段写（t142）：与读路径对称——全体定义了该字段的
+    // 类均入 switch case（不限同树，同 t133 方法动态分派），按对象头类 id
+    // 运行期分派存储；lone_tree 恒 false（真实类可能不在 defs 中，须留 default
+    // 兜底）。原空 cls 直落 classes_.at("") 抛 out_of_range 使编译进程崩溃，
+    // 现纳入动态面。各定义者字段声明类型须全等（同 t102 防御）否则拒编不错编
     std::vector<const CGClass*> defs;
     bool lone_tree = true;
-    for (const auto& entry : classes_) {
-        if (entry.first != object.cls) {
-            if (nearest_common_ancestor(entry.first, object.cls).empty()) {
-                continue;
+    if (object.cls.empty()) {
+        for (const auto& entry : classes_) {
+            if (entry.second.field_index.count(name) != 0) {
+                defs.push_back(&entry.second);
             }
-            lone_tree = false;
         }
-        if (entry.second.field_index.count(name) != 0) {
-            defs.push_back(&entry.second);
+        lone_tree = false;
+    } else {
+        for (const auto& entry : classes_) {
+            if (entry.first != object.cls) {
+                if (nearest_common_ancestor(entry.first, object.cls).empty()) {
+                    continue;
+                }
+                lone_tree = false;
+            }
+            if (entry.second.field_index.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
         }
     }
     if (defs.empty()) {
-        unsupported("undefined property '" + name + "' on class '" + object.cls + "'",
+        unsupported("undefined property '" + name + "' on " +
+                        (object.cls.empty()
+                             ? std::string("dynamic object")
+                             : "class '" + object.cls + "'"),
                     expr.name().line(), expr.name().column());
     }
     if (lone_tree) {
         // 单类树：动态类必为静态类，直 GEP + store 零开销（现状保持）
+        const CGClass& cls = classes_.at(object.cls);
         auto it = cls.field_index.find(name);
         CGValue v = emit(expr.value());
         const CGField& field = cls.fields[it->second];

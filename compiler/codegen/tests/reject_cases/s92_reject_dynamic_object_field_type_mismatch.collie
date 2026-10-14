@@ -1,0 +1,10 @@
+// t142 拒编用例：动态 object（空 cls）同名字段声明类型不一致
+// Dog.name 为 string、Cat.name 为 integer——全体定义该字段的类跨树类型不同，
+// 动态读结果 PHI 无从统一，保守拒编不错编（解释器按运行期实际类可输出）。
+// 断言：colliec rc=1 且 stderr 含 "not yet supported"、stdout 为空、无产物。
+
+class Dog { public string name = "rex"; }
+class Cat { public integer name = 42; }
+
+array arr = [new Dog(), new Cat()];
+print(arr[0].name);

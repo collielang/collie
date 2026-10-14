@@ -1,7 +1,0 @@
-// t137 S84 拒编用例：跨树实例数组索引读出为动态 object（空 cls），字段访问
-// 无公共字段前缀偏移不可静态解码 → 保守拒编不错编（方法调用走 t133 分派）。
-// 断言：colliec rc=1 且 stderr 含 "not yet supported"、stdout 为空、无产物。
-class A { string v = "av"; }
-class B { string w = "bw"; }
-array a = [new A(), new B()];
-print(a[0].v);
