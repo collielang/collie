@@ -5787,6 +5787,28 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
 
 llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& cand,
                                          const Token& op) {
+    // Dyn 目标/候选（t169）：动态承载位的 kind 只有运行期可知——两侧统一 to_dyn
+    // 盒化后下沉 rt_dyn_eq（与 t149 判等同源，复刻解释器 values_equal：Tri×Bool
+    // 加宽三态、数值跨 tag 走 double 视图、串按内容、数组位深比较、实例位与 kind
+    // 失配恒 false）；Tup 侧保留 t78 的「Tup × 非 Tup 恒 false」（kind 空间 0–7 无
+    // tuple 位，解释器必判 kind 不等），Fn/Void 无 {tag,bits} 编码维持原拒编。
+    // 静态×静态组合不经此分支（下面各臂行为不变）
+    if ((target.type == CGType::Dyn || cand.type == CGType::Dyn) &&
+        target.type != CGType::Tup && cand.type != CGType::Tup) {
+        const auto dyn_match_side_ok = [](CGType ty) {
+            return ty == CGType::Dyn || ty == CGType::Int || ty == CGType::Double ||
+                   ty == CGType::Num || ty == CGType::Str || ty == CGType::Bool ||
+                   ty == CGType::Tri || ty == CGType::Arr || ty == CGType::Obj;
+        };
+        if (!dyn_match_side_ok(target.type) || !dyn_match_side_ok(cand.type)) {
+            unsupported("'==?' comparison of these value types", op.line(), op.column());
+        }
+        llvm::Value* a = to_dyn(target);
+        llvm::Value* b = to_dyn(cand);
+        llvm::Value* c = builder_.CreateCall(
+            rt_dyn_eq_, {num_tag(a), num_bits(a), num_tag(b), num_bits(b)}, "dynmatch");
+        return builder_.CreateICmpNE(c, builder_.getInt32(0), "matcheq");
+    }
     // 复用 visitBinary == 的四路降级（语义层已保证候选与目标可 == 比较）
     if (target.type == CGType::Str && cand.type == CGType::Str) {
         llvm::Value* c =

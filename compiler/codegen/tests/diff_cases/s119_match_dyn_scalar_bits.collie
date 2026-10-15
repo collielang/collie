@@ -1,0 +1,30 @@
+// t169 S116 差分用例：动态承载位（object 槽/动态域元素）的标量位作 `==?` 目标与候选
+// 按运行期 tag 判等（第一节为退役锁 s118_reject_match_target_dyn 的原程序）
+bool flag = true;
+object cmp = flag ? 5 : 6;
+object q = cmp ==? 5: "hit", "miss";
+print("1", q);
+object n = flag ? 5 : 6;
+print("2", n ==? 5: "five", 6: "six", "other");
+print("3", n ==? 7: "seven", "other");
+object d = 5.0;
+print("4", d ==? 5: "int-five", 5.0: "dec-five", "no");
+object mix = flag ? 2 : 2.5;
+print("5", mix ==? 2: "two", 2.5: "dec-2.5", "no");
+number w = 7;
+object wo = w;
+print("6", wo ==? 7.0: "dec-seven", 7: "seven", "no");
+print("7", wo ==? "7": "str-seven", "no");
+object s = flag ? "a" : "b";
+print("8", s ==? "a": "hit-a", "b": "hit-b", "miss");
+print("9", s ==? 5: "five", "miss");
+object bo = flag ? true : false;
+print("10", bo ==? true: "T", false: "F", unset: "U", "X");
+print("11", bo ==? 1: "one", "no");
+object u = unset;
+print("12", u ==? unset: "U", true: "T", false: "F", "X");
+object tri = flag ? true : unset;
+print("13", tri ==? true: "T", false: "F", unset: "U", "X");
+object sz = flag ? "abc" : 3;
+print("14", sz ==? "abc": "abc", 3: "three", "no");
+print("15", sz.length);

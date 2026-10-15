@@ -1,0 +1,49 @@
+// t169 S116 差分用例：数组位深比较、实例位与 tuple 位恒 false，含 switch 的 tuple 分支值
+class Dog {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+array src = [1, "x", [1, 2]];
+object a0 = src[0];
+object a2 = src[2];
+print("1", a2 ==? [1, 2]: "arr-eq", [3]: "arr-3", "no");
+print("2", a2 ==? a0: "dyn-eq", [1, 2]: "arr-eq", "no");
+array g = [1, 2];
+print("3", g ==? a2: "arr-x-dyn", "no");
+print("4", g ==? src[2]: "arr-x-dyn-elem", "no");
+object nested = [[1, [2, 3]], "s"];
+print("5", nested ==? [[1, [2, 3]], "s"]: "deep-eq", "no");
+print("6", nested ==? [1, 2]: "short-eq", "no");
+Dog dd = new Dog();
+object od = dd;
+print("7", od ==? dd: "obj-same", "no");
+print("8", od ==? od: "obj-self", "no");
+print("9", od ==? 1: "one", "no");
+Tuple t = (1, 2);
+print("10", t ==? od: "tup-hit", "no");
+print("11", od ==? t: "tup-hit", 1: "one", "no");
+object fromArr = src;
+print("12", fromArr ==? src: "arr-slot-eq", "no");
+print("13", a0 + 10);
+object sw = 5;
+switch (sw) {
+    (1, 2) {
+        print("14 tup-case");
+    }
+    5 {
+        print("14 case-five");
+    }
+    default {
+        print("14 case-default");
+    }
+}
+array bag = [new Dog(), [1, "s"], 3];
+object slotv = bag;
+array bag2 = [new Dog(), [1, "s"], 3];
+print("15", slotv ==? bag2: "deep-eq", "no");
+print("16", slotv ==? [3]: "short", "no");
+object inner = bag[1];
+print("17", inner ==? [1, "s"]: "inner-eq", "no");
+print("18", inner ==? bag2: "no", "no");
+print("19", od ==? bag[0]: "inst-x-inst", "no");
+print("20", slotv ==? bag: "self-deep", "no");

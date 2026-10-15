@@ -1,0 +1,27 @@
+// t169 S116 差分用例：两侧均为动态承载位的 `==?` 比较与动态域元素作候选（for/while 逐轮）
+array src = [1, "x", true, [1, 2], 2.5];
+object e0 = src[0];
+object e1 = src[1];
+object e2 = src[2];
+object e3 = src[3];
+object e4 = src[4];
+print("1", e0 ==? e0: "same-int", "no");
+print("2", e0 ==? src[0]: "dyn-x-dyn", src[4]: "dec", "no");
+print("3", e1 ==? e0: "cross-kind", e1: "str-eq", "no");
+print("4", e2 ==? true: "yes", src[2]: "dyn-bool", "no");
+print("5", e3 ==? src[3]: "arr-dyn-x-dyn", "no");
+print("6", e4 ==? src[4]: "dec-dyn", 2.5: "dec-lit", "no");
+print("7", e4 ==? 2: "int-2", "no");
+integer hit = 0;
+for (integer i = 0; i < 5; i = i + 1) {
+    object e = src[i];
+    string label = e ==? 1: "one", "x": "ex", true: "yes", [1, 2]: "arr", 2.5: "dec", "none";
+    print("8", i, label);
+    hit = hit + (e ==? 1: 1, "x": 1, 0);
+}
+print("9", hit);
+while (hit < 4) {
+    object e = src[hit];
+    hit = hit + (e ==? true: 2, 1);
+}
+print("10", hit);

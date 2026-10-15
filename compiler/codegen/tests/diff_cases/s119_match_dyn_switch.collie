@@ -1,0 +1,56 @@
+// t169 S116 差分用例：switch 语句表达式为动态承载位时的运行期 tag 分派（多值分支与默认支）
+bool flag = true;
+object cmp = flag ? 5 : 6;
+switch (cmp) {
+    5 {
+        print("1 case-five");
+    }
+    6 {
+        print("1 case-six");
+    }
+    default {
+        print("1 case-default");
+    }
+}
+object s = flag ? "a" : "b";
+switch (s) {
+    "b" {
+        print("2 case-b");
+    }
+    "a", "x" {
+        print("2 case-a-or-x");
+    }
+    default {
+        print("2 case-other");
+    }
+}
+array src = [1, "x", [1, 2]];
+for (integer i = 0; i < 3; i = i + 1) {
+    object e = src[i];
+    switch (e) {
+        1 {
+            print("3", i, "int-one");
+        }
+        "x" {
+            print("3", i, "str-x");
+        }
+        [1, 2] {
+            print("3", i, "arr-eq");
+        }
+        default {
+            print("3", i, "none");
+        }
+    }
+}
+object dec = 2.5;
+switch (dec) {
+    2 {
+        print("4 int-two");
+    }
+    2.5 {
+        print("4 dec-2.5");
+    }
+    default {
+        print("4 none");
+    }
+}

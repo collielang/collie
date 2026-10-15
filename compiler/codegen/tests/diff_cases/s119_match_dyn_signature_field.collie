@@ -1,0 +1,43 @@
+// t169 S116 差分用例：动态承载 `==?` 比较穿 object 形参/返回值/类字段/方法体/闭包捕获
+class Box {
+    public object slot = 5;
+    public function show() string {
+        return this.slot ==? 5: "slot-five", "x": "slot-x", [1, 2]: "slot-arr", "other";
+    }
+    public function put(v object) none {
+        this.slot = v;
+    }
+    public function grab() object {
+        return this.slot;
+    }
+}
+function decide(v object) string {
+    return v ==? 5: "five", "x": "ex", [1, 2]: "arr", true: "yes", unset: "unset", "none";
+}
+function make(flag bool) object {
+    return flag ? 1 : "x";
+}
+Box b = new Box();
+print("1", b.show());
+b.put([1, 2]);
+print("2", b.show());
+print("3", decide(b.grab()));
+b.put("x");
+print("4", b.show());
+print("5", decide(b.slot));
+print("6", decide(make(true)));
+print("7", decide(make(false)));
+print("8", decide(5));
+print("9", decide([1, 2]));
+integer outer = 3;
+function captured() string {
+    object o = outer;
+    return o ==? 3: "three", 4: "four", "no";
+}
+outer = 4;
+print("10", captured());
+outer = 3;
+print("11", captured());
+Box c = new Box();
+c.put(c.grab());
+print("12", c.show());

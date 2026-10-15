@@ -1,0 +1,10 @@
+// t169 S116 拒编锁：`==?` 目标为动态承载值、候选为函数值维持保守拒编不错编
+// 解释器 values_equal 对 Function 与任意 kind 恒判不等（rc=0 走默认支），
+// 但函数值无 {tag,bits} 编码（kind 0–7 无承载位），dyn_match_side_ok 不收 Fn
+// （同 s93 函数值面与 s118_reject_*_function_obj 族）
+function f() none {
+    print("called");
+}
+bool flag = true;
+object o = flag ? 5 : 6;
+print("1", o ==? f: "fn-hit", 5: "five", "no");
