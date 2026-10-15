@@ -1,0 +1,9 @@
+// t167 S114 拒编锁：tuple 值写动态域（elem=Num 哨兵）元素槽维持保守拒编
+// 解释器异质数组可直存 tuple（打印 (x: 1)），但 kind 空间 0-7 无 tuple 承载位，
+// 静态 Arr/Obj 之外的 Tup 值无 {tag,bits} 编码——不猜表示不错编（同 s111/s112 族）
+function f(a array) none {
+    a[0] = (x: 1);
+    print("1", a);
+}
+array m = [1, "x"];
+f(m);

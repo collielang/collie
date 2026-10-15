@@ -1,0 +1,56 @@
+// t167 S114 差分用例：静态数组值（CGType::Arr）写动态域（elem=Num 哨兵）元素槽
+// 解释器数组元素无类型校验，类字段/形参/无初始化声明的 array 均可写任意元素；
+// codegen 经 to_dyn 打 tag 4 交 rt_arr_set_num 按数组运行期 kind 对齐（tag==kind 直存
+// 内层数组 ptr、kind 7 落双步长 {tag,bits} 槽），读回即 Dyn 走既有 tag 分派消费。
+// 动态域（elem=Num 哨兵）元素槽写静态数组位：类字段 / 形参 / 局部无初始化声明
+class Box {
+    public array items = [[0]];
+    public function put(v array) none {
+        this.items[0] = v;
+    }
+}
+Box b = new Box();
+b.put([1, 2]);
+print("1", b.items);
+class Grid {
+    public array rows = [[1, 2], [3]];
+    public function set(i integer, v array) none {
+        this.rows[i] = v;
+    }
+    public function at(i integer) object {
+        return this.rows[i];
+    }
+}
+Grid g = new Grid();
+g.set(0, [9, 9]);
+print("2", g.rows);
+print("3", g.rows.length);
+print("4", g.rows[0].length);
+print("5", g.at(1));
+array tail = [4, 5, 6];
+g.set(1, tail);
+tail[0] = 42;
+print("6", g.rows[1]);
+print("7", g.rows);
+object o = g.rows[0];
+print("8", o.length);
+print("9", g.rows.toString());
+print("10", "row0=" + g.rows[0].toString());
+print("11", len(g.rows));
+array cp = g.rows;
+print("12", cp == [[9, 9], [42, 5, 6]]);
+print("13", g.rows[1][0]);
+print("14", g.rows[-1].length);
+function f(a array) none {
+    a[0] = [9, 9];
+    print("15", a);
+    print("16", a[0].length);
+}
+array m = [1, "x"];
+f(m);
+print("17", m);
+array slot;
+slot = [1, "x"];
+slot[0] = [7, 8];
+print("18", slot);
+print("19", slot[0][1]);

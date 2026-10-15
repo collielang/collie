@@ -1,0 +1,47 @@
+// t167 S114 差分用例：数组位 / 实例位 / 标量位混排的动态域数组写回后消费面
+// 打印、toString、插值、len 与 .length、内层索引与负索引、成员访问与方法调用、
+// 串方法、toNumber、经 array 形参的深比较、算术、三层嵌套索引、object 承载再索引。
+// 数组位 / 实例位 / 标量位混排的动态域数组写回后十类消费面
+function eq(a array, b array) object {
+    return a == b;
+}
+class Calc {
+    public integer n = 4;
+    public function twice() integer {
+        return this.n * 2;
+    }
+}
+array mix;
+mix = [1, "x", true];
+Calc c = new Calc();
+mix[0] = [10, 20];
+mix[1] = c;
+mix[2] = "  t  ";
+print("1", mix);
+print("2", mix.toString());
+print("3", "m=" + mix[2].trim());
+print("4", len(mix));
+print("5", mix.length);
+print("6", mix[0].length);
+print("7", mix[0][1]);
+print("8", mix[0][-1]);
+print("9", mix[1].twice());
+print("10", mix[1].n);
+print("11", mix[2].trim().length);
+print("12", mix[2].trim().toNumber());
+print("13", eq(mix[0], [10, 20]));
+print("14", mix[1] == mix[1]);
+print("15", mix[0].length + 1);
+mix[0] = [[1, 2], [3]];
+print("16", mix);
+print("17", mix[0][0][1]);
+print("18", mix[0].length);
+mix[2] = 42;
+print("19", mix[2] + 8);
+print("20", mix[2].isInteger());
+object o = mix[0];
+print("21", o[1][0]);
+print("22", o);
+array nested = [[0]];
+nested[0] = mix[0];
+print("23", nested);

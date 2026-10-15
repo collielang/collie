@@ -2391,6 +2391,19 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
             last_value_ = v;
             return;
         }
+        if (v.type == CGType::Obj || v.type == CGType::Arr) {
+            // 静态实例位/数组位写动态域（t167）：接收者 elem 为 Num 哨兵时数组
+            // 的运行期 kind 静态不可定（类字段/形参/无初始化声明等来源），故交
+            // to_dyn 打 tag 5/4 后与 t151 同路——tag==kind 直存 ptr 位模式（内层
+            // kind 随新数组对象自带，引用语义不变）、kind 7 落双步长 {tag,bits}
+            // 槽、失配落 CG7 陷阱；读回即 Dyn，消费全落 S92–S113 既有 tag 分派臂
+            llvm::Value* vd = to_dyn(v);
+            builder_.CreateCall(rt_arr_set_num_,
+                                {object.value, index.value, num_tag(vd),
+                                 num_bits(vd)});
+            last_value_ = v;
+            return;
+        }
         if (v.type != CGType::Int && v.type != CGType::Double &&
             v.type != CGType::Num) {
             unsupported("array element type mismatch in index assignment",

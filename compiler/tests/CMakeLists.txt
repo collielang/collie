@@ -154,7 +154,10 @@ if(COLLIE_ENABLE_LLVM)
             s115_array_slot_domain
             s116_dyn_arm_merge_basic s116_dyn_arm_merge_kinds
             s116_dyn_arm_merge_obj s116_match_arm_merge
-            s116_elem_slot_dyn_write s116_elem_slot_roundtrip)
+            s116_elem_slot_dyn_write s116_elem_slot_roundtrip
+            s117_dyn_domain_arr_elem_write s117_dyn_domain_obj_elem_write
+            s117_dyn_domain_elem_carry_out s117_dyn_domain_elem_control_flow
+            s117_dyn_domain_elem_mixed_consume s117_dyn_domain_elem_alias)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -175,7 +178,9 @@ if(COLLIE_ENABLE_LLVM)
             s114_reject_dyn_tuple_nested_elem s114_reject_dyn_tuple_function_elem
             s115_reject_dyn_array_slot_downgrade_in_loop
             s116_reject_dyn_arm_tuple s116_reject_match_arm_tuple
-            s116_reject_arr_elem_to_dyn_domain_slot)
+            s117_reject_tuple_elem_dyn_domain
+            s117_reject_function_elem_dyn_domain
+            s117_reject_arr_elem_to_homog_domain)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

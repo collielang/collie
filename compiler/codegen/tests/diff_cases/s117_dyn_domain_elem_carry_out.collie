@@ -1,0 +1,53 @@
+// t167 S114 差分用例：动态域元素槽写回的数组位/实例位再进各静态落点
+// object 形参与返回值、object 类字段、类名槽 downcast、静态 array 变量槽、
+// kind 4 嵌套数组元素槽、tuple 元素、同槽换承载——全部复用既有承载守卫。
+// 动态域元素槽写回的数组位/实例位再进各静态落点（object 形参与返回、类字段、
+// 类名槽、静态 array 变量槽、kind 4 元素槽、tuple 元素、动态域自拷贝）
+class Point {
+    public integer x = 5;
+    public function val() integer {
+        return this.x;
+    }
+}
+class Holder {
+    public object payload = 0;
+}
+function use(v object) none {
+    print("use", v);
+}
+function carry(v object) object {
+    return v;
+}
+array src;
+src = [1, "x"];
+src[0] = [7, 8];
+Point pt = new Point();
+src[1] = pt;
+use(src[0]);
+use(src[1]);
+object got = carry(src[0]);
+print("1", got);
+print("2", got.length);
+Holder h = new Holder();
+h.payload = src[1];
+print("3", h.payload);
+print("4", h.payload.val());
+Point back = src[1];
+print("5", back.x);
+print("6", back.val());
+array arr = src[0];
+print("7", arr);
+print("8", arr[1]);
+array host = [[1]];
+host[0] = src[0];
+print("9", host);
+print("10", host[0].length);
+Tuple tp = (k: src[0], o: src[1]);
+print("11", tp);
+print("12", tp.get("k"));
+print("13", tp.o.val());
+src[1] = src[0];
+print("14", src);
+print("15", src[1].length);
+object loop = src[0];
+print("16", loop[0] + 1);

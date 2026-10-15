@@ -1,0 +1,59 @@
+// t167 S114 差分用例：静态实例值（CGType::Obj）写动态域元素槽
+// tag 5 + 实例 ptr 与 kind 5/7 数组槽位模式同源，读回为 Dyn 后按对象头类 id
+// 动态分派方法（含继承覆写与 upcast）、读写字段、进类名槽与 object 槽。
+// 动态域元素槽写静态实例位：方法按对象头类 id 动态分派、字段读写、类名槽落点
+class Dog {
+    public string name = "rex";
+    public function speak() string {
+        return "woof";
+    }
+    public function kind() string {
+        return "dog";
+    }
+}
+class Puppy extends Dog {
+    public function speak() string {
+        return "yip";
+    }
+}
+class Sheet {
+    public string tag = "sheet";
+}
+array a;
+a = [1, "x"];
+Dog d = new Dog();
+a[0] = d;
+object e = a[0];
+print("1", e.name);
+print("2", e.speak());
+print("3", e.kind());
+Puppy p = new Puppy();
+a[1] = p;
+object e2 = a[1];
+print("4", e2.speak());
+print("5", e2.name);
+print("6", e2.kind());
+Dog up = p;
+a[0] = up;
+print("7", a[0].speak());
+Sheet s = new Sheet();
+a[1] = s;
+object e3 = a[1];
+print("8", e3.tag);
+print("9", a);
+print("10", a.toString());
+print("11", "bits=" + a[0].toString());
+print("12", a[0] == a[0]);
+print("13", len(a));
+print("14", a.length);
+class Kennel {
+    public array pens = [0, "z"];
+    public function put(i integer) none {
+        this.pens[i] = new Dog();
+    }
+}
+Kennel k = new Kennel();
+k.put(0);
+object q = k.pens[0];
+print("15", q.speak());
+print("16", k.pens);

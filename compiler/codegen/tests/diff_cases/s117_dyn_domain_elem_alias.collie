@@ -1,0 +1,45 @@
+// t167 S114 差分用例：动态域元素槽写入后的引用语义与换承载
+// 写入的数组与外部持有者共享底层存储（双向可见），同槽从数组位换承载为实例位
+// 后方法调用仍改同一对象；写入位再进动态 tuple 元素与三目合流。
+// 动态域元素槽写入后的引用语义、换承载与合流消费
+function eq(a array, b array) object {
+    return a == b;
+}
+class Node {
+    public integer v = 1;
+    public function bump() integer {
+        this.v = this.v + 1;
+        return this.v;
+    }
+}
+array holder;
+holder = [0, "z"];
+array shared = [1, 2];
+holder[0] = shared;
+shared[0] = 99;
+print("1", holder);
+holder[1] = [7];
+array viaSlot = holder[0];
+viaSlot[1] = 77;
+print("2", shared);
+print("3", eq(shared, [99, 77]));
+Node nd = new Node();
+holder[0] = nd;
+print("4", holder);
+print("5", nd.v);
+print("6", holder[0].bump());
+print("7", nd.v);
+Tuple tp = (k: holder[0]);
+print("8", tp);
+object d = true ? holder[0] : [5, 6];
+print("9", d);
+array loop;
+loop = [1, "x"];
+for (integer i = 0; i < 2; i = i + 1) {
+    loop[i] = [i, i * 2];
+}
+print("10", loop);
+print("11", loop[1][1]);
+loop[1] = loop[0];
+print("12", loop);
+print("13", eq(loop[0], loop[1]));

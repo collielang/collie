@@ -1,0 +1,61 @@
+// t167 S114 差分用例：动态域元素槽写入的循环 / 三元 / ==? / 闭包 / if 条件消费
+// 写入位为数组或实例时以异质字面量（kind 7）作接收者——数值系同质动态域
+// 写异类位仍落 CG7 运行期陷阱（s117 锁族，非本面）。
+// 循环 / 三元 / ==? / 闭包 / if 条件消费动态域写回的数组位与实例位
+function eq(a array, b array) object {
+    return a == b;
+}
+class Dog {
+    public string name = "rex";
+    public function speak() string {
+        return "woof";
+    }
+}
+class Bag {
+    public array data = [1, "x"];
+    public function put(i integer, v array) none {
+        this.data[i] = v;
+    }
+    public function pick(i integer) object {
+        return this.data[i];
+    }
+}
+array acc;
+acc = [0, "z"];
+for (integer i = 0; i < 2; i = i + 1) {
+    acc[i] = [i, i + 10];
+    print("loop", i, acc[i], acc[i].length);
+}
+print("1", acc);
+print("2", eq(acc[0], acc[1]));
+print("3", eq(acc[1], [11, 12]));
+Bag bg = new Bag();
+bg.put(0, [6, 7]);
+integer n = bg.pick(0).length ==? 2: 100, 200;
+print("4", n);
+string label = bg.pick(0).length > 1 ? "many" : "one";
+print("5", label);
+if (bg.pick(0).length == 2) {
+    print("6", bg.pick(0)[1]);
+}
+while (true) {
+    bg.put(0, [1]);
+    print("7", bg.pick(0));
+    break;
+}
+array outer = [0, "z"];
+outer[0] = [8, 9];
+function reader() none {
+    print("8", outer[0]);
+    outer[1] = [3, 4];
+    print("9", outer);
+}
+reader();
+print("10", outer);
+array flags;
+flags = [1, "x"];
+flags[0] = new Dog();
+print("11", flags[0].speak());
+string s = true ? flags[0].speak() : "no";
+print("12", s);
+print("13", flags[0].speak() ==? "woof": "hit", "miss");

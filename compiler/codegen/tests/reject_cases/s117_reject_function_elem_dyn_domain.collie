@@ -1,0 +1,11 @@
+// t167 S114 拒编锁：函数值写动态域元素槽维持保守拒编
+// 解释器可行（存函数引用），但函数值无动态承载位（同 s93 函数值面族）
+function hi() none {
+    print("hi");
+}
+function f(a array) none {
+    a[0] = hi;
+    print("1", a.length);
+}
+array m = [1, "x"];
+f(m);
