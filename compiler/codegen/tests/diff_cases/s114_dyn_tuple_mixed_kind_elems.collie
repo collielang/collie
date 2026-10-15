@@ -1,0 +1,47 @@
+// t164 S111 差分用例：一个动态 tuple 同时携带标量位/数组位/实例位，逐位按其
+// 运行期 tag 走既有消费面（number 方法/串方法/tribool 方法/长度/索引/写回/判等）
+class Tag {
+    public string key = "k";
+    public function show() string {
+        return "[" + this.key + "]";
+    }
+}
+function mk(flag bool) Tuple {
+    return flag ? (i: 7, f: 1.5, s: "  hi  ", b: true, t: unset,
+                   arr: [1, "two", 3.5], obj: new Tag())
+                : (e: 0);
+}
+Tuple t = mk(true);
+print("1", t);
+print("2", t.i + 1, t.f * 2);
+print("3", t.i.isInteger(), t.f.isDecimal(), t.f.integerPart());
+print("4", t.s.trim(), t.s.trimLeft().length, t.s.subString(2, 4));
+print("5", t.b.toString(), t.t.isUnset(), t.t.isTrue());
+print("6", toNumber("42") + t.i);
+print("7", t.arr.length, len(t.arr));
+print("8", t.arr[0], t.arr[1], t.arr[2]);
+print("9", t.arr[-1].toString());
+print("10", t.obj.show(), t.obj.key);
+// 数组位写回（引用语义）
+t.arr[1] = "second";
+print("11", t.arr);
+object inner = t.arr;
+inner[0] = 100;
+print("12", t.arr, t.arr[0] + t.i);
+// 实例位换形状写回后按 tag 分派
+object holder = t.obj;
+holder = t.arr;
+print("13", holder.length, holder[1]);
+// 判等：数组位深比较、实例位恒不等、标量位直比
+Tuple u = mk(true);
+print("14", t.arr == u.arr);
+print("15", t.i == u.i, t.s == u.s);
+print("16", t.obj == u.obj);
+print("17", t == u);
+// 循环内逐位消费
+for (integer i = 0; i < t.arr.length; i = i + 1) {
+    print("18", i, toString(t.arr[i]));
+}
+// ==? 以数组位长度分支，两支同为单字段但叶位异型
+Tuple q = t.arr.length ==? 3: (k: t.i), (k: t.s);
+print("19", q, q.k + 1);

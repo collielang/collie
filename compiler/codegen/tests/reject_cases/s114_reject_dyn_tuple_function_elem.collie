@@ -1,0 +1,14 @@
+// t164 S111 拒编锁：动态 tuple 的函数值元素（Fn 无 {tag,bits} 承载位）
+// 解释器把函数名作值直存 tuple 并打印；codegen 的 Fn 承载需函数指针运行期表示，
+// 落物化守卫保守拒编不错编（与 s93_reject_function_as_argument 同族）
+function helper() integer {
+    return 5;
+}
+function mk(flag bool) Tuple {
+    return flag ? (f: helper, arr: [1, 2]) : (z: "x");
+}
+Tuple t = mk(true);
+print("1", t);
+print("2", t.toString());
+object o = t.arr;
+print("3", o.length);

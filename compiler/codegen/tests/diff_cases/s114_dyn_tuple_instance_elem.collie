@@ -1,0 +1,55 @@
+// t164 S111 差分用例：静态类实例值进动态 tuple 物化（tag 5 实例位）
+class Shape {
+    public string name = "shape";
+    public function label() string {
+        return "S:" + this.name;
+    }
+}
+class Circle extends Shape {
+    public integer r = 5;
+    public function label() string {
+        return "C:" + this.name + "-" + toString(this.r);
+    }
+}
+function mk(flag bool) Tuple {
+    return flag ? (s: new Shape(), c: new Circle(), both: [new Shape(), new Circle()])
+                : (n: 1);
+}
+Tuple t = mk(true);
+// 实例位打印恒 <object>（对齐解释器 Value::to_string 的 Instance 分支）
+print("1", t);
+print("2", t.s);
+print("3", t.both);
+// 实例位方法调用按对象头类 id 动态分派
+print("4", t.s.label());
+print("5", t.c.label());
+print("6", t.both[0].label());
+print("7", t.both[-1].label());
+// 实例位字段读写
+print("8", t.c.r);
+t.c.name = "disk";
+print("9", t.c.label());
+// 实例位进类名槽向下消费
+Circle d = t.c;
+print("10", d.r);
+print("11", d.label());
+// 实例位进 object 承载
+object o = t.s;
+print("12", o.label());
+print("13", o.name);
+// 引用语义：别名写对 tuple 侧可见
+Shape shared = new Circle();
+function ref(flag bool) Tuple {
+    return flag ? (p: shared) : (q: 0);
+}
+Tuple rt = ref(true);
+Circle cc = rt.p;
+cc.r = 8;
+print("14", cc.label(), shared.label());
+// 实例位参与判等：解释器 values_equal 无 Instance 分支，恒不等（含同一实例）
+print("15", t.s == t.s);
+print("16", t.s != t.s);
+print("17", rt.p == shared);
+print("18", t.both == t.both);
+print("19", t.toString());
+print("20", @"{t.c}");

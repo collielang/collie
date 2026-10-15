@@ -607,13 +607,14 @@ private:
                                  size_t line, size_t column);
 
     /// @brief 静态展开 tuple → 动态 tuple 堆对象 ptr（t140）：names 建 kind 3 数组
-    /// （无名槽存空串）、values 建 kind 7 动态标量数组（tag/bits 编码同 materialize_dyn_scalars），
-    /// 交 collie_rt_tuple_new 打包。元素含非 dyn_scalar（Arr/Obj/嵌套 Tup）即拒编不错编
+    /// （无名槽存空串）、values 建 kind 7 动态数组（tag/bits 编码同 to_dyn 单点），
+    /// 交 collie_rt_tuple_new 打包。元素含非 dyn_carrier（嵌套 Tup/Fn）即拒编不错编
     llvm::Value* materialize_tuple_dynamic(int tup_idx, size_t line, size_t column);
 
-    /// @brief 各合流支 tuple 是否递归同形（t140）：元素数+名字表逐层一致、嵌套位
-    /// 全支同为 tuple——真则走静态 PHI 合流（t95），假则回退动态 tuple 合流
-    bool tuple_arms_same_shape(const std::vector<int>& tups);
+    /// @brief 各合流支 tuple 能否走静态 PHI 合流（t140 同形 + t164 叶位可合流）：
+    /// 元素数+名字表逐层一致、嵌套位全支同为 tuple，且各叶位类型按 merge_tuple_arms
+    /// 规则可合并——真则静态展开（t95），假则回退动态 tuple 合流
+    bool tuple_arms_static_mergeable(const std::vector<int>& tups);
 
     /// @brief 元素 CGType → collie_rt 数组 kind 编码（0=Int/1=Double/2=Bool/3=Str，t59）
     int arr_kind_of(CGType elem);

@@ -1,0 +1,71 @@
+// t164 S111 差分用例：同形状但叶位类型不可静态合流的三元/==? 分支回退动态合流
+class Point {
+    public integer x = 4;
+    public function greet() string {
+        return "hi-" + toString(this.x);
+    }
+}
+// 六支同名单字段 tuple、叶位横跨 integer/string/bool/实例/数组/tribool：
+// 原静态展开无处承载异型叶位而拒编，现逐支物化 TupDyn 后 PHI 合流
+function pick(k integer) Tuple {
+    return k ==? 0: (v: 1), 1: (v: "s"), 2: (v: true), 3: (v: new Point()),
+           4: (v: [1, "two"]), (v: unset);
+}
+for (integer i = 0; i < 6; i = i + 1) {
+    Tuple t = pick(i);
+    print("1", i, t);
+    print("2", toString(t.v));
+    print("3", t.toString());
+}
+// 三元异型叶位（实例×整数）
+Point p = new Point();
+Tuple a = p.x > 1 ? (v: p) : (v: 0);
+print("4", a);
+print("5", a.v.greet());
+print("6", a.v.x);
+// 同为数组、elem 不同仍可静态合流（elem 降动态域哨兵）
+integer n = 3;
+Tuple b = n > 0 ? (v: [1, 2]) : (v: ["x"]);
+print("7", b);
+print("8", b.v.length);
+// 合流结果进 object 承载后按运行期 tag 分派
+object o = a.v;
+print("9", o.greet());
+// 动态合流后的 tuple 判等（数组位深比较、实例位恒不等）
+Tuple c = pick(0);
+Tuple d = pick(1);
+print("10", c == c);
+print("11", c == d);
+print("12", pick(4) == pick(4));
+print("13", pick(3) == pick(3));
+// 叶位含数组位经函数签名往返
+function again(t Tuple) Tuple {
+    return t;
+}
+print("14", again(pick(4)));
+print("15", again(pick(4)).v[1]);
+// 两支叶位为无公共祖先的跨树实例：静态展开需最近公共祖先而拒编，动态合流按对象头类 id 分派
+class Dog {
+    public string sound = "wang";
+    public function speak() string {
+        return "dog:" + this.sound;
+    }
+}
+class Cat {
+    public integer lives = 9;
+    public function speak() string {
+        return "cat:" + toString(this.lives);
+    }
+}
+function cross(flag bool) Tuple {
+    return flag ? (v: new Dog()) : (v: new Cat());
+}
+Tuple x = cross(true);
+Tuple y = cross(false);
+print("16", x, y);
+print("17", x.v.speak());
+print("18", y.v.speak());
+print("19", x.v.sound, y.v.lives);
+print("20", x == y);
+object oo = y.v;
+print("21", oo.speak());

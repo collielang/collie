@@ -145,7 +145,10 @@ if(COLLIE_ENABLE_LLVM)
             s112_object_field_reassign_capture s112_object_field_methods
             s113_dyn_tuple_named_field s113_dyn_tuple_field_kinds
             s113_dyn_tuple_field_array_bit s113_dyn_tuple_field_param_return
-            s113_dyn_tuple_field_loop_consume s113_dyn_tuple_field_class_capture)
+            s113_dyn_tuple_field_loop_consume s113_dyn_tuple_field_class_capture
+            s114_dyn_tuple_static_array_elem s114_dyn_tuple_instance_elem
+            s114_dyn_tuple_element_carry_out s114_dyn_tuple_merge_loop
+            s114_dyn_tuple_incompatible_leaf s114_dyn_tuple_mixed_kind_elems)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -163,7 +166,7 @@ if(COLLIE_ENABLE_LLVM)
             s96_reject_obj_slot_scalar_reassign
             s97_reject_dyn_to_homog_array_slot
             s111_reject_obj_param_tuple s112_reject_object_field_tuple
-            s113_reject_dyn_tuple_static_array_elem)
+            s114_reject_dyn_tuple_nested_elem s114_reject_dyn_tuple_function_elem)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

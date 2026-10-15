@@ -1,0 +1,55 @@
+// t164 S111 差分用例：动态 tuple 元素位出元组后的承载落点（object 形参/类字段/元组签名往返）
+class Box {
+    public object payload = 0;
+    public function dump() string {
+        return "P:" + toString(this.payload);
+    }
+}
+class Point {
+    public integer x = 3;
+    public function greet() string {
+        return "hi-" + toString(this.x);
+    }
+}
+function mk(flag bool) Tuple {
+    return flag ? (list: [1.5, 2], txt: "  hi  ", p: new Point(), on: true) : (n: 0);
+}
+Tuple t = mk(true);
+// 数组位/实例位进 object 形参（S108 签名面）
+function via(o object) string {
+    return toString(o.length) + "@" + o[0];
+}
+print("1", via(t.list));
+function who(o object) string {
+    return o.greet();
+}
+print("2", who(t.p));
+// 数组位/实例位进 object 类字段（S109 字段面）
+Box b = new Box();
+b.payload = t.list;
+print("3", b.payload);
+print("4", b.payload.length, b.payload[1]);
+print("5", b.dump());
+b.payload = t.p;
+print("6", b.dump());
+print("7", b.payload.greet());
+b.payload = t.txt;
+print("8", b.payload.trim());
+// 元组位往返：Tuple 形参收动态 tuple 再原样返回（数组位/实例位随体携带）
+function pass(v Tuple) Tuple {
+    return v.list.length > 0 ? v : (n: 0);
+}
+Tuple c = pass(t);
+print("9", c);
+print("10", c.list[0] + 1);
+print("11", c.p.greet());
+// 元素位上的类型化方法（运行期 tag 分派）
+print("12", t.list[0].isDecimal(), t.list[1].isInteger());
+print("13", t.list[0].integerPart(), t.txt.trimLeft().length);
+print("14", t.on.toString());
+print("15", toNumber("42") + t.list[1]);
+// 深比较：数组位同构判等、含实例位恒不等
+Tuple u = mk(true);
+print("16", t.list == u.list);
+print("17", t == u);
+print("18", t.list == t.txt);

@@ -1,0 +1,35 @@
+// t164 S111 差分用例：静态数组值进动态 tuple 物化（承载集 is_dyn_carrier）
+// 第一节保留原 s113_reject_dyn_tuple_static_array_elem 锁面程序
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], b: 3) : (c: "x");
+}
+Tuple t = mk(true);
+print("1", t);
+print("2", t.a);
+print("3", t.a.length);
+print("4", len(t.a));
+print("5", t.a[-1]);
+print("6", @"{t.a}");
+print("7", t.toString());
+print("8", t.a.toString());
+// 数组位写回：引用语义，tuple 侧同步可见
+object alias = t.a;
+alias[0] = 99;
+print("9", t.a);
+print("10", t.a[0] + t.b);
+print("11", t.a == alias);
+// 异质数组位（kind 7）、空数组位、嵌套数组位
+function mix(flag bool) Tuple {
+    return flag ? (m: [1, "two", true], e: [], n: [[1, 2], [3]], s: ["甲", "乙"]) : (z: 0);
+}
+Tuple k = mix(true);
+print("12", k);
+print("13", k.m[1], k.m.length);
+print("14", k.e.length);
+print("15", k.n[0][1]);
+print("16", k.n[1][-1]);
+print("17", k.s[0] + "|" + k.s[1]);
+print("18", k.s.length);
+print("19", k.m == k.m);
+print("20", k.n == k.n);
+print("21", k.m == k.s);

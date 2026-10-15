@@ -5598,9 +5598,9 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
     {
         // tuple 族合流（t95 静态 + t140 动态）：全支同为 tuple 且递归同形时
         // 静态展开逐元素 PHI 合流（value=nullptr 虚值，形状编译期定）；否则
-        // （形状不同或含动态 tuple）各支物化为动态堆对象 PHI 为 TupDyn——解释器
-        // 三元/==? 择一返回整值 tuple，编译产物以运行期对象承载跨边界形状。
-        // 含 Obj/Arr/嵌套 tuple 元素的静态支在物化处拒编不错编
+        // （形状不同、叶位类型不可合流或含动态 tuple）各支物化为动态堆对象 PHI 为
+        // TupDyn——解释器三元/==? 择一返回整值 tuple，编译产物以运行期对象承载
+        // 跨边界形状。嵌套 tuple 位与函数位在物化处拒编不错编
         const auto is_tup = [](CGType ty) {
             return ty == CGType::Tup || ty == CGType::TupDyn;
         };
@@ -5629,7 +5629,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
                     tups.push_back(arm.value.tup);
                     arm_ends.push_back(arm.end);
                 }
-                if (tuple_arms_same_shape(tups)) {
+                if (tuple_arms_static_mergeable(tups)) {
                     const int idx =
                         merge_tuple_arms(tups, arm_ends, tup_merge_bb,
                                          "ternary branches", line, column);
@@ -6121,7 +6121,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
                     tups.push_back(arm.value.tup);
                     arm_ends.push_back(arm.end);
                 }
-                if (tuple_arms_same_shape(tups)) {
+                if (tuple_arms_static_mergeable(tups)) {
                     const int idx = merge_tuple_arms(tups, arm_ends, tup_merge_bb,
                                                      "'==?' branches", op.line(),
                                                      op.column());
@@ -7103,8 +7103,9 @@ llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
                                                       size_t column) {
     // 静态展开 tuple → 动态 tuple 堆对象（t140）：跨函数边界/不同形状合流用。
     // names 建 kind 3 字符串数组（无名槽存空串，供 get()/eq/转串按非空名匹配），
-    // values 建 kind 7 动态标量数组（tag/bits 编码同 materialize_dyn_scalars）。
-    // 元素含 Arr/Obj/嵌套 Tup 等非 dyn_scalar → 拒编不错编（解释器动态 tuple 可容，
+    // values 建 kind 7 动态数组（tag/bits 编码同 to_dyn 单点：标量按 arr_kind_of、
+    // 数组位 tag 4、实例位 tag 5，t163 起与 object 承载族同表示）。
+    // 元素含嵌套 Tup/Fn 等非 dyn_carrier → 拒编不错编（解释器动态 tuple 可容，
     // 编译产物无统一承载表示）
     const CGTuple t = tuple_values_[tup_idx];
     const long long n = static_cast<long long>(t.elems.size());
@@ -7118,8 +7119,8 @@ llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
         "tupdn.values");
     for (long long i = 0; i < n; ++i) {
         const CGValue& e = t.elems[static_cast<size_t>(i)];
-        if (!is_dyn_scalar(e.type)) {
-            unsupported("dynamic tuple with array/object/nested-tuple elements",
+        if (!is_dyn_carrier(e.type)) {
+            unsupported("dynamic tuple with nested-tuple or function elements",
                         line, column);
         }
         llvm::Value* nm = builder_.CreateGlobalString(
@@ -7128,26 +7129,25 @@ llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
             rt_arr_set_,
             {names, builder_.getInt64(static_cast<uint64_t>(i)),
              builder_.CreatePtrToInt(nm, builder_.getInt64Ty(), "tupdn.nmbits")});
-        llvm::Value* tag = nullptr;
-        llvm::Value* bits = nullptr;
-        if (e.type == CGType::Num || e.type == CGType::Dyn) {
-            tag = num_tag(e.value);
-            bits = num_bits(e.value);
-        } else {
-            tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(e.type)));
-            bits = elem_to_bits(e);
-        }
+        llvm::Value* boxed = to_dyn(e);
         builder_.CreateCall(rt_arr_set_dyn_,
-                            {values, builder_.getInt64(static_cast<uint64_t>(i)), tag, bits});
+                            {values, builder_.getInt64(static_cast<uint64_t>(i)),
+                             num_tag(boxed), num_bits(boxed)});
     }
     return builder_.CreateCall(
         rt_tuple_new_,
         {builder_.getInt64(static_cast<uint64_t>(n)), names, values}, "tupdn");
 }
 
-bool CodeGenerator::tuple_arms_same_shape(const std::vector<int>& tups) {
-    // 各支 tuple 递归同形判定（t140）：顶层与嵌套各层的元素数、名字表全支一致
-    // 才真——真则可静态 PHI 合流（t95）；假（含某支该位非 tuple）回退动态合流
+bool CodeGenerator::tuple_arms_static_mergeable(const std::vector<int>& tups) {
+    // 各支 tuple 可否走 t95 静态展开合流的判定（t140 同形 + t164 叶位可合流）：
+    // 顶层与嵌套各层的元素数、名字表全支一致，且每个叶位的类型按 merge_tuple_arms
+    // 的既有规则可合并（同为数值、Tri×Bool、同 Arr 异 elem 降动态域哨兵、同 Obj 异
+    // cls 需最近公共祖先）——任一条不满足即回退动态合流（逐支物化 TupDyn），
+    // 解释器这些分支本就可择一返回任意 tuple 值，静态展开无处承载异型叶位
+    const auto is_numeric = [](CGType ty) {
+        return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
+    };
     std::function<bool(const std::vector<int>&)> rec =
         [&](const std::vector<int>& idxs) -> bool {
         const CGTuple& first = tuple_values_[idxs.front()];
@@ -7164,7 +7164,29 @@ bool CodeGenerator::tuple_arms_same_shape(const std::vector<int>& tups) {
                     return false;
                 }
             }
-            if (!nested) continue;
+            if (!nested) {
+                // 叶位类型可合流判定，规则与 merge_tuple_arms 阶段一严格一致
+                CGType merged = first.elems[j].type;
+                std::string cls = first.elems[j].cls;
+                for (int idx : idxs) {
+                    const CGValue& v = tuple_values_[idx].elems[j];
+                    if (v.type == merged) {
+                        if (v.type == CGType::Obj && v.cls != cls &&
+                            nearest_common_ancestor(cls, v.cls).empty()) {
+                            return false;
+                        }
+                        continue;
+                    }
+                    if (is_numeric(merged) && is_numeric(v.type)) continue;
+                    if ((merged == CGType::Tri && v.type == CGType::Bool) ||
+                        (merged == CGType::Bool && v.type == CGType::Tri)) {
+                        merged = CGType::Tri;
+                        continue;
+                    }
+                    return false;
+                }
+                continue;
+            }
             std::vector<int> subs;
             subs.reserve(idxs.size());
             for (int idx : idxs) {

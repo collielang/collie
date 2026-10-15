@@ -1,0 +1,58 @@
+// t164 S111 差分用例：动态 tuple 含数组位/实例位在控制流合流与闭包捕获下的消费
+class Point {
+    public integer x = 3;
+    public string tag = "pt";
+    public function greet() string {
+        return "hi-" + this.tag;
+    }
+}
+function mk(flag bool) Tuple {
+    return flag ? (arr: [1, 2], p: new Point()) : (n: 7);
+}
+// 三元不同形状合流（两支一含数组位一纯标量）
+Tuple t = mk(true);
+Tuple v = t.arr.length > 0 ? t : mk(false);
+print("1", v);
+print("2", v.arr[0], v.arr[1]);
+// ==? 分支合流
+Tuple q = t.arr.length ==? 2: (k: t.arr), 3: (k: t.p), (k: [0]);
+print("3", q);
+print("4", q.k[1]);
+// while 内换形状并逐次消费数组位
+integer i = 0;
+Tuple w = mk(false);
+while (i < 3) {
+    w = i % 2 == 0 ? mk(true) : mk(false);
+    print("5", w.toString());
+    i = i + 1;
+}
+// for 内按下标读数组位元素
+for (integer j = 0; j < t.arr.length; j = j + 1) {
+    print("6", t.arr[j] * 10);
+}
+// 位置索引读元组（数组位/实例位）
+print("7", t[0]);
+print("8", t[1].greet());
+print("9", t[-1].greet());
+// 闭包捕获含数组位的动态 tuple 变量
+function outer() string {
+    Tuple inner = mk(true);
+    function reader() string {
+        return toString(inner.arr) + "/" + inner.p.greet();
+    }
+    return reader() + "#" + reader();
+}
+print("10", outer());
+// 以数组位判定进 if/三元条件
+if (t.arr[0] > 0) {
+    print("11", "one");
+} else {
+    print("12", "other");
+}
+string s = t.arr[0] > 0 ? "yes" : "no";
+print("13", s + "/" + t.p.greet());
+// 循环元素经数组位下标
+while (i < 5) {
+    i = i + 1;
+    print("14", t.arr[i % 2] + i);
+}
