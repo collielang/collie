@@ -1,0 +1,62 @@
+// t165 S112 差分用例：落 array 槽的动态承载数组位之后的动态域消费面
+function mk(flag bool) Tuple {
+    return flag ? (a: [3, 1, 2], s: ["b", "a"]) : (z: 0);
+}
+Tuple t = mk(true);
+array x = t.a;
+function wrap(a array) array {
+    return a;
+}
+// 元素算术/比较（读出恒 Dyn，走运行期 tag 分派）
+print("1", x[0] + x[1] + x[2]);
+print("2", x[0] > x[1]);
+print("3", x[0] > 2);
+// 就地写回并求和
+x[0] = x[0] * 10;
+print("4", x);
+print("5", x == [30, 1, 2]);
+// ==? 以元素值为分支条件
+string tag = x.length ==? 3: "three", 2: "two", "other";
+print("6", tag);
+// 串数组落槽后排序式消费与拼接
+array s = t.s;
+print("7", s[0] + s[1]);
+print("8", @"{s[0]}-@{s[1]}");
+print("9", s == ["b", "a"]);
+print("10", s.toString());
+// while 逐轮读（下标与长度）
+integer i = 0;
+integer acc = 0;
+while (i < x.length) {
+    acc = acc + x[i];
+    i = i + 1;
+}
+print("11", acc);
+print("12", i);
+// 落槽数组再进动态 tuple 物化（数组位二次承载）
+Tuple again = true ? (p: x, q: s) : (r: 0);
+print("13", again);
+print("14", again.p);
+print("15", wrap(x) == wrap(again.p));
+// 嵌套函数实参/返回链路
+print("16", wrap(x));
+print("17", wrap(wrap(x)) == x);
+// 落槽数组作 object 承载再索引（t146/t161 面）
+object o = x;
+print("18", o[0]);
+print("19", o.length);
+print("20", o[-1]);
+o[1] = 8;
+print("21", x);
+// 落槽数组的深比较与不等分支
+print("22", x == [30, 8, 2]);
+print("23", x != [30, 8, 2]);
+print("24", x == ["z"]);
+// 空数组与单元素数组混排落槽
+Tuple e = true ? (n: [], u: [1]) : (z: 0);
+array ea = e.n;
+array ua = e.u;
+print("25", ea);
+print("26", ua);
+print("27", ea.length + ua.length);
+print("28", ea == ua);

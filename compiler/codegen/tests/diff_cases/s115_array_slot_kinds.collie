@@ -1,0 +1,73 @@
+// t165 S112 差分用例：异质/嵌套/串/实例位数组落 array 声明槽后的元素消费
+function mix(flag bool) Tuple {
+    return flag ? (
+        m: [1, "two", true],
+        n: [[1, 2], [3]],
+        c: ["甲", "乙"],
+        i: [3.5, unset, false],
+        d: [1, [2, 3], "x", true]) : (z: 0);
+}
+Tuple t = mix(true);
+// kind 7 异质数组位落槽：逐元素读出恒 Dyn，走既有运行期 tag 分派
+array m = t.m;
+print("1", m);
+print("2", m.length);
+print("3", m[0] + 1);
+print("4", m[1].length);
+print("5", m[1].trim());
+print("6", m[2]);
+print("7", m == [1, "two", true]);
+print("8", toString(m));
+// 嵌套数组位（tag 4 内层数组）落槽后三层索引
+array n = t.n;
+print("9", n);
+print("10", n.length);
+print("11", n[0]);
+print("12", n[1][0]);
+print("13", n[0][-1] + n[1][0]);
+array inner = n[0];
+print("14", inner);
+print("15", inner == [1, 2]);
+// CJK 串数组落槽 + 元素串方法
+array c = t.c;
+print("16", c);
+print("17", c[0] + c[1]);
+print("18", c[1].length);
+print("19", c == ["甲", "乙"]);
+// 小数/tribool/bool 位数组落槽：isDecimal/isUnset/toNumber 等运行期分派
+array i = t.i;
+print("20", i);
+print("21", i[0].isDecimal());
+print("22", i[1].isUnset());
+print("23", i[2]);
+print("24", i.length);
+// kind 7 内含数组位（三层混排）落槽
+array d = t.d;
+print("25", d);
+print("26", d[1][1]);
+print("27", d[2].trim().length);
+print("28", d == [1, [2, 3], "x", true]);
+// 实例位数组落槽后方法按对象头类 id 动态分派
+class Animal {
+    public string name = "a";
+    public function speak() string {
+        return this.name + " generic";
+    }
+}
+class Dog extends Animal {
+    public function speak() string {
+        return "woof";
+    }
+}
+function pets(flag bool) Tuple {
+    return flag ? (p: [new Animal(), new Dog()]) : (q: 0);
+}
+Tuple pk = pets(true);
+array p = pk.p;
+print("29", p);
+print("30", p.length);
+print("31", p[0].speak());
+print("32", p[1].speak());
+print("33", p[0].name);
+print("34", p[1].name);
+print("35", p == [new Animal(), new Dog()]);

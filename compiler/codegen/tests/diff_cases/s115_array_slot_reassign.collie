@@ -1,0 +1,55 @@
+// t165 S112 差分用例：数组变量重赋动态承载数组位（elem 降动态域哨兵）与循环/条件区消费
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], b: 3) : (c: "x");
+}
+Tuple t = mk(true);
+// 静态 elem（Int）变量被动态承载数组位重赋：槽降级动态域，读写按运行期 kind
+array x = [7, 8];
+print("1", x);
+print("2", x[0] + 1);
+x = t.a;
+print("3", x);
+print("4", x.length);
+print("5", x[1]);
+x[1] = 55;
+print("6", t.a);
+print("7", x == [1, 55]);
+// 再赋异 kind（kind 7 异质数组位）：同一路径二次降级，混排元素照常读出
+function mix(flag bool) Tuple {
+    return flag ? (m: [1, "two", true]) : (z: 0);
+}
+Tuple k = mix(true);
+x = k.m;
+print("8", x);
+print("9", x[0] + x.length);
+print("10", x[1].trim().length);
+print("11", x[2]);
+print("12", x == [1, "two", true]);
+// 赋值表达式值语义：赋完即为所赋数组
+array y = [0];
+array back = (y = t.a);
+print("13", back);
+print("14", back == y);
+back[0] = 5;
+print("15", y);
+// 条件区内赋值后区外读（定赋区域跟踪既有面）：if 两支皆赋动态承载数组位
+Tuple q = mk(false);
+array c = [1];
+if (true) {
+    c = t.a;
+} else {
+    c = k.m;
+}
+print("16", c);
+print("17", c.length);
+// 循环内逐轮重赋并消费（elem 已是动态域，赋值不再降级）
+integer i = 0;
+while (i < 2) {
+    i = i + 1;
+}
+print("18", i);
+for (integer j = 0; j < 3; j = j + 1) {
+    c = t.a;
+    print("19", j, c.length, c[0]);
+}
+print("20", c);

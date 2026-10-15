@@ -1,0 +1,70 @@
+// t165 S112 差分用例：动态承载数组位进 array 类字段（初始化/属性赋值/继承树/闭包）
+Tuple t = true ? (a: [1, 2], b: 3) : (c: "x");
+Tuple k = true ? (m: [1, "two", true]) : (z: 0);
+class Box {
+    public array items = t.a;
+    public integer n = 7;
+}
+Box b = new Box();
+print("1", b.items);
+print("2", b.items.length);
+print("3", b.n);
+array v4 = b.items;
+print("4", v4 == [1, 2]);
+// 属性赋值面（单树直存 / 多树 switch）
+b.items = k.m;
+print("5", b.items);
+print("6", b.items[1]);
+print("7", b.items.length);
+b.items[0] = 9;
+print("8", k.m);
+array v9 = b.items;
+print("9", v9 == [9, "two", true]);
+// 字段值进 array 形参 / 从 array 返回值取回
+function id(a array) array {
+    return a;
+}
+print("10", id(b.items));
+array local = id(b.items);
+print("11", local);
+print("12", local == id(b.items));
+local[1] = "TWO";
+print("13", b.items);
+// 继承树：父类字段初始化、子类覆写读写
+class Holder {
+    public array data = t.a;
+    public function show() string {
+        return toString(this.data);
+    }
+}
+class SubHolder extends Holder {
+    public function swap(v array) none {
+        this.data = v;
+    }
+}
+Holder hd = new Holder();
+print("14", hd.data);
+print("15", hd.show());
+SubHolder sh = new SubHolder();
+sh.swap(k.m);
+print("16", sh.data);
+print("17", sh.show());
+array v18 = sh.data;
+array w18 = k.m;
+print("18", v18 == w18);
+// 闭包捕获：嵌套函数重赋外层动态域 array 变量（t141 捕获单元 + t165 落点）
+array outer = t.a;
+function bump() none {
+    outer = k.m;
+}
+bump();
+print("19", outer);
+print("20", outer[1]);
+// 类字段读出后进 object 承载再落 array 槽（三方别名）
+object alias = b.items;
+array again = alias;
+print("21", again);
+print("22", again == id(b.items));
+again[0] = 100;
+print("23", b.items);
+print("24", k.m);

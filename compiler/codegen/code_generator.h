@@ -289,8 +289,9 @@ private:
                                  const char* dyn_target_name = nullptr);
 
     /// @brief Dyn 拆槽目标判定（t147）：解释器 coerce_to_declared 有运行期
-    /// 校验的六个标量落点；Arr/Tup/TupDyn/Fn/Void 需静态元素 kind/形状，Dyn 值
-    /// 进这些落点维持拒编不错编（Obj 落点由 dyn_unbox_to_obj 单独处理，t158）
+    /// 校验的六个标量落点；Arr 落点由 dyn_to_arr_slot 单独处理（t165），
+    /// Tup/TupDyn/Fn/Void 需静态形状或运行期表示，Dyn 值进这些落点维持拒编
+    /// 不错编（Obj 落点由 dyn_unbox_to_obj 单独处理，t158）
     static bool is_dyn_unbox_target(CGType t);
 
     /// @brief 位类型落点名（t147）：bit_max 255/65535 即 byte/word，0 即非位
@@ -314,6 +315,14 @@ private:
     /// 落点类型）；调用侧保证 cls 已注册
     llvm::Value* dyn_unbox_to_obj(llvm::Value* dyn, const std::string& cls,
                                   size_t line, size_t column);
+
+    /// @brief 动态承载值进 array 落点（t165）：解释器 coerce_to_declared 的 KW_ARRAY
+    /// 分支只要求 is_array()，元素 kind 随数组对象运行期自带——运行期守卫 tag ∈
+    /// {4, 7}（同质嵌套数组位 t85/t160、异质数组位 t139）时还原 opaque ptr，其余位
+    /// 落 collie_rt_trap_dyn_convert（落点类型名 "array"，消息核心即解释器
+    /// "Type mismatch: cannot assign <kind> to 'array' variable"）；调用侧须把落点
+    /// 记录的 elem 降 Num 动态域哨兵（t70），读写按运行期 kind 产出 Dyn
+    llvm::Value* dyn_to_arr_slot(llvm::Value* dyn);
 
     /// @brief 动态承载值参与算术的数值化（t148）：Dyn（{tag,bits}）侧插运行期
     /// 守卫——tag < 2（整数态/小数态）时与 Num 同构直接透传，其余（bool/串/

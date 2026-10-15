@@ -1681,6 +1681,33 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     if (var->type == CGType::Arr) {
         // 数组赋值即指针拷贝（引用语义对齐解释器，t59）；元素类型不同的数组
         // 拒编不错编（后续索引读写按变量记录的元素类型解码，错型会错值）
+        if (v.type == CGType::Dyn) {
+            // 动态承载值重赋进 array 变量（t165）：tag ∈ {4,7} 守卫后取数组 ptr，
+            // 运行期 kind 随新对象自带——槽 elem 非 Num 时按 t106 异型互赋同规则
+            // 降级为动态域哨兵（循环回边/全局跨函数快照两面守卫沿用），已是
+            // Num（含无初始化声明 t101）则透传
+            llvm::Value* ptr = dyn_to_arr_slot(v.value);
+            if (var->elem != CGType::Num) {
+                if (loops_.size() != var->loop_depth) {
+                    unsupported("assigning array with different element type to '" +
+                                    name + "' inside a loop",
+                                expr.name().line(), expr.name().column());
+                }
+                if (llvm::isa<llvm::GlobalVariable>(var->slot) &&
+                    (in_function_ || fn_gen_count_ != var->fn_gen_at)) {
+                    unsupported("assigning array with different element type to "
+                                "global '" +
+                                    name + "' across functions",
+                                expr.name().line(), expr.name().column());
+                }
+                var->elem = CGType::Num;
+                var->cls.clear();
+            }
+            builder_.CreateStore(ptr, var->slot);
+            var->uninit = false;
+            last_value_ = {ptr, CGType::Arr, var->elem, var->cls};
+            return;
+        }
         if (v.type != CGType::Arr) {
             unsupported("assigning non-array value to '" + name + "'",
                         expr.name().line(), expr.name().column());
@@ -3987,13 +4014,20 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     if (type == CGType::Arr) {
         // array 槽存不透明 ptr（指针拷贝即引用语义）；声明无元素类型标注，
         // 元素类型取自初始值的同质推断结果（t59）
-        if (init.type != CGType::Arr) {
+        if (init.type == CGType::Dyn) {
+            // 动态承载值进 array 声明槽（t165）：tag ∈ {4,7} 守卫后取数组 ptr，
+            // 运行期 kind 随对象自带 → elem 记 Num 动态域哨兵（t70 同规则，
+            // 读写/打印/判等全部走既有动态域路径）；其余位落运行期同消息陷阱
+            stored = dyn_to_arr_slot(init.value);
+            elem = CGType::Num;
+        } else if (init.type != CGType::Arr) {
             unsupported("initializing 'array' variable with non-array value",
                         stmt.name().line(), stmt.name().column());
+        } else {
+            stored = init.value;
+            elem = init.elem;
+            elem_cls = init.cls; // Obj 元素数组：拷贝元素类名（t100）
         }
-        stored = init.value;
-        elem = init.elem;
-        elem_cls = init.cls; // Obj 元素数组：拷贝元素类名（t100）
     } else {
         stored = coerce_for_slot(init, type, stmt.name());
     }
@@ -4509,6 +4543,12 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                                   bit_type_name(current_ret_bit_max_)),
                      current_ret_type_};
             } else if (v.type == CGType::Dyn &&
+                       current_ret_type_ == CGType::Arr) {
+                // 动态承载值作 array 返回值（t165）：解释器在 return 处走
+                // coerce_to_declared 的 KW_ARRAY 分支，只要求 is_array()；调用侧
+                // Arr 返回值 elem 恒记 Num 动态域哨兵（t70），守卫后取 ptr 直传
+                v = {dyn_to_arr_slot(v.value), CGType::Arr, CGType::Num};
+            } else if (v.type == CGType::Dyn &&
                        current_ret_type_ == CGType::Obj &&
                        !current_ret_cls_.empty()) {
                 // 动态承载值作类名返回值（t158）：解释器在 return 处对类名
@@ -4760,6 +4800,11 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     if (a.type == CGType::Dyn && is_dyn_unbox_target(want)) {
         return dyn_unbox_to(a.value, want, line, column);
     }
+    if (a.type == CGType::Dyn && want == CGType::Arr) {
+        // 动态承载值做 array 形参实参（t165）：解释器绑定实参处走 KW_ARRAY 校验，
+        // 只要求 is_array()；形参槽 elem 恒 Num 哨兵（t70），守卫后 ptr 直传
+        return dyn_to_arr_slot(a.value);
+    }
     if (a.type == CGType::Dyn && want == CGType::Obj && !want_cls.empty()) {
         // 动态承载值进类名形参（t158）：同声明槽规则——tag 5 且类 id 属形参声明
         // 类或其后代类才可静态解码，守卫不中陷阱退出
@@ -4945,6 +4990,13 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
         // 槽规则——tag 5 且类 id 属声明类或后代类才还原实例 ptr，守卫不中陷阱
         // 退出；cls 空（动态 object 落点）无静态布局，维持下方拒编
         return dyn_unbox_to_obj(v.value, slot_cls, where.line(), where.column());
+    }
+    if (allow_dyn_unbox && v.type == CGType::Dyn && slot_type == CGType::Arr) {
+        // 动态承载值进 array 字段槽（t165）：解释器 coerce_to_declared 的 KW_ARRAY
+        // 分支只要求 is_array()，kind 随数组对象自带——tag ∈ {4,7} 守卫后取 ptr，
+        // 字段槽 elem 恒 Num 哨兵（t71/t88）故读写天然走动态域；其余位落
+        // collie_rt_trap_dyn_convert("array")，两端同消息报错退出
+        return dyn_to_arr_slot(v.value);
     }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
@@ -6611,6 +6663,35 @@ llvm::Value* CodeGenerator::dyn_unbox_to_obj(llvm::Value* dyn,
     builder_.SetInsertPoint(trap_bb);
     builder_.CreateCall(rt_trap_dyn_convert_,
                         {num_tag(dyn), builder_.CreateGlobalString(cls)});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return ptr;
+}
+
+llvm::Value* CodeGenerator::dyn_to_arr_slot(llvm::Value* dyn) {
+    // 动态承载值进 array 落点（t165）：解释器 coerce_to_declared 的 KW_ARRAY 分支
+    // 仅要求 is_array()，元素 kind 随数组对象自带，故 tag ∈ {4,7}（同质嵌套数组位
+    // t85/t160、异质数组位 t139）即可还原 opaque ptr 并入既有动态域（调用侧把落点
+    // elem 降 Num 哨兵，读写按运行期 kind 产出 Dyn，t70/t151）；其余位（标量/实例）
+    // 落既有 collie_rt_trap_dyn_convert，复刻解释器 "Type mismatch: cannot assign
+    // <kind> to 'array' variable"（探针实证 integer 位为 number、Obj 位为 object）
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::Value* tag = num_tag(dyn);
+    auto* ok_bb = llvm::BasicBlock::Create(context_, "dynarr.ok", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dynarr.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dynarr.cont", fn);
+    llvm::Value* is_arr = builder_.CreateOr(
+        builder_.CreateICmpEQ(tag, builder_.getInt64(4), "dynarris4"),
+        builder_.CreateICmpEQ(tag, builder_.getInt64(7), "dynarris7"), "dynarris");
+    builder_.CreateCondBr(is_arr, ok_bb, trap_bb);
+    builder_.SetInsertPoint(ok_bb);
+    llvm::Value* ptr = builder_.CreateIntToPtr(num_bits(dyn),
+                                               llvm_type_of(CGType::Arr),
+                                               "dynarrptr");
+    builder_.CreateBr(cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_dyn_convert_,
+                        {tag, builder_.CreateGlobalString("array")});
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(cont_bb);
     return ptr;

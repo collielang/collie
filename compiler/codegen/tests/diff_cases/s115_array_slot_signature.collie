@@ -1,0 +1,68 @@
+// t165 S112 差分用例：动态承载数组位进 array 形参 / array 返回值（函数与方法）
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], b: 3) : (c: "x");
+}
+Tuple t = mk(true);
+function sum(a array) integer {
+    integer s = 0;
+    for (integer i = 0; i < a.length; i = i + 1) {
+        s = s + a[i];
+    }
+    return s;
+}
+function first(a array) integer {
+    return a[0];
+}
+function twice(a array) array {
+    a[0] = a[0] * 2;
+    return a;
+}
+// 数组位做实参（array 形参槽 elem 恒 Num 哨兵，跨签名即动态域）
+print("1", sum(t.a));
+print("2", first(t.a));
+print("3", t.a);
+// array 返回值取回后再进 array 形参（链式）
+function mk2(flag bool) Tuple {
+    return flag ? (a: [10, 20, 30]) : (z: 0);
+}
+Tuple k = mk2(true);
+print("4", sum(k.a));
+print("5", sum(twice(k.a)));
+print("6", k.a);
+// 方法形参与返回值
+class Bag {
+    public array items = [0];
+    public function load(v array) none {
+        this.items = v;
+    }
+    public function grab() array {
+        return this.items;
+    }
+    public function total() integer {
+        return sum(this.items);
+    }
+}
+Bag g = new Bag();
+g.load(t.a);
+print("7", g.items);
+print("8", g.total());
+array r = g.grab();
+array r2 = g.grab();
+print("9", r);
+print("10", r == r2);
+r[0] = 77;
+print("11", t.a);
+print("12", g.total());
+// 方法返回值直接作实参
+Bag h = new Bag();
+h.load(k.a);
+print("13", sum(h.grab()));
+print("14", first(h.grab()));
+// 动态 object 承载值穿过 array 形参再回 object
+object o = t.a;
+print("15", sum(o));
+array back2 = twice(o);
+print("16", back2);
+print("17", o);
+array back3 = twice(o);
+print("18", back2 == back3);

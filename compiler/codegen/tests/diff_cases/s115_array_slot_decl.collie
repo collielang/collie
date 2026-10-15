@@ -1,0 +1,47 @@
+// t165 S112 差分用例：动态承载值的数组位进 array 声明槽（tag 4/7 守卫 + elem 降动态域）
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], b: 3) : (c: "x");
+}
+Tuple t = mk(true);
+array x = t.a;
+print("1", x);
+print("2", x.length);
+print("3", len(x));
+print("4", x[0]);
+print("5", x[-1]);
+print("6", x.toString());
+print("7", @"{x}");
+print("8", x == [1, 2]);
+print("9", x[0] + x[1]);
+// 写回引用语义：数组对象同一，落点侧写对 tuple 侧可见
+x[0] = 99;
+print("10", x);
+print("11", t.a);
+print("12", t.a[0] + t.b);
+// object 承载值转 array 落点（t161 起 object 即 {tag,bits}）
+object o = t.a;
+array y = o;
+print("13", y);
+print("14", y == x);
+y[1] = 88;
+print("15", x);
+print("16", t.a);
+// 空数组位、单元素数组位落槽
+function edge(flag bool) Tuple {
+    return flag ? (e: [], s: [42]) : (z: 0);
+}
+Tuple k = edge(true);
+array e = k.e;
+print("17", e);
+print("18", e.length);
+print("19", e == []);
+array s = k.s;
+print("20", s);
+print("21", s[0] + 1);
+// 函数返回值的数组位直接进声明槽
+function arr() array {
+    return t.a;
+}
+array z = arr();
+print("22", z);
+print("23", z.length);
