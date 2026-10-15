@@ -1,0 +1,46 @@
+// t166 S113 差分用例：`==?` 分支臂 Dyn 合流与循环/条件内消费
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], s: " hey ", n: 4) : (z: 0);
+}
+Tuple t = mk(true);
+array src = [10, "y"];
+integer k = 1;
+// `==?` 臂 Dyn×数组字面量合流后落 array 槽
+array m = k ==? 1: t.a, [7, 8];
+print("1", m);
+print("2", m.length);
+print("3", m[-1]);
+// 合流值直接打印 / 取长 / toString
+print("4", (k ==? 1: t.a, [7, 8]));
+print("5", (k ==? 1: t.a, [7, 8]).length);
+print("6", toString(k ==? 2: t.s, [3]));
+// 命中另一支（字符串位）
+print("7", (k ==? 1: "x", t.s).trim());
+// 默认支参与合流
+print("8", (k ==? 9: t.a, 20: src[k], "tail"));
+array dflt = k ==? 9: t.a, 20: src[k], [1, 2, 3];
+print("9", dflt);
+// 循环内逐轮合流并消费
+for (integer i = 0; i < 3; i = i + 1) {
+    array cur = i ==? 0: t.a, [i, i];
+    print("10", cur);
+    print("11", cur.length);
+}
+integer j = 0;
+while (j < 2) {
+    object hold = j ==? 0: t.a, t.s;
+    print("12", hold);
+    print("13", hold.length);
+    j = j + 1;
+}
+// 合流值作 if 条件与算术操作数
+if ((k ==? 1: t.a, [0]).length == 2) {
+    print("14", "len2");
+}
+print("15", (k ==? 1: t.n, 1) + 1);
+// 合流值进 object 形参再作 array 返回
+function takes(v object) array {
+    return v;
+}
+print("16", takes(k ==? 1: t.a, [5]));
+print("17", (k ==? 1: t.a, [5, 6, 7])[1]);

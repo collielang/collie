@@ -324,6 +324,10 @@ private:
     /// 记录的 elem 降 Num 动态域哨兵（t70），读写按运行期 kind 产出 Dyn
     llvm::Value* dyn_to_arr_slot(llvm::Value* dyn);
 
+    /// @brief 三目/`==?` 臂的动态承载合流判定（t166）：至少一臂为 Dyn 且全部臂
+    /// 均在 is_dyn_carrier 承载集内时，逐臂 to_dyn 打框后 PHI 合流为 Dyn
+    static bool arms_dyn_mergeable(const std::vector<CGType>& types);
+
     /// @brief 动态承载值参与算术的数值化（t148）：Dyn（{tag,bits}）侧插运行期
     /// 守卫——tag < 2（整数态/小数态）时与 Num 同构直接透传，其余（bool/串/
     /// tribool/实例/数组位）落 collie_rt_trap_non_numeric_arith 报错退出

@@ -1,0 +1,54 @@
+// t166 S113 差分用例：动态承载数组位写静态嵌套数组（kind 4）元素槽后的消费面
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], h: [7, 8, 9]) : (z: 0);
+}
+Tuple t = mk(true);
+array g = [[9], [10, 11]];
+// 数组位整槽替换 kind 4 元素
+g[0] = t.a;
+print("1", g);
+print("2", g[0]);
+print("3", g[0].length);
+print("4", g[0][1]);
+print("5", g[0][-1]);
+print("6", g[1]);
+// 引用语义：写回内层对 tuple 侧与别名同时可见
+array x = g[0];
+g[0][0] = 55;
+print("7", t.a);
+print("8", x);
+print("9", g);
+// 换形状：写入异质数组位与空数组位
+array h = [[1], ["x", "y"]];
+h[1] = t.h;
+print("10", h);
+print("11", h[1]);
+print("12", h[1].length);
+print("13", h[1][0], h[1][2]);
+// 动态域元素（kind 7 读出）写 kind 4 槽
+array mix = [[0], "s"];
+mix[0] = mix[1];
+print("14", mix);
+mix[1] = t.a;
+print("15", mix);
+// 三层嵌套
+array deep = [[[1]], [[2, 3]]];
+deep[0] = t.h;
+print("16", deep);
+print("17", deep[0][0]);
+print("18", deep[1][0]);
+deep[0][1] = 77;
+print("19", t.h);
+// 数组位写实例数组元素槽之外的判等面（先绑 array 变量）
+array y = g[0];
+array z2 = t.h;
+print("20", y == z2);
+print("21", y == x);
+// 三目合流值写元素槽
+g[1] = true ? t.h : [0];
+print("22", g);
+print("23", g[1].length);
+// 判等整槽替换后再换承载
+g[0] = [[4], [5]];
+print("24", g);
+print("25", g[0][0]);

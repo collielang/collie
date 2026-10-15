@@ -1,0 +1,80 @@
+// t166 S113 差分用例：元素槽写与合流值在函数/方法/闭包/循环内的往返
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2], b: [30, 40, 50]) : (z: 0);
+}
+Tuple t = mk(true);
+// 数组位作 array 形参实参（t165 落点）与合流值作实参
+function sum(a array) integer {
+    integer s = 0;
+    for (integer i = 0; i < a.length; i = i + 1) {
+        s = s + a[i];
+    }
+    return s;
+}
+print("1", sum(t.a));
+print("2", sum(true ? t.b : [1]));
+// 类字段整体重赋与字段读出值写另一数组元素槽
+class Grid {
+    public array rows = [[0], [0]];
+    public function fill(v array) none {
+        this.rows = v;
+    }
+    public function at(i integer) array {
+        return this.rows[i];
+    }
+    public function total() integer {
+        return sum(this.rows[0]) + sum(this.rows[1]);
+    }
+}
+Grid gr = new Grid();
+gr.fill([[1, 2], [3]]);
+print("3", gr.rows);
+print("4", gr.at(0));
+gr.rows[1] = t.b;
+print("5", gr.rows);
+print("6", gr.total());
+print("7", t.b);
+gr.rows[0] = true ? t.b : [9];
+print("8", gr.rows);
+// 方法返回值写元素槽
+class Bag2 {
+    public array data = [1, 2, 3];
+    public function pick() array {
+        return this.data;
+    }
+}
+Bag2 bg = new Bag2();
+print("9", bg.pick());
+array holder = [[7]];
+holder[0] = bg.pick();
+print("10", holder);
+print("11", holder[0].length);
+// 闭包捕获：函数体内写外层数组元素槽
+array outer = [[1], [2]];
+function bump() none {
+    outer[0] = t.a;
+}
+bump();
+print("12", outer);
+t.b[0] = 31;
+bump();
+print("13", outer);
+// 循环内逐轮写元素槽并消费
+array loop = [[0], [0], [0]];
+for (integer i = 0; i < 3; i = i + 1) {
+    loop[i] = i ==? 0: t.a, t.b;
+}
+print("14", loop);
+print("15", loop[2].length);
+integer j = 0;
+while (j < 2) {
+    loop[j] = true ? t.a : [0];
+    j = j + 1;
+}
+print("16", loop);
+// 合流值进对象承载再索引写回
+object o = true ? t.a : [5];
+o[1] = 99;
+print("17", o);
+print("18", t.a);
+print("19", loop[1]);

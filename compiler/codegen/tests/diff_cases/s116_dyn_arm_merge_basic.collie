@@ -1,0 +1,44 @@
+// t166 S113 差分用例：三目臂 Dyn×数组合流为动态承载后的基础消费面
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2]) : (b: 3);
+}
+Tuple t = mk(true);
+// 合流值直接打印 / toString / 插值
+print("1", true ? t.a : [5, 6]);
+print("2", toString(false ? t.a : [5, 6]));
+print("3", "v=" + (true ? t.a : [5, 7, 8]));
+// 合流值进 array 落点（t165 守卫拆槽）
+array z = true ? t.a : [5, 6];
+print("4", z);
+print("5", z.length);
+print("6", len(z));
+print("7", z[0], z[-1]);
+z[0] = 99;
+print("8", z);
+print("9", t.a);
+// 另一支取到静态数组
+array w = false ? t.a : [5, 6];
+print("10", w);
+w[1] = 66;
+print("11", w);
+// 合流值进 object 承载槽后再消费
+object o = true ? t.a : [5, 6];
+print("12", o);
+print("13", o.length);
+print("14", o[1]);
+o[0] = 100;
+print("15", t.a);
+// 合流值作 array 形参实参
+function sum(a array) integer {
+    integer s = 0;
+    for (integer i = 0; i < a.length; i = i + 1) {
+        s = s + a[i];
+    }
+    return s;
+}
+print("16", sum(true ? t.a : [5, 6]));
+print("17", sum(false ? t.a : [7, 8, 9]));
+// 空数组位与单元素数组位
+Tuple e = mk(true);
+print("18", (true ? [0] : e.a).length);
+print("19", (true ? [] : e.a).length);

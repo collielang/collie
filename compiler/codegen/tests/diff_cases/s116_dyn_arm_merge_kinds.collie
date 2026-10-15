@@ -1,0 +1,37 @@
+// t166 S113 差分用例：合流为 Dyn 的三目值进六类类型化槽与方法面消费
+function mk(flag bool) Tuple {
+    return flag ? (a: 7, s: " hi ", d: 2.5, b: true, tb: unset) : (z: 0);
+}
+Tuple t = mk(true);
+array src = [1, "x"];
+integer i = 0;
+// 合流值进 integer/decimal/bool/string/tribool 类型化槽（t147 拆槽）
+integer n = true ? t.a : 3;
+decimal m = true ? 1.5 : t.a;
+bool f = false ? t.a : true;
+string s = true ? "hey" : t.a;
+tribool tb = false ? t.a : unset;
+print("1", n, m, f, s, tb);
+// 动态域元素读出参与合流后算术
+print("2", (true ? src[i] : 9) + 1);
+print("3", (true ? 10 : t.a) * 2);
+print("4", (true ? src[i] : "y").toString());
+// number / 串 / tribool 方法面按运行期 tag 分派
+print("5", (true ? t.a : 3).abs());
+print("6", (true ? t.d : 1).isDecimal());
+print("7", (true ? t.a : 4).isInteger());
+print("8", (true ? t.s : " hi ").trim());
+print("9", (true ? t.s : "abc").length);
+print("10", (true ? t.tb : unset).isUnset());
+print("11", (false ? t.a : unset).isTrue());
+// 合流值判等先绑类型化变量（Dyn 与字面量 == 属语义层两端同拒面）
+bool bb = true ? t.b : false;
+print("12", bb);
+integer nn = true ? src[i] : 4;
+print("13", nn == 2);
+// toNumber 内建与方法两形式
+print("14", toNumber(true ? t.s : "3"));
+print("15", (true ? t.s : "4").toNumber() + 1);
+// 合流值作插值与拼接
+print("16", "n=" + (true ? t.a : 8));
+print("17", "m=" + (true ? 2.25 : t.a));

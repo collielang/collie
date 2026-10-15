@@ -2342,6 +2342,20 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         // 嵌套数组整槽替换（t85/t89）：外层槽写入新内层数组 ptr 位模式；
         // 值须为数组（任意元素，t89 放宽——kind 随内层对象自带），
         // 非数组值写 kind 4 槽拒编不错编
+        if (v.type == CGType::Dyn) {
+            // 动态承载数组位写 kind 4 槽（t166）：tag 运行期才定——交 t165 的
+            // dyn_to_arr_slot 守卫 tag ∈ {4, 7} 后还原内层数组 ptr 再写槽；
+            // 非数组位（解释器异质数组可直存任意值）落同函数 array 落点陷阱，
+            // 属残余面而非错值
+            llvm::Value* inner = dyn_to_arr_slot(v.value);
+            builder_.CreateCall(
+                rt_arr_set_,
+                {object.value, index.value,
+                 builder_.CreatePtrToInt(inner, builder_.getInt64Ty(),
+                                         "arrelembits")});
+            last_value_ = v;
+            return;
+        }
         if (v.type != CGType::Arr) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
@@ -5713,6 +5727,21 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
             return;
         }
     }
+    // 动态承载合流（t166）：任一臂为 Dyn 且全部臂属动态承载族（标量/Obj/Arr）
+    // 时逐臂 to_dyn 打框后 PHI 合流为 Dyn——解释器三元各支择一返回任意值，
+    // 静态类型不可定；合流值即 Dyn，消费全落 S92–S111 既有运行期 tag 分派臂，
+    // 进 array/object 等静态落点即 t165/t158 既有守卫拆槽。
+    // Tup/Fn/Void 臂已在上方 tuple 族分支与 Void 守卫处维持拒编
+    std::vector<CGType> arm_types;
+    arm_types.reserve(arms.size());
+    for (const auto& arm : arms) {
+        arm_types.push_back(arm.value.type);
+    }
+    if (arms_dyn_mergeable(arm_types)) {
+        result_type = CGType::Dyn;
+        result_elem = CGType::Int;
+        result_cls.clear();
+    } else
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
         if (v.type == result_type) {
@@ -5759,6 +5788,7 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         arm.aligned = result_type == CGType::Double ? to_double(arm.value)
                     : result_type == CGType::Num    ? to_num(arm.value)
                     : result_type == CGType::Tri    ? to_tri(arm.value)
+                    : result_type == CGType::Dyn    ? to_dyn(arm.value)
                                                     : arm.value.value;
         builder_.CreateBr(merge_bb);
     }
@@ -6204,6 +6234,18 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
             return;
         }
     }
+    // 动态承载合流（t166，同 gen_ternary）：任一臂 Dyn 且全部臂属动态承载族
+    // 时逐臂 to_dyn 打框 PHI 合流为 Dyn
+    std::vector<CGType> match_arm_types;
+    match_arm_types.reserve(arms.size());
+    for (const auto& arm : arms) {
+        match_arm_types.push_back(arm.value.type);
+    }
+    if (arms_dyn_mergeable(match_arm_types)) {
+        result_type = CGType::Dyn;
+        result_elem = CGType::Int;
+        result_cls.clear();
+    } else
     for (size_t i = 1; i < arms.size(); ++i) {
         const CGValue& v = arms[i].value;
         if (v.type == result_type) {
@@ -6245,6 +6287,7 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         arm.aligned = result_type == CGType::Double ? to_double(arm.value)
                     : result_type == CGType::Num    ? to_num(arm.value)
                     : result_type == CGType::Tri    ? to_tri(arm.value)
+                    : result_type == CGType::Dyn    ? to_dyn(arm.value)
                                                     : arm.value.value;
         builder_.CreateBr(merge_bb);
     }
@@ -7311,6 +7354,20 @@ bool CodeGenerator::is_dyn_carrier(CGType t) {
     // Tup/Fn/Void 无 {tag,bits} 编码维持拒编不错编。tuple 物化（t140）仍按
     // is_dyn_scalar 判定，其含数组元素的面不在本面范围
     return is_dyn_scalar(t) || t == CGType::Obj || t == CGType::Arr;
+}
+
+bool CodeGenerator::arms_dyn_mergeable(const std::vector<CGType>& types) {
+    // 三目/`==?` 臂的动态承载合流判定（t166）：至少一臂已是 Dyn（静态类型
+    // 运行期才定），且全部臂都在 kind 7 承载集内（标量/实例位/数组位，
+    // is_dyn_carrier 单点）才逐臂 to_dyn 打框合流为 Dyn——Num/Dyn 本就透传、
+    // Arr/Obj 打 tag 4/5，与全臂同为 Dyn 时的原路径同构；Tup/Fn 臂维持拒编
+    // 不错编，数值/Tri×Bool 等仍可静态合流的窄型组合不进此路（保住 elem/cls）
+    bool any_dyn = false;
+    for (CGType t : types) {
+        if (t == CGType::Dyn) any_dyn = true;
+        if (!is_dyn_carrier(t)) return false;
+    }
+    return any_dyn;
 }
 
 // ---------------- tuple 静态展开（t68） ----------------

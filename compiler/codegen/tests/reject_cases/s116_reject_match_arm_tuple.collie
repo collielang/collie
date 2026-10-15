@@ -1,0 +1,8 @@
+// t166 S113 拒编锁：`==?` 臂含 tuple 位维持保守拒编不错编
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2]) : (b: 3);
+}
+Tuple t = mk(true);
+integer k = 1;
+array m = k ==? 1: t.a, (q: 2);
+print("1", m);

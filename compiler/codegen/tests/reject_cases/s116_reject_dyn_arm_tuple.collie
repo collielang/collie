@@ -1,0 +1,8 @@
+// t166 S113 拒编锁：三目 / `==?` 臂含 tuple 位维持保守拒编不错编
+// （arms_dyn_mergeable 只收 is_dyn_carrier 承载族，Tup 无 {tag,bits} 编码）
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2]) : (b: 3);
+}
+Tuple t = mk(true);
+object q = true ? t.a : (k: 1);
+print("1", q);

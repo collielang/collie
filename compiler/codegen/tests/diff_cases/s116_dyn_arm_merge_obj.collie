@@ -1,0 +1,69 @@
+// t166 S113 差分用例：Dyn×实例位臂合流后进 object 槽与类名槽的动态分派
+class Animal {
+    public string name = "animal";
+    public function speak() string {
+        return "generic";
+    }
+}
+class Dog extends Animal {
+    public string breed = "collie";
+    public function speak() string {
+        return "woof";
+    }
+}
+class Cat {
+    public string name = "cat";
+    public function speak() string {
+        return "meow";
+    }
+    public function tag() string {
+        return "cat-only";
+    }
+}
+function mk(flag bool) Tuple {
+    return flag ? (o: new Dog(), a: [1, 2]) : (z: 0);
+}
+Tuple t = mk(true);
+Dog d = new Dog();
+Cat c = new Cat();
+Animal an = d;
+// Dyn×Obj 臂合流 → object 承载槽，方法按对象头类 id 分派
+object o = true ? t.o : d;
+print("1", o);
+print("2", o.speak());
+print("3", o.name);
+object o2 = true ? t.o : an;
+print("4", o2.speak());
+print("5", o2.breed);
+// 合流值进类名槽（t158 运行期 tag 5 + 类 id 守卫解码）
+Dog back = true ? t.o : d;
+print("6", back.speak());
+print("7", back.breed);
+// 合流值为数组位时进 object 槽仍可取长与索引
+object up = false ? t.o : an;
+print("8", up);
+// 跨树实例臂经动态合流后按真实类分派方法与专属字段
+object mixed = false ? t.o : c;
+print("9", mixed.speak());
+print("10", mixed.tag());
+print("11", mixed.name);
+// 合流值作方法实参与返回值
+class Bag {
+    public object held = new Animal();
+    public function store(v object) none {
+        this.held = v;
+    }
+    public function show() string {
+        return this.held.speak();
+    }
+}
+Bag b = new Bag();
+b.store(true ? t.o : d);
+print("12", b.show());
+b.store(false ? t.o : c);
+print("13", b.show());
+print("14", b.held);
+// 判等：实例位恒不等（解释器 values_equal 无 Instance 分支）
+object same1 = true ? t.o : d;
+object same2 = true ? t.o : d;
+print("15", same1 == same2);
