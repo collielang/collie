@@ -614,6 +614,13 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     rt_tuple_key_dyn_ = module_->getOrInsertFunction(
         "collie_rt_tuple_key_dyn",
         llvm::FunctionType::get(void_ty, {ptr_ty, ptr_ty, ptr_ty, ptr_ty}, false));
+    // 动态承载值的 get(key)（t170）：tag 8 交 tuple_key_dyn，其余位方法接收者陷阱
+    rt_dyn_tuple_get_ = module_->getOrInsertFunction(
+        "collie_rt_dyn_tuple_get",
+        llvm::FunctionType::get(
+            void_ty,
+            {builder_.getInt64Ty(), builder_.getInt64Ty(), ptr_ty, ptr_ty, ptr_ty},
+            false));
     rt_tuple_eq_ = module_->getOrInsertFunction(
         "collie_rt_tuple_eq",
         llvm::FunctionType::get(builder_.getInt64Ty(), {ptr_ty, ptr_ty}, false));
@@ -1043,10 +1050,12 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                 return;
             }
             // tuple 相等（t75）：任一侧 Tup 且 ==/!= 时静态展开深比较；
-            // Tup × 非 Tup 恒 false（对齐解释器 values_equal kind 不等）；
+            // Tup × 非 Tup 恒 false（对齐解释器 values_equal kind 不等，且语义层
+            // 不允许 Tuple 与 object/标量互比，故动态承载位到不了这里）；
             // 动态 tuple（t140）：两侧皆 tuple 族时静态侧先物化为动态对象，
-            // 交 rt_tuple_eq 深比较（len+名字表+元素）；含 Obj/Arr 元素物化处拒编；
-            // tuple 关系比较落下方 require_numeric 拒编（解释器同样不支持）
+            // 交 rt_tuple_eq 深比较（len+名字表+元素，含 t164 的数组位/实例位与
+            // t170 的嵌套 tuple 位）；tuple 关系比较落下方 require_numeric 拒编
+            //（解释器同样不支持）
             {
                 const auto is_tup = [](CGType ty) {
                     return ty == CGType::Tup || ty == CGType::TupDyn;
@@ -1817,13 +1826,14 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     if (var->type == CGType::Dyn) {
         // object 动态承载槽重赋（t146）：标量/Dyn/Obj（tag 5）统一经 to_dyn
         // 组装整槽替换，解释器 coerce default 直存任意值同规则；数组位放行
-        // （t160）：tag 4 + 内层数组 ptr 位模式；Tup/Fn 等无 kind7 表示，
-        // 拒编不错编
+        // （t160）：tag 4 + 内层数组 ptr 位模式；tuple 位放行（t170）：tag 8 +
+        // 物化后的堆对象 ptr；Fn/Void 无 {tag,bits} 编码，拒编不错编
         if (!is_dyn_carrier(v.type)) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
-        llvm::Value* boxed = to_dyn(v);
+        llvm::Value* boxed =
+            to_dyn(v, expr.name().line(), expr.name().column());
         builder_.CreateStore(boxed, var->slot);
         var->uninit = false;
         last_value_ = {boxed, CGType::Dyn};
@@ -1940,7 +1950,11 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
             unsupported("array element without value", bracket.line(), bracket.column());
         }
         if (elements.empty()) {
-            elem = v.type;
+            // 元素全为 tuple（t170）：静态 tuple 无单值槽表示，直接收敛 kind 7
+            // 双步长槽（tag 8 承载堆对象位），读出即 Dyn
+            elem = (v.type == CGType::Tup || v.type == CGType::TupDyn)
+                       ? CGType::Dyn
+                       : v.type;
             elem_cls = v.cls;
         } else if (v.type != elem) {
             if (is_dyn_carrier(elem) && is_dyn_carrier(v.type)) {
@@ -2001,8 +2015,11 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                 tag = num_tag(v.value);
                 bits = num_bits(v.value);
             } else {
-                tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(v.type)));
-                bits = elem_to_bits(v);
+                // 单点走 to_dyn：标量按 arr_kind_of、实例位 tag 5、数组位 tag 4、
+                // tuple 位 tag 8（t170 静态 tuple 先物化），与承载集判定同源
+                llvm::Value* vd = to_dyn(v, bracket.line(), bracket.column());
+                tag = num_tag(vd);
+                bits = num_bits(vd);
             }
             builder_.CreateCall(
                 rt_arr_set_dyn_,
@@ -2317,9 +2334,8 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
     if (object.elem == CGType::Dyn) {
         // 异质动态标量数组整槽写（t139，kind 7）：任意基本标量写入自带 tag，
         // 解释器异质数组本就容任意元素；Dyn 值透传分量，静态标量打常量 tag。
-        // 实例值放行（t144）：tag 5 + ptr 位模式；数组值放行（t160）：tag 4 +
-        // 内层数组 ptr 位模式，读出为 Dyn 后 print/==/len/索引走 rt 按 tag 分派，
-        // 字段/方法访问维持拒编；Tup 值无 kind 7 编码，维持拒编不错编
+        // 实例元素 tag 5、数组元素 tag 4、tuple 元素 tag 8（t170 先物化）均存 ptr
+        // 位模式，读出为 Dyn、print/toString/插值走 rt 按 tag 分派
         if (!is_dyn_carrier(v.type)) {
             unsupported("array element type mismatch in index assignment",
                         expr.bracket().line(), expr.bracket().column());
@@ -2330,8 +2346,12 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
             tag = num_tag(v.value);
             bits = num_bits(v.value);
         } else {
-            tag = builder_.getInt64(static_cast<uint64_t>(arr_kind_of(v.type)));
-            bits = elem_to_bits(v);
+            // 单点 to_dyn：标量按 arr_kind_of、实例位 tag 5、数组位 tag 4、
+            // tuple 位 tag 8（t170，静态 tuple 先物化）
+            llvm::Value* vd = to_dyn(v, expr.bracket().line(),
+                                     expr.bracket().column());
+            tag = num_tag(vd);
+            bits = num_bits(vd);
         }
         builder_.CreateCall(rt_arr_set_dyn_,
                             {object.value, index.value, tag, bits});
@@ -2391,13 +2411,16 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
             last_value_ = v;
             return;
         }
-        if (v.type == CGType::Obj || v.type == CGType::Arr) {
-            // 静态实例位/数组位写动态域（t167）：接收者 elem 为 Num 哨兵时数组
-            // 的运行期 kind 静态不可定（类字段/形参/无初始化声明等来源），故交
-            // to_dyn 打 tag 5/4 后与 t151 同路——tag==kind 直存 ptr 位模式（内层
-            // kind 随新数组对象自带，引用语义不变）、kind 7 落双步长 {tag,bits}
-            // 槽、失配落 CG7 陷阱；读回即 Dyn，消费全落 S92–S113 既有 tag 分派臂
-            llvm::Value* vd = to_dyn(v);
+        if (v.type == CGType::Obj || v.type == CGType::Arr ||
+            v.type == CGType::Tup || v.type == CGType::TupDyn) {
+            // 静态实例位/数组位/tuple 位写动态域（t167，t170 扩 tuple 位）：接收者
+            // elem 为 Num 哨兵时数组的运行期 kind 静态不可定（类字段/形参/无初始化
+            // 声明等来源），故交 to_dyn 打 tag 5/4/8 后与 t151 同路——tag==kind 直存
+            // ptr 位模式（内层 kind 随新数组对象自带，引用语义不变）、kind 7 落双步长
+            // {tag,bits} 槽、失配落 CG7 陷阱；读回即 Dyn，消费全落 S92–S114 既有
+            // tag 分派臂
+            llvm::Value* vd = to_dyn(v, expr.bracket().line(),
+                                     expr.bracket().column());
             builder_.CreateCall(rt_arr_set_num_,
                                 {object.value, index.value, num_tag(vd),
                                  num_bits(vd)});
@@ -2561,6 +2584,36 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                             builder_.CreateGlobalString(name)},
                            "dyntrim"),
                        CGType::Str};
+        return;
+    }
+
+    if (object.type == CGType::Dyn && name == "get" &&
+        std::none_of(classes_.begin(), classes_.end(),
+                     [&](const std::pair<const std::string, CGClass>& entry) {
+                         return entry.second.dispatch.count(name) != 0;
+                     })) {
+        // 动态承载值的 get(key)（t170）：tag 8 动态 tuple 位复用 rt_tuple_key_dyn
+        // 的非空名扫描取 {tag,bits} 拼 Dyn，其余位落 rt 方法接收者陷阱（解释器
+        // get 段在实例分支之后、元组分支内先判 is_tuple，消息即同一条）；静态
+        // 守卫「全程序无类定义同名方法」同 t154~t157，命中则整面回落下方 t145
+        // 实例位方法动态分派
+        if (expr.arguments().size() != 1) {
+            unsupported("get() with this arity", line, column);
+        }
+        CGValue key_val = emit(expr.arguments()[0].get());
+        if (key_val.type != CGType::Str) {
+            unsupported("non-string tuple get() key", line, column);
+        }
+        llvm::AllocaInst* otag =
+            create_entry_alloca(builder_.getInt64Ty(), "dyntupget.otag");
+        llvm::AllocaInst* obits =
+            create_entry_alloca(builder_.getInt64Ty(), "dyntupget.obits");
+        builder_.CreateCall(
+            rt_dyn_tuple_get_, {num_tag(object.value), num_bits(object.value),
+                                key_val.value, otag, obits});
+        last_value_ = {make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag),
+                                builder_.CreateLoad(builder_.getInt64Ty(), obits)),
+                       CGType::Dyn};
         return;
     }
 
@@ -3279,126 +3332,68 @@ void CodeGenerator::visitProperty(const PropertyExpr& expr) {
         return;
     }
     if (object.type == CGType::Dyn) {
-        // kind 7 元素读出（Dyn）的字段读（t145）：tag==5 实例位守卫还原实例
-        // ptr 后并入下方空 cls 动态分派（t142，全体定义者 switch 按对象头
-        // 类 id 取值）；非实例位落 collie_rt undefined property 陷阱（解释器
-        // 对 `1 .name` 同为运行期报错，拒错编从陷阱）；.length 已在上方按
-        // 运行期 tag 解锁（t152），仅当某类声明了 length 字段时落到此处
-        // 实例位分派（此时非实例位的串/数组长度面维持陷阱）
-        object = {dyn_obj_guard(object, std::string(expr.name().lexeme()),
-                                false),
-                  CGType::Obj, CGType::Int, std::string()};
+        // 动态承载值的字段读：按运行期 tag 两路分派后合流为 Dyn（t145 实例位
+        // + t170 tuple 位）——tag 8 走 t163 的 rt_tuple_key_dyn 常量键扫描取
+        // {tag,bits}（解释器 visitProperty 的元组分支：length 优先、命名字段
+        // 线性扫名、未命中 "Undefined tuple field '<name>'"）；tag 5 经
+        // dyn_obj_guard 还原实例 ptr 后并入既有字段动态分派（t142）再 to_dyn
+        // 打框；其余位由 dyn_obj_guard 落既有 undefined property 陷阱（解释器
+        // 对 `1 .name` 同为运行期报错，拒错编从陷阱）。合流值消费面全落
+        // S92–S112 既有 tag 分派臂；.length 已在上方按运行期 tag 解锁
+        // （t152，tuple 位由 rt dyn_len 的 case 8 补上）
+        const std::string name(expr.name().lexeme());
+        const size_t line = expr.name().line();
+        const size_t column = expr.name().column();
+        llvm::Function* dyn_fn = builder_.GetInsertBlock()->getParent();
+        auto* tup_bb = llvm::BasicBlock::Create(context_, "prop.tup", dyn_fn);
+        auto* objv_bb = llvm::BasicBlock::Create(context_, "prop.objval", dyn_fn);
+        auto* dyn_end_bb =
+            llvm::BasicBlock::Create(context_, "prop.dynend", dyn_fn);
+        builder_.CreateCondBr(
+            builder_.CreateICmpEQ(num_tag(object.value), builder_.getInt64(8),
+                                  "istuptag"),
+            tup_bb, objv_bb);
+        builder_.SetInsertPoint(tup_bb);
+        llvm::AllocaInst* otag =
+            create_entry_alloca(builder_.getInt64Ty(), "dynprop.otag");
+        llvm::AllocaInst* obits =
+            create_entry_alloca(builder_.getInt64Ty(), "dynprop.obits");
+        builder_.CreateCall(
+            rt_tuple_key_dyn_,
+            {builder_.CreateIntToPtr(num_bits(object.value),
+                                     llvm_type_of(CGType::TupDyn), "dynpptr"),
+             builder_.CreateGlobalString(name), otag, obits});
+        llvm::Value* tup_boxed = make_num(
+            builder_.CreateLoad(builder_.getInt64Ty(), otag),
+            builder_.CreateLoad(builder_.getInt64Ty(), obits));
+        llvm::BasicBlock* tup_end = builder_.GetInsertBlock();
+        builder_.CreateBr(dyn_end_bb);
+        builder_.SetInsertPoint(objv_bb);
+        CGValue field = read_obj_field(
+            {dyn_obj_guard(object, name, false), CGType::Obj, CGType::Int,
+             std::string()},
+            name, line, column, true);
+        // 无定义者时实例位整臂为运行期陷阱（块已 terminate，不再发指令/连边），
+        // 仅剩 tuple 臂流入合流点
+        llvm::Value* obj_boxed = field.value ? to_dyn(field, line, column) : nullptr;
+        llvm::BasicBlock* objv_end = builder_.GetInsertBlock();
+        if (obj_boxed) {
+            builder_.CreateBr(dyn_end_bb);
+        }
+        builder_.SetInsertPoint(dyn_end_bb);
+        llvm::PHINode* dyn_phi =
+            builder_.CreatePHI(llvm_type_of(CGType::Dyn), 2, "dynprop");
+        dyn_phi->addIncoming(tup_boxed, tup_end);
+        if (obj_boxed) {
+            dyn_phi->addIncoming(obj_boxed, objv_end);
+        }
+        last_value_ = {dyn_phi, CGType::Dyn};
+        return;
     }
     if (object.type == CGType::Obj) {
-        // 类实例字段读（t60/t102/t103）：同树定义者收集——downcast 放行后
-        // 动态类可为整棵继承树上任意类（旁支可经共同祖先中转写入槽）；
-        // 单类树维持直 GEP + load 零开销，多类树读对象头类 id switch 到
-        // 定义者字段槽（各定义者按自身 field_index 下标 GEP），default
-        // （动态类实例无此字段）走运行期陷阱不错值——消息对齐解释器
-        // "Undefined property 'X' on object"
-        const std::string name(expr.name().lexeme());
-        std::vector<const CGClass*> defs;
-        bool lone_tree = true;
-        if (object.cls.empty()) {
-            // 空 cls = 动态 object（跨树实例数组元素 t137 / object 形参与返回值
-            // S81 / 无初值变量 S69）字段读（t142）：静态类无从知晓，全体定义了
-            // 该字段的类均入 switch case（不限同树，同 t133 方法动态分派），按
-            // 对象头类 id 运行期取值；动态类未定义该字段落 default 陷阱臂（解释器
-            // 同为运行期报错，非 stdout 差分面）；lone_tree 恒 false——真实类
-            // 可能不在 defs 中，必须保留 default 兜底；各定义者字段声明类型须全等
-            // （同 t102 防御）否则 PHI 无从统一、拒编不错编
-            for (const auto& entry : classes_) {
-                if (entry.second.field_index.count(name) != 0) {
-                    defs.push_back(&entry.second);
-                }
-            }
-            lone_tree = false;
-        } else {
-            for (const auto& entry : classes_) {
-                if (entry.first != object.cls) {
-                    if (nearest_common_ancestor(entry.first, object.cls).empty()) {
-                        continue;
-                    }
-                    lone_tree = false;
-                }
-                if (entry.second.field_index.count(name) != 0) {
-                    defs.push_back(&entry.second);
-                }
-            }
-        }
-        if (defs.empty()) {
-            unsupported("undefined property '" + name + "' on " +
-                            (object.cls.empty()
-                                 ? std::string("dynamic object")
-                                 : "class '" + object.cls + "'"),
-                        expr.name().line(), expr.name().column());
-        }
-        if (lone_tree) {
-            // 单类树：动态类必为静态类，直 GEP + load 零开销（现状保持）
-            const CGClass& cls = classes_.at(object.cls);
-            auto it = cls.field_index.find(name);
-            const CGField& field = cls.fields[it->second];
-            llvm::Value* slot =
-                builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name);
-            // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
-            // 即动态域，同 t70 形参机制）；Obj 字段带类名（t72）
-            last_value_ = {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
-                           field.type,
-                           field.type == CGType::Arr ? CGType::Num : CGType::Int,
-                           field.cls};
-            return;
-        }
-        const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
-        std::sort(defs.begin(), defs.end(),
-                  [](const CGClass* a, const CGClass* b) {
-                      return a->id < b->id;
-                  });
-        // 各定义者字段类型须与首个一致（同 t86 防御：不一致则统一 PHI
-        // 与后续使用类型不可定，拒编不错编）
-        for (const CGClass* sub : defs) {
-            const CGField& f = sub->fields.at(sub->field_index.at(name));
-            if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
-                unsupported("inherited field '" + name + "' with a different type",
-                            expr.name().line(), expr.name().column());
-            }
-        }
-        // switch：case 各定义者（按 id 排序），default = 陷阱
-        llvm::Value* clsid = builder_.CreateLoad(
-            builder_.getInt64Ty(), object.value, "clsid");
-        llvm::Function* fn = builder_.GetInsertBlock()->getParent();
-        auto* trap_bb = llvm::BasicBlock::Create(context_, "prop.trap", fn);
-        auto* merge_bb = llvm::BasicBlock::Create(context_, "prop.end", fn);
-        llvm::SwitchInst* sw = builder_.CreateSwitch(
-            clsid, trap_bb, static_cast<unsigned>(defs.size()));
-        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
-        for (const CGClass* sub : defs) {
-            auto* bb = llvm::BasicBlock::Create(
-                context_,
-                "prop." + std::string(sub->stmt->name().lexeme()), fn);
-            sw->addCase(builder_.getInt64(sub->id), bb);
-            builder_.SetInsertPoint(bb);
-            const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
-            llvm::Value* slot =
-                builder_.CreateStructGEP(sub->type, object.value, idx, name);
-            llvm::Value* loaded =
-                builder_.CreateLoad(llvm_type_of(ref.type), slot, name);
-            incoming.emplace_back(builder_.GetInsertBlock(), loaded);
-            builder_.CreateBr(merge_bb);
-        }
-        builder_.SetInsertPoint(trap_bb);
-        builder_.CreateCall(rt_trap_undefined_property_,
-                            {builder_.CreateGlobalString(name)});
-        builder_.CreateUnreachable();
-        builder_.SetInsertPoint(merge_bb);
-        llvm::PHINode* phi = builder_.CreatePHI(
-            llvm_type_of(ref.type), static_cast<unsigned>(incoming.size()), "proptmp");
-        for (const auto& in : incoming) {
-            phi->addIncoming(in.second, in.first);
-        }
-        // Arr 字段 elem 记 Num 哨兵（t71）；Obj 字段带类名（t72）
-        last_value_ = {phi, ref.type,
-                       ref.type == CGType::Arr ? CGType::Num : CGType::Int,
-                       ref.cls};
+        last_value_ = read_obj_field(object, std::string(expr.name().lexeme()),
+                                     expr.name().line(), expr.name().column(),
+                                     false);
         return;
     }
     if (object.type == CGType::TupDyn) {
@@ -3924,14 +3919,17 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             // print/toString/插值消费面、成员访问走 t145 实例位守卫；数组初
             // 始值放行（t160）：tag 4 + 内层数组 ptr 位模式，读出为 Dyn 后
             // print/len/索引/== 走 rt 既有 tag 4 通道；重赋走 visitAssign Dyn
-            // 分支（含 Obj tag 5）；Tup/Void 等维持拒编不错编
+            // 分支（含 Obj tag 5）；tuple 初始值放行（t170）：tag 8 + 物化堆
+            // 对象 ptr；Fn/Void 等维持拒编不错编
             if (!is_dyn_carrier(init.type)) {
                 unsupported("initializing 'object' variable with non-object value",
                             stmt.name().line(), stmt.name().column());
             }
             const std::string name(stmt.name().lexeme());
             llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
-            builder_.CreateStore(to_dyn(init), slot);
+            builder_.CreateStore(to_dyn(init, stmt.name().line(),
+                                        stmt.name().column()),
+                                 slot);
             CGVar var{slot, CGType::Dyn};
             var.cell_id = next_cell_id_++; // 可捕获单元（t141 机制自动覆盖）
             scopes_.back()[name] = var;
@@ -5680,15 +5678,12 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         const auto is_tup = [](CGType ty) {
             return ty == CGType::Tup || ty == CGType::TupDyn;
         };
-        bool any_tup = false, all_tup_family = true;
+        // tuple 位混入其它承载臂不再整面拒编（t170）：Tup 已入 is_dyn_carrier，
+        // 全臂 tuple 仍走下方静态/动态 tuple 合流，混排则由「静态合流失败即按
+        // 承载族回退 Dyn」接住（逐臂 to_dyn 打 tag 8）；含 Fn/Void 臂照旧拒编
+        bool all_tup_family = true;
         for (const auto& arm : arms) {
-            if (is_tup(arm.value.type)) any_tup = true;
             if (!is_tup(arm.value.type)) all_tup_family = false;
-        }
-        if (any_tup && !all_tup_family) {
-            unsupported("ternary branches have incompatible types",
-                        expr.question_token().line(),
-                        expr.question_token().column());
         }
         if (all_tup_family) {
             const size_t line = expr.question_token().line();
@@ -5789,16 +5784,16 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
                                          const Token& op) {
     // Dyn 目标/候选（t169）：动态承载位的 kind 只有运行期可知——两侧统一 to_dyn
     // 盒化后下沉 rt_dyn_eq（与 t149 判等同源，复刻解释器 values_equal：Tri×Bool
-    // 加宽三态、数值跨 tag 走 double 视图、串按内容、数组位深比较、实例位与 kind
-    // 失配恒 false）；Tup 侧保留 t78 的「Tup × 非 Tup 恒 false」（kind 空间 0–7 无
-    // tuple 位，解释器必判 kind 不等），Fn/Void 无 {tag,bits} 编码维持原拒编。
-    // 静态×静态组合不经此分支（下面各臂行为不变）
-    if ((target.type == CGType::Dyn || cand.type == CGType::Dyn) &&
-        target.type != CGType::Tup && cand.type != CGType::Tup) {
+    // 加宽三态、数值跨 tag 走 double 视图、串按内容、数组位深比较、tuple 位（tag
+    // 8，t170）深比较、实例位与 kind 失配恒 false）；tuple 侧自 t170 起也入此分支
+    // （Dyn 可承载 tuple 位，原「Tup × 非 Tup 恒 false」折叠只保留在两侧皆静态的
+    // 各臂里）；Fn/Void 无 {tag,bits} 编码维持原拒编。静态×静态组合不经此分支
+    if (target.type == CGType::Dyn || cand.type == CGType::Dyn) {
         const auto dyn_match_side_ok = [](CGType ty) {
             return ty == CGType::Dyn || ty == CGType::Int || ty == CGType::Double ||
                    ty == CGType::Num || ty == CGType::Str || ty == CGType::Bool ||
-                   ty == CGType::Tri || ty == CGType::Arr || ty == CGType::Obj;
+                   ty == CGType::Tri || ty == CGType::Arr || ty == CGType::Obj ||
+                   ty == CGType::Tup || ty == CGType::TupDyn;
         };
         if (!dyn_match_side_ok(target.type) || !dyn_match_side_ok(cand.type)) {
             unsupported("'==?' comparison of these value types", op.line(), op.column());
@@ -6184,14 +6179,11 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
         const auto is_tup = [](CGType ty) {
             return ty == CGType::Tup || ty == CGType::TupDyn;
         };
-        bool any_tup = false, all_tup_family = true;
+        // tuple 位混入其它承载臂不再整面拒编（t170，同三目触点）：全臂 tuple 仍走
+        // 下方 tuple 合流，混排交由「静态合流失败即按承载族回退 Dyn」接住
+        bool all_tup_family = true;
         for (const auto& arm : arms) {
-            if (is_tup(arm.value.type)) any_tup = true;
             if (!is_tup(arm.value.type)) all_tup_family = false;
-        }
-        if (any_tup && !all_tup_family) {
-            unsupported("'==?' branches have incompatible types", op.line(),
-                        op.column());
         }
         if (all_tup_family) {
             auto* tup_merge_bb = llvm::BasicBlock::Create(context_, "match.end", fn);
@@ -6480,6 +6472,127 @@ llvm::Value* CodeGenerator::dyn_obj_guard(const CGValue& v,
     builder_.SetInsertPoint(obj_bb);
     return builder_.CreateIntToPtr(num_bits(v.value),
                                    llvm_type_of(CGType::Obj), "dynobjptr");
+}
+
+CodeGenerator::CGValue CodeGenerator::read_obj_field(const CGValue& object,
+                                      const std::string& name,
+                                      size_t line,
+                                      size_t column,
+                                      bool trap_when_undefined) {
+    // 类实例字段读（t60/t102/t103，t170 自 visitProperty 抽出供 Dyn tag 分派
+    // 复用）：同树定义者收集——downcast 放行后动态类可为整棵继承树上任意类
+    // （旁支可经共同祖先中转写入槽）；单类树维持直 GEP + load 零开销，多类树
+    // 读对象头类 id switch 到定义者字段槽（各定义者按自身 field_index 下标
+    // GEP），default（动态类实例无此字段）走运行期陷阱不错值——消息对齐解释器
+    // "Undefined property 'X' on object"
+    std::vector<const CGClass*> defs;
+    bool lone_tree = true;
+    if (object.cls.empty()) {
+        // 空 cls = 动态 object（跨树实例数组元素 t137 / object 形参与返回值
+        // S81 / 无初值变量 S69）字段读（t142）：静态类无从知晓，全体定义了
+        // 该字段的类均入 switch case（不限同树，同 t133 方法动态分派），按
+        // 对象头类 id 运行期取值；动态类未定义该字段落 default 陷阱臂（解释器
+        // 同为运行期报错，非 stdout 差分面）；lone_tree 恒 false——真实类
+        // 可能不在 defs 中，必须保留 default 兜底；各定义者字段声明类型须全等
+        // （同 t102 防御）否则 PHI 无从统一、拒编不错编
+        for (const auto& entry : classes_) {
+            if (entry.second.field_index.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
+        }
+        lone_tree = false;
+    } else {
+        for (const auto& entry : classes_) {
+            if (entry.first != object.cls) {
+                if (nearest_common_ancestor(entry.first, object.cls).empty()) {
+                    continue;
+                }
+                lone_tree = false;
+            }
+            if (entry.second.field_index.count(name) != 0) {
+                defs.push_back(&entry.second);
+            }
+        }
+    }
+    if (defs.empty()) {
+        if (!trap_when_undefined) {
+            unsupported("undefined property '" + name + "' on " +
+                            (object.cls.empty()
+                                 ? std::string("dynamic object")
+                                 : "class '" + object.cls + "'"),
+                        line, column);
+        }
+        // Dyn 接收者的实例位（t170）：整臂为运行期陷阱（tuple 臂由调用侧另
+        // 分派），块 terminate 后回空值占位让调用侧跳过合流边
+        builder_.CreateCall(rt_trap_undefined_property_,
+                            {builder_.CreateGlobalString(name)});
+        builder_.CreateUnreachable();
+        return {nullptr, CGType::Dyn, CGType::Int, std::string()};
+    }
+    if (lone_tree) {
+        // 单类树：动态类必为静态类，直 GEP + load 零开销（现状保持）
+        const CGClass& cls = classes_.at(object.cls);
+        auto it = cls.field_index.find(name);
+        const CGField& field = cls.fields[it->second];
+        llvm::Value* slot =
+            builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name);
+        // Arr 字段 elem 记 Num 哨兵（t71：CGField 无元素类型伴随，读出
+        // 即动态域，同 t70 形参机制）；Obj 字段带类名（t72）
+        return {builder_.CreateLoad(llvm_type_of(field.type), slot, name),
+                field.type,
+                field.type == CGType::Arr ? CGType::Num : CGType::Int,
+                field.cls};
+    }
+    const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
+    std::sort(defs.begin(), defs.end(),
+              [](const CGClass* a, const CGClass* b) {
+                  return a->id < b->id;
+              });
+    // 各定义者字段类型须与首个一致（同 t86 防御：不一致则统一 PHI
+    // 与后续使用类型不可定，拒编不错编）
+    for (const CGClass* sub : defs) {
+        const CGField& f = sub->fields.at(sub->field_index.at(name));
+        if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
+            unsupported("inherited field '" + name + "' with a different type",
+                        line, column);
+        }
+    }
+    // switch：case 各定义者（按 id 排序），default = 陷阱
+    llvm::Value* clsid = builder_.CreateLoad(
+        builder_.getInt64Ty(), object.value, "clsid");
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "prop.trap", fn);
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "prop.end", fn);
+    llvm::SwitchInst* sw = builder_.CreateSwitch(
+        clsid, trap_bb, static_cast<unsigned>(defs.size()));
+    std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+    for (const CGClass* sub : defs) {
+        auto* bb = llvm::BasicBlock::Create(
+            context_,
+            "prop." + std::string(sub->stmt->name().lexeme()), fn);
+        sw->addCase(builder_.getInt64(sub->id), bb);
+        builder_.SetInsertPoint(bb);
+        const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
+        llvm::Value* slot =
+            builder_.CreateStructGEP(sub->type, object.value, idx, name);
+        llvm::Value* loaded =
+            builder_.CreateLoad(llvm_type_of(ref.type), slot, name);
+        incoming.emplace_back(builder_.GetInsertBlock(), loaded);
+        builder_.CreateBr(merge_bb);
+    }
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_undefined_property_,
+                        {builder_.CreateGlobalString(name)});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(merge_bb);
+    llvm::PHINode* phi = builder_.CreatePHI(
+        llvm_type_of(ref.type), static_cast<unsigned>(incoming.size()), "proptmp");
+    for (const auto& in : incoming) {
+        phi->addIncoming(in.second, in.first);
+    }
+    // Arr 字段 elem 记 Num 哨兵（t71）；Obj 字段带类名（t72）
+    return {phi, ref.type,
+            ref.type == CGType::Arr ? CGType::Num : CGType::Int, ref.cls};
 }
 
 llvm::Value* CodeGenerator::dyn_obj_clsid_or_sentinel(llvm::Value* tag,
@@ -6821,11 +6934,13 @@ llvm::Value* CodeGenerator::to_num(const CGValue& v) {
     }
 }
 
-llvm::Value* CodeGenerator::to_dyn(const CGValue& v) {
+llvm::Value* CodeGenerator::to_dyn(const CGValue& v, size_t line, size_t column) {
     // 动态承载组装（t146）：Num/Dyn 原样透传（同 {i64,i64} 布局、tag 编码
     // 兼容）；Obj 打 tag 5 存实例 ptr 位模式（同 t144 kind7）；Arr 打 tag 4
     // 存内层数组 ptr 位模式（同 t160 kind7，与 t85 kind 4 单数组表示重合）；
-    // 其余标量按 arr_kind_of/elem_to_bits 编码；Tup/Fn 等经调用侧守卫不落此处
+    // Tup/TupDyn 打 tag 8 存动态 tuple 堆对象 ptr（t170，静态展开值先经
+    // t140 物化）；其余标量按 arr_kind_of/elem_to_bits 编码；Fn/Void 等经
+    // 调用侧守卫不落此处
     switch (v.type) {
         case CGType::Num:
         case CGType::Dyn:
@@ -6834,6 +6949,16 @@ llvm::Value* CodeGenerator::to_dyn(const CGValue& v) {
             return make_num(builder_.getInt64(5),
                             builder_.CreatePtrToInt(
                                 v.value, builder_.getInt64Ty(), "dynobjbits"));
+        case CGType::Tup:
+            return make_num(
+                builder_.getInt64(8),
+                builder_.CreatePtrToInt(
+                    materialize_tuple_dynamic(v.tup, line, column),
+                    builder_.getInt64Ty(), "dyntupbits"));
+        case CGType::TupDyn:
+            return make_num(builder_.getInt64(8),
+                            builder_.CreatePtrToInt(
+                                v.value, builder_.getInt64Ty(), "dyntupbits"));
         default:
             return make_num(
                 builder_.getInt64(
@@ -7207,8 +7332,8 @@ llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
     // names 建 kind 3 字符串数组（无名槽存空串，供 get()/eq/转串按非空名匹配），
     // values 建 kind 7 动态数组（tag/bits 编码同 to_dyn 单点：标量按 arr_kind_of、
     // 数组位 tag 4、实例位 tag 5，t163 起与 object 承载族同表示）。
-    // 元素含嵌套 Tup/Fn 等非 dyn_carrier → 拒编不错编（解释器动态 tuple 可容，
-    // 编译产物无统一承载表示）
+    // 元素含 Fn 等非 dyn_carrier → 拒编不错编（解释器动态 tuple 可容，
+    // 编译产物无统一承载表示）；嵌套 tuple 元素自 t170 起按 tag 8 入承载
     const CGTuple t = tuple_values_[tup_idx];
     const long long n = static_cast<long long>(t.elems.size());
     llvm::Value* names = builder_.CreateCall(
@@ -7222,8 +7347,7 @@ llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
     for (long long i = 0; i < n; ++i) {
         const CGValue& e = t.elems[static_cast<size_t>(i)];
         if (!is_dyn_carrier(e.type)) {
-            unsupported("dynamic tuple with nested-tuple or function elements",
-                        line, column);
+            unsupported("dynamic tuple with function elements", line, column);
         }
         llvm::Value* nm = builder_.CreateGlobalString(
             i < static_cast<long long>(t.names.size()) ? t.names[i] : std::string());
@@ -7231,7 +7355,7 @@ llvm::Value* CodeGenerator::materialize_tuple_dynamic(int tup_idx, size_t line,
             rt_arr_set_,
             {names, builder_.getInt64(static_cast<uint64_t>(i)),
              builder_.CreatePtrToInt(nm, builder_.getInt64Ty(), "tupdn.nmbits")});
-        llvm::Value* boxed = to_dyn(e);
+        llvm::Value* boxed = to_dyn(e, line, column);
         builder_.CreateCall(rt_arr_set_dyn_,
                             {values, builder_.getInt64(static_cast<uint64_t>(i)),
                              num_tag(boxed), num_bits(boxed)});
@@ -7318,9 +7442,9 @@ int CodeGenerator::arr_kind_of(CGType elem) {
 }
 
 bool CodeGenerator::is_dyn_scalar(CGType t) {
-    // 异质数组 kind 7 承载范围（t139）：基本标量 + 已动态化标量（Dyn，支持
-    // 嵌套异质数组字面量二次物化透传）；Arr/Obj/Tup 各有专属表示，混入维持拒编
-    // （Obj/Arr 由 is_dyn_carrier 在数组字面量与动态承载槽处另行放行）
+    // 异质数组 kind 7 的标量承载范围（t139）：基本标量 + 已动态化标量（Dyn，支持
+    // 嵌套异质数组字面量二次物化透传）；Obj/Arr/Tup 各有专属表示，混入维持拒编
+    // （Obj/Arr/Tup 由 is_dyn_carrier 在数组字面量与动态承载槽处另行放行）
     return t == CGType::Int || t == CGType::Double || t == CGType::Num ||
            t == CGType::Bool || t == CGType::Str || t == CGType::Tri ||
            t == CGType::Dyn;
@@ -7328,16 +7452,17 @@ bool CodeGenerator::is_dyn_scalar(CGType t) {
 
 bool CodeGenerator::is_dyn_carrier(CGType t) {
     // kind 7 动态承载全集（t160）：标量（t139）+ 实例位 tag 5（t144）+ 数组位
-    // tag 4（t160，bits 即内层数组 ptr 位模式，镜像 kind 4 单数组表示）；
-    // Tup/Fn/Void 无 {tag,bits} 编码维持拒编不错编。tuple 物化（t140）仍按
-    // is_dyn_scalar 判定，其含数组元素的面不在本面范围
-    return is_dyn_scalar(t) || t == CGType::Obj || t == CGType::Arr;
+    // tag 4（t160，bits 即内层数组 ptr 位模式，镜像 kind 4 单数组表示）+ tuple 位
+    // tag 8（t170，bits 即 t140 动态 tuple 堆对象 ptr，静态 Tup 经物化入承载）；
+    // Fn/Void 无 {tag,bits} 编码维持拒编不错编
+    return is_dyn_scalar(t) || t == CGType::Obj || t == CGType::Arr ||
+           t == CGType::Tup || t == CGType::TupDyn;
 }
 
 bool CodeGenerator::arms_all_dyn_carrier(const std::vector<CGValue>& values) {
-    // 三目/`==?` 臂的动态合流准入（t168）：全部臂都在 kind 7 承载集内（标量/
-    // 实例位/数组位）才可逐臂 to_dyn 打框合流为 Dyn；Tup/Fn/Void 无 {tag,bits}
-    // 编码，返回 false 让调用方维持原拒编消息
+    // 三目/`==?` 臂的动态合流准入（t168）：全部臂都在动态承载集内（标量/实例位/
+    // 数组位/tuple 位，t170 起含 Tup）才可逐臂 to_dyn 打框合流为 Dyn；Fn/Void 无
+    // {tag,bits} 编码，返回 false 让调用方维持原拒编消息
     for (const auto& v : values) {
         if (!is_dyn_carrier(v.type)) return false;
     }

@@ -1,0 +1,29 @@
+// t170 S117 差分用例：静态 tuple 值进入 object 动态承载位（形参/变量槽/返回值）
+// 第一节为退役锁 s111_reject_obj_param_tuple 的原程序
+function takes(o object) none {
+    print(o);
+}
+function give(o object) object {
+    return o;
+}
+Tuple t = (1, 2);
+takes(t);
+object slot = t;
+print("2", slot);
+print("3", slot.length);
+print("4", slot[0] + 1);
+print("5", slot[-1]);
+Tuple u = (name: "Alice", age: 30);
+object named = give(u);
+print("6", named);
+print("7", named.name);
+print("8", named.get("age"));
+print("9", named.length);
+print("10", slot == slot);
+slot = (z: 9);
+print("11", slot);
+print("12", slot.z);
+bool flag = true;
+object w = flag ? t : (q: 7);
+print("13", w);
+print("14", give((k: "v")));

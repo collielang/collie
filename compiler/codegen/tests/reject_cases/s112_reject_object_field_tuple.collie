@@ -1,8 +1,0 @@
-// t162 S109 拒编锁：tuple 值进 object 型类字段
-// 解释器对 object 声明 default 直存 tuple，codegen 的 {tag,bits} 承载无 tuple
-// 编码（tuple 物化面属 t140 范围外），维持 "not yet supported" 保守拒编
-class Box {
-    public object payload = (1, 2);
-}
-Box b = new Box();
-print("A:", b.payload);

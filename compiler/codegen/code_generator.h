@@ -529,6 +529,14 @@ private:
     llvm::Value* dyn_obj_guard(const CGValue& v, const std::string& member,
                                bool is_method);
 
+    /// @brief 类实例字段读（t60/t102/t103/t142，t170 自 visitProperty 抽出）：
+    /// 单类树直 GEP + load，多类树按对象头类 id switch 分派 PHI 合流；
+    /// trap_when_undefined 仅在 Dyn 接收者的 tag==5 分派臂传 true——无定义者时
+    /// 落运行期 undefined property 陷阱并返回常量 Dyn 占位（该块已 terminate，
+    /// 不再发指令），静态接收者维持原拒编不错编
+    CGValue read_obj_field(const CGValue& object, const std::string& name,
+                           size_t line, size_t column, bool trap_when_undefined);
+
     /// @brief Dyn 实例位类 id 取址拆分（t159）：接收者为 CGType::Dyn 且该方法
     /// 存在类定义（须走 t133 空 cls 动态分派）时，tag==5 才解引用对象头取类 id，
     /// 其余标量位以哨兵 id 落分派 default 臂（避免对非指针位模式解引用）；返回
@@ -542,8 +550,9 @@ private:
 
     /// @brief 动态承载组装（t146）：标量/Num/Dyn → Dyn {tag,bits}（tag 复用
     /// arr_kind_of 编码，Obj 按 tag 5 存实例 ptr 位模式，同 t144 kind7）；
+    /// Tup/TupDyn 按 tag 8 存 t140 堆对象 ptr 位模式（t170，静态 tuple 先物化）；
     /// 其余类型经 arr_kind_of/elem_to_bits 的拒编守卫兜底
-    llvm::Value* to_dyn(const CGValue& v);
+    llvm::Value* to_dyn(const CGValue& v, size_t line = 0, size_t column = 0);
 
     /// @brief toNumber 降级（t63，对齐解释器 to_number_value）：Bool → 0/1
     /// 整数表示、Str 解析下沉 collie_rt（失败返 NaN）、Int/Double/Num 复用
@@ -774,6 +783,8 @@ private:
     llvm::FunctionCallee rt_tuple_len_;    // i64(ptr t)
     llvm::FunctionCallee rt_tuple_get_dyn_; // void(ptr t, i64 i, ptr otag, ptr obits)
     llvm::FunctionCallee rt_tuple_key_dyn_; // void(ptr t, ptr key, ptr otag, ptr obits)
+    // 动态承载值的 get(key)（t170）：void(i64 tag, i64 bits, ptr key, ptr otag, ptr obits)
+    llvm::FunctionCallee rt_dyn_tuple_get_; // 动态承载值的 get(key)（t170） // void(ptr t, ptr key, ptr otag, ptr obits)
     llvm::FunctionCallee rt_tuple_eq_;     // i64(ptr, ptr)，tuple 深比较返 1/0
     llvm::FunctionCallee rt_tuple_to_str_; // ptr(ptr t)，malloc 新串
     /// collie_rt 类实例分配（t60）：字段块 malloc，布局读写全在 codegen 侧

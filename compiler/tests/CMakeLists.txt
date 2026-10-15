@@ -163,7 +163,11 @@ if(COLLIE_ENABLE_LLVM)
             s118_merge_landing_slots s118_merge_nested_consume
             s119_match_dyn_scalar_bits s119_match_dyn_container_bits
             s119_match_dyn_both_sides s119_match_dyn_switch
-            s119_match_dyn_signature_field s119_match_dyn_control_flow)
+            s119_match_dyn_signature_field s119_match_dyn_control_flow
+            s120_tuple_to_object_slot s120_tuple_object_field
+            s120_dyn_tuple_nested_elem s120_tuple_arms_merge
+            s120_tuple_elem_dyn_domain_write s120_dyn_tuple_member_access
+            s120_dyn_tuple_compare)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -180,16 +184,13 @@ if(COLLIE_ENABLE_LLVM)
             s93_reject_function_as_argument s93_reject_function_in_array s93_reject_function_return_value
             s96_reject_obj_slot_scalar_reassign
             s97_reject_dyn_to_homog_array_slot
-            s111_reject_obj_param_tuple s112_reject_object_field_tuple
-            s114_reject_dyn_tuple_nested_elem s114_reject_dyn_tuple_function_elem
+            s114_reject_dyn_tuple_function_elem
             s115_reject_dyn_array_slot_downgrade_in_loop
-            s116_reject_dyn_arm_tuple s116_reject_match_arm_tuple
-            s117_reject_tuple_elem_dyn_domain
             s117_reject_function_elem_dyn_domain
             s117_reject_arr_elem_to_homog_domain
-            s118_reject_tern_arm_tuple_obj s118_reject_match_arm_tuple_obj
             s118_reject_tern_arm_function_obj s118_reject_match_arm_function_obj
-            s119_reject_match_dyn_fn_candidate)
+            s119_reject_match_dyn_fn_candidate
+            s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

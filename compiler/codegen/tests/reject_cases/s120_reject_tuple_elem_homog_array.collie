@@ -1,0 +1,10 @@
+// t170 S117 拒编锁：tuple 位写静态同质数组（kind 0/1/2/3 等）元素槽维持保守拒编
+// 解释器异质数组可直接容纳 tuple（打印 [(a: 1, b: 2), 2]），但 codegen 的静态
+// 数组槽按单一 kind 定长编码（8 字节槽位模式），tuple 值必须经 tag 8 双分量承载
+// 与堆对象，写进 kind 0 槽即错值——非动态域（elem != Num/Dyn）的写侧守卫保持
+// "array element type mismatch in index assignment" 拒编（残余活跃差分面，
+// 需按槽引入 {tag,bits} 双步长或元素级装箱方解锁）
+Tuple t = (a: 1, b: 2);
+array nums = [1, 2];
+nums[0] = t;
+print("1", nums);

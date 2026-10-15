@@ -1,9 +1,0 @@
-// t168 S115 拒编锁：`==?` 臂含 tuple 位与实例位维持保守拒编不错编（同上，
-// 消息文案按 `==?` 触点给出）
-class Dog {
-    public string name = "rex";
-}
-integer k = 1;
-Dog d = new Dog();
-object t1 = k ==? 1: (x: 1), d;
-print("1", t1);

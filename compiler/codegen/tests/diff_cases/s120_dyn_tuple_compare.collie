@@ -1,0 +1,29 @@
+// t170 S117 差分用例：动态承载位的 tuple 位参与 ==/!=、`==?` 与 switch
+// （按运行期 tag 深比较，嵌套 tuple 递归）
+Tuple t = (1, 2);
+Tuple u = (1, 2);
+object o = t;
+print("1", o ==? u: "tuple-hit", "no");
+print("2", o ==? t: "self", 5: "five", "no");
+print("3", t ==? o: "tup-obj", "no");
+print("4", o ==? 5: "five", "no");
+switch (o) {
+    u { print("5", "switch-hit"); }
+    default { print("5", "switch-miss"); }
+}
+object nested = (a: (1, 2), b: 3);
+print("6", nested);
+print("7", nested.a);
+print("8", nested == nested);
+object n2 = nested;
+print("9", n2 == n2);
+print("10", n2 != n2);
+object other = (1, 2);
+print("11", o == other);
+print("12", o == nested);
+object named = (a: 1, b: 2);
+print("13", named ==? (a: 1, b: 2): "eq-tup", "no");
+print("14", named ==? (a: 1): "no2", "no");
+print("15", named ==? (a: 1, b: 2): "again", (q: 0): "qz", "no");
+object mixed = 5;
+print("16", mixed ==? t: "tup", 5: "five", "no");

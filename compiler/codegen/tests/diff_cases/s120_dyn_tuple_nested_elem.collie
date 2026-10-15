@@ -1,0 +1,31 @@
+// t170 S117 差分用例：动态 tuple 的嵌套 tuple 元素（tag 8 位递归承载）
+// 第一节为退役锁 s114_reject_dyn_tuple_nested_elem 的原程序
+function inner(flag bool) Tuple {
+    return flag ? (q: 1) : (r: "s");
+}
+function mk(flag bool) Tuple {
+    return flag ? (n: inner(true), a: [1, 2]) : (z: "x");
+}
+Tuple t = mk(true);
+print("1", t);
+print("2", t.n);
+object o = t;
+print("3", o);
+print("4", o.n);
+print("5", o.n.q);
+print("6", o.n.length);
+print("7", o.a.length);
+print("8", o.a[0]);
+Tuple inner2 = (1, 2);
+Tuple outer = (a: inner2, b: 3);
+object oo = outer;
+print("9", oo);
+print("10", oo.a);
+print("11", oo.a[0]);
+print("12", oo.a.length);
+print("13", oo.get("b"));
+print("14", o.n ==? (q: 1): "q-one", "other");
+object re = o;
+re = (n: (r: "s"));
+print("15", re);
+print("16", re.n.r);

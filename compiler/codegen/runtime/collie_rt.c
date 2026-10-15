@@ -68,12 +68,14 @@
  *   void collie_rt_dyn_index(long long tag, long long bits, long long i,
  *                            long long* otag, long long* obits);
  *     // 动态承载值作索引接收者（t153）：3=串码点索引返单码点子串（tag 3）、
- *     // 4/7=数组按内层运行期 kind 读、其余落 "Only arrays, strings and tuples
+ *     // 4/7=数组按内层运行期 kind 读、8=tuple 按位置索引读（t170，复用 tuple_get_dyn 的归一化与越界陷阱）、其余落 "Only arrays, strings and tuples
  *     // can be indexed, got <kind>" 陷阱；经出参写回 {tag,bits}
  *   void collie_rt_dyn_set(long long tag, long long bits, long long i,
  *                          long long vtag, long long vbits);
  *     // 动态承载值索引写（t153）：4/7 复用 collie_rt_arr_set_num（含 CG7 失配
- *     // 陷阱）、3=串不可变陷阱、其余 "Only arrays can be index-assigned, got <kind>"
+ *     // 陷阱）、3=串不可变陷阱、8=tuple 不可变陷阱（t170，复刻解释器 "Tuples are
+ *     // immutable, cannot assign to index"）、其余 "Only arrays can be
+ *     // index-assigned, got <kind>"
  *   const char* collie_rt_dyn_str_trim(long long tag, long long bits,
  *                                      long long mode, const char* name);
  *   const char* collie_rt_dyn_str_substring(long long tag, long long bits,
@@ -131,6 +133,9 @@
  *     // 按位置索引读 {tag,bits}（t140）：负索引归一化 + 越界陷阱（复用 values norm）
  *   void collie_rt_tuple_key_dyn(void* t, const char* key, long long* otag, long long* obits);
  *     // 按名字动态 get() 读 {tag,bits}（t140）：未命中打 "Undefined tuple field '<key>'"
+ *   void collie_rt_dyn_tuple_get(long long tag, long long bits, const char* key,
+ *                                long long* otag, long long* obits);
+ *     // 动态承载值的 get(key)（t170）：tag 8 交 tuple_key_dyn，其余位落方法接收者陷阱
  *   long long collie_rt_tuple_eq(void* lhs, void* rhs);         // tuple 深比较（t140）：
  *     // len + 名字表逐位 + values 交 arr_eq，返 1/0
  *   const char* collie_rt_tuple_to_str(void* t);                // tuple 转串（t140）：
@@ -149,7 +154,7 @@
  * tag 与目标类型不符即报错退出（解释器 coerce_to_declared 同为运行期报错）：
  *   void collie_rt_trap_dyn_convert(long long tag, const char* target);
  *     // tag 复用数组 kind 编码（0=int/1=dec/2=bool/3=str/4=arr/5=object/
- *     // 6=tribool/7=异质数组），消息核心对齐 "Type mismatch: cannot assign
+ *     // 6=tribool/7=异质数组/8=tuple），消息核心对齐 "Type mismatch: cannot assign
  *     // <kind> to '<target>' variable"（integer 收小数态用特例文案）
  *
  * 动态承载值参与算术的类型陷阱（t148）：tag 非数值态（0/1 以外）参与
@@ -176,7 +181,7 @@
  *   void collie_rt_print_num(long long tag, long long bits);         // 格式对齐 to_string
  *
  * 动态承载值比较运行时（t149，tag 编码同数组 kind：0=整数 1=小数 2=bool
- * 3=串 4=数组 5=实例 6=tribool 7=异质数组；值 kind 只有运行期可知）：
+ * 3=串 4=数组 5=实例 6=tribool 7=异质数组 8=tuple 位（t170）；值 kind 只有运行期可知）：
  *   long long collie_rt_dyn_eq(atag, abits, btag, bbits);
  *     // 复刻解释器 values_equal 接受表，返 0/1，无陷阱臂（该路径不报错）
  *   int collie_rt_dyn_rel(op, atag, abits, btag, bbits);
@@ -442,6 +447,7 @@ void collie_rt_trap_index_kind(long long tag) {
         case 5: kind = "object"; break;
         case 6: kind = "tribool"; break;
         case 7: kind = "array"; break;
+        case 8: kind = "tuple"; break;
         default: break;
     }
     fprintf(stderr, "Index must be a number, got %s\n", kind);
@@ -518,6 +524,14 @@ long long collie_rt_arr_kind(void* arr) {
     return ((collie_rt_array*)arr)->kind;
 }
 
+/* 动态 tuple 运行时对象接口前向声明（t170：kind 8 承载位让 dyn_len/dyn_index/
+ * dyn_eq/转串/print 等前段函数需要 tuple 分派臂，实体在本文件后段） */
+long long collie_rt_tuple_len(void* t);
+void collie_rt_tuple_get_dyn(void* t, long long index,
+                             long long* otag, long long* obits);
+long long collie_rt_tuple_eq(void* lhs, void* rhs);
+const char* collie_rt_tuple_to_str(void* t);
+
 /* 动态承载值长度面（t152）：Dyn（kind 7 元素读/动态域元素读/object 动态槽/
  * 动态 tuple 索引/算术结果）上的 `.length` 属性与 len() 内建按运行期 tag 分派。
  * 解释器接受表（visitProperty 的 length 分支 / call_builtin_len）：string 按
@@ -527,7 +541,7 @@ long long collie_rt_arr_kind(void* arr) {
  *   0 → "Property 'length' is only supported on strings and arrays, got <kind>"
  *   1 → "len() expects a string or array, got <kind>"
  * tag 复用数组 kind 编码（0=int 1=dec 2=bool 3=str 4=arr 5=object 6=tribool
- * 7=异质数组），kind 名对齐 Value::kind_name（0/1 同报 number、4/7 同报 array） */
+ * 7=异质数组 8=tuple 位（t170），kind 名对齐 Value::kind_name（0/1 同报 number、4/7 同报 array） */
 long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
     switch (tag) {
         case 3:
@@ -535,6 +549,14 @@ long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
         case 4:
         case 7:
             return collie_rt_arr_len((void*)(intptr_t)bits);
+        case 8:
+            /* tuple 位（t170）：解释器 visitProperty 的元组分支 `.length` 取元素
+             * 数，而内建 len() 不收 tuple（"len() expects a string or array,
+             * got tuple"），故 mode 1 落到下方陷阱 */
+            if (mode == 0) {
+                return collie_rt_tuple_len((void*)(intptr_t)bits);
+            }
+            break;
         case 5:
             fprintf(stderr, mode == 0
                                 ? "runtime error: Undefined property 'length' on object\n"
@@ -549,6 +571,7 @@ long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
         case 1: kind = "number"; break;
         case 2: kind = "bool"; break;
         case 6: kind = "tribool"; break;
+        case 8: kind = "tuple"; break;
         default: break;
     }
     fprintf(stderr, mode == 0
@@ -619,6 +642,7 @@ static const char* collie_rt_dyn_kind_name(long long tag) {
         case 7: return "array";
         case 5: return "object";
         case 6: return "tribool";
+        case 8: return "tuple";
         default: return "unknown";
     }
 }
@@ -626,9 +650,9 @@ static const char* collie_rt_dyn_kind_name(long long tag) {
 /* 动态承载值作索引接收者（t153）：`dyn[i]` 按运行期 tag 复刻解释器 visitIndex
  * 接受表——tag 3 串按 UTF-8 码点索引、返单码点子串（打 tag 3）；tag 4/7 数组按
  * 内层运行时 kind 读（kind 7 取回真实 {tag,bits}，其余 kind 即 tag、bits 为槽位
- * 模式，故三层嵌套 `a[i][j][k]` 逐级工作）；其余位落解释器同消息陷阱
- * "Only arrays, strings and tuples can be indexed, got <kind>"（tuple 无动态承载
- * 位，此处不会出现）。负索引归一化与越界陷阱复用既有 rt 路径 */
+ * 模式，故三层嵌套 `a[i][j][k]` 逐级工作）；tag 8 tuple 位按位置索引读（t170）；
+ * 其余位落解释器同消息陷阱 "Only arrays, strings and tuples can be indexed,
+ * got <kind>"。负索引归一化与越界陷阱复用既有 rt 路径 */
 void collie_rt_dyn_index(long long tag, long long bits, long long index,
                          long long* otag, long long* obits) {
     if (tag == 3) {
@@ -649,6 +673,12 @@ void collie_rt_dyn_index(long long tag, long long bits, long long index,
         *obits = a->slots[i];
         return;
     }
+    if (tag == 8) {
+        /* tuple 位（t170）：解释器 visitIndex 的元组分支按位置索引（负索引/越界
+         * 消息复用 rt_tuple_get_dyn 既有实现），元素读回即 {tag,bits} */
+        collie_rt_tuple_get_dyn((void*)(intptr_t)bits, index, otag, obits);
+        return;
+    }
     fprintf(stderr, "Only arrays, strings and tuples can be indexed, got %s\n",
             collie_rt_dyn_kind_name(tag));
     exit(1);
@@ -657,7 +687,8 @@ void collie_rt_dyn_index(long long tag, long long bits, long long index,
 /* 动态承载值索引写（t153）：`dyn[i] = v` 按运行期 tag 复刻解释器
  * visitIndexAssign——tag 4/7 走既有动态域写（kind 对齐/int→dec 提升/kind 7
  * 双步长槽/异类失配 CG7 陷阱均在 collie_rt_arr_set_num 内）；tag 3 串不可变
- * 陷阱；其余 "Only arrays can be index-assigned, got <kind>" */
+ * 陷阱；tag 8 tuple 不可变陷阱（t170）；其余
+ * "Only arrays can be index-assigned, got <kind>" */
 void collie_rt_dyn_set(long long tag, long long bits, long long index,
                        long long vtag, long long vbits) {
     if (tag == 3) {
@@ -667,6 +698,11 @@ void collie_rt_dyn_set(long long tag, long long bits, long long index,
     if (tag == 4 || tag == 7) {
         collie_rt_arr_set_num((void*)(intptr_t)bits, index, vtag, vbits);
         return;
+    }
+    if (tag == 8) {
+        /* tuple 位索引写（t170）：解释器 visitIndexAssign 的元组分支即此消息 */
+        fprintf(stderr, "Tuples are immutable, cannot assign to index\n");
+        exit(1);
     }
     fprintf(stderr, "Only arrays can be index-assigned, got %s\n",
             collie_rt_dyn_kind_name(tag));
@@ -785,7 +821,7 @@ void collie_rt_trap_undefined_property(const char* name) {
  * "Type mismatch: cannot assign <kind> to '<type>' variable"，integer 收
  * 小数态沿用解释器特例文案 "decimal value"）。
  * tag 复用数组 kind 编码：0=int/1=dec/2=bool/3=str/4=arr/5=object/6=tribool/
- * 7=异质数组（4、7 同报 array） */
+ * 7=异质数组（4、7 同报 array）、8=tuple 位 */
 void collie_rt_trap_dyn_convert(long long tag, const char* target) {
     const char* kind;
     switch (tag) {
@@ -803,6 +839,7 @@ void collie_rt_trap_dyn_convert(long long tag, const char* target) {
         case 7:  kind = "array";    break;
         case 5:  kind = "object";   break;
         case 6:  kind = "tribool";  break;
+        case 8:  kind = "tuple";    break;
         default: kind = "value";    break;
     }
     fprintf(stderr, "runtime error: Type mismatch: cannot assign %s to "
@@ -962,6 +999,10 @@ const char* collie_rt_arr_to_str(void* arr) {
                         collie_rt_sb_append(&out, &n, &cap,
                                             collie_rt_arr_to_str((void*)(intptr_t)bits));
                         break;
+                    case 8: /* tuple 位（t170）：bits 即 tuple 对象 ptr，递归转串 */
+                        collie_rt_sb_append(&out, &n, &cap,
+                                            collie_rt_tuple_to_str((void*)(intptr_t)bits));
+                        break;
                     default: /* 3 = string：指针位模式还原，原样不加引号 */
                         collie_rt_sb_append(&out, &n, &cap,
                                             (const char*)(intptr_t)bits);
@@ -985,8 +1026,9 @@ const char* collie_rt_arr_to_str(void* arr) {
  * 布局 {len, names, values}——names 复用 kind 3 字符串数组（无名槽存 ""），
  * values 复用 kind 7 异质动态标量数组（每元素 {tag,bits}，t139）。二者元素数
  * 恒等 = len。仅 print/toString/插值、length、非常量索引（读得 Dyn）、动态键
- * get()（读得 Dyn）、==/!= 深比较消费；含 Obj/Arr/嵌套 tuple 元素的 tuple 在
- * codegen 物化处即拒编（is_dyn_scalar 不含），进算术/类型化槽经 Dyn 既有面拒编。 */
+ * get()（读得 Dyn）、==/!= 深比较消费；本对象 ptr 即动态承载值的 tag 8 位
+ * （t170），故 dyn_len/dyn_index/dyn_set/dyn_eq/转串/print 各表均带 case 8 臂；
+ * 含函数值元素的 tuple 在 codegen 物化处即拒编（Fn 无 {tag,bits} 编码）。 */
 typedef struct {
     long long len;
     void* names;  /* collie_rt_array kind 3：与 values 等长的名字表，无名槽为空串 */
@@ -1036,10 +1078,24 @@ void collie_rt_tuple_key_dyn(void* t, const char* key,
     exit(1);
 }
 
+/* 动态承载值（tag 8 tuple 位）的 get(key)（t170）：复用上方 tuple_key_dyn 的
+ * 非空名扫描取 {tag,bits}；其余位落方法接收者陷阱，复刻解释器 visitMethodCall
+ * 的 get 段两条消息（实例位 "Undefined method 'get' on object"、其余
+ * "Method 'get()' is only supported on tuples, got <kind>"） */
+void collie_rt_dyn_tuple_get(long long tag, long long bits, const char* key,
+                             long long* otag, long long* obits) {
+    if (tag != 8) {
+        collie_rt_dyn_method_trap(tag, "get", "tuples");
+        return; /* 不可达：trap 内 exit */
+    }
+    collie_rt_tuple_key_dyn((void*)(intptr_t)bits, key, otag, obits);
+}
+
 /* 深比较（对齐解释器 values_equal Tuple 分支）：先比元素数，再逐位比名字表
  * （含无名槽空串），最后 values 两个 kind 7 数组交给 collie_rt_arr_eq 逐元素
  * {tag,bits} 比较（数值系 double 视图、string strcmp、bool/tribool 加宽）。
- * 元素含不可比较类（Obj）在物化处已拒编，此处无需 Instance 分支。返 1/0 */
+ * 元素含实例位（tag 5）在 arr_eq/dyn_eq 内恒判不等，与解释器 values_equal 无
+ * Instance 分支一致；嵌套 tuple 位（tag 8，t170）经 dyn_eq 递归回本函数。返 1/0 */
 long long collie_rt_tuple_eq(void* lhs, void* rhs) {
     const collie_rt_tuple* a = (const collie_rt_tuple*)lhs;
     const collie_rt_tuple* b = (const collie_rt_tuple*)rhs;
@@ -1095,6 +1151,10 @@ static void collie_rt_append_tagged(char** buf, size_t* n, size_t* cap,
             break;
         case 5: /* 实例位：解释器 Tuple 分支经 Value::to_string 打 "<object>" */
             collie_rt_sb_append(buf, n, cap, "<object>");
+            break;
+        case 8: /* tuple 位（t170）：嵌套 tuple 元素递归转串 (1, 2) */
+            collie_rt_sb_append(buf, n, cap,
+                                collie_rt_tuple_to_str((void*)(intptr_t)bits));
             break;
         default:
             collie_rt_sb_append(buf, n, cap, (const char*)(intptr_t)bits);
@@ -1321,6 +1381,11 @@ long long collie_rt_dyn_eq(long long atag, long long abits,
         case 7:
             return collie_rt_arr_eq((void*)(intptr_t)abits,
                                     (void*)(intptr_t)bbits);
+        case 8:
+            /* tuple 位（t170）：解释器 values_equal 的 Tuple 分支按元素+名字表
+             * 深比较（复用 rt_tuple_eq，嵌套 tuple 元素经 dyn_eq 递归回此处） */
+            return collie_rt_tuple_eq((void*)(intptr_t)abits,
+                                      (void*)(intptr_t)bbits);
         default:
             return 0; /* 实例位等：解释器 default 恒 false */
     }
@@ -1375,6 +1440,9 @@ const char* collie_rt_num_to_str(long long tag, long long bits) {
         case 7:
             /* Dyn 数组（t151）：bits 即数组 ptr，格式与静态域转串一致 */
             return collie_rt_arr_to_str((void*)(intptr_t)bits);
+        case 8:
+            /* Dyn tuple 位（t170）：bits 即 tuple 对象 ptr，格式同静态 tuple */
+            return collie_rt_tuple_to_str((void*)(intptr_t)bits);
         default:
             return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
     }
@@ -1403,6 +1471,10 @@ void collie_rt_print_num(long long tag, long long bits) {
         case 7:
             /* Dyn 数组（t151）：print 输出与静态域数组一致 [1, 2, 3] */
             collie_rt_print_str(collie_rt_arr_to_str((void*)(intptr_t)bits));
+            return;
+        case 8:
+            /* Dyn tuple 位（t170）：与静态 tuple 打印同形 (1, 2) / (name: Alice) */
+            collie_rt_print_str(collie_rt_tuple_to_str((void*)(intptr_t)bits));
             return;
         default:
             collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));

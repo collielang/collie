@@ -1,0 +1,46 @@
+// t170 S117 差分用例：动态承载位的 tuple 成员访问面（.length 优先 / 命名字段常量键 /
+// get("k") / 位置索引含负索引 / 嵌套 / 经形参、返回值、类字段与闭包捕获各来源）
+function show(o object) none {
+    print("1", o);
+    print("2", o.length);
+    print("3", o[0] + 1);
+    print("4", o[-1]);
+}
+Tuple p = (name: "Alice", age: 30);
+show(p);
+object o = p;
+print("5", o.name);
+print("6", o.get("age"));
+print("7", o.length);
+print("8", o[1]);
+print("9", o[-1]);
+function retup(flag bool) object {
+    return flag ? p : (q: 7);
+}
+print("10", retup(true));
+print("11", retup(false).q);
+class Holder {
+    public object payload = (1, 2);
+    public function setit(v object) none { this.payload = v; }
+    public function grab() object { return this.payload; }
+}
+Holder h = new Holder();
+h.setit(p);
+print("12", h.grab().name);
+print("13", h.payload.get("name"));
+function peek() none {
+    print("14", o);
+    print("15", o.name);
+}
+peek();
+Tuple shadow = (length: 5, other: 6);
+object so = shadow;
+print("16", so.length);
+print("17", so.get("length"));
+print("18", so.other);
+Tuple nested = (v: (deep: 9), n: 3);
+object no = nested;
+print("19", no.v);
+print("20", no.v.deep);
+print("21", no.v.length);
+print("22", no.n);

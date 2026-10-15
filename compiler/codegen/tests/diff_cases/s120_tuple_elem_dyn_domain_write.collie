@@ -1,0 +1,38 @@
+// t170 S117 差分用例：tuple 位写动态域元素槽后的消费面
+// 第一节为退役锁 s117_reject_tuple_elem_dyn_domain 的原程序
+function f(a array) none {
+    a[0] = (x: 1);
+    print("1", a);
+}
+array m = [1, "x"];
+f(m);
+Tuple t = (a: 1, b: 2);
+array bag = [1, "x"];
+bag[0] = t;
+print("2", bag);
+print("3", bag[0]);
+print("4", bag[0].b);
+print("5", bag[0][1]);
+object back = bag[0];
+print("6", back.length);
+print("7", back.get("a"));
+function g(a array) none {
+    a[1] = (k: 7);
+    print("8", a[1]);
+    print("9", a[1].k);
+}
+array mixed = [1, "y"];
+g(mixed);
+print("10", mixed);
+Tuple inner = (1, 2);
+array nest = [inner, 1];
+print("11", nest);
+print("12", nest[0]);
+print("13", nest[0].length);
+bag[1] = (w: (q: 3));
+print("14", bag);
+object deep = bag[1];
+print("15", deep.w.q);
+for (integer i = 0; i < 2; i += 1) {
+    print("16", bag[i]);
+}

@@ -1,0 +1,32 @@
+// t170 S117 差分用例：三目 / `==?` 臂含 tuple 位与数组位/实例位的动态承载合流
+// 各节依次对应退役锁 s116_reject_dyn_arm_tuple、s116_reject_match_arm_tuple、
+// s118_reject_tern_arm_tuple_obj、s118_reject_match_arm_tuple_obj 的原程序
+function mk(flag bool) Tuple {
+    return flag ? (a: [1, 2]) : (b: 3);
+}
+Tuple t = mk(true);
+bool flag = true;
+object q1 = true ? t.a : (k: 1);
+print("1", q1);
+integer k = 1;
+array m = k ==? 1: t.a, (q: 2);
+print("2", m);
+class Dog {
+    public string name = "rex";
+}
+Dog d = new Dog();
+object q3 = flag ? (x: 1) : d;
+print("3", q3);
+object q4 = k ==? 1: (x: 1), d;
+print("4", q4);
+print("5", q3.x);
+print("6", q4 ==? (x: 1): "x-one", "other");
+object q7 = flag ? t : d;
+print("7", q7);
+print("8", q7[0]);
+print("9", q7.length);
+object q10 = flag ==? true: t, d;
+print("10", q10);
+object back = q3;
+print("11", back.x);
+print("12", back == back);

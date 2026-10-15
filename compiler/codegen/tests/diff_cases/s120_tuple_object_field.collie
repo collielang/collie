@@ -1,0 +1,26 @@
+// t170 S117 差分用例：tuple 位作为 object 型类字段的默认值/写入值/读出消费面
+// 第一节为退役锁 s112_reject_object_field_tuple 的原程序
+class Box {
+    public object payload = (1, 2);
+}
+Box b = new Box();
+print("1", b.payload);
+class Holder {
+    public object payload = 0;
+    public function setit(v object) none { this.payload = v; }
+    public function grab() object { return this.payload; }
+}
+Tuple t = (a: 1, b: 2);
+Holder h = new Holder();
+h.setit(t);
+print("2", h.payload);
+print("3", h.grab());
+print("4", h.grab().a);
+print("5", h.payload.length);
+object via_slot = h.payload;
+print("6", via_slot[1]);
+print("7", via_slot.get("a"));
+h.payload = (z: "s");
+print("8", h.payload);
+print("9", h.payload.z);
+print("10", h.payload.length);

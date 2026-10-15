@@ -1,0 +1,8 @@
+// t170 S117 拒编锁：tuple 位的属性写维持保守拒编
+// 解释器 visitPropertyAssign 只收实例接收者，`o.a = 9`（o 承载 tuple）为运行期
+// "Cannot assign property on tuple"；codegen 侧 Dyn 写路径只按 tag==5 实例位
+// 布局寻址，tuple 名的常量键写需要往 t140 堆对象名字表回写（且 tuple 语义不可变），
+// 故维持 "not yet supported" 不错编——写面按解释器同为报错，非活跃差分面
+Tuple t = (a: 1, b: 2);
+object o = t;
+o.a = 9;
