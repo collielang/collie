@@ -1,0 +1,7 @@
+// t168 S115 拒编锁：`==?` 目标为动态承载值（Dyn）与候选比较维持保守拒编
+// 不错编——gen_match_eq 只认静态可定的两侧类型，Dyn 的 tag 运行期才知，
+// 需按 tag 分派深比较才可对齐（解释器 values_equal 逐 tag 判定，rc=0）
+bool flag = true;
+object cmp = flag ? 5 : 6;
+object q = cmp ==? 5: "hit", "miss";
+print("1", q);

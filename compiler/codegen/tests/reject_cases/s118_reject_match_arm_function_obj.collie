@@ -1,0 +1,10 @@
+// t168 S115 拒编锁：`==?` 臂含函数位与实例位维持保守拒编不错编（Fn 无
+// {tag,bits} 编码，动态承载回退不收它；解释器可直存函数值并打印 <function>）
+class Dog {
+    public string name = "rex";
+}
+function hi() string { return "hi"; }
+integer k = 1;
+Dog d = new Dog();
+object t1 = k ==? 1: hi, d;
+print("1", t1);

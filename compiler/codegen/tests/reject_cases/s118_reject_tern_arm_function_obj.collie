@@ -1,0 +1,11 @@
+// t168 S115 拒编锁：三目臂含函数位维持保守拒编不错编（函数名作值仅在静态
+// 消费面解锁，Fn 无 {tag,bits} 编码故不进动态合流；同为函数位的两臂仍走
+// 原同型合流）
+class Dog {
+    public string name = "rex";
+}
+function hi() string { return "hi"; }
+bool flag = true;
+Dog d = new Dog();
+object t1 = flag ? hi : d;
+print("1", t1);

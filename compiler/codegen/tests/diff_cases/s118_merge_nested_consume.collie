@@ -1,0 +1,38 @@
+// t168 S115 差分用例：合流值的嵌套三目与 ==? 臂、方法面与插值消费
+class Dog {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+class Cat {
+    public string sound = "meow";
+    public function speak() string { return "meow"; }
+}
+Dog d = new Dog();
+Cat c = new Cat();
+bool flag = true;
+bool two = false;
+object nested = flag ? (two ? c : d) : 5;
+print("1", nested.speak());
+object outer = flag ? (two ? c : " hey ") : d;
+print("2", outer.trim());
+object inner = two ? (flag ? d : c) : 9;
+print("3", inner);
+object num = flag ? -5 : d;
+print("4", num.abs());
+print("5", num.isInteger());
+object str = flag ? "hey " : d;
+print("6", str.length);
+print("7", str[0]);
+object arr = flag ? [7, "z"] : d;
+print("8", arr[1]);
+print("9", arr.toString());
+array mix = [1, flag ? d : c, "z"];
+print("10", mix[1].speak());
+print("11", mix);
+object iv = flag ? 4 : d;
+integer k = 1;
+object hit = k ==? 1: iv, 2: c, "none";
+print("12", hit);
+object both = flag ? (two ? d : c) : (two ? c : d);
+print("13", both.speak());
+print("14", "x-" + (flag ? d : 5) + "-y");

@@ -324,9 +324,17 @@ private:
     /// 记录的 elem 降 Num 动态域哨兵（t70），读写按运行期 kind 产出 Dyn
     llvm::Value* dyn_to_arr_slot(llvm::Value* dyn);
 
-    /// @brief 三目/`==?` 臂的动态承载合流判定（t166）：至少一臂为 Dyn 且全部臂
-    /// 均在 is_dyn_carrier 承载集内时，逐臂 to_dyn 打框后 PHI 合流为 Dyn
-    static bool arms_dyn_mergeable(const std::vector<CGType>& types);
+    /// @brief 三目/`==?` 臂的静态类型合流（t93/t94/t65 规则）：成功时 result_*
+    /// 即合流结果并返回 Ok；失败只报告失败种类（此时 result_* 不可用），由调用方决定
+    /// 「全臂动态承载 → 合流为 Dyn」回退或维持原拒编消息
+    enum class ArmMerge { Ok, NoCommonAncestor, Incompatible };
+    ArmMerge merge_static_arm_types(const std::vector<CGValue>& values,
+                                     CGType& result_type, CGType& result_elem,
+                                     std::string& result_cls);
+
+    /// @brief 全部臂是否落 is_dyn_carrier 承载集（标量/实例位/数组位）：静态合流
+    /// 失败时的动态合流准入（t168）——Tup/Fn/Void 臂返回 false 维持原拒编
+    static bool arms_all_dyn_carrier(const std::vector<CGValue>& values);
 
     /// @brief 动态承载值参与算术的数值化（t148）：Dyn（{tag,bits}）侧插运行期
     /// 守卫——tag < 2（整数态/小数态）时与 Num 同构直接透传，其余（bool/串/

@@ -1,0 +1,10 @@
+// t168 S115 拒编锁：三目臂含 tuple 位与实例位维持保守拒编不错编
+// （tuple 族分支只收全臂 tuple，混入其它臂即按 "incompatible types" 拒编；
+// Tup 无 {tag,bits} 编码，动态承载回退也用不上）
+class Dog {
+    public string name = "rex";
+}
+bool flag = true;
+Dog d = new Dog();
+object t1 = flag ? (x: 1) : d;
+print("1", t1);

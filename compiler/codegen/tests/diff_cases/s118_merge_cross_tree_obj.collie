@@ -1,0 +1,33 @@
+// t168 S115 差分用例：跨树两实例臂（Dog×Cat 无公共祖先）在三目与 ==? 中合流为 Dyn
+class Dog {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+class Cat {
+    public string sound = "meow";
+    public function speak() string { return "meow"; }
+}
+function store(v object) object { return v; }
+function made() object {
+    Dog d = new Dog();
+    return d;
+}
+Dog d = new Dog();
+Cat c = new Cat();
+bool flag = true;
+object m = flag ? d : c;
+print("1", m);
+print("2", m.speak());
+print("3", m.name);
+object m2 = false ? d : c;
+print("4", m2.speak());
+print("5", m2.sound);
+print("6", store(m2).speak());
+print("7", made().speak());
+object q = flag ? c : d;
+if (q == d) { print("8 same"); } else { print("8 diff"); }
+print("9", "a-" + m + "-b");
+print("10", m.toString());
+object box = flag ? d : c;
+print("11", box.speak());
+print("12", store(box).name);

@@ -1,0 +1,40 @@
+// t168 S115 差分用例：==? 臂含跨树实例位与标量/数组臂的合流与控制流内逐轮消费
+class Dog {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+class Cat {
+    public string sound = "meow";
+    public function speak() string { return "meow"; }
+}
+function use(o object) string { return "used"; }
+Dog d = new Dog();
+Cat c = new Cat();
+integer k = 2;
+object a1 = k ==? 1: d, 2: c, d;
+print("1", a1.speak());
+print("2", a1.sound);
+object a2 = k ==? 1: d, 2: 5, c;
+print("3", a2);
+print("4", a2 + 1);
+object a3 = k ==? 1: "hey", 2: c, 5;
+print("5", a3.speak());
+object a4 = k ==? 9: d, 8: c, [1, 2];
+print("6", a4);
+print("7", a4.length);
+for (integer i = 0; i < 2; i = i + 1) {
+    object ax = i ==? 0: d, c;
+    print("8", i, ax.speak());
+}
+bool flag = true;
+integer guard = 0;
+while (guard < 2) {
+    object aw = guard ==? 0: c, d;
+    print("9", guard, aw.speak());
+    guard = guard + 1;
+}
+print("10", use(k ==? 1: d, c));
+object fn = k ==? 1: d, 2: true, unset;
+print("11", fn);
+object m3 = k ==? 1: d, 2: [1, "x"], 5;
+print("12", m3[1]);

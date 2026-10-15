@@ -5661,12 +5661,9 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         eval_arm(else_bb, expr.else_expr());
     }
 
-    // 分支类型统一：同型直用（Arr elem / Obj cls 一致性校验）；数值混型任一
-    // Num 统一 Num 否则提升 Double（与算术混型一致）；tribool/bool 混型
-    // 统一 tribool（单向加宽，t65）
-    auto is_numeric = [](CGType t) {
-        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
-    };
+    // 分支类型统一（merge_static_arm_types）：同型直用（Arr elem / Obj cls 一致性
+    // 校验）；数值混型任一 Num 统一 Num 否则提升 Double；tribool/bool 混型统一
+    // tribool（单向加宽，t65）；合不上时按承载族回退 Dyn（见下）
     CGType result_type = arms.front().value.type;
     std::string result_cls = arms.front().value.cls;
     CGType result_elem = arms.front().value.elem;
@@ -5740,58 +5737,31 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
             return;
         }
     }
-    // 动态承载合流（t166）：任一臂为 Dyn 且全部臂属动态承载族（标量/Obj/Arr）
-    // 时逐臂 to_dyn 打框后 PHI 合流为 Dyn——解释器三元各支择一返回任意值，
-    // 静态类型不可定；合流值即 Dyn，消费全落 S92–S111 既有运行期 tag 分派臂，
-    // 进 array/object 等静态落点即 t165/t158 既有守卫拆槽。
-    // Tup/Fn/Void 臂已在上方 tuple 族分支与 Void 守卫处维持拒编
-    std::vector<CGType> arm_types;
-    arm_types.reserve(arms.size());
+    // 静态合流失败但全部臂落 is_dyn_carrier 承载族（标量/实例位/数组位）时，
+    // 逐臂 to_dyn 打框后 PHI 合流为 Dyn——解释器三元各支择一返回任意值，静态
+    // 类型不可定（t166 覆盖含 Dyn 臂的混排，t168 把回退面推广到跨树两实例臂、
+    // 实例位×标量臂、异型标量臂等静态合不上的一切承载组合）。合流值即 Dyn，
+    // 消费全落 S92–S113 既有运行期 tag 分派臂，进 array/object 等静态落点即
+    // t165/t158 既有守卫拆槽。
+    // Tup/Fn/Void 臂已在上方 tuple 族分支与 Void 守卫处维持原拒编文案
+    std::vector<CGValue> arm_values;
+    arm_values.reserve(arms.size());
     for (const auto& arm : arms) {
-        arm_types.push_back(arm.value.type);
+        arm_values.push_back(arm.value);
     }
-    if (arms_dyn_mergeable(arm_types)) {
+    const ArmMerge merge =
+        merge_static_arm_types(arm_values, result_type, result_elem, result_cls);
+    if (merge != ArmMerge::Ok) {
+        if (!arms_all_dyn_carrier(arm_values)) {
+            unsupported(merge == ArmMerge::NoCommonAncestor
+                            ? "ternary branches yield instances of different classes"
+                            : "ternary branches have incompatible types",
+                        expr.question_token().line(),
+                        expr.question_token().column());
+        }
         result_type = CGType::Dyn;
         result_elem = CGType::Int;
         result_cls.clear();
-    } else
-    for (size_t i = 1; i < arms.size(); ++i) {
-        const CGValue& v = arms[i].value;
-        if (v.type == result_type) {
-            if (v.type == CGType::Arr && v.elem != result_elem) {
-                // 同为数组但元素类型不同：统一 elem=Num 动态域哨兵（t94）——
-                // 数组值同为不透明 ptr，PHI 无关 elem；kind 随数组对象运行期
-                // 自带，print/len/== rt 侧全 kind 覆盖，索引读按运行期 kind
-                // 产出 Dyn（t151 消除缺口 CG9）
-                result_elem = CGType::Num;
-            }
-            if (v.type == CGType::Obj && v.cls != result_cls) {
-                // 类不同：统一到最近公共祖先（t93）——Obj 的 LLVM 表示同为
-                // 指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值
-                // 按运行期真实类解析方法；无公共祖先维持拒编不错编
-                const std::string nca = nearest_common_ancestor(result_cls, v.cls);
-                if (nca.empty()) {
-                    unsupported("ternary branches yield instances of different classes",
-                                expr.question_token().line(),
-                                expr.question_token().column());
-                }
-                result_cls = nca;
-            }
-            continue;
-        }
-        if (is_numeric(result_type) && is_numeric(v.type)) {
-            result_type = (result_type == CGType::Num || v.type == CGType::Num)
-                              ? CGType::Num
-                              : CGType::Double;
-            continue;
-        }
-        if ((result_type == CGType::Tri && v.type == CGType::Bool) ||
-            (result_type == CGType::Bool && v.type == CGType::Tri)) {
-            result_type = CGType::Tri;
-            continue;
-        }
-        unsupported("ternary branches have incompatible types",
-                    expr.question_token().line(), expr.question_token().column());
     }
 
     // 各分支块尾把值对齐 result_type 后再跳 merge（提升指令须落在该分支块内）
@@ -6178,10 +6148,8 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
     }
 
     // 结果类型统一：沿用 gen_ternary 规则扩展到 N+1 支（同型直用含 Arr elem/
-    // Obj cls 一致性校验；数值混型任一 Num 统一 Num 否则 Double）
-    auto is_numeric = [](CGType t) {
-        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
-    };
+    // Obj cls 一致性校验；数值混型任一 Num 统一 Num 否则 Double；合不上时按
+    // 承载族回退 Dyn）
     CGType result_type = arms.front().value.type;
     std::string result_cls = arms.front().value.cls;
     CGType result_elem = arms.front().value.elem;
@@ -6247,50 +6215,25 @@ void CodeGenerator::gen_multi_match(const MultiMatchExpr& expr) {
             return;
         }
     }
-    // 动态承载合流（t166，同 gen_ternary）：任一臂 Dyn 且全部臂属动态承载族
-    // 时逐臂 to_dyn 打框 PHI 合流为 Dyn
-    std::vector<CGType> match_arm_types;
-    match_arm_types.reserve(arms.size());
+    // 静态合流失败但全部臂落承载族时回退逐臂 to_dyn 打框 PHI 合流为 Dyn
+    // （t168，同 gen_ternary）
+    std::vector<CGValue> match_arm_values;
+    match_arm_values.reserve(arms.size());
     for (const auto& arm : arms) {
-        match_arm_types.push_back(arm.value.type);
+        match_arm_values.push_back(arm.value);
     }
-    if (arms_dyn_mergeable(match_arm_types)) {
+    const ArmMerge match_merge =
+        merge_static_arm_types(match_arm_values, result_type, result_elem, result_cls);
+    if (match_merge != ArmMerge::Ok) {
+        if (!arms_all_dyn_carrier(match_arm_values)) {
+            unsupported(match_merge == ArmMerge::NoCommonAncestor
+                            ? "'==?' branches yield instances of different classes"
+                            : "'==?' branches have incompatible types",
+                        op.line(), op.column());
+        }
         result_type = CGType::Dyn;
         result_elem = CGType::Int;
         result_cls.clear();
-    } else
-    for (size_t i = 1; i < arms.size(); ++i) {
-        const CGValue& v = arms[i].value;
-        if (v.type == result_type) {
-            if (v.type == CGType::Arr && v.elem != result_elem) {
-                // elem 不同：统一 Num 动态域哨兵（t94，同 gen_ternary）
-                result_elem = CGType::Num;
-            }
-            if (v.type == CGType::Obj && v.cls != result_cls) {
-                // 类不同：统一到最近公共祖先（t93，同 gen_ternary），
-                // 无公共祖先维持拒编不错编
-                const std::string nca = nearest_common_ancestor(result_cls, v.cls);
-                if (nca.empty()) {
-                    unsupported("'==?' branches yield instances of different classes",
-                                op.line(), op.column());
-                }
-                result_cls = nca;
-            }
-            continue;
-        }
-        if (is_numeric(result_type) && is_numeric(v.type)) {
-            result_type = (result_type == CGType::Num || v.type == CGType::Num)
-                              ? CGType::Num
-                              : CGType::Double;
-            continue;
-        }
-        if ((result_type == CGType::Tri && v.type == CGType::Bool) ||
-            (result_type == CGType::Bool && v.type == CGType::Tri)) {
-            // tribool/bool 混型统一 tribool（单向加宽，t65）
-            result_type = CGType::Tri;
-            continue;
-        }
-        unsupported("'==?' branches have incompatible types", op.line(), op.column());
     }
 
     // 各分支结束块尾对齐 result_type 后跳 merge（转换指令须落在该分支块内）
@@ -7369,18 +7312,60 @@ bool CodeGenerator::is_dyn_carrier(CGType t) {
     return is_dyn_scalar(t) || t == CGType::Obj || t == CGType::Arr;
 }
 
-bool CodeGenerator::arms_dyn_mergeable(const std::vector<CGType>& types) {
-    // 三目/`==?` 臂的动态承载合流判定（t166）：至少一臂已是 Dyn（静态类型
-    // 运行期才定），且全部臂都在 kind 7 承载集内（标量/实例位/数组位，
-    // is_dyn_carrier 单点）才逐臂 to_dyn 打框合流为 Dyn——Num/Dyn 本就透传、
-    // Arr/Obj 打 tag 4/5，与全臂同为 Dyn 时的原路径同构；Tup/Fn 臂维持拒编
-    // 不错编，数值/Tri×Bool 等仍可静态合流的窄型组合不进此路（保住 elem/cls）
-    bool any_dyn = false;
-    for (CGType t : types) {
-        if (t == CGType::Dyn) any_dyn = true;
-        if (!is_dyn_carrier(t)) return false;
+bool CodeGenerator::arms_all_dyn_carrier(const std::vector<CGValue>& values) {
+    // 三目/`==?` 臂的动态合流准入（t168）：全部臂都在 kind 7 承载集内（标量/
+    // 实例位/数组位）才可逐臂 to_dyn 打框合流为 Dyn；Tup/Fn/Void 无 {tag,bits}
+    // 编码，返回 false 让调用方维持原拒编消息
+    for (const auto& v : values) {
+        if (!is_dyn_carrier(v.type)) return false;
     }
-    return any_dyn;
+    return true;
+}
+
+CodeGenerator::ArmMerge CodeGenerator::merge_static_arm_types(
+    const std::vector<CGValue>& values, CGType& result_type, CGType& result_elem,
+    std::string& result_cls) {
+    // 臂类型静态合流（t93/t94/t65 规则，原 gen_ternary/gen_multi_match 内联循环）：
+    // 同型直用（Arr elem / Obj cls 一致性校验）；数值混型任一 Num 统一 Num 否则
+    // 提升 Double；tribool/bool 混型统一 tribool。失败只返回种类，消息与行号由
+    // 调用方按其触点文案给出
+    auto is_numeric = [](CGType t) {
+        return t == CGType::Int || t == CGType::Double || t == CGType::Num;
+    };
+    for (size_t i = 1; i < values.size(); ++i) {
+        const CGValue& v = values[i];
+        if (v.type == result_type) {
+            if (v.type == CGType::Arr && v.elem != result_elem) {
+                // 同为数组但元素类型不同：统一 elem=Num 动态域哨兵（t94）——
+                // 数组值同为不透明 ptr，PHI 无关 elem；kind 随数组对象运行期
+                // 自带，print/len/== rt 侧全 kind 覆盖，索引读按运行期 kind
+                // 产出 Dyn（t151 消除缺口 CG9）
+                result_elem = CGType::Num;
+            }
+            if (v.type == CGType::Obj && v.cls != result_cls) {
+                // 类不同：统一到最近公共祖先（t93）——Obj 的 LLVM 表示同为
+                // 指针，PHI 无关 cls；t86 对象头类 id + 动态分派保证合流值
+                // 按运行期真实类解析方法；无公共祖先交调用方回退或拒编
+                const std::string nca = nearest_common_ancestor(result_cls, v.cls);
+                if (nca.empty()) return ArmMerge::NoCommonAncestor;
+                result_cls = nca;
+            }
+            continue;
+        }
+        if (is_numeric(result_type) && is_numeric(v.type)) {
+            result_type = (result_type == CGType::Num || v.type == CGType::Num)
+                              ? CGType::Num
+                              : CGType::Double;
+            continue;
+        }
+        if ((result_type == CGType::Tri && v.type == CGType::Bool) ||
+            (result_type == CGType::Bool && v.type == CGType::Tri)) {
+            result_type = CGType::Tri;
+            continue;
+        }
+        return ArmMerge::Incompatible;
+    }
+    return ArmMerge::Ok;
 }
 
 // ---------------- tuple 静态展开（t68） ----------------

@@ -1,0 +1,45 @@
+// t168 S115 差分用例：可静态合流的窄型组合仍走原路径（同 cls、最近公共祖先、数值/Tri×Bool、Arr elem 降域）
+class Animal {
+    public string kind = "animal";
+    public function speak() string { return "..."; }
+}
+class Dog extends Animal {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public string tag = "p";
+    public function speak() string { return "yip"; }
+}
+class Cat {
+    public string sound = "meow";
+    public function speak() string { return "meow"; }
+}
+bool flag = true;
+Dog d = new Dog();
+Puppy p = new Puppy();
+Cat c = new Cat();
+Dog dd = flag ? d : p;
+print("1", dd.speak());
+print("2", dd.name);
+Cat cc = flag ? c : c;
+print("3", cc.sound);
+object o = flag ? d : c;
+print("4", o.speak());
+object o2 = false ? d : c;
+print("5", o2.speak());
+number r = flag ? 1 : 2.5;
+print("6", r + 0.5);
+tribool tb = flag ? unset : true;
+print("7", tb.isUnset());
+array g = flag ? [1, 2] : [3.5];
+print("8", g);
+print("9", g[0]);
+g[0] = 9;
+print("10", g);
+object s = flag ? " abc " : "d";
+print("11", s.trim());
+array h = flag ? [1, "x"] : [2];
+print("12", h.length);
+Animal an = flag ? d : p;
+print("13", an.kind);

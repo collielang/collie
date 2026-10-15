@@ -1,0 +1,50 @@
+// t168 S115 差分用例：合流 Dyn 值进类型化槽/object 形参与返回值/类字段/array 落点/嵌套数组元素槽
+class Dog {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+class Cat {
+    public string sound = "meow";
+    public function speak() string { return "meow"; }
+}
+class Box {
+    public object item = 0;
+    public function put(v object) none {
+        this.item = v;
+    }
+    public function show() object {
+        return this.item;
+    }
+}
+function use(o object) string { return "used"; }
+function pick(flag bool, a object, b object) object {
+    return flag ? a : b;
+}
+bool flag = true;
+Dog d = new Dog();
+Cat c = new Cat();
+Box box = new Box();
+box.put(flag ? d : c);
+print("1", box.show().speak());
+print("2", use(box.item));
+box.put(flag ? 5 : d);
+print("3", box.item);
+print("4", pick(true, d, c).speak());
+print("5", pick(false, d, c).speak());
+integer iv = flag ? 7 : 8;
+print("6", iv);
+string sv = flag ? "a" : 5;
+print("7", sv + "!");
+number nv = flag ? 5 : d;
+print("8", nv + 1);
+bool bv = flag ? true : d;
+print("9", bv);
+tribool tv = flag ? unset : d;
+print("10", tv.isUnset());
+array av = flag ? [1, 2] : d;
+print("11", av);
+print("12", av[0]);
+array out = [[0]];
+out[0] = flag ? [3, 4] : d;
+print("13", out);
+print("14", out[0][1]);

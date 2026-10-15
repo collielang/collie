@@ -1,0 +1,33 @@
+// t168 S115 差分用例：实例位与标量/串/数组/tribool 臂合流后的运行期 tag 消费
+class Dog {
+    public string name = "rex";
+    public function speak() string { return "woof"; }
+}
+function use(o object) string { return "ok"; }
+Dog d = new Dog();
+bool flag = true;
+object a = flag ? d : 5;
+print("1", a.speak());
+object b = flag ? 5 : d;
+print("2", b);
+print("3", b + 1);
+print("4", use(b));
+object s = flag ? "hey " : d;
+print("5", s.trim());
+object bo = flag ? true : d;
+print("6", bo);
+object t = flag ? d : [1, 2];
+print("7", t.speak());
+object u = flag ? [1, 2] : d;
+print("8", u);
+print("9", u.length);
+print("10", u[0]);
+object tri = flag ? d : unset;
+print("11", tri.speak());
+object tri2 = flag ? unset : d;
+print("12", tri2.isUnset());
+object both = flag ? 1 : "s";
+print("13", both);
+print("14", both + "!");
+integer keep = flag ? 1 : 2;
+print("15", keep);
