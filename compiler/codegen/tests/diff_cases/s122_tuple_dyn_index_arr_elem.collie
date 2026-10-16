@@ -1,0 +1,38 @@
+// t172 S119 差分用例：异质 tuple 的数组位元素经非常量索引/动态取键读出
+// 第一节为退役锁 s121_reject_tuple_dyn_index_container_elem 的原程序
+Tuple u = (x: [1, 2], y: 1);
+integer i = 0;
+print("1", u[i]);
+print("2", u.get("x"));
+print("3", u[1]);
+object o = u[i];
+print("4", o);
+print("5", o.length);
+print("6", o[0] + 1);
+print("7", o[-1]);
+Tuple v = (a: [[1, 2], 3], b: 2);
+print("8", v[i]);
+print("9", v[i].length);
+print("10", v[i][0]);
+print("11", v[i][0][1]);
+function take(p object) object {
+    return p;
+}
+print("12", take(v[1]));
+print("13", take(u[i]).length);
+function eq2(p object, q object) bool {
+    return p == q;
+}
+print("14", eq2(u[i], [1, 2]));
+print("15", eq2(u[i], [1, 3]));
+integer k = 1;
+print("16", u[k] ==? 1: "one", "?");
+print("17", u[i] ==? [1, 2]: "arr", "?");
+switch (u[k]) {
+    1 { print("18 hit"); }
+    default { print("18 miss"); }
+}
+for (integer j = 0; j < 2; j += 1) {
+    print("19", u[j]);
+}
+print("20", u[0].toString());

@@ -1,0 +1,45 @@
+// t172 S119 差分用例：六类承载位混排的同名 tuple 经非常量索引逐位读出与消费
+// （串位方法、数组位取长、实例位字段、函数位转串、tribool 位三支、数值位算术）
+function add(x integer) integer {
+    return x + 1;
+}
+class D {
+    public integer v = 7;
+}
+D d = new D();
+tribool t = unset;
+Tuple u = (s: "hi", a: [1, 2], o: d, f: add, n: 5, b: true, p: t);
+for (integer i = 0; i < 7; i += 1) {
+    print("m", i, u[i]);
+}
+print("1", u.get("a").length);
+print("2", u.get("o").v);
+print("3", u.get("s").trim());
+print("4", u.get("f"));
+print("5", u.get("p"));
+print("6", u.get("n") + 1);
+integer j = 6;
+print("7", u[j] ==? unset: "unset", "?");
+print("8", "x" + u[0] + "y");
+object o = u[2];
+print("9", o.v);
+array bag = [1, "x"];
+bag[0] = u[2];
+print("10", bag[0]);
+print("11", bag[0].v);
+bag[1] = u[1];
+print("12", bag[1]);
+print("13", bag[1].length);
+function eq2(p object, q object) bool {
+    return p == q;
+}
+print("14", eq2(u[0], "hi"));
+print("15", eq2(u[3], add));
+print("16", eq2(u[5], 1));
+print("17", eq2(u[6], unset));
+print("18", u[4] ==? 5: "five", "?");
+print("19", u[3]);
+switch (u[5]) {
+    true { print("20 bool"); }
+    default { print("20 other"); }
+}

@@ -1,0 +1,56 @@
+// t172 S119 差分用例：tuple 容器位读出值穿 object 形参/返回值、类字段与循环、
+// 条件控制流（承载位换型与深比较）
+class Box {
+    public object payload = 0;
+    public function put(v object) none {
+        this.payload = v;
+    }
+    public function grab() object {
+        return this.payload;
+    }
+    public function show() none {
+        print("s", this.payload);
+    }
+}
+function take(p object) object {
+    return p;
+}
+function eq2(p object, q object) bool {
+    return p == q;
+}
+Tuple u = (a: [1, 2], b: 2);
+integer i = 0;
+print("1", take(u[i]));
+print("2", take(u[i]).length);
+Box x = new Box();
+x.put(u[i]);
+print("3", x.grab());
+print("4", x.grab()[1] + 1);
+x.show();
+object slot = u[i];
+print("5", slot);
+slot = u[1];
+print("6", slot);
+print("7", slot + 1);
+for (integer k = 0; k < 2; k += 1) {
+    object looped = u[k];
+    print("8", looped);
+}
+if (eq2(u[i], [1, 2])) { print("9 hit"); } else { print("9 miss"); }
+print("10", x.payload ==? [1, 2]: "arr", "?");
+x.payload = u[1];
+print("11", x.payload);
+integer m = 1;
+while (m > 0) {
+    object w = u[m];
+    print("12", w);
+    m -= 1;
+}
+Tuple v = (p: (n: 1), q: " z");
+Box y = new Box();
+y.put(v[i]);
+print("13", y.grab().n);
+y.put(v[1]);
+print("14", y.grab().trim());
+print("15", take(u[i]) == take(u[i]));
+print("16", take(u[i]) != take(u[i]));

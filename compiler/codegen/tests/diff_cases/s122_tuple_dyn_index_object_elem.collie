@@ -1,0 +1,47 @@
+// t172 S119 差分用例：异质 tuple 的实例位元素经非常量索引/动态取键读出，
+// 含同质跨树实例位回退动态承载（原静态最近公共祖先路径不可定 cls）
+class D {
+    public integer v = 7;
+    public function show() integer {
+        return this.v + 1;
+    }
+}
+class E {
+    public integer v = 8;
+}
+D d = new D();
+E e = new E();
+function take2(p object) string {
+    return p.toString();
+}
+Tuple u = (a: d, b: 1);
+integer i = 0;
+print("1", u[i]);
+print("2", u.get("a"));
+print("3", u[i].v);
+print("4", u[i].show());
+object o = u[i];
+print("5", o.v);
+print("6", o.show());
+Tuple w = (p: new D(), q: new E());
+print("7", w[i].v);
+print("8", w[1].v);
+print("9", w.get("q").v);
+print("10", w[0]);
+Tuple s = (m: new D(), n: new D());
+print("11", s[i].v);
+print("12", s[i].show());
+function eq2(p object, q object) bool {
+    return p == q;
+}
+print("13", eq2(w[0], w[0]));
+print("14", eq2(u[i], d));
+array bag = [1, "x"];
+bag[0] = u[i];
+print("15", bag[0]);
+print("16", bag[0].v);
+for (integer j = 0; j < 2; j += 1) {
+    print("17", w[j].v);
+}
+print("18", w[i] ==? e: "e?", "?");
+print("19", take2(w[0]));

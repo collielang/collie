@@ -549,9 +549,10 @@ private:
     llvm::Value* to_num(const CGValue& v);
 
     /// @brief 动态承载组装（t146）：标量/Num/Dyn → Dyn {tag,bits}（tag 复用
-    /// arr_kind_of 编码，Obj 按 tag 5 存实例 ptr 位模式，同 t144 kind7）；
-    /// Tup/TupDyn 按 tag 8 存 t140 堆对象 ptr 位模式（t170，静态 tuple 先物化）；
-    /// 其余类型经 arr_kind_of/elem_to_bits 的拒编守卫兜底
+    /// arr_kind_of 编码，Obj 按 tag 5、Arr 按 tag 4 存 ptr 位模式，同 t144/t160
+    /// kind7）；Tup/TupDyn 按 tag 8 存 t140 堆对象 ptr 位模式（t170，静态 tuple
+    /// 先物化）；Fn 按 tag 9 存函数 ptr 位模式（t171）；其余类型（Void 等）经
+    /// arr_kind_of/elem_to_bits 的拒编守卫兜底
     llvm::Value* to_dyn(const CGValue& v, size_t line = 0, size_t column = 0);
 
     /// @brief toNumber 降级（t63，对齐解释器 to_number_value）：Bool → 0/1
@@ -620,10 +621,13 @@ private:
     /// Bool zext/Str ptrtoint（collie_rt 数组对象槽统一为 i64）
     llvm::Value* elem_to_bits(const CGValue& v);
 
-    /// @brief 异质 tuple 动态访问的 Dyn 标量物化（t138）：tags+bits 双 int 数组，
+    /// @brief 异质 tuple 动态访问的 Dyn 物化（t138）：tags+bits 双 int 数组，
     /// tag 复用数组 kind 编码（0=int/1=dec/2=bool/3=str/6=tribool，Num/Dyn 元素取
-    /// 运行期分量）；返回 {tags 数组, bits 数组}，调用侧同一索引/键两次取回拼 Dyn
-    std::pair<llvm::Value*, llvm::Value*> materialize_dyn_scalars(const CGTuple& t);
+    /// 运行期分量，Arr/Obj 走 elem_to_bits 的 4/5 位模式，Fn/Tup/TupDyn 经 to_dyn
+    /// 取 9/8 位模式，t172）；返回 {tags 数组, bits 数组}，调用侧同一索引/键两次取回拼 Dyn
+    std::pair<llvm::Value*, llvm::Value*> materialize_dyn_scalars(const CGTuple& t,
+                                                                  size_t line,
+                                                                  size_t column);
 
     /// @brief 8 字节槽位模式 i64 → 数组元素值（t59，elem_to_bits 的逆变换）
     llvm::Value* bits_to_elem(llvm::Value* bits, CGType elem);
@@ -636,9 +640,14 @@ private:
     CGValue tuple_dynamic_result(llvm::Value* bits, CGType elem, const CGTuple& t,
                                  size_t line, size_t column);
 
+    /// @brief 同质实例位 tuple 的统一静态 cls（t114）：逐元素取最近公共祖先，
+    /// 跨树无共同祖先返回空串——调用侧据此把非常量索引/取键回退 Dyn 承载路径
+    /// （t172，读出 tag 5 后字段/方法按对象头类 id 运行期分派，对齐解释器不校验类）
+    std::string tuple_obj_merged_cls(const CGTuple& t);
+
     /// @brief 静态展开 tuple → 动态 tuple 堆对象 ptr（t140）：names 建 kind 3 数组
     /// （无名槽存空串）、values 建 kind 7 动态数组（tag/bits 编码同 to_dyn 单点），
-    /// 交 collie_rt_tuple_new 打包。元素含非 dyn_carrier（嵌套 Tup/Fn）即拒编不错编
+    /// 交 collie_rt_tuple_new 打包。元素含非 dyn_carrier（如 Void）即拒编不错编
     llvm::Value* materialize_tuple_dynamic(int tup_idx, size_t line, size_t column);
 
     /// @brief 各合流支 tuple 能否走静态 PHI 合流（t140 同形 + t164 叶位可合流）：

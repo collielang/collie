@@ -1,0 +1,41 @@
+// t172 S119 差分用例：异质 tuple 的嵌套 tuple 位元素经非常量索引/动态取键读出，
+// 含同质嵌套 tuple（原静态路径不可定统一表示）
+Tuple u = (a: (1, 2), b: 3);
+integer i = 0;
+print("1", u[i]);
+print("2", u.get("a"));
+print("3", u[i].length);
+print("4", u[i][1]);
+print("5", u[i][-1]);
+object o = u[i];
+print("6", o);
+print("7", o.length);
+print("8", o[0] + 1);
+Tuple v = (p: (n: 9, m: "z"), q: 1);
+print("9", v[i]);
+print("10", v[i].n);
+print("11", v[i].get("m"));
+print("12", v[i].length);
+Tuple w = ((7, 8), (9, 10));
+print("13", w[i]);
+print("14", w[1]);
+print("15", w[1][0]);
+print("16", w[1].length);
+function eq2(p object, q object) bool {
+    return p == q;
+}
+print("17", eq2(u[0], (1, 2)));
+print("18", eq2(u[0], (1, 3)));
+print("19", eq2(u[1], 3));
+print("20", eq2(w[0], w[1]));
+integer k = 0;
+print("21", v[k] ==? (n: 9, m: "z"): "same", "?");
+print("22", u[k] ==? (1, 2): "pair", "?");
+switch (w[0]) {
+    (7, 8) { print("23 hit"); }
+    default { print("23 miss"); }
+}
+for (integer j = 0; j < 2; j += 1) {
+    print("24", v[j]);
+}
+print("25", u[0].toString());

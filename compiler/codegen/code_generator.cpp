@@ -2096,11 +2096,13 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
             return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
         };
         const auto is_scalar = [](CGType ty) {
-            // Fn（t171）：函数位有 tag 9 承载，异质 tuple 动态索引/取键可入
-            // tags+bits 物化路径
+            // 承载位判定（t172 起与 is_dyn_carrier 同集）：标量 + Fn（tag 9，
+            // t171）+ Arr/Obj（tag 4/5）+ Tup/TupDyn（tag 8，t170）均可入
+            // tags+bits 物化路径，异质 tuple 的非常量索引/取键读出即 Dyn
             return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num ||
                    ty == CGType::Bool || ty == CGType::Str || ty == CGType::Tri ||
-                   ty == CGType::Dyn || ty == CGType::Fn;
+                   ty == CGType::Dyn || ty == CGType::Fn || ty == CGType::Arr ||
+                   ty == CGType::Obj || ty == CGType::Tup || ty == CGType::TupDyn;
         };
         bool homogeneous = true;
         bool all_numeric = true;
@@ -2111,18 +2113,21 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
             if (!is_numeric(e.type)) all_numeric = false;
             if (!is_scalar(e.type)) all_scalar = false;
         }
-        // Dyn 承载判定（t138）：非单数组路径、非数值系，但元素全为标量
-        // （含 Bool/Str/Tri 的异质或同质 tribool）——tags+bits 物化为 CGType::Dyn，
-        // 仅 print/toString/插值可消费；嵌套(Tup)等无统一表示仍拒编不错编
+        // Dyn 承载判定（t138）：非单数组路径、非数值系，但元素全为可承载位
+        // ——tags+bits 物化为 CGType::Dyn 后走 S92–S118 全部运行期 tag 分派消费；
+        // Void 等无 {tag,bits} 编码者仍拒编不错编。同质跨树实例位（t172）静态
+        // 给不出统一 cls，同样落本路径（读出 tag 5 后按对象头类 id 分派）
+        const bool obj_static_merge = elem != CGType::Obj || !homogeneous ||
+                                      !tuple_obj_merged_cls(t).empty();
         const bool single_array =
-            homogeneous && (elem == CGType::Int || elem == CGType::Double ||
-                            elem == CGType::Bool || elem == CGType::Str ||
-                            elem == CGType::Arr || elem == CGType::Obj);
+            obj_static_merge && homogeneous &&
+            (elem == CGType::Int || elem == CGType::Double ||
+             elem == CGType::Bool || elem == CGType::Str ||
+             elem == CGType::Arr || elem == CGType::Obj);
         const bool use_dyn = !single_array && !all_numeric && all_scalar;
         if (!single_array && !all_numeric && !use_dyn) {
             if (homogeneous) {
-                // 同质 Arr/Obj 元素（t114）走单数组路径已排除，此处为同质嵌套
-                // Tuple 等无统一表示类型
+                // 同质不可承载元素（Void 等）：单数组路径已排除同质 Arr/Obj（t114）
                 unsupported("non-constant tuple index on this element type",
                             expr.bracket().line(), expr.bracket().column());
             }
@@ -2136,7 +2141,8 @@ void CodeGenerator::visitIndex(const IndexExpr& expr) {
         if (use_dyn) {
             // Dyn 路径（t138）：tags+bits 双数组同一索引两次取回拼动态标量
             // （负索引归一化/越界陷阱在首次 get，零新增 rt 接口）
-            auto [tags, bits_arr] = materialize_dyn_scalars(t);
+            auto [tags, bits_arr] = materialize_dyn_scalars(
+                t, expr.bracket().line(), expr.bracket().column());
             llvm::Value* tag =
                 builder_.CreateCall(rt_arr_get_, {tags, index.value}, "dyntag");
             llvm::Value* bits =
@@ -3135,11 +3141,13 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num;
         };
         const auto is_scalar = [](CGType ty) {
-            // Fn（t171）：函数位有 tag 9 承载，异质 tuple 动态取键可入
-            // tags+bits 物化路径（与 visitIndex 的同名判定同源）
+            // 承载位判定（t172 起与 is_dyn_carrier 同集，与 visitIndex 的
+            // 同名判定同源）：标量 + Fn/Arr/Obj/Tup/TupDyn 均可入 tags+bits
+            // 物化路径，动态取键的读出即对应 Dyn 位
             return ty == CGType::Int || ty == CGType::Double || ty == CGType::Num ||
                    ty == CGType::Bool || ty == CGType::Str || ty == CGType::Tri ||
-                   ty == CGType::Dyn || ty == CGType::Fn;
+                   ty == CGType::Dyn || ty == CGType::Fn || ty == CGType::Arr ||
+                   ty == CGType::Obj || ty == CGType::Tup || ty == CGType::TupDyn;
         };
         bool homogeneous = true;
         bool all_numeric = true;
@@ -3150,13 +3158,17 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             if (!is_numeric(e.type)) all_numeric = false;
             if (!is_scalar(e.type)) all_scalar = false;
         }
-        // Dyn 承载判定（t138，同 visitIndex）：含 Bool/Str/Tri 的异质或同质
-        // tribool → tags+bits 物化 CGType::Dyn，仅显示面可消费；同质 Arr/Obj
-        // 走单数组路径（t114），嵌套 Tuple 等无统一表示仍拒编不错编
+        // Dyn 承载判定（t138，同 visitIndex）：元素全为可承载位 → tags+bits 物化
+        // CGType::Dyn，读出走 S92–S118 全部运行期 tag 分派消费；同质 Arr/Obj
+        // 走单数组路径（t114），同质跨树实例位（t172）与 Void 等无 {tag,bits}
+        // 编码者分别落本路径/维持拒编不错编
+        const bool obj_static_merge = elem != CGType::Obj || !homogeneous ||
+                                      !tuple_obj_merged_cls(t).empty();
         const bool single_array =
-            homogeneous && (elem == CGType::Int || elem == CGType::Double ||
-                            elem == CGType::Bool || elem == CGType::Str ||
-                            elem == CGType::Arr || elem == CGType::Obj);
+            obj_static_merge && homogeneous &&
+            (elem == CGType::Int || elem == CGType::Double ||
+             elem == CGType::Bool || elem == CGType::Str ||
+             elem == CGType::Arr || elem == CGType::Obj);
         const bool use_dyn = !single_array && !all_numeric && all_scalar;
         if (!single_array && !all_numeric && !use_dyn) {
             if (homogeneous) {
@@ -3192,7 +3204,7 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         // 标量（未命中陷阱在首次）；数值系路径（t108）tags+bits 双数组（均 kind 0）
         // 同一键两次 rt_tuple_get 拼 Num；静态路径（t84）单数组逐元素 elem_to_bits
         if (use_dyn) {
-            auto [tags, bits_arr] = materialize_dyn_scalars(t);
+            auto [tags, bits_arr] = materialize_dyn_scalars(t, line, column);
             llvm::Value* tag = builder_.CreateCall(
                 rt_tuple_get_, {names, tags, key_val.value}, "dyntag");
             llvm::Value* bits = builder_.CreateCall(
@@ -7249,7 +7261,7 @@ llvm::Value* CodeGenerator::elem_to_bits(const CGValue& v) {
 }
 
 std::pair<llvm::Value*, llvm::Value*> CodeGenerator::materialize_dyn_scalars(
-    const CGTuple& t) {
+    const CGTuple& t, size_t line, size_t column) {
     // 异质 tuple Dyn 物化（t138）：tags+bits 双 int 数组（均 kind 0），tag 复用
     // 数组 kind 编码 0=int/1=dec/2=bool/3=str/6=tribool（Num 元素取运行期 tag
     // 0/1，两分支落点同编码天然兼容）；bits 编码与 elem_to_bits 同规则。
@@ -7272,10 +7284,13 @@ std::pair<llvm::Value*, llvm::Value*> CodeGenerator::materialize_dyn_scalars(
             // tag 编码兼容，t138 元组套元组动态访问）
             tag = num_tag(e.value);
             elem_bits = num_bits(e.value);
-        } else if (e.type == CGType::Fn) {
-            // 函数位（t171）：单点走 to_dyn 取 tag 9 + 函数 ptr 位模式，
-            // 异质 tuple 动态索引/取键的读出即 Dyn tag 9
-            llvm::Value* vd = to_dyn(e);
+        } else if (e.type == CGType::Fn || e.type == CGType::Tup ||
+                   e.type == CGType::TupDyn) {
+            // 函数位（t171）tag 9 / tuple 位（t172）tag 8：单点走 to_dyn（静态
+            // 展开 tuple 先经 t140 物化为堆对象），异质 tuple 动态索引/取键的
+            // 读出即对应 Dyn 位；Arr/Obj 位走下方 else（arr_kind_of 4/5 +
+            // elem_to_bits ptrToInt，与 to_dyn 的 tag 4/5 编码逐位相同）
+            llvm::Value* vd = to_dyn(e, line, column);
             tag = num_tag(vd);
             elem_bits = num_bits(vd);
         } else {
@@ -7307,6 +7322,21 @@ llvm::Value* CodeGenerator::bits_to_elem(llvm::Value* bits, CGType elem) {
     }
 }
 
+std::string CodeGenerator::tuple_obj_merged_cls(const CGTuple& t) {
+    // 同质实例位 tuple 的统一静态 cls（t114）：逐元素取最近公共祖先，跨树无
+    // 共同祖先返回空串（调用侧回退 Dyn 承载，t172）
+    std::string cls = t.elems.front().cls;
+    for (size_t i = 1; i < t.elems.size(); ++i) {
+        if (t.elems[i].cls != cls) {
+            cls = nearest_common_ancestor(cls, t.elems[i].cls);
+            if (cls.empty()) {
+                return {};
+            }
+        }
+    }
+    return cls;
+}
+
 CodeGenerator::CGValue CodeGenerator::tuple_dynamic_result(
     llvm::Value* bits, CGType elem, const CGTuple& t, size_t line, size_t column) {
     // t114：同质 Arr/Obj 元素 tuple 非常量索引/get 结果回填。单数组物化
@@ -7324,18 +7354,14 @@ CodeGenerator::CGValue CodeGenerator::tuple_dynamic_result(
         }
         r.elem = inner;
     } else if (elem == CGType::Obj) {
-        std::string cls = t.elems.front().cls;
-        for (size_t i = 1; i < t.elems.size(); ++i) {
-            if (t.elems[i].cls != cls) {
-                cls = nearest_common_ancestor(cls, t.elems[i].cls);
-                if (cls.empty()) {
-                    unsupported("non-constant tuple access on incompatible "
-                                "instance elements",
-                                line, column);
-                }
-            }
+        r.cls = tuple_obj_merged_cls(t); // 最近公共祖先（t93/t100）
+        if (r.cls.empty()) {
+            // 调用侧已按 tuple_obj_merged_cls 回退 Dyn 承载路径（t172），
+            // 此处保留保守拒编以免空 cls 被下游按静态布局解码
+            unsupported("non-constant tuple access on incompatible "
+                        "instance elements",
+                        line, column);
         }
-        r.cls = cls; // 最近公共祖先（t93/t100）；方法按对象头类 id 动态分派
     }
     return r;
 }

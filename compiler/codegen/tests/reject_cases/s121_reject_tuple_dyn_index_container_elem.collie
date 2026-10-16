@@ -1,8 +1,0 @@
-// t171 S118 拒编锁：异质 tuple 含数组位/实例位元素的非常量索引与动态取键
-// 维持保守拒编不错编（自 t171 起函数位 tag 9 已入 is_scalar 的 tags+bits 物化
-// 路径，Arr/Obj 元素仍无统一静态表示，落 "non-constant index on heterogeneous
-// tuple"；解释器直存嵌套值可运行）
-Tuple u = (x: [1, 2], y: 1);
-integer i = 0;
-print("1", u[i]);
-print("2", u.get("x"));

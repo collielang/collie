@@ -1,0 +1,50 @@
+// t172 S119 差分用例：tuple 容器位读出的进阶形态——动态 tuple（来自 Tuple 返回值）、
+// 嵌套 tuple 含函数位、各内层 kind 不同的数组位、读出值拆槽进类型化槽
+function mk() Tuple {
+    return (deep: [1, 2], n: 3);
+}
+function add(x integer) integer {
+    return x + 1;
+}
+class D {
+    public integer v = 7;
+}
+Tuple u = (a: mk(), b: 1);
+integer i = 0;
+print("1", u[i]);
+print("2", u[i].n);
+print("3", u[i].deep.length);
+print("4", u[i].deep[1]);
+print("5", u[1]);
+object o = u[i];
+print("6", o.get("deep"));
+Tuple v = (f: (fn: add, n: 1), g: 2);
+print("7", v[i]);
+print("8", v[i].fn);
+print("9", v[i].n + 1);
+print("10", v[i].get("n"));
+integer q = v[1];
+print("11", q * 2);
+Tuple z = (p: [1, 2], r: ["a", "bb"], s: [true, unset]);
+print("12", z[0][0]);
+print("13", z[1][1]);
+print("14", z[2][0]);
+print("15", z[2][1]);
+print("16", z[i].length);
+Tuple w = (x: new D(), y: [3, 4]);
+print("17", w[0].v);
+print("18", w[1][1]);
+print("19", w[i]);
+object slot = w[1];
+print("20", slot.length);
+slot = w[0];
+print("21", slot.v);
+// 数组位读出落静态 array 变量槽（t165 落点面经本新增来源可达）与数组形参，含与 tuple 元素的引用共享
+array copy = w[1];
+print("22", copy);
+copy[0] = 9;
+print("23", copy);
+function show(arr array) none {
+    print("24", arr);
+}
+show(w[1]);

@@ -171,7 +171,12 @@ if(COLLIE_ENABLE_LLVM)
             s121_fn_to_object_signature s121_fn_array_bits
             s121_fn_tuple_element s121_fn_dyn_domain_elem
             s121_fn_arms_merge s121_fn_match_candidate
-            s121_fn_consume_control_flow)
+            s121_fn_consume_control_flow
+            s122_tuple_dyn_index_arr_elem s122_tuple_dyn_index_object_elem
+            s122_tuple_dyn_index_nested_tuple
+            s122_tuple_dyn_index_mixed_carriers
+            s122_tuple_dyn_index_signature_field
+            s122_tuple_dyn_index_nested_forms)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -191,7 +196,7 @@ if(COLLIE_ENABLE_LLVM)
             s117_reject_arr_elem_to_homog_domain
             s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
             s121_reject_object_uninit_fn_slot
-            s121_reject_tuple_dyn_index_container_elem)
+            s122_reject_tuple_void_element)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
