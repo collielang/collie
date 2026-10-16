@@ -1,0 +1,31 @@
+// t176 S123 差分用例：不一致字段读出的 Dyn 位拆槽进六类类型化槽（t147
+// dyn_unbox_to 逐 tag 守卫）——本例每处落点的 tag 都与声明匹配，故双端 rc=0；
+// 不匹配方向（如把 Cat 的 integer 位写进 string 槽）两端同为运行期陷阱，
+// 属既有面而非本批差分
+class Pet { public string label = "hi there"; }
+class Farm { public integer label = 7; }
+class Pond { public decimal label = 1.5; }
+class Hive { public bool label = true; }
+class Nest { public tribool label = unset; }
+
+array bag = [new Pet(), new Farm(), new Pond(), new Hive(), new Nest()];
+string s = bag[0].label;
+integer i = bag[1].label;
+decimal d = bag[2].label;
+bool f = bag[3].label;
+tribool t = bag[4].label;
+print("1", s.length);
+print("2", i + 1);
+print("3", d + 0.5);
+print("4", f);
+print("5", t == unset);
+print("6", s.trim());
+
+// 进 number / object 槽与数组字面量
+number nm = bag[1].label;
+object o = bag[2].label;
+print("7", nm);
+print("8", o);
+array mixed = [bag[0].label, bag[1].label, bag[4].label];
+print("9", mixed);
+print("10", mixed[2]);

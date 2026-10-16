@@ -1,0 +1,42 @@
+// t176 S123 差分用例：不一致字段读出的 Dyn 位穿签名与进容器——object 形参/返回值、
+// 类字段落点、tuple 元素、异质数组元素、==? 与 switch 消费全按运行期 tag 分派
+class Pet { public string label = "rex"; }
+class Farm { public integer label = 7; }
+class Holder { public object slot = 0;
+    public function put(o object) object { this.slot = o; return this.slot; }
+    public function dump() string { return toString(this.slot); } }
+
+function take(o object) object { return o; }
+function pick(v object, w object) object { return v; }
+
+object a = take(new Pet().label);
+print("1", a);
+print("2", a == a);
+object b = pick(new Farm().label, new Pet().label);
+print("3", b);
+print("4", b + 1);
+
+Tuple t = (new Farm().label, new Pet().label);
+print("5", t);
+print("6", t[0]);
+print("7", t[1].length);
+array bag = [new Pet().label, new Farm().label];
+print("8", bag);
+print("9", bag[1] + 1);
+print("10", bag[0] == bag[0]);
+
+Holder h = new Holder();
+print("11", h.put(new Pet().label));
+print("12", h.dump());
+print("13", h.put(new Farm().label));
+print("14", h.slot ==? 7: "seven", "other");
+print("15", new Farm().label ==? 7: "seven", "other");
+array kinds = [new Pet(), new Farm()];
+switch (kinds[0].label) {
+    7 {
+        print("16", "seven");
+    }
+    default {
+        print("16", "not-seven");
+    }
+}

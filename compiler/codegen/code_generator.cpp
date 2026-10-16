@@ -6497,8 +6497,8 @@ CodeGenerator::CGValue CodeGenerator::read_obj_field(const CGValue& object,
         // 该字段的类均入 switch case（不限同树，同 t133 方法动态分派），按
         // 对象头类 id 运行期取值；动态类未定义该字段落 default 陷阱臂（解释器
         // 同为运行期报错，非 stdout 差分面）；lone_tree 恒 false——真实类
-        // 可能不在 defs 中，必须保留 default 兜底；各定义者字段声明类型须全等
-        // （同 t102 防御）否则 PHI 无从统一、拒编不错编
+        // 可能不在 defs 中，必须保留 default 兜底；各定义者字段声明类型全等时
+        // 维持单型 PHI（t102 静态精度），不一致时自 t176 起逐臂打框合流为 Dyn
         for (const auto& entry : classes_) {
             if (entry.second.field_index.count(name) != 0) {
                 defs.push_back(&entry.second);
@@ -6552,14 +6552,60 @@ CodeGenerator::CGValue CodeGenerator::read_obj_field(const CGValue& object,
               [](const CGClass* a, const CGClass* b) {
                   return a->id < b->id;
               });
-    // 各定义者字段类型须与首个一致（同 t86 防御：不一致则统一 PHI
-    // 与后续使用类型不可定，拒编不错编）
+    // 各定义者字段类型全等时维持单型 PHI（t86 静态精度不丢）；不一致时
+    // （t176）逐臂按自身声明类型 load 后 to_dyn 打框合流为 Dyn——解释器读的是
+    // 动态类的实际字段值，「静态类型无法统一」不等于「值无法读」，合流后即落
+    // S92–S122 全部运行期 tag 分派消费面
+    bool uniform = true;
     for (const CGClass* sub : defs) {
         const CGField& f = sub->fields.at(sub->field_index.at(name));
         if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
-            unsupported("inherited field '" + name + "' with a different type",
-                        line, column);
+            uniform = false;
         }
+    }
+    if (!uniform) {
+        // 全部字段声明类型都在动态承载集内（CGType 全集皆承载），逐臂打框即可
+        llvm::Value* cclsid = builder_.CreateLoad(
+            builder_.getInt64Ty(), object.value, "clsid");
+        llvm::Function* cfn = builder_.GetInsertBlock()->getParent();
+        auto* ctrap_bb = llvm::BasicBlock::Create(context_, "propty.trap", cfn);
+        auto* cmerge_bb =
+            llvm::BasicBlock::Create(context_, "propty.end", cfn);
+        llvm::SwitchInst* csw = builder_.CreateSwitch(
+            cclsid, ctrap_bb, static_cast<unsigned>(defs.size()));
+        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> cincoming;
+        for (const CGClass* sub : defs) {
+            auto* bb = llvm::BasicBlock::Create(
+                context_,
+                "propty." + std::string(sub->stmt->name().lexeme()), cfn);
+            csw->addCase(builder_.getInt64(sub->id), bb);
+            builder_.SetInsertPoint(bb);
+            const CGField& f = sub->fields.at(sub->field_index.at(name));
+            const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
+            llvm::Value* slot =
+                builder_.CreateStructGEP(sub->type, object.value, idx, name);
+            llvm::Value* loaded =
+                builder_.CreateLoad(llvm_type_of(f.type), slot, name);
+            CGValue arm{loaded, f.type,
+                        f.type == CGType::Arr ? CGType::Num : CGType::Int,
+                        f.cls};
+            cincoming.emplace_back(
+                builder_.GetInsertBlock(), to_dyn(arm, line, column));
+            builder_.CreateBr(cmerge_bb);
+        }
+        builder_.SetInsertPoint(ctrap_bb);
+        builder_.CreateCall(rt_trap_undefined_property_,
+                            {builder_.CreateGlobalString(name)});
+        builder_.CreateUnreachable();
+        builder_.SetInsertPoint(cmerge_bb);
+        llvm::PHINode* dphi = builder_.CreatePHI(
+            llvm_type_of(CGType::Dyn), static_cast<unsigned>(cincoming.size()),
+            "propdyn");
+        for (const auto& in : cincoming) {
+            dphi->addIncoming(in.second, in.first);
+        }
+        // 读出即 Dyn：类名/elem 元数据无静态归属，消费按运行期 tag 分派
+        return {dphi, CGType::Dyn, CGType::Int, std::string()};
     }
     // switch：case 各定义者（按 id 排序），default = 陷阱
     llvm::Value* clsid = builder_.CreateLoad(

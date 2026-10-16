@@ -190,7 +190,12 @@ if(COLLIE_ENABLE_LLVM)
             s125_none_bit_slot_init s125_none_bit_slot_assign
             s125_none_bit_uninit_slot s125_none_bit_tuple_element
             s125_none_bit_signature_field s125_none_bit_array_element
-            s125_none_bit_compare_flow)
+            s125_none_bit_compare_flow
+            s126_field_mismatch_object_slot
+            s126_field_mismatch_typed_slots
+            s126_field_mismatch_container_bits
+            s126_field_mismatch_signature
+            s126_field_mismatch_control_flow)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -203,13 +208,14 @@ if(COLLIE_ENABLE_LLVM)
 
     # 拒编门禁（t136 引入）：拒编面用例须 colliec rc=1 且 stderr 含
     # "not yet supported"（保守拒编不错编面的回归锁，禁止降差分用例迁就测试）
-    foreach(_rej s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture s92_reject_dynamic_object_field_type_mismatch
+    foreach(_rej s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture
             s97_reject_dyn_to_homog_array_slot
             s115_reject_dyn_array_slot_downgrade_in_loop
             s117_reject_arr_elem_to_homog_domain
             s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
             s123_reject_object_uninit_conditional_assign
-            s125_reject_none_bit_homog_array)
+            s125_reject_none_bit_homog_array
+            s126_reject_field_mismatch_assign)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

@@ -1,0 +1,47 @@
+// t176 S123 差分用例：不一致字段读在控制流与位宽字段上的面——if/else 两支、for 逐轮、
+// while 跨轮、闭包按引用捕获、全局槽在函数内改后函数外读；byte/word 字段与 integer
+// 字段声明不一致（CGField.bit_max 不等，旧守卫同样拒编）按各自 i64 槽读出后打 tag 0
+class Pet { public byte small = 5; }
+class Farm { public integer small = 300; }
+class Pond { public word small = 600; }
+
+array bag = [new Pet(), new Farm(), new Pond()];
+for (integer i = 0; i < 3; i = i + 1) {
+    print("1", bag[i].small);
+}
+
+object cur = 0;
+if (bag[0].small == bag[0].small) {
+    cur = bag[1].small;
+} else {
+    cur = bag[2].small;
+}
+print("2", cur);
+integer k = 0;
+while (k < 2) {
+    cur = bag[k].small;
+    k = k + 1;
+}
+print("3", cur);
+
+object glob = 0;
+function bump() object {
+    glob = bag[2].small;
+    return glob;
+}
+print("4", bump());
+print("5", glob);
+
+function make() object {
+    object local = bag[0].small;
+    function inner() object { return local; }
+    local = bag[1].small;
+    return inner();
+}
+print("6", make());
+print("7", toString(cur));
+print("8", "" + cur);
+object g1 = bag[0].small;
+object g2 = bag[1].small;
+print("9", g1 == g2);
+print("10", g1 + g2);

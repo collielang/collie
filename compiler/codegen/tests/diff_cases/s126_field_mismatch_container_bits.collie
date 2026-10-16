@@ -1,0 +1,36 @@
+// t176 S123 差分用例：不一致字段位为数组位（tag 4）/实例位（tag 5）时合流为 Dyn
+// 后的消费面——数组位取长与索引、整值打印、深比较；实例位按对象头类 id 运行期
+// 分派方法/字段，并可拆槽回类名槽（t158 守卫命中）
+class Dog { public integer age = 3;
+    public function speak() string { return "woof"; } }
+class Kennel { public Dog pet = new Dog(); }
+class Rock { public string tag = "stone"; }
+class Vault { public Rock gem = new Rock(); }
+class BagA { public array items = [1, 2]; }
+class BagB { public string items = "abc"; }
+
+array bag = [new Kennel(), new Vault()];
+object a = bag[0].pet;
+object b = bag[1].gem;
+print("1", a.speak());
+print("2", b.tag);
+print("3", a.age);
+Dog d = a;
+print("4", d.age);
+Rock r = b;
+print("5", r.tag.length);
+
+array bags = [new BagA(), new BagB()];
+object x = bags[0].items;
+object y = bags[1].items;
+print("6", x);
+print("7", x.length);
+print("8", x[1]);
+print("9", y.length);
+print("10", x == x);
+print("11", x == y);
+array slot = bags[0].items;
+print("12", slot);
+slot[0] = 9;
+print("13", slot);
+print("14", bags[0].items[0]);

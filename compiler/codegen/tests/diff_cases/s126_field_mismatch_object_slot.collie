@@ -1,0 +1,27 @@
+// t176 S123 差分用例：跨类同名但声明类型不一致的字段**读**侧——解释器按动态类的
+// 实际字段取值（可打印/可判等/可落槽），codegen 原以「统一 PHI 与后续使用类型
+// 不可定」保守拒编（退役锁 s92_reject_dynamic_object_field_type_mismatch），现逐臂
+// 按自身声明类型 load 后 to_dyn 打框合流为 CGType::Dyn，读出即落 S92–S122 全部
+// 运行期 tag 分派消费面。第一节为原锁程序（本批解锁后保留）
+class Dog { public string name = "rex"; }
+class Cat { public integer name = 42; }
+
+array arr = [new Dog(), new Cat()];
+print("1", arr[0].name);
+
+// 2) 落 object 槽后的显示与判等面（同 kind 可等、跨 kind 恒不等）
+object o = arr[0].name;
+object p = arr[1].name;
+print("2", o);
+print("3", p);
+print("4", o == o);
+print("5", o == p);
+print("6", p == p);
+
+// 3) 同一 object 槽上换承载：空位之外仍可回到字段位
+o = 7;
+print("7", o);
+o = arr[1].name;
+print("8", o + 1);
+print("9", toString(p));
+print("10", "x=" + o);
