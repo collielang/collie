@@ -1767,25 +1767,11 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
     if (var->type == CGType::Obj) {
         // 实例赋值即指针拷贝（引用语义对齐解释器 shared_ptr，t60）；
         // 同一继承树内 upcast/downcast 均放行（t86/t103，解释器不校验类，
-        // 成员访问按对象头类 id 动态分派/陷阱不错值）；跨树拒编不错编
-        // 无初始化 object 首赋（t121）：cls 空占位吸收 RHS 类名（镜像 t112
-        // 首赋建槽模式）——吸收后按静态类名同树规则判定；吸收持久化（t110
-        // 快照只隔离 uninit 标志），条件区内首赋后跨树赋值只可能保守拒编
-        // 不错编，与 t101 类类型变量分支内赋值行为一致
-        if (var->cls.empty() && v.type == CGType::Obj) {
-            var->cls = v.cls;
-        }
-        if (var->cls.empty() && var->type == CGType::Obj &&
-            v.type == CGType::Fn) {
-            // 无初始化 object 首赋函数值（t143，镜像 t120 声明初始化）：槽
-            // 重绑 Fn（同为 ptr 布局，store 合法）；自此读经 visitIdentifier
-            // 出 Fn 值喂消费面；后续异型重赋落上方 Fn 分支/本守卫拒编不错编
-            var->type = CGType::Fn;
-            builder_.CreateStore(v.value, var->slot);
-            var->uninit = false;
-            last_value_ = {v.value, CGType::Fn};
-            return;
-        }
+        // 成员访问按对象头类 id 动态分派/陷阱不错值）；跨树拒编不错编。
+        // 本分支只服务类名声明变量与有初值 object 槽（静态 cls 恒非空——
+        // 无初始化 object 槽自 t173 起直接建 CGType::Dyn 走下方 Dyn 分支，
+        // 原 t121「cls 空占位首赋吸收 RHS 类名」与 t143「首赋函数值重绑 Fn
+        // 槽」两支随该表示切换退役）
         if (v.type == CGType::Dyn && !var->cls.empty()) {
             // 动态承载值重赋类名变量（t158）：同声明初始化规则——tag 5 且类 id
             // 属静态 cls 或其后代类才还原实例 ptr（守卫不中陷阱退出），cls 保持
@@ -1809,18 +1795,6 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // 区域跟踪：条件发射区已快照隔离，此处无条件清）
         var->uninit = false;
         last_value_ = {v.value, CGType::Obj, CGType::Int, var->cls};
-        return;
-    }
-    if (var->type == CGType::Fn) {
-        // Fn 槽同型重赋（t143）：另一函数名/Fn 变量直接换 ptr；异型（数字/
-        // 串等）解释器 coerce default 可直存任意值，此处拒编不错编
-        if (v.type != CGType::Fn) {
-            unsupported("assigning non-function value to '" + name + "'",
-                        expr.name().line(), expr.name().column());
-        }
-        builder_.CreateStore(v.value, var->slot);
-        var->uninit = false;
-        last_value_ = {v.value, CGType::Fn};
         return;
     }
     if (var->type == CGType::Dyn) {
@@ -3893,16 +3867,19 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             return;
         }
         if (tt == TokenType::KW_OBJECT) {
-            // 无初始化 object 变量（t121）：Obj 槽 cls 留空占位，首赋时吸收
-            // RHS 类名（visitAssign Obj 分支识别 cls 为空，镜像 t112 首赋按
-            // RHS 建槽模式）；吸收后与类名声明同规则——字段按吸收类前缀
-            // 偏移解码、方法按对象头 id 动态分派、后续同树重赋走既有守卫
-            // t86/t103；非 Obj 值首赋维持拒编不错编；uninit 期读拒编
-            // （同块赋值后清，t92/t110 定赋区域跟踪）
+            // 无初始化 object 变量（t121 引入，t173 换表示）：槽直接建
+            // CGType::Dyn 的 {tag,bits} 动态承载（与 t146 有初值路径同表示），
+            // 首赋与重赋一律走 visitAssign 的 Dyn 分支（is_dyn_carrier 判定 +
+            // to_dyn 打框），读出即 Dyn 落 S92–S119 全部运行期 tag 分派消费面
+            // ——原 t121「Obj ptr 槽 + 首赋吸收 RHS 类名」与 t143「首赋函数值
+            // 重绑 Fn 槽」两支随之退役：ptr 单字槽不可中段改 {i64,i64}，故首赋
+            // 吸收后异型重赋只能保守拒编（解释器 coerce_to_declared default
+            // 直存任意值）；uninit 期读仍拒编（同块赋值后清，t92/t110 定赋
+            // 区域跟踪）
             const std::string name(stmt.name().lexeme());
             CGVar var;
-            var.slot = create_var_slot(llvm_type_of(CGType::Obj), name);
-            var.type = CGType::Obj;
+            var.slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
+            var.type = CGType::Dyn;
             var.uninit = true;
             var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;

@@ -1,0 +1,42 @@
+// t173 S120 差分用例：无初始化 object 槽首赋容器位（数组 / tuple / 函数），
+// 读出即动态承载值后走运行期 tag 分派的长度、索引、命名字段、转串与深比较面
+
+function eq2(a object, b object) bool {
+    return a == b;
+}
+
+function add(a integer, b integer) integer {
+    return a + b;
+}
+
+object p;
+p = [1, 2];
+print("1", p);
+print("2", p.length);
+print("3", p[0]);
+integer i = 1;
+print("4", p[i]);
+print("5", p[-1]);
+p[0] = 9;
+print("6", p);
+array src = [1, "x"];
+print("7", eq2(p, src));
+array same = [9, 2];
+print("8", eq2(p, same));
+print("9", p.toString());
+p = (a: 1, b: (c: 2));
+print("10", p);
+print("11", p.a);
+print("12", p.length);
+print("13", p.get("b"));
+print("14", p.b.c);
+print("15", p[1]);
+p = add;
+print("16", p);
+print("17", p.toString());
+print("18", eq2(p, p));
+print("19", p ==? add: "fn", "other");
+array bag = [0, "x"];
+bag[0] = p;
+print("20", bag);
+print("21", bag[0]);

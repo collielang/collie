@@ -1,0 +1,59 @@
+// t173 S120 差分用例：无初始化 object 槽首赋实例位后按对象头类 id 运行期分派
+// ——方法调用 / 字段读写 / 继承覆写 / 类名槽拆槽 / 跨树换承载 / 判等恒不等
+// （原 t121 路径是「Obj ptr 槽吸收 RHS 类名」，换承载只能在同树内）
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+
+class Cat {
+    public string cry = "meow";
+    public function speak() string { return "meow"; }
+}
+
+function same(a object, b object) bool {
+    return a == b;
+}
+
+object p;
+p = new Dog("d0");
+print("1", p.sound());
+print("2", p.name);
+print("3", p.describe());
+print("4", p);
+print("5", p.toString());
+p.name = "d1";
+print("6", p.name);
+print("7", p.describe());
+Dog dd = p;
+print("8", dd.sound());
+print("9", dd.name);
+Animal aa = p;
+print("10", aa.describe());
+object q;
+q = p;
+print("11", q.sound());
+q.name = "shared";
+print("12", p.name);
+print("13", same(p, q));
+print("14", same(p, p));
+p = new Cat();
+print("15", p.speak());
+print("16", p.cry);
+print("17", same(p, q));
+array bag = [0, "x"];
+bag[0] = p;
+print("18", bag);
+print("19", bag[0].speak());
+integer i = 0;
+object via_tuple = bag[i];
+print("20", via_tuple.speak());

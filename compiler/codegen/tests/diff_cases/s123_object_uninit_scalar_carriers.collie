@@ -1,0 +1,45 @@
+// t173 S120 差分用例：无初始化 object 变量槽改为 {tag,bits} 动态承载后，
+// 首赋标量位并走全部既有运行期 tag 消费面（原落 "assigning incompatible
+// value to 'p'" 保守拒编——t121 的 Obj ptr 槽首赋吸收 RHS 类名，异型只能拒编）
+
+function take(o object) string {
+    return o.toString();
+}
+
+object p;
+p = 5;
+print("1", p);
+print("2", p.toString());
+print("3", "v=" + p);
+integer q = p;
+print("4", q + 1);
+print("5", p + 1);
+print("6", take(p));
+p = 2.5;
+print("7", p);
+print("8", p.abs());
+print("9", p.isInteger());
+p = "  abc  ";
+print("10", p.trim());
+print("11", p.length);
+string s = p.trim();
+print("12", s + "!");
+p = true;
+print("13", p);
+print("14", p.toString());
+p = unset;
+print("15", p);
+print("16", p ==? unset: "un", "other");
+p = 0;
+print("17", p ==? 0: "zero", "nz");
+switch (p) {
+    0 { print("18 case0"); }
+    default { print("18 def"); }
+}
+object r;
+r = p;
+print("19", r);
+print("20", take(r));
+print("21", take("x"));
+number nn = p;
+print("22", nn + 0.5);

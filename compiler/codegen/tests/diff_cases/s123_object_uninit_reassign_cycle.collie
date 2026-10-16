@@ -1,0 +1,63 @@
+// t173 S120 差分用例：同一无初始化 object 槽反复换承载位（函数 / 数值 / 串 /
+// bool / tribool / 数组 / tuple / 实例）与换承载后的拆槽、签名穿透、元素槽写入
+// 第一节为原 s121_reject_object_uninit_fn_slot 拒编锁程序（本批解锁后保留）
+
+function add(a integer) integer {
+    return a + 1;
+}
+
+class D {
+    public integer v = 1;
+}
+
+object o;
+o = add;
+print("1", o);
+o = 5;
+print("2", o);
+
+o = 2.5;
+print("3", o);
+o = "str";
+print("4", o.length);
+o = true;
+print("5", o);
+o = unset;
+print("6", o);
+o = [7, "y"];
+print("7", o);
+print("8", o.length);
+o = (k: 1);
+print("9", o);
+print("10", o.k);
+o = add;
+print("11", o);
+o = new D();
+print("12", o);
+print("13", o.v);
+
+o = 41;
+integer n = o;
+print("14", n + 1);
+o = "  t  ";
+string s = o.trim();
+print("15", s);
+object alias;
+alias = o;
+print("16", alias);
+print("17", alias.length);
+alias = 8;
+print("18", o);
+print("19", alias);
+print("20", add(alias));
+
+array bag = [0, "x"];
+bag[1] = o;
+print("21", bag);
+print("22", bag[1]);
+Tuple t = (v: o, w: bag);
+print("23", t.v);
+print("24", t.w);
+integer i = 0;
+print("25", t.get("v"));
+print("26", bag[i]);

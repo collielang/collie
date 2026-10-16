@@ -1,0 +1,86 @@
+// t173 S120 差分用例：无初始化 object 槽在控制流里的首赋 / 换承载与汇合点读
+// ——if/else 双支、for 每轮新建、while 跨轮换承载、闭包按引用捕获、全局槽经
+// 函数内重赋、`==?` 结果与提前 return
+
+class D {
+    public integer v = 1;
+    public function show() integer { return this.v + 10; }
+}
+
+bool flag = true;
+object z;
+if (flag) {
+    z = 1;
+} else {
+    z = "one";
+}
+print("1", z);
+print("2", z + 1);
+flag = false;
+object z2;
+if (flag) {
+    z2 = 2;
+} else {
+    z2 = "two";
+}
+print("3", z2);
+print("4", z2.length);
+
+for (integer i = 0; i < 3; i = i + 1) {
+    object lp;
+    lp = i * 2;
+    print("5", lp);
+}
+
+integer k = 0;
+object wp;
+wp = "init";
+while (k < 2) {
+    wp = "w" + k;
+    print("6", wp);
+    k = k + 1;
+}
+print("7", wp);
+print("8", wp.length);
+
+function counter() integer {
+    object cap;
+    cap = 40;
+    function bump() integer {
+        cap = cap + 1;
+        return cap;
+    }
+    return bump() + bump();
+}
+print("9", counter());
+
+object g;
+g = new D();
+function touch(n integer) integer {
+    g.v = n;
+    return g.show();
+}
+print("10", touch(5));
+print("11", g.v);
+g = 2.5;
+print("12", g);
+
+object ret;
+ret = 3;
+if (ret ==? 3: true, false) {
+    print("13 hit");
+}
+print("14", ret ==? 4: "four", "other");
+print("15", ret ==? 3: ret * 2, 0);
+
+function early(v object) string {
+    object slot;
+    slot = v;
+    if (slot ==? 7: true, false) {
+        return "seven";
+    }
+    slot = "tail";
+    return slot.toString();
+}
+print("16", early(1));
+print("17", early(7));
