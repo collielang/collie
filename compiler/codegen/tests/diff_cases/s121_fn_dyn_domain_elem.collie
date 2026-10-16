@@ -1,0 +1,52 @@
+// t171 S118 差分用例：函数位写动态域（elem=Num 哨兵）元素槽并读出
+// 第一节为退役锁 s117_reject_function_elem_dyn_domain 的原程序
+function hi() none {
+    print("called");
+}
+
+function add(a integer) integer {
+    return a + 1;
+}
+
+function f(a array) none {
+    a[0] = hi;
+    print("1", a.length);
+    print("2", a[0]);
+    print("3", a[1]);
+    object head = a[0];
+    print("4", head);
+    print("5", head.toString());
+    print("6", a);
+}
+
+array m = [1, "x"];
+f(m);
+print("7", m);
+print("8", m[0]);
+
+// 动态域内多位置写入函数位，并与其他承载位混排
+function g(a array) none {
+    a[0] = add;
+    a[1] = [7, 8];
+    a[2] = "tail";
+    print("9", a);
+    print("10", a[0]);
+    print("11", a[1]);
+}
+array k = [0, "pad", 0, 9];
+g(k);
+print("12", k);
+
+// 函数位经形参传入后写回数组，再交另一函数读出
+function use(o object) none {
+    print("13", o);
+}
+function h(a array) none {
+    use(a[0]);
+}
+function h2(a array) none {
+    a[0] = add;
+    h(a);
+}
+array n = ["pad", 1];
+h2(n);

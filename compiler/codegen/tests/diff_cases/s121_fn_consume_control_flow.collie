@@ -1,0 +1,112 @@
+// t171 S118 差分用例：函数位在控制流与类成员中的消费面
+function add(a integer) integer {
+    return a + 1;
+}
+
+function hi() none {
+    print("called");
+}
+
+class Registry {
+    public object primary = 0;
+    public function set(v object) none {
+        this.primary = v;
+    }
+    public function value() object {
+        return this.primary;
+    }
+    public function describe() none {
+        print("1", this.primary);
+    }
+    public function make() object {
+        return add;
+    }
+}
+
+Registry r = new Registry();
+r.set(add);
+r.describe();
+print("2", r.value());
+print("3", r.make());
+
+// 循环内累积函数位到数组元素槽
+array holders = [0, "pad", 0];
+for (integer i = 0; i < 3; i += 1) {
+    holders[i] = add;
+}
+print("4", holders);
+print("5", holders[1]);
+
+// 循环内 object 槽反复换型（函数位与数值系之间）
+object cur = 0;
+for (integer i = 0; i < 3; i += 1) {
+    if (i == 1) {
+        cur = add;
+    } else {
+        cur = i;
+    }
+    print("6", cur);
+}
+
+// 提前 return 路径上的函数位
+function early(flag bool) object {
+    if (flag) {
+        return add;
+    }
+    return "tail";
+}
+print("7", early(true));
+print("8", early(false));
+
+// 递归里的函数位透传
+function depth(n integer, carrier object) object {
+    if (n <= 0) {
+        return carrier;
+    }
+    return depth(n - 1, carrier);
+}
+print("9", depth(3, add));
+print("10", depth(2, "s"));
+
+// switch 分支体内的函数位写入与读出
+integer sel = 2;
+object picked = 0;
+switch (sel) {
+    1 {
+        picked = hi;
+    }
+    2 {
+        picked = add;
+    }
+    default {
+        picked = "none";
+    }
+}
+print("11", picked);
+print("12", picked ==? add: "add-hit", hi: "hi-hit", "other");
+print("13", picked ==? 1: "one", add, 2: "two-or-add", "tail");
+
+// 函数位作实参穿透多层签名
+function through2(o object) object {
+    return o;
+}
+function through(o object) object {
+    return through2(o);
+}
+print("14", through(add));
+print("15", through(hi));
+
+// 数组字段承载函数位
+class Bag {
+    public array items = [1, "pad"];
+    public function put(i integer, v object) none {
+        this.items[i] = v;
+    }
+    public function at(i integer) object {
+        return this.items[i];
+    }
+}
+Bag bg = new Bag();
+bg.put(0, add);
+print("16", bg.at(0));
+print("17", bg.items);

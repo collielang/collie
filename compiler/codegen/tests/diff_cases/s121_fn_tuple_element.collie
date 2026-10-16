@@ -1,0 +1,62 @@
+// t171 S118 差分用例：函数位作动态 tuple 元素（tag 9 承载）
+// 第一节为退役锁 s114_reject_dyn_tuple_function_elem 的原程序
+function helper() integer {
+    return 5;
+}
+
+function mk(flag bool) Tuple {
+    return flag ? (f: helper, arr: [1, 2]) : (z: "x");
+}
+
+Tuple t = mk(true);
+print("1", t);
+print("2", t.toString());
+print("3", t.f);
+object o = t.arr;
+print("4", o.length);
+print("5", t.get("f"));
+print("6", t.get("arr"));
+
+Tuple u = mk(false);
+print("7", u);
+print("8", u.z);
+
+// 函数位读出后进 object 槽，再走既有动态承载消费面
+object fn = t.f;
+print("9", fn);
+print("10", fn.toString());
+
+// 静态 tuple 含函数位
+Tuple s = (fn: helper, n: 1);
+print("11", s);
+print("12", s.fn);
+print("13", s.get("fn"));
+
+// 函数位与其他承载位混合的 tuple 整体转串
+Tuple w = (a: helper, b: [1, "x"], c: 2, d: "s");
+print("14", w);
+print("15", w.b);
+
+// 三目两臂均为函数位（同型静态合流，不走动态回退）
+bool flag = true;
+function other() integer {
+    return 6;
+}
+print("16", flag ? helper : other);
+
+// 异质静态 tuple 的函数位元素经非常量索引/动态取键读出（t171：is_scalar 收 Fn，
+// tags+bits 物化单点走 to_dyn 取 tag 9；含 Arr/Obj 元素的同族面仍拒编）
+function eq3(a object, b object) bool {
+    return a == b;
+}
+Tuple h = (x: helper, y: 1, z: "s");
+integer i = 0;
+print("17", h[i]);
+print("18", h[1]);
+print("19", h[2]);
+print("20", h.get("x"));
+print("21", h[-1]);
+object via = h[i];
+print("22", via.toString());
+print("23", eq3(h[i], h[1]));
+print("24", eq3(h[i], h[i]));

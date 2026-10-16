@@ -181,7 +181,7 @@
  *   void collie_rt_print_num(long long tag, long long bits);         // 格式对齐 to_string
  *
  * 动态承载值比较运行时（t149，tag 编码同数组 kind：0=整数 1=小数 2=bool
- * 3=串 4=数组 5=实例 6=tribool 7=异质数组 8=tuple 位（t170）；值 kind 只有运行期可知）：
+ * 3=串 4=数组 5=实例 6=tribool 7=异质数组 8=tuple 位（t170）9=函数位（t171）；值 kind 只有运行期可知）：
  *   long long collie_rt_dyn_eq(atag, abits, btag, bbits);
  *     // 复刻解释器 values_equal 接受表，返 0/1，无陷阱臂（该路径不报错）
  *   int collie_rt_dyn_rel(op, atag, abits, btag, bbits);
@@ -448,6 +448,7 @@ void collie_rt_trap_index_kind(long long tag) {
         case 6: kind = "tribool"; break;
         case 7: kind = "array"; break;
         case 8: kind = "tuple"; break;
+        case 9: kind = "function"; break;
         default: break;
     }
     fprintf(stderr, "Index must be a number, got %s\n", kind);
@@ -541,7 +542,7 @@ const char* collie_rt_tuple_to_str(void* t);
  *   0 → "Property 'length' is only supported on strings and arrays, got <kind>"
  *   1 → "len() expects a string or array, got <kind>"
  * tag 复用数组 kind 编码（0=int 1=dec 2=bool 3=str 4=arr 5=object 6=tribool
- * 7=异质数组 8=tuple 位（t170），kind 名对齐 Value::kind_name（0/1 同报 number、4/7 同报 array） */
+ * 7=异质数组 8=tuple 位（t170）9=函数位（t171），kind 名对齐 Value::kind_name（0/1 同报 number、4/7 同报 array、9 报 function） */
 long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
     switch (tag) {
         case 3:
@@ -572,6 +573,7 @@ long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
         case 2: kind = "bool"; break;
         case 6: kind = "tribool"; break;
         case 8: kind = "tuple"; break;
+        case 9: kind = "function"; break;
         default: break;
     }
     fprintf(stderr, mode == 0
@@ -643,6 +645,7 @@ static const char* collie_rt_dyn_kind_name(long long tag) {
         case 5: return "object";
         case 6: return "tribool";
         case 8: return "tuple";
+        case 9: return "function";
         default: return "unknown";
     }
 }
@@ -821,7 +824,7 @@ void collie_rt_trap_undefined_property(const char* name) {
  * "Type mismatch: cannot assign <kind> to '<type>' variable"，integer 收
  * 小数态沿用解释器特例文案 "decimal value"）。
  * tag 复用数组 kind 编码：0=int/1=dec/2=bool/3=str/4=arr/5=object/6=tribool/
- * 7=异质数组（4、7 同报 array）、8=tuple 位 */
+ * 7=异质数组（4、7 同报 array）、8=tuple 位、9=函数位（t171） */
 void collie_rt_trap_dyn_convert(long long tag, const char* target) {
     const char* kind;
     switch (tag) {
@@ -840,6 +843,7 @@ void collie_rt_trap_dyn_convert(long long tag, const char* target) {
         case 5:  kind = "object";   break;
         case 6:  kind = "tribool";  break;
         case 8:  kind = "tuple";    break;
+        case 9:  kind = "function"; break;
         default: kind = "value";    break;
     }
     fprintf(stderr, "runtime error: Type mismatch: cannot assign %s to "
@@ -1003,6 +1007,10 @@ const char* collie_rt_arr_to_str(void* arr) {
                         collie_rt_sb_append(&out, &n, &cap,
                                             collie_rt_tuple_to_str((void*)(intptr_t)bits));
                         break;
+                    case 9: /* 函数位（t171）：解释器 Array 分支递归 to_string 打
+                             * "<function>"（Value::to_string Function 分支） */
+                        collie_rt_sb_append(&out, &n, &cap, "<function>");
+                        break;
                     default: /* 3 = string：指针位模式还原，原样不加引号 */
                         collie_rt_sb_append(&out, &n, &cap,
                                             (const char*)(intptr_t)bits);
@@ -1155,6 +1163,9 @@ static void collie_rt_append_tagged(char** buf, size_t* n, size_t* cap,
         case 8: /* tuple 位（t170）：嵌套 tuple 元素递归转串 (1, 2) */
             collie_rt_sb_append(buf, n, cap,
                                 collie_rt_tuple_to_str((void*)(intptr_t)bits));
+            break;
+        case 9: /* 函数位（t171）：固定 <function>（不能落 default 当串指针） */
+            collie_rt_sb_append(buf, n, cap, "<function>");
             break;
         default:
             collie_rt_sb_append(buf, n, cap, (const char*)(intptr_t)bits);
@@ -1443,6 +1454,8 @@ const char* collie_rt_num_to_str(long long tag, long long bits) {
         case 8:
             /* Dyn tuple 位（t170）：bits 即 tuple 对象 ptr，格式同静态 tuple */
             return collie_rt_tuple_to_str((void*)(intptr_t)bits);
+        case 9:
+            return "<function>"; /* Dyn 函数位（t171）：静态串勿 free，对齐 to_string Function */
         default:
             return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
     }
@@ -1475,6 +1488,9 @@ void collie_rt_print_num(long long tag, long long bits) {
         case 8:
             /* Dyn tuple 位（t170）：与静态 tuple 打印同形 (1, 2) / (name: Alice) */
             collie_rt_print_str(collie_rt_tuple_to_str((void*)(intptr_t)bits));
+            return;
+        case 9:
+            fputs("<function>", stdout); /* Dyn 函数位（t171，对齐 to_string Function） */
             return;
         default:
             collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));

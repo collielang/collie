@@ -1,0 +1,55 @@
+// t171 S118 差分用例：函数位进三目/`==?` 臂动态合流
+// 第一节为退役锁 s118_reject_tern_arm_function_obj 与
+// s118_reject_match_arm_function_obj 的原程序
+class Dog {
+    public string name = "rex";
+}
+
+function hi() string { return "hi"; }
+
+bool flag = true;
+Dog d = new Dog();
+object t1 = flag ? hi : d;
+print("1", t1);
+
+integer k = 1;
+object t2 = k ==? 1: hi, d;
+print("2", t2);
+
+// 函数位与数值系、串、数组、tuple 臂合流
+object t3 = flag ? hi : 5;
+print("3", t3);
+object t4 = flag ? hi : "s";
+print("4", t4);
+object t5 = flag ? 5 : hi;
+print("5", t5);
+object t6 = flag ? "s" : hi;
+print("6", t6);
+
+// 合流结果为动态承载值后的消费面
+print("7", t6.toString());
+object t7 = flag ? hi : 1.5;
+print("8", t7);
+
+// 函数位进 `==?` 结果臂（与数值 / 串臂同为承载集）
+object t10 = k ==? 1: hi, 2: "two", "tail";
+print("11", t10);
+print("12", t10.toString());
+
+// 合流值写数组元素槽与 object 形参
+array bag = [1, "x"];
+bag[0] = t1;
+print("13", bag);
+function show(o object) none {
+    print("14", o);
+}
+show(flag ? hi : 42);
+
+// 两臂同为函数位时仍走原同型静态合流
+function other() string { return "other"; }
+print("15", flag ? hi : other);
+object t11 = flag ? hi : other;
+print("16", t11);
+
+// 嵌套三目内的函数位
+print("17", flag ? (k ==? 1: hi, "d") : 3);

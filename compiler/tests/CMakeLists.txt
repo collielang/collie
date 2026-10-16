@@ -167,7 +167,11 @@ if(COLLIE_ENABLE_LLVM)
             s120_tuple_to_object_slot s120_tuple_object_field
             s120_dyn_tuple_nested_elem s120_tuple_arms_merge
             s120_tuple_elem_dyn_domain_write s120_dyn_tuple_member_access
-            s120_dyn_tuple_compare)
+            s120_dyn_tuple_compare
+            s121_fn_to_object_signature s121_fn_array_bits
+            s121_fn_tuple_element s121_fn_dyn_domain_elem
+            s121_fn_arms_merge s121_fn_match_candidate
+            s121_fn_consume_control_flow)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -181,16 +185,13 @@ if(COLLIE_ENABLE_LLVM)
     # 拒编门禁（t136 引入）：拒编面用例须 colliec rc=1 且 stderr 含
     # "not yet supported"（保守拒编不错编面的回归锁，禁止降差分用例迁就测试）
     foreach(_rej s91_reject_closure_tuple_capture s91_reject_closure_method_capture s91_reject_closure_shadowed_capture s92_reject_dynamic_object_field_type_mismatch
-            s93_reject_function_as_argument s93_reject_function_in_array s93_reject_function_return_value
             s96_reject_obj_slot_scalar_reassign
             s97_reject_dyn_to_homog_array_slot
-            s114_reject_dyn_tuple_function_elem
             s115_reject_dyn_array_slot_downgrade_in_loop
-            s117_reject_function_elem_dyn_domain
             s117_reject_arr_elem_to_homog_domain
-            s118_reject_tern_arm_function_obj s118_reject_match_arm_function_obj
-            s119_reject_match_dyn_fn_candidate
-            s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign)
+            s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
+            s121_reject_object_uninit_fn_slot
+            s121_reject_tuple_dyn_index_container_elem)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

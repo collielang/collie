@@ -1,0 +1,79 @@
+// t171 S118 差分用例：函数位作 `==?` 候选 / switch 分支值（tag 9 判等恒 false）
+// 第一节为退役锁 s119_reject_match_dyn_fn_candidate 的原程序
+function f() none {
+    print("called");
+}
+
+bool flag = true;
+object o = flag ? 5 : 6;
+print("1", o ==? f: "fn-hit", 5: "five", "no");
+
+// 函数符号的类型即返回类型，故用返回 integer 的函数作候选以通过语义层可比性检查
+function gi() integer {
+    return 3;
+}
+
+// 候选为函数位、目标为静态函数位
+integer k = 1;
+print("2", k ==? gi: "fn", 1: "one", "other");
+print("3", gi ==? gi: "fn-fn", "no");
+
+// 函数位作 switch 分支值（目标静态整数）
+integer sw = 1;
+switch (sw) {
+    gi {
+        print("4 fn-case");
+    }
+    1 {
+        print("4 one");
+    }
+    default {
+        print("4 none");
+    }
+}
+switch (9) {
+    gi {
+        print("5 fn");
+    }
+    default {
+        print("5 none");
+    }
+}
+
+// 动态目标 × 函数候选（switch）
+object dyn_target = flag ? 1 : 2;
+switch (dyn_target) {
+    gi {
+        print("6 fn");
+    }
+    1 {
+        print("6 one");
+    }
+    default {
+        print("6 other");
+    }
+}
+
+// 函数位经三目合流后作 `==?` 目标
+object merged = flag ? gi : "s";
+print("7", merged ==? gi: "fn", "other");
+print("8", merged);
+
+// 动态域元素槽读出的函数位作 `==?` 目标
+function probe(a array) object {
+    return a[0];
+}
+array slot = [1, "x"];
+slot[0] = gi;
+print("11", probe(slot) ==? gi: "fn-hit", "miss");
+print("12", probe(slot));
+
+// 函数位参与的 `==`/`!=` 表达式（两侧均静态函数位）
+function gj() integer {
+    return 4;
+}
+bool same = gi == gi;
+print("13", same);
+print("14", gi != gi);
+print("15", gi ==? gj: "cross", "no");
+print("16", k ==? 1: "one", gi, 3: "three", "tail");

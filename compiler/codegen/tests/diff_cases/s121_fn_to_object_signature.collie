@@ -1,0 +1,82 @@
+// t171 S118 差分用例：函数位进 object 形参/返回值/变量槽（tag 9 承载函数 ptr）
+// 第一、二节为退役锁 s93_reject_function_as_argument 与
+// s93_reject_function_return_value 的原程序
+function add(a integer) integer {
+    return a + 1;
+}
+
+function hi() none {
+    print("called");
+}
+
+function takes(o object) none {
+    print(o);
+}
+
+takes(add);
+
+function mk() object {
+    return add;
+}
+
+print("2", mk());
+function give(o object) object {
+    return o;
+}
+object slot = add;
+// 语义层不收 object × 函数名比较，判等统一经 object × object 形参走 dyn_eq
+function eq2(a object, b object) bool {
+    return a == b;
+}
+print("3", slot);
+print("4", give(slot));
+print("5", slot.toString());
+print("6", "x" + slot + "y");
+print("7", slot == slot);
+print("8", slot != slot);
+print("9", eq2(give(add), add));
+class Box {
+    public object payload = 0;
+    public function put(v object) none {
+        this.payload = v;
+    }
+    public function grab() object {
+        return this.payload;
+    }
+    public function show() none {
+        print("10", this.payload);
+    }
+}
+Box b = new Box();
+b.put(add);
+print("11", b.grab());
+b.show();
+b.payload = add;
+print("12", b.payload);
+print("13", b.grab() == b.grab());
+object captured = add;
+function peek() object {
+    return captured;
+}
+print("14", peek());
+for (integer i = 0; i < 2; i += 1) {
+    object looped = give(add);
+    print("15", looped);
+}
+if (eq2(give(add), add)) { print("16 hit"); } else { print("16 miss"); }
+// object 变量槽自 t171 起为动态承载槽（原 t143「Fn 槽静态近似」已退役）：
+// 函数位与非函数值交替重赋、跨承载位换型均可运行
+slot = 5;
+print("17", slot);
+slot = hi;
+print("18", slot);
+slot = [1, 2];
+print("19", slot);
+slot = "s";
+print("20", slot);
+print("21", eq2(slot, "s"));
+// object 型类字段同样走动态承载槽：函数位与标量位交替写入
+b.payload = 7;
+print("22", b.payload);
+b.payload = hi;
+print("23", b.payload);
