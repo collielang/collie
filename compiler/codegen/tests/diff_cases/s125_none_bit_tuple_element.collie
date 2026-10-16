@@ -1,0 +1,65 @@
+// t175 S122 差分用例：tuple 的空位（none）元素——解释器 visitTuple 逐元素保型可
+// 直存 Kind::None，codegen 在 tuple 构造点就地盒化为 tag 10 的 Dyn 元素（退役
+// t172 的 "tuple element without value" 拒编），常量索引 / 非常量索引 / get() /
+// 整值打印 / 转串全落运行期 tag 分派臂。
+// 第一节为原 s122_reject_tuple_void_element 拒编锁程序（本批解锁后保留）
+
+function nop() none {
+    print("n");
+}
+
+// 1) 原锁程序：命名 tuple 的空位元素 + 非常量索引
+Tuple u = (a: nop(), b: 1);
+integer i = 0;
+print(u[i]);
+
+// 2) 空位元素的常量索引、动态取键与整值打印
+Tuple v = (a: nop(), b: 2);
+print("3a", v.a);
+print("3b", v[1]);
+print("3c", v);
+print("3d", v.get("a"));
+print("3e", v.length);
+integer j = 0;
+print("3f", v[j]);
+print("3g", toString(v));
+
+// 3) 位置 tuple 含空位（多形态混排）
+Tuple w = (nop(), "x", 3, true);
+print("4a", w);
+print("4b", w[0]);
+print("4c", w.length);
+object e = w[0];
+print("4d", e);
+print("4e", e == e);
+
+// 4) 嵌套 tuple 的空位（内层物化为 tag 8 后元素仍按 tag 10 读出）
+Tuple deep = (k: (nop(), 1), m: 2);
+print("5a", deep);
+print("5b", deep[0]);
+object inner = deep.get("k");
+print("5c", inner);
+
+// 5) 空位 tuple 与另一同形 tuple 的深比较（tuple_eq 逐元素 dyn_eq）
+Tuple x1 = (nop(), 1);
+Tuple x2 = (nop(), 1);
+print("6", x1 == x2);
+Tuple x3 = (1, 1);
+print("7", x1 == x3);
+
+// 6) tuple 空位元素写进 object 槽后再重赋
+object holder;
+holder = x1[0];
+print("8", holder);
+holder = 9;
+print("9", holder);
+
+// 7) 静态 tuple 混入其它动态承载位（object 槽读出）的深比较：本批起静态展开
+// 遇 Dyn 位改走物化 + rt_tuple_eq（原兜底分支把 Dyn×Dyn 元素算成恒 false，
+// 属静默错编）
+object dynbit = 5;
+Tuple d1 = (dynbit, nop());
+Tuple d2 = (dynbit, nop());
+print("10", d1 == d2);
+Tuple d3 = (dynbit, 1);
+print("11", d1 == d3);

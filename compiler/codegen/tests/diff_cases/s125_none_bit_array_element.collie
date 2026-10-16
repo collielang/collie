@@ -1,0 +1,66 @@
+// t175 S122 差分用例：数组元素槽的空位（none）——异质字面量就地盒化为 tag 10 入
+// kind 7 双步长槽（退役 t175 前的 "array element without value" 类拒编）、静态
+// 异质数组整槽写与形参动态域（elem 为 Num 哨兵，运行期 kind 才定）写空位均与
+// t167/t171 的容器位写侧同路；读出恒 Dyn，print/len/索引/== 深比较全按 tag 分派
+// （数值系同质数组写空位属既有 CG7 运行期陷阱面，本例只用异质数组）
+
+function nop() none {
+    print("n");
+}
+
+function put(a array, i integer) none {
+    a[i] = nop();
+}
+
+// 1) 空位作异质数组字面量首元素
+array head = [nop(), 1, "x"];
+print("2a", head);
+print("2b", head[0]);
+print("2c", head.length);
+object e = head[0];
+print("2d", e);
+print("2e", e == e);
+
+// 2) 空位写异质数组元素槽（kind 7 静态可定）
+array bag = [1, "a"];
+integer z = 0;
+bag[z] = nop();
+print("3a", bag);
+print("3b", bag[0]);
+print("3c", bag[1]);
+
+// 3) 形参动态域写空位（运行期 kind 为 7 时落双步长槽，读回即 Dyn）
+array dyn = [1, "b", 2];
+put(dyn, 1);
+print("4a", dyn);
+print("4b", dyn[1]);
+object d = dyn[1];
+print("4c", d == e);
+
+// 4) 整槽替换与嵌套数组中的空位
+object whole = [nop(), [nop(), 2]];
+print("5a", whole);
+print("5b", whole[1]);
+array nest = [nop()];
+array outer = [nest, "s"];
+print("5c", outer);
+print("5d", outer[0]);
+
+// 6) 含空位数组的深比较（arr_eq 逐元素归一化后交 dyn_eq）
+array a1 = [nop(), 1];
+array a2 = [nop(), 1];
+object o1 = a1;
+object o2 = a2;
+print("6", o1 == o2);
+array a3 = [1, 1];
+object o3 = a3;
+print("7", o1 == o3);
+
+// 8) 循环内逐元素写空位后再整值打印
+array loop = [0, 0, 0, "z"];
+integer i = 0;
+while (i < 3) {
+    loop[i] = nop();
+    i = i + 1;
+}
+print("8", loop);

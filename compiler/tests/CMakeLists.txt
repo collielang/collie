@@ -186,7 +186,11 @@ if(COLLIE_ENABLE_LLVM)
             s124_object_slot_instance_bits
             s124_object_slot_container_carriers
             s124_object_slot_match_compare
-            s124_object_slot_control_flow)
+            s124_object_slot_control_flow
+            s125_none_bit_slot_init s125_none_bit_slot_assign
+            s125_none_bit_uninit_slot s125_none_bit_tuple_element
+            s125_none_bit_signature_field s125_none_bit_array_element
+            s125_none_bit_compare_flow)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -204,11 +208,8 @@ if(COLLIE_ENABLE_LLVM)
             s115_reject_dyn_array_slot_downgrade_in_loop
             s117_reject_arr_elem_to_homog_domain
             s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
-            s122_reject_tuple_void_element
-            s123_reject_object_uninit_void_assign
             s123_reject_object_uninit_conditional_assign
-            s124_reject_object_slot_void_init
-            s124_reject_object_slot_void_assign)
+            s125_reject_none_bit_homog_array)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

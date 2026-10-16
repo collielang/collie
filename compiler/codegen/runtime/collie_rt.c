@@ -181,7 +181,8 @@
  *   void collie_rt_print_num(long long tag, long long bits);         // 格式对齐 to_string
  *
  * 动态承载值比较运行时（t149，tag 编码同数组 kind：0=整数 1=小数 2=bool
- * 3=串 4=数组 5=实例 6=tribool 7=异质数组 8=tuple 位（t170）9=函数位（t171）；值 kind 只有运行期可知）：
+ * 3=串 4=数组 5=实例 6=tribool 7=异质数组 8=tuple 位（t170）9=函数位（t171）
+ * 10=空位（t175，bits 恒 0）；值 kind 只有运行期可知）：
  *   long long collie_rt_dyn_eq(atag, abits, btag, bbits);
  *     // 复刻解释器 values_equal 接受表，返 0/1，无陷阱臂（该路径不报错）
  *   int collie_rt_dyn_rel(op, atag, abits, btag, bbits);
@@ -449,6 +450,7 @@ void collie_rt_trap_index_kind(long long tag) {
         case 7: kind = "array"; break;
         case 8: kind = "tuple"; break;
         case 9: kind = "function"; break;
+        case 10: kind = "none"; break;
         default: break;
     }
     fprintf(stderr, "Index must be a number, got %s\n", kind);
@@ -542,7 +544,8 @@ const char* collie_rt_tuple_to_str(void* t);
  *   0 → "Property 'length' is only supported on strings and arrays, got <kind>"
  *   1 → "len() expects a string or array, got <kind>"
  * tag 复用数组 kind 编码（0=int 1=dec 2=bool 3=str 4=arr 5=object 6=tribool
- * 7=异质数组 8=tuple 位（t170）9=函数位（t171），kind 名对齐 Value::kind_name（0/1 同报 number、4/7 同报 array、9 报 function） */
+ * 7=异质数组 8=tuple 位（t170）9=函数位（t171）10=空位（t175），kind 名对齐
+ * Value::kind_name（0/1 同报 number、4/7 同报 array、9 报 function、10 报 none） */
 long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
     switch (tag) {
         case 3:
@@ -574,6 +577,7 @@ long long collie_rt_dyn_len(long long tag, long long bits, long long mode) {
         case 6: kind = "tribool"; break;
         case 8: kind = "tuple"; break;
         case 9: kind = "function"; break;
+        case 10: kind = "none"; break;
         default: break;
     }
     fprintf(stderr, mode == 0
@@ -646,6 +650,7 @@ static const char* collie_rt_dyn_kind_name(long long tag) {
         case 6: return "tribool";
         case 8: return "tuple";
         case 9: return "function";
+        case 10: return "none";
         default: return "unknown";
     }
 }
@@ -844,6 +849,7 @@ void collie_rt_trap_dyn_convert(long long tag, const char* target) {
         case 6:  kind = "tribool";  break;
         case 8:  kind = "tuple";    break;
         case 9:  kind = "function"; break;
+        case 10: kind = "none";     break;
         default: kind = "value";    break;
     }
     fprintf(stderr, "runtime error: Type mismatch: cannot assign %s to "
@@ -1011,6 +1017,9 @@ const char* collie_rt_arr_to_str(void* arr) {
                              * "<function>"（Value::to_string Function 分支） */
                         collie_rt_sb_append(&out, &n, &cap, "<function>");
                         break;
+                    case 10: /* 空位（t175）：解释器 Value::to_string None 分支打 "none" */
+                        collie_rt_sb_append(&out, &n, &cap, "none");
+                        break;
                     default: /* 3 = string：指针位模式还原，原样不加引号 */
                         collie_rt_sb_append(&out, &n, &cap,
                                             (const char*)(intptr_t)bits);
@@ -1166,6 +1175,9 @@ static void collie_rt_append_tagged(char** buf, size_t* n, size_t* cap,
             break;
         case 9: /* 函数位（t171）：固定 <function>（不能落 default 当串指针） */
             collie_rt_sb_append(buf, n, cap, "<function>");
+            break;
+        case 10: /* 空位（t175）：固定 "none"（不能落 default 当串指针） */
+            collie_rt_sb_append(buf, n, cap, "none");
             break;
         default:
             collie_rt_sb_append(buf, n, cap, (const char*)(intptr_t)bits);
@@ -1363,7 +1375,8 @@ int collie_rt_num_cmp(long long op, long long atag, long long abits,
  * （tag 0/1，含跨 tag 混合表示）下沉 num_cmp（双整数直比、混合 double 视图，
  * 5 == 5.0）；串位 strcmp 内容比较；数组位（kind 4 单类型 / kind 7 异质）
  * arr_eq 递归深比较；实例位（tag 5）与未列 tag 恒 false（解释器 values_equal
- * 无 Instance 分支）。解释器此路径不报错，故本函数无陷阱臂。返 1/0 */
+ * 无 Instance 分支）；空位（tag 10，t175）kind 对齐后恒 true（解释器 None 分支）。
+ * 解释器此路径不报错，故本函数无陷阱臂。返 1/0 */
 long long collie_rt_dyn_eq(long long atag, long long abits,
                            long long btag, long long bbits) {
     if (atag == 6 || btag == 6) {
@@ -1397,6 +1410,10 @@ long long collie_rt_dyn_eq(long long atag, long long abits,
              * 深比较（复用 rt_tuple_eq，嵌套 tuple 元素经 dyn_eq 递归回此处） */
             return collie_rt_tuple_eq((void*)(intptr_t)abits,
                                       (void*)(intptr_t)bbits);
+        case 10:
+            /* 空位（t175）：解释器 values_equal 的 None 分支在 kind 已对齐后恒
+             * true（none == none 为真，bits 无内容不参与比较） */
+            return 1;
         default:
             return 0; /* 实例位等：解释器 default 恒 false */
     }
@@ -1456,6 +1473,8 @@ const char* collie_rt_num_to_str(long long tag, long long bits) {
             return collie_rt_tuple_to_str((void*)(intptr_t)bits);
         case 9:
             return "<function>"; /* Dyn 函数位（t171）：静态串勿 free，对齐 to_string Function */
+        case 10:
+            return "none"; /* Dyn 空位（t175）：静态串勿 free，对齐 Value::to_string None */
         default:
             return collie_rt_f64_to_str(collie_rt_num_as_f64(tag, bits));
     }
@@ -1491,6 +1510,9 @@ void collie_rt_print_num(long long tag, long long bits) {
             return;
         case 9:
             fputs("<function>", stdout); /* Dyn 函数位（t171，对齐 to_string Function） */
+            return;
+        case 10:
+            fputs("none", stdout); /* Dyn 空位（t175，对齐 print 的 to_string None） */
             return;
         default:
             collie_rt_print_f64(collie_rt_num_as_f64(tag, bits));

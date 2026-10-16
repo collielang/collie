@@ -1,0 +1,63 @@
+// t175 S122 差分用例：空位（none）进 object 形参 / object 返回值 / object 类字段
+// 三条签名与字段链路——解释器对 object 声明一律 coerce default 直存不校验，
+// codegen 在实参绑定（is_dyn_carrier 准入）、return 与字段读写点统一 to_dyn 打
+// tag 10，读出恒 Dyn 落运行期 tag 分派消费面（t161/t162 承载面本批补上空位）
+
+function nop() none {
+    print("n");
+}
+
+function take(v object) object {
+    print("t", v);
+    return v;
+}
+
+function give() object {
+    return nop();
+}
+
+class Box {
+    public object payload = nop();
+    public function set(v object) none {
+        this.payload = v;
+    }
+    public function fetch() object {
+        return this.payload;
+    }
+}
+
+class Dog {
+    public string name = "rex";
+    public function sound() string { return "woof"; }
+}
+
+// 1) 空位实参绑定 object 形参，返回值再消费
+print("2a", take(nop()));
+object r = take(nop());
+print("2b", r);
+print("2c", r == r);
+print("2d", r.toString());
+
+// 2) object 返回值直接取空位
+print("3a", give());
+object g = give();
+print("3b", g);
+print("3c", g ==? 1: "num", nop(): "none-hit", "other");
+
+// 3) 类字段：空位初值 + 方法写空位 + 读出后重赋其它承载位
+Box b = new Box();
+b.fetch();
+print("4a", b.payload);
+print("4b", b.fetch());
+b.set(7);
+print("4c", b.fetch());
+b.set(nop());
+print("4d", b.fetch());
+Dog d = new Dog();
+b.set(d);
+print("4e", b.fetch().sound());
+b.set(nop());
+print("4f", b.fetch());
+
+// 4) 空位作形参时求值副作用保序（nop 的 print 先于形参内的 t 打印）
+print("5", take(nop()));

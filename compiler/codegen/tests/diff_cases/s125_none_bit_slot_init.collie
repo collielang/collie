@@ -1,0 +1,52 @@
+// t175 S122 差分用例：`none` 函数返回值纳入动态承载（运行期 tag 10、bits 恒 0）
+// 后的 object 声明槽初值面——解释器 coerce_to_declared default 直存 Kind::None，
+// codegen 的 visitVarDecl KW_OBJECT 分支把初值经 to_dyn 打 tag 10 入 {tag,bits} 槽，
+// 读出恒 Dyn 落运行期 tag 分派消费面（print/toString/拼接/判等/==?/switch）。
+// 第一节为原 s124_reject_object_slot_void_init 拒编锁程序（本批解锁后保留）
+
+function nop() none {
+    print("n");
+}
+
+// 1) 原锁程序：空位作 object 声明槽初值
+object o = nop();
+print(o);
+print("END");
+
+// 2) 空位读出即 Dyn 的显示面（整值打印 / 方法转串 / 内建转串 / 拼接）
+object a = nop();
+print("3", a);
+print("4", a.toString());
+print("5", toString(a));
+string s = "v=" + a;
+print("6", s);
+
+// 3) 判等面：解释器 values_equal 的 None 分支在 kind 对齐后恒 true，
+// 跨 kind 恒 false（dyn_eq 的 tag 10 自等臂）
+print("7", a == a);
+object one = 1;
+object str1 = "1";
+print("8", a == one);
+print("9", a == str1);
+
+// 4) 同一槽上空位与其它承载位的回环重赋
+object b = nop();
+b = 5;
+print("10", b);
+b = "x";
+print("11", b);
+b = nop();
+print("12", b);
+print("13", b == a);
+
+// 5) ==? 与 switch 的空位分支
+print("14", a ==? 1: "num", nop(): "none-hit", "other");
+print("15", a ==? nop(): "none-hit", "miss");
+switch (a) {
+    nop() {
+        print("16 none-case");
+    }
+    default {
+        print("16 default");
+    }
+}

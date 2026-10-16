@@ -1,0 +1,50 @@
+// t175 S122 差分用例：实例初值的 object 槽重赋空位——换表示后有初值与无初值
+// object 声明共用 CGType::Dyn 聚合槽，visitAssign 的 Dyn 分支把 `none` 调用结果
+// 打 tag 10 整槽替换（原 t120 静态 ptr 槽不可中段改 {i64,i64}，此面只能保守拒编），
+// 实例位/空位在同一槽上交替重赋后读出恒 Dyn，方法按对象头类 id 运行期分派。
+// 第一节为原 s124_reject_object_slot_void_assign 拒编锁程序（本批解锁后保留）
+
+class Dog {
+    public string name = "rex";
+    public function sound() string { return "woof"; }
+}
+
+function nop() none { }
+
+function noisy() none {
+    print("side");
+}
+
+// 1) 原锁程序：实例初值槽重赋空位
+object o = new Dog();
+print(o.sound());
+o = nop();
+print(o);
+print("END");
+
+// 2) 空位与实例位交替重赋，读出后各自的消费面仍可用
+object p = new Dog();
+print("3a", p.sound());
+p = nop();
+print("3b", p);
+p = new Dog();
+print("3c", p.sound());
+print("3d", p == p);
+
+// 3) 空位初值槽重赋实例位后走对象头类 id 分派
+object q = nop();
+print("4a", q);
+Dog d = new Dog();
+q = d;
+print("4b", q.sound());
+print("4c", q.name);
+q = nop();
+print("4d", q);
+
+// 4) 求值副作用保序：被赋值表达式的 print 先于后续语句
+object r = 0;
+r = noisy();
+print("5", r);
+print("6", r == r);
+r = noisy();
+print("7", r);

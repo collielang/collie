@@ -1,0 +1,67 @@
+// t175 S122 差分用例：无初始化 object 槽首赋空位——t173 起该槽即 CGType::Dyn 聚合
+// 槽，`none` 调用结果经 visitAssign Dyn 分支打 tag 10 入槽（原 t121「Obj ptr 槽 +
+// 首赋吸收 RHS 类名」与本批 t174 的静态初值近似均已退役），其后一切承载位重赋与
+// 读出消费同规则。第一节为原 s123_reject_object_uninit_void_assign 拒编锁程序
+// （本批解锁后保留）
+
+function nop() none {
+    print("n");
+}
+
+class Robot {
+    public string tag = "bot";
+    public function beep() string { return "beep"; }
+}
+
+// 1) 原锁程序：无初值槽首赋空位
+object p;
+p = nop();
+print(p);
+
+// 2) 空位首赋后与其它承载位互赋回环（读出恒 Dyn）
+object q;
+q = nop();
+print("3a", q);
+q = 5;
+print("3b", q);
+q = "s";
+print("3c", q);
+q = new Robot();
+print("3d", q.beep());
+print("3e", q.tag);
+q = nop();
+print("3f", q);
+
+// 3) 条件两支都首赋后同区读出（单支首赋落 t110 定赋区域拒编，见
+// s123_reject_object_uninit_conditional_assign 锁）
+bool flag = true;
+object r;
+if (flag) {
+    r = nop();
+} else {
+    r = 1;
+}
+print("4", r);
+print("5", r == r);
+
+// 4) 循环内重赋空位、循环外读末值
+object t = 0;
+integer i = 0;
+while (i < 3) {
+    if (i == 1) {
+        t = nop();
+    } else {
+        t = i;
+    }
+    i = i + 1;
+}
+print("6", t);
+
+// 5) 函数体内局部无初值槽首赋空位并返回
+function leak() object {
+    object local;
+    local = nop();
+    return local;
+}
+print("7", leak());
+print("8", leak() == leak());

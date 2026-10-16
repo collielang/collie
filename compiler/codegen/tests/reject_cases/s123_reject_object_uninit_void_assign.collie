@@ -1,9 +1,0 @@
-// t173 S120 拒编锁：无初始化 object 槽首赋 none 调用结果——Void 从未有 {tag,bits}
-// 编码（同 s122_reject_tuple_void_element / s93 函数值面族），维持保守拒编不错编
-// （解释器 coerce_to_declared default 直存 none 并打印 "none"）
-function nop() none {
-    print("n");
-}
-object p;
-p = nop();
-print(p);

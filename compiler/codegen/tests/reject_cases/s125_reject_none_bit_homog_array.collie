@@ -1,0 +1,13 @@
+// t175 S122 拒编锁：空位（`none`）写静态同质数组元素槽维持保守拒编不错编——
+// t175 起 `none` 已有运行期 tag 10 的 {tag,bits} 承载编码，异质（kind 7）数组
+// 元素槽与形参动态域（运行期 kind 为 7）均可直存，但 kind 0/1/2/3/5/6 的定宽
+// 单值槽只能放一个 i64，装不下 tag，故落 visitIndexAssign 的元素类型守卫
+// "array element type mismatch in index assignment"（解释器数组逐元素保型可
+// 直存任意 Kind，`nums[0] = nop()` 打印 [none, 2, 3]，属活跃差分）
+// 解锁需元素槽 {tag,bits} 化或数组表示整体改造（同 s120_reject_tuple_elem_homog_array
+// / s117_reject_arr_elem_to_homog_domain 一族）
+function nop() none { }
+
+array nums = [1, 2, 3];
+nums[0] = nop();
+print(nums);

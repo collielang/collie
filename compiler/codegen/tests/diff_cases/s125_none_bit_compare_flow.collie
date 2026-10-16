@@ -1,0 +1,84 @@
+// t175 S122 差分用例：空位（none）在比较与控制流面的消费——判等复刻解释器
+// values_equal 的 None 分支（kind 对齐后恒 true，跨 kind 恒 false），==? 目标与
+// 候选、switch 分支值、多臂合流一律经 dyn_eq 按运行期 tag 判定；空位可与任意
+// 承载位在同一动态域槽 / 类字段 / 函数边界间流转（三目与 == 的空位臂两端同为
+// 语义层拒编面，不进本例）
+
+function nop() none {
+    print("n");
+}
+
+function pick(v object) object {
+    return v;
+}
+
+class Holder {
+    public object slot = 0;
+    public function load(v object) none {
+        this.slot = v;
+    }
+    public function dump() string {
+        return "slot=" + this.slot;
+    }
+}
+
+// 1) 判等矩阵：空位×空位真，跨 kind 假
+object n1 = nop();
+object n2 = pick(nop());
+object five = 5;
+object txt = "5";
+object arr = [1];
+print("2a", n1 == n2);
+print("2b", n1 == five);
+print("2c", n1 == txt);
+print("2d", n1 == arr);
+print("2e", n1 != n2);
+print("2f", five == n1);
+
+// 3) ==? 目标与候选含空位（dyn_eq 按 tag 判定）
+print("4a", n1 ==? 5: "five", "s": "str", nop(): "none", "other");
+print("4b", five ==? nop(): "none", 5: "five", "other");
+print("4c", arr ==? nop(): "none", "other");
+
+// 5) switch 分支值取空位
+object sw = pick(nop());
+switch (sw) {
+    5 {
+        print("6a int-case");
+    }
+    nop() {
+        print("6b none-case");
+    }
+    default {
+        print("6c default");
+    }
+}
+
+// 7) 类字段槽在空位与其它承载位间流转，转串经 dyn 承载面
+Holder h = new Holder();
+print("8a", h.dump());
+h.load(nop());
+print("8b", h.dump());
+h.load(42);
+print("8c", h.dump());
+h.load(nop());
+print("8d", h.slot == n1);
+
+// 9) 循环内按条件在空位与标量位间切换槽值，累加判等次数
+integer hits = 0;
+object cur = 0;
+integer i = 0;
+while (i < 6) {
+    if (i % 2 == 0) {
+        cur = nop();
+    } else {
+        cur = i;
+    }
+    bool is_none = cur ==? nop(): true, false;
+    if (is_none) {
+        hits = hits + 1;
+    }
+    i = i + 1;
+}
+print("10", hits);
+print("11", cur);

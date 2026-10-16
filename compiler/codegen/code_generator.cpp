@@ -1801,7 +1801,8 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // object 动态承载槽重赋（t146）：标量/Dyn/Obj（tag 5）统一经 to_dyn
         // 组装整槽替换，解释器 coerce default 直存任意值同规则；数组位放行
         // （t160）：tag 4 + 内层数组 ptr 位模式；tuple 位放行（t170）：tag 8 +
-        // 物化后的堆对象 ptr；Fn/Void 无 {tag,bits} 编码，拒编不错编
+        // 物化后的堆对象 ptr；函数位放行（t171）：tag 9；空位放行（t175）：
+        // tag 10 + bits 恒 0（`none` 调用副作用已在 emit 时发生）
         if (!is_dyn_carrier(v.type)) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
@@ -1895,8 +1896,11 @@ void CodeGenerator::visitTuple(const TupleExpr& expr) {
     for (const auto& element : expr.elements()) {
         CGValue v = emit(element.get());
         if (v.type == CGType::Void) {
-            unsupported("tuple element without value",
-                        expr.paren().line(), expr.paren().column());
+            // `none` 函数返回值作 tuple 元素（t175）：解释器直存 Kind::None 元素
+            // 并可打印/索引/判等，此处就地盒化为 tag 10 的 Dyn 元素（副作用已在
+            // emit 时发生），后续消费全落运行期 tag 分派臂
+            v = {to_dyn(v, expr.paren().line(), expr.paren().column()),
+                 CGType::Dyn};
         }
         t.elems.push_back(v);
     }
@@ -1921,7 +1925,10 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
     for (const auto& element : expr.elements()) {
         CGValue v = emit(element.get());
         if (v.type == CGType::Void) {
-            unsupported("array element without value", bracket.line(), bracket.column());
+            // `none` 函数返回值作数组元素（t175）：解释器数组逐元素保型可直存
+            // Kind::None（`[nop(), 1]` 打印 `[none, 1]`），此处就地盒化为 tag 10
+            // 的 Dyn 元素并入 kind 7 双步长槽；副作用已在 emit 该调用时发生
+            v = {to_dyn(v, bracket.line(), bracket.column()), CGType::Dyn};
         }
         if (elements.empty()) {
             // 元素全为 tuple / 函数（t170/t171）：静态 tuple 无单值槽表示、函数
@@ -1948,7 +1955,8 @@ void CodeGenerator::visitArrayLiteral(const ArrayLiteralExpr& expr) {
                 // tag 分派（数组位递归 arr_to_str、实例位 <object>），== 经 dyn_eq
                 // 数组位递归深比较、实例位恒不等（对齐解释器 values_equal）；
                 // 后续元素经 is_dyn_scalar(Dyn)/is_dyn_carrier(Dyn) 持续吸收，
-                // Tup/Fn/Void 维持拒编不错编——is_dyn_scalar 本体不收 Obj/Arr，
+                // 承载集（含空位 tag 10，t175）之外的元素维持拒编不错编——
+                // is_dyn_scalar 本体不收 Obj/Arr，
                 // tuple 物化处（t140）的「含数组元素」面不受本面影响
                 elem = CGType::Dyn;
             } else {
@@ -2397,13 +2405,13 @@ void CodeGenerator::visitIndexAssign(const IndexAssignExpr& expr) {
         }
         if (v.type == CGType::Obj || v.type == CGType::Arr ||
             v.type == CGType::Tup || v.type == CGType::TupDyn ||
-            v.type == CGType::Fn) {
-            // 静态实例位/数组位/tuple 位/函数位写动态域（t167，t170 扩 tuple 位、
-            // t171 扩函数位）：接收者
+            v.type == CGType::Fn || v.type == CGType::Void) {
+            // 静态实例位/数组位/tuple 位/函数位/空位写动态域（t167，t170 扩 tuple 位、
+            // t171 扩函数位、t175 扩空位）：接收者
             // elem 为 Num 哨兵时数组的运行期 kind 静态不可定（类字段/形参/无初始化
-            // 声明等来源），故交 to_dyn 打 tag 5/4/8/9 后与 t151 同路——tag==kind 直存
+            // 声明等来源），故交 to_dyn 打 tag 5/4/8/9/10 后与 t151 同路——tag==kind 直存
             // ptr 位模式（内层 kind 随新数组对象自带，引用语义不变）、kind 7 落双步长
-            // {tag,bits} 槽、失配落 CG7 陷阱；读回即 Dyn，消费全落 S92–S114 既有
+            // {tag,bits} 槽、失配落 CG7 陷阱；读回即 Dyn，消费全落 S92–S121 既有
             // tag 分派臂
             llvm::Value* vd = to_dyn(v, expr.bracket().line(),
                                      expr.bracket().column());
@@ -3891,17 +3899,14 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     // object 动态类型变量（t120 引入，t174 换表示）：解释器 coerce_to_declared
     // default 不校验任意值直存，故一律建 CGType::Dyn 的 {tag,bits} 动态承载槽
     // （无初值声明同表示，t173）——初值经 to_dyn 打 tag（实例位 tag 5 存实例
-    // ptr 位模式），读出恒 Dyn 落 S92–S119 全部运行期 tag 分派消费面（方法按
+    // ptr 位模式），读出恒 Dyn 落 S92–S121 全部运行期 tag 分派消费面（方法按
     // 对象头类 id 分派 t133、字段读写按类 id 分派 t142），重赋走 visitAssign
     // Dyn 分支（is_dyn_carrier 准入 + 整槽替换）；原 t120「Obj ptr 槽 + 静态
-    // 初始类名」近似退役：ptr 单字槽不可中段改 {i64,i64}，其后异型/跨树重赋
-    // 只能保守拒编（s96_reject_obj_slot_scalar_reassign 锁面）；Void 等无编码
-    // 初值维持拒编不错编
+    // 初始类名」近似退役：ptr 单字槽不可中段改 {i64,i64}
     if (stmt.type().type() == TokenType::KW_OBJECT) {
         CGValue init = emit(stmt.initializer());
         if (!is_dyn_carrier(init.type)) {
-            // 标量/Dyn/数组/tuple/函数/实例初值均可承载（t146/t160/t170/t171），
-            // none 等无 {tag,bits} 编码者维持拒编不错编
+            // 承载集（标量/Dyn/数组/tuple/函数/实例/空位）之外的初值拒编不错编
             unsupported("initializing 'object' variable with non-object value",
                         stmt.name().line(), stmt.name().column());
         }
@@ -5760,7 +5765,8 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
     // 8，t170）深比较、实例位与 kind 失配恒 false）；tuple 侧自 t170 起也入此分支
     // （Dyn 可承载 tuple 位，原「Tup × 非 Tup 恒 false」折叠只保留在两侧皆静态的
     // 各臂里）；函数位自 t171 起也入此分支（tag 9 与任何 tag 判等恒 false，与解释器
-    // values_equal 的 Function default 一致）；Void 无 {tag,bits} 编码维持原拒编。
+    // values_equal 的 Function default 一致）；空位自 t175 起也入此分支（tag 10，
+    // 解释器 values_equal 的 None 分支恒 true，故 None×None 判等真、跨 kind 假）。
     // 静态×静态组合除函数位外不经此分支（函数位无静态判等路径，只能盒化比较）
     if (target.type == CGType::Dyn || cand.type == CGType::Dyn ||
         target.type == CGType::Fn || cand.type == CGType::Fn) {
@@ -5768,7 +5774,8 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
             return ty == CGType::Dyn || ty == CGType::Int || ty == CGType::Double ||
                    ty == CGType::Num || ty == CGType::Str || ty == CGType::Bool ||
                    ty == CGType::Tri || ty == CGType::Arr || ty == CGType::Obj ||
-                   ty == CGType::Tup || ty == CGType::TupDyn || ty == CGType::Fn;
+                   ty == CGType::Tup || ty == CGType::TupDyn || ty == CGType::Fn ||
+                   ty == CGType::Void;
         };
         if (!dyn_match_side_ok(target.type) || !dyn_match_side_ok(cand.type)) {
             unsupported("'==?' comparison of these value types", op.line(), op.column());
@@ -5854,6 +5861,28 @@ llvm::Value* CodeGenerator::gen_tuple_eq(const CGValue& lhs, const CGValue& rhs,
     const CGTuple rt = tuple_values_[rhs.tup];
     if (lt.elems.size() != rt.elems.size() || lt.names != rt.names) {
         return builder_.getInt1(false);
+    }
+    // 含动态承载位的静态 tuple 深比较（t175）：空位（`none`）在 tuple 构造点即
+    // 盒化为 tag 10 的 Dyn 元素，而静态展开对 Dyn 位没有合法降级——下方兜底分支
+    // 的 is_numeric 判定会把 Dyn×Dyn 元素直接算成恒 false（解释器按元素值判等，
+    // 属静默错编），故只要任一侧含 Dyn/Void 位就整值改走 t140 物化 + rt_tuple_eq
+    // 按运行期 tag 逐元素 dyn_eq（与 t170 的 TupDyn 比较同源）
+    const auto has_dyn_elem = [](const CGTuple& t) {
+        for (const auto& e : t.elems) {
+            if (e.type == CGType::Dyn || e.type == CGType::Void) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (has_dyn_elem(lt) || has_dyn_elem(rt)) {
+        llvm::Value* l =
+            materialize_tuple_dynamic(lhs.tup, op.line(), op.column());
+        llvm::Value* r =
+            materialize_tuple_dynamic(rhs.tup, op.line(), op.column());
+        llvm::Value* c =
+            builder_.CreateCall(rt_tuple_eq_, {l, r}, "tupeqdyndyn");
+        return builder_.CreateICmpNE(c, builder_.getInt64(0), "tupeq");
     }
     llvm::Value* all = builder_.getInt1(true);
     for (size_t i = 0; i < lt.elems.size(); ++i) {
@@ -6914,8 +6943,8 @@ llvm::Value* CodeGenerator::to_dyn(const CGValue& v, size_t line, size_t column)
     // 兼容）；Obj 打 tag 5 存实例 ptr 位模式（同 t144 kind7）；Arr 打 tag 4
     // 存内层数组 ptr 位模式（同 t160 kind7，与 t85 kind 4 单数组表示重合）；
     // Tup/TupDyn 打 tag 8 存动态 tuple 堆对象 ptr（t170，静态展开值先经
-    // t140 物化）；Fn 打 tag 9 存函数 ptr 位模式（t171）；其余标量按
-    // arr_kind_of/elem_to_bits 编码；Void 等经调用侧守卫不落此处
+    // t140 物化）；Fn 打 tag 9 存函数 ptr 位模式（t171）；Void 打 tag 10、
+    // bits 恒 0（t175）；其余标量按 arr_kind_of/elem_to_bits 编码
     switch (v.type) {
         case CGType::Num:
         case CGType::Dyn:
@@ -6941,6 +6970,12 @@ llvm::Value* CodeGenerator::to_dyn(const CGValue& v, size_t line, size_t column)
             return make_num(builder_.getInt64(9),
                             builder_.CreatePtrToInt(
                                 v.value, builder_.getInt64Ty(), "dynfnbits"));
+        case CGType::Void:
+            // 空位（t175）：`none` 函数的返回值在解释器是 Value::Kind::None——可
+            // 直存、可打印（to_string 打 "none"）、与自身判等（values_equal 的
+            // None 分支恒 true）；LLVM 侧无对应值，故 bits 恒记 0，求值副作用已在
+            // emit 该调用时发生（v.value 为 nullptr，不可参与任何 load/位转换）
+            return make_num(builder_.getInt64(10), builder_.getInt64(0));
         default:
             return make_num(
                 builder_.getInt64(
@@ -7458,16 +7493,18 @@ bool CodeGenerator::is_dyn_carrier(CGType t) {
     // kind 7 动态承载全集（t160）：标量（t139）+ 实例位 tag 5（t144）+ 数组位
     // tag 4（t160，bits 即内层数组 ptr 位模式，镜像 kind 4 单数组表示）+ tuple 位
     // tag 8（t170，bits 即 t140 动态 tuple 堆对象 ptr，静态 Tup 经物化入承载）+
-    // 函数位 tag 9（t171，bits 即函数 ptr 位模式，与 t143 静态 Fn 承载同源）；
-    // Void 无值可承载，维持拒编不错编
+    // 函数位 tag 9（t171，bits 即函数 ptr 位模式，与 t143 静态 Fn 承载同源）+
+    // 空位 tag 10（t175，`none` 函数返回的 Void——解释器 Value::Kind::None 是
+    // 一种可直存/可打印/可判等的值，bits 无内容恒记 0）
     return is_dyn_scalar(t) || t == CGType::Obj || t == CGType::Arr ||
-           t == CGType::Tup || t == CGType::TupDyn || t == CGType::Fn;
+           t == CGType::Tup || t == CGType::TupDyn || t == CGType::Fn ||
+           t == CGType::Void;
 }
 
 bool CodeGenerator::arms_all_dyn_carrier(const std::vector<CGValue>& values) {
     // 三目/`==?` 臂的动态合流准入（t168）：全部臂都在动态承载集内（标量/实例位/
-    // 数组位/tuple 位（t170）/函数位（t171））才可逐臂 to_dyn 打框合流为 Dyn；
-    // Void 无 {tag,bits} 编码，返回 false 让调用方维持原拒编消息
+    // 数组位/tuple 位（t170）/函数位（t171）/空位（t175））才可逐臂 to_dyn 打框
+    // 合流为 Dyn
     for (const auto& v : values) {
         if (!is_dyn_carrier(v.type)) return false;
     }
