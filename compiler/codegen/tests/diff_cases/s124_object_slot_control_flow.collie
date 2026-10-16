@@ -1,0 +1,89 @@
+// t174 S121 差分用例：有初值 object 槽在控制流 / 闭包 / 全局槽 / 递归签名下
+// 换承载（原 t120 静态 cls 使这些路径的异型重赋全部拒编）
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+
+object g = new Dog("g0");
+function show(v object) string { return "" + v; }
+function relabel(n string) string {
+    g = n;
+    return "" + g;
+}
+function pass(v object) object {
+    object local = new Dog("L");
+    local = v;
+    return local;
+}
+function depth(v object) string {
+    object slot = new Animal("A");
+    slot = v;
+    return show(slot);
+}
+
+// 1) if/else 双分支各换承载后汇合点读
+object o = new Dog("x");
+bool flag = true;
+if (flag) {
+    o = 1;
+} else {
+    o = "two";
+}
+print("1a", o);
+flag = false;
+if (flag) {
+    o = 3;
+} else {
+    o = new Dog("y");
+}
+print("1b", o.sound());
+print("1c", o.name);
+
+// 2) for 循环逐轮换承载
+for (integer i = 1; i <= 3; i = i + 1) {
+    o = i;
+    print("2a", o);
+}
+print("2b", o);
+
+// 3) while 跨轮换承载（实例位与标量位交替）
+integer w = 0;
+o = new Dog("z");
+while (w < 2) {
+    print("3a", o.name);
+    o = w;
+    print("3b", o);
+    w = w + 1;
+    o = new Dog("w" + w);
+}
+print("3c", o.name);
+
+// 4) 闭包按引用捕获共享槽（体内换承载后体外可见）
+object cap = new Dog("cap");
+function bump() none {
+    cap = 42;
+}
+print("4a", "" + cap);
+bump();
+print("4b", "" + cap);
+
+// 5) 全局槽在函数内换承载后函数外读
+print("5a", relabel("gx"));
+print("5b", "" + g);
+g = new Dog("gd");
+print("5c", g.sound());
+
+// 6) 经形参/返回值穿透并回读
+print("6a", pass(7));
+print("6b", pass(new Dog("p")));
+print("6c", pass([1, 2]));
+print("6d", depth("deep"));
+print("END");

@@ -1768,14 +1768,14 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // 实例赋值即指针拷贝（引用语义对齐解释器 shared_ptr，t60）；
         // 同一继承树内 upcast/downcast 均放行（t86/t103，解释器不校验类，
         // 成员访问按对象头类 id 动态分派/陷阱不错值）；跨树拒编不错编。
-        // 本分支只服务类名声明变量与有初值 object 槽（静态 cls 恒非空——
-        // 无初始化 object 槽自 t173 起直接建 CGType::Dyn 走下方 Dyn 分支，
-        // 原 t121「cls 空占位首赋吸收 RHS 类名」与 t143「首赋函数值重绑 Fn
-        // 槽」两支随该表示切换退役）
+        // 本分支只服务类名声明变量（静态 cls 恒非空——object 声明变量无论
+        // 有无初值均建 CGType::Dyn 槽走下方 Dyn 分支：无初值 t173、有初值
+        // t174，原 t121「cls 空占位吸收 RHS 类名」、t143「首赋函数值重绑 Fn
+        // 槽」与 t120「Obj 槽记静态初始类名」三支随表示切换退役）
         if (v.type == CGType::Dyn && !var->cls.empty()) {
             // 动态承载值重赋类名变量（t158）：同声明初始化规则——tag 5 且类 id
             // 属静态 cls 或其后代类才还原实例 ptr（守卫不中陷阱退出），cls 保持
-            // 声明类不变；cls 空的无初始化 object 首赋仍需静态类名，维持下方拒编
+            // 声明类不变
             llvm::Value* ptr = dyn_unbox_to_obj(v.value, var->cls,
                                                 expr.name().line(),
                                                 expr.name().column());
@@ -3888,45 +3888,30 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
         unsupported("variable declaration without initializer",
                     stmt.name().line(), stmt.name().column());
     }
-    // object 动态类型变量（t120）：解释器 coerce_to_declared default 不校验
-    // 任意值直存（官方示例以字符串/数字演示）；codegen 以"静态初始类名"近似
-    // 解锁 Obj 初始值场景——槽记初始值类名（字段按该类前缀偏移解码、方法按
-    // 对象头 id 动态分派、后续同树重赋走 visitAssign Obj 既有守卫 t86/t103，
-    // 与类名声明同规则）；非 Obj 初始值（string/number/none 等需动态值表示）
-    // 维持拒编不错编
+    // object 动态类型变量（t120 引入，t174 换表示）：解释器 coerce_to_declared
+    // default 不校验任意值直存，故一律建 CGType::Dyn 的 {tag,bits} 动态承载槽
+    // （无初值声明同表示，t173）——初值经 to_dyn 打 tag（实例位 tag 5 存实例
+    // ptr 位模式），读出恒 Dyn 落 S92–S119 全部运行期 tag 分派消费面（方法按
+    // 对象头类 id 分派 t133、字段读写按类 id 分派 t142），重赋走 visitAssign
+    // Dyn 分支（is_dyn_carrier 准入 + 整槽替换）；原 t120「Obj ptr 槽 + 静态
+    // 初始类名」近似退役：ptr 单字槽不可中段改 {i64,i64}，其后异型/跨树重赋
+    // 只能保守拒编（s96_reject_obj_slot_scalar_reassign 锁面）；Void 等无编码
+    // 初值维持拒编不错编
     if (stmt.type().type() == TokenType::KW_OBJECT) {
         CGValue init = emit(stmt.initializer());
-        if (init.type != CGType::Obj) {
-            // object 动态承载槽（t146，镜像 t144 kind7 编码）：解释器
-            // coerce_to_declared default 直存任意值；标量/Dyn 初始化建
-            // CGType::Dyn 槽（{tag,bits}），读经 visitIdentifier 出 Dyn 值喂
-            // print/toString/插值消费面、成员访问走 t145 实例位守卫；数组初
-            // 始值放行（t160）：tag 4 + 内层数组 ptr 位模式，读出为 Dyn 后
-            // print/len/索引/== 走 rt 既有 tag 4 通道；重赋走 visitAssign Dyn
-            // 分支（含 Obj tag 5）；tuple 初始值放行（t170）：tag 8 + 物化堆
-            // 对象 ptr；函数初始值放行（t171）：tag 9 + 函数 ptr 位模式，读出
-            // 为 Dyn 后 print/拼接/判等走 rt tag 9 通道，重赋任意承载值走
-            // visitAssign Dyn 分支（原 t143「Fn 槽静态近似」分支已退役）；
-            // Void 等无 {tag,bits} 编码者维持拒编不错编
-            if (!is_dyn_carrier(init.type)) {
-                unsupported("initializing 'object' variable with non-object value",
-                            stmt.name().line(), stmt.name().column());
-            }
-            const std::string name(stmt.name().lexeme());
-            llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
-            builder_.CreateStore(to_dyn(init, stmt.name().line(),
-                                        stmt.name().column()),
-                                 slot);
-            CGVar var{slot, CGType::Dyn};
-            var.cell_id = next_cell_id_++; // 可捕获单元（t141 机制自动覆盖）
-            scopes_.back()[name] = var;
-            return;
+        if (!is_dyn_carrier(init.type)) {
+            // 标量/Dyn/数组/tuple/函数/实例初值均可承载（t146/t160/t170/t171），
+            // none 等无 {tag,bits} 编码者维持拒编不错编
+            unsupported("initializing 'object' variable with non-object value",
+                        stmt.name().line(), stmt.name().column());
         }
         const std::string name(stmt.name().lexeme());
-        llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Obj), name);
-        builder_.CreateStore(init.value, slot);
-        CGVar var{slot, CGType::Obj, CGType::Int, init.cls};
-        var.cell_id = next_cell_id_++; // 可捕获单元（t141）
+        llvm::Value* slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
+        builder_.CreateStore(to_dyn(init, stmt.name().line(),
+                                    stmt.name().column()),
+                             slot);
+        CGVar var{slot, CGType::Dyn};
+        var.cell_id = next_cell_id_++; // 可捕获单元（t141 机制自动覆盖）
         scopes_.back()[name] = var;
         return;
     }

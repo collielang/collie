@@ -1,0 +1,72 @@
+// t174 S121 差分用例：有初值 object 槽换承载为容器位（数组 / tuple / 函数）
+// 与签名、类字段、元素槽穿透——全部经既有 tag 4/8/9 消费臂，零新增接口
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+}
+class Holder {
+    public object payload = new Animal("h0");
+    public function put(v object) none { this.payload = v; }
+    public function grab() object { return this.payload; }
+    public function show() string { return "" + this.payload; }
+}
+
+function take(v object) string { return "" + v; }
+function add(x integer) integer { return x + 1; }
+
+// 1) 数组位换承载
+object o = new Animal("z");
+print("1a", o);
+print("1b", o.sound());
+o = [1, 2, 3];
+print("1c", o);
+print("1d", o.length);
+print("1e", o[1]);
+print("1f", o[-1]);
+o[0] = 9;
+print("1g", o[0]);
+print("1h", take(o));
+
+// 2) tuple 位换承载（命名字段、位置索引、get）
+o = (a: 1, b: 2);
+print("2a", o);
+print("2b", o.a);
+print("2c", o.length);
+print("2d", o[1]);
+print("2e", o.get("b"));
+
+// 3) 函数位换承载（转串固定 <function>，判等恒不等）
+o = add;
+print("3a", o);
+print("3b", take(o));
+print("3c", o ==? add: "same", "other");
+
+// 4) 类字段承载（初值即实例位，put/grab 换承载）
+Holder hd = new Holder();
+print("4a", hd.grab().sound());
+hd.put(5);
+print("4b", hd.show());
+hd.put(o);
+print("4c", hd.show());
+hd.put([1, "x"]);
+print("4d", hd.show());
+print("4e", hd.grab().length);
+
+// 5) 写 kind 7 异质数组元素槽后回读
+array bag = [0, "x"];
+bag[0] = o;
+print("5a", bag);
+print("5b", bag[0]);
+object back = bag[0];
+print("5c", back);
+
+// 6) 实例位与容器位在同槽上多轮往返
+o = new Animal("r1");
+print("6a", o.sound());
+o = [o, 1];
+print("6b", o);
+o = (v: o);
+print("6c", o);
+print("END");

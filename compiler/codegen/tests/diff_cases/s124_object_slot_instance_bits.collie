@@ -1,0 +1,64 @@
+// t174 S121 差分用例：有初值 object 槽的实例位消费面（字段读写 / 引用别名 /
+// 同树拆槽进类名变量 / 方法动态分派）——换表示后接收者恒 Dyn，字段走 t142
+// 对象头类 id 分派、方法走 t133 分派，与解释器的运行期语义同构
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+}
+class Dog extends Animal {
+    public integer legs = 4;
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+    public function fetch(x integer) string { return "fetch" + x; }
+}
+class Cat extends Animal {
+    public Cat(n string) : base(n) { }
+    @override
+    public function sound() string { return "meow"; }
+}
+
+// 1) 实例位初值上的方法、字段读与特有字段
+Dog dd = new Dog("d1");
+object o = dd;
+print("1a", o.sound());
+print("1b", o.name);
+print("1c", o.legs);
+print("1d", o.fetch(3));
+
+// 2) 字段写经别名可见（引用语义）
+o.name = "renamed";
+print("2a", dd.name);
+print("2b", o.name);
+
+// 3) 同树拆槽进类名变量（t158 运行期 tag + 类 id 守卫）
+Animal aa = o;
+print("3a", aa.sound());
+Dog dd2 = o;
+print("3b", dd2.sound());
+print("3c", dd2.legs);
+
+// 4) 跨树换承载（原 t120 静态 cls 槽在此拒编）
+object c = new Cat("c1");
+print("4a", c.sound());
+o = c;
+print("4b", o.sound());
+print("4c", o.name);
+object same = o;
+print("4d", same.sound());
+
+// 5) 实例位数组与元素位方法调用
+object arr = [new Dog("a"), new Cat("b")];
+print("5a", arr);
+print("5b", arr[0].sound());
+print("5c", arr[1].sound());
+print("5d", arr.length);
+
+// 6) 换承载为标量位后实例位消费不再适用（陷阱面在本批之外），此处仅验证整值打印
+o = 7;
+print("6a", o);
+o = new Dog("last");
+print("6b", o.sound());
+print("END");

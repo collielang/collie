@@ -1,0 +1,73 @@
+// t174 S121 差分用例：有初值 object 槽参与判等 / ==? / switch / 三目臂 /
+// 深比较 / 容器嵌入——读出恒 Dyn 后全部交 S96/S116 既有运行期 tag 判定
+
+class Dog {
+    public string name = "rex";
+    public function sound() string { return "woof"; }
+}
+class Cat {
+    public string name = "c";
+    public function sound() string { return "meow"; }
+}
+
+function eq2(a object, b object) string {
+    if (a == b) { return "eq"; }
+    return "ne";
+}
+function show(v object) string { return "" + v; }
+
+// 1) 实例位与自身 / 别名的判等（解释器对实例恒不等）
+object o = new Dog();
+object alias = o;
+print("1a", eq2(o, alias));
+print("1b", eq2(o, o));
+print("1c", show(o));
+
+// 2) 换承载为标量位后参与 ==? 与 switch
+o = 5;
+print("2a", o ==? 5: "five", "other");
+print("2b", o ==? 1: "one", 5: "five", "dflt");
+switch (o) {
+    5 { print("2c", "case5"); }
+    default { print("2d", "dflt"); }
+}
+o = "s";
+print("2e", o ==? "s": "str", "no");
+o = unset;
+print("2f", o ==? unset: "unset", "no");
+o = true;
+print("2g", o ==? true: "bool", "no");
+
+// 3) 作为三目臂（两侧皆动态、动态×静态、动态×跨树实例）
+bool flag = true;
+object t1 = flag ? o : 3;
+print("3a", t1);
+object t2 = flag ? new Dog() : 1;
+print("3b", t2);
+print("3c", t2.sound());
+object t3 = flag ? new Cat() : new Dog();
+print("3d", t3.sound());
+print("3e", t3.name);
+object t4 = flag ? o : "x";
+print("3f", t4);
+
+// 4) 结果进类型化槽拆槽与 number 方法
+object n1 = new Dog();
+n1 = 7;
+integer iv = n1;
+print("4a", iv);
+n1 = 2.5;
+number nv = n1;
+print("4b", nv);
+print("4c", n1.abs());
+
+// 5) 容器嵌入与深比较
+object arr = [1, "two", true];
+object arr2 = [1, "two", true];
+print("5a", arr == arr2);
+print("5b", arr);
+Tuple tp = (v: arr, k: 1);
+print("5c", tp);
+print("5d", tp.v);
+print("5e", tp.v[0]);
+print("END");

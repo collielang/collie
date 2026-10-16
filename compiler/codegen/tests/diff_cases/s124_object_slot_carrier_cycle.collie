@@ -1,0 +1,83 @@
+// t174 S121 差分用例：有初值 object 声明槽换表示为 {tag,bits} 动态承载后的
+// 承载位回环——原 t120「Obj ptr 槽 + 静态初始类名」近似退役，实例位初值与其后
+// 一切承载位重赋（标量/数组/tuple/函数/异树实例）一律走 visitAssign 的 Dyn 分支
+// （is_dyn_carrier 准入 + to_dyn 整槽替换），读出恒 Dyn 落运行期 tag 分派消费面。
+// 第一节为原 s96_reject_obj_slot_scalar_reassign 拒编锁程序（本批解锁后保留）
+
+class Animal {
+    public string name = "?";
+    public Animal(n string) { this.name = n; }
+    public function sound() string { return "animal"; }
+    public function describe() string { return this.name + " says " + this.sound(); }
+}
+class Dog extends Animal {
+    public Dog(n string) : base(n) { }
+    @override
+    public function sound() string { return "woof"; }
+}
+class Puppy extends Dog {
+    public Puppy(n string) : base(n) { }
+    @override
+    public function sound() string { return "yip"; }
+}
+class CatLike extends Animal {
+    public CatLike(n string) : base(n) { }
+    @override
+    public function sound() string { return "meow"; }
+}
+class Mini {
+    public string name = "rex";
+}
+
+// 1) 原锁程序：实例初值后重赋标量
+Mini m = new Mini();
+object o = m;
+o = 5;
+print(o);
+
+// 2) 实例位初值的消费面（方法动态分派 / 继承方法 / 字段读 / 整值打印）
+object d = new Dog("rex");
+print("2a", d.sound());
+print("2b", d.describe());
+print("2c", d.name);
+print("2d", d);
+
+// 3) 换承载为标量位后算术、拆槽与 number 方法
+d = 5;
+print("3a", d);
+print("3b", d + 1);
+integer q = d;
+print("3c", q);
+d = "  hi  ";
+print("3d", d.trim());
+print("3e", d.length);
+d = true;
+print("3f", d);
+d = unset;
+print("3g", d);
+d = 2.5;
+print("3h", d);
+print("3i", d.abs());
+print("3j", d.isInteger());
+
+// 4) 换回实例位（同树子类 / 同树祖先 / 无公共祖先跨树均可）
+d = new Puppy("py");
+print("4a", d.sound());
+print("4b", d.name);
+d = new CatLike("kk");
+print("4c", d.sound());
+d = new Animal("an");
+print("4d", d.describe());
+object cross = new Mini();
+print("4e", cross.name);
+cross = new Dog("dd");
+print("4f", cross.name);
+print("4g", cross.sound());
+
+// 5) toString / 插值 / 拼接在换承载前后
+object e = new Dog("e0");
+print("5a", e.toString());
+print("5b", "value=${e}");
+e = 42;
+print("5c", e.toString());
+print("5d", "" + e + "!");

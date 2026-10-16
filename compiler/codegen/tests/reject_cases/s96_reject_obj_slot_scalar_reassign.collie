@@ -1,8 +1,0 @@
-// t146 拒编用例：Obj 初始化的 object 槽（t120 静态类名槽）重赋标量维持拒编
-// 解释器 coerce_to_declared default 直存任意值可运行；codegen 槽布局 ptr
-// 不可中段改 {i64,i64}，落拒编不错编
-class Dog { public string name = "rex"; }
-Dog d = new Dog();
-object o = d;
-o = 5;
-print(o);

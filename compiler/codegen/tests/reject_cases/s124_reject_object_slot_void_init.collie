@@ -1,0 +1,10 @@
+// t174 S121 拒编用例：object 声明槽的 Void（`none`）初值维持拒编——t174 起
+// 有初值与无初值 object 声明共用同一 CGType::Dyn 聚合槽，`none` 无 {tag,bits}
+// 编码故落声明侧守卫 "initializing 'object' variable with non-object value"
+// （解释器 coerce_to_declared default 直存 none 可运行，属活跃差分，列下一批：
+// 为 none 位增设运行期 tag）
+function nop() none { }
+
+object o = nop();
+print(o);
+print("END");
