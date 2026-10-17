@@ -228,6 +228,10 @@ private:
         std::string cls;                   // 仅 type == Obj 时有意义：类名（t72）
         long long bit_max = 0;             // byte/word 字段的范围上限 255/65535，0 即非位类型（t87）
         bool uninit = false;               // 无初始值字段（t109）：实例化点守卫构造器前缀定赋
+        // 遮蔽链（t182）：子类重名声明并入本槽时被覆写的历史声明，base-first
+        // 顺序且仅登记带初值者——实例化点按序求值并逐个覆写同一槽（解释器实例
+        // 字段是 name→value 扁平表，同名键父类初值仍求值、末次写入胜）
+        std::vector<const VarDeclStmt*> shadowed;
     };
 
     /// @brief 类信息（t60/t61）：注册遍登记合并布局与单态化方法原型，
@@ -477,7 +481,8 @@ private:
         const Stmt* owner = nullptr);
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
-    /// 自身追加建 struct；同名字段遮蔽/无初值字段/范围外字段类型拒编；
+    /// 自身追加建 struct；同名字段遮蔽按承载一致合并（t182，不一致拒编）、
+    /// 无初值字段/范围外字段类型拒编；
     /// 父类须先声明（合并依赖父类已注册）
     void register_class_layout(const ClassStmt& stmt);
 

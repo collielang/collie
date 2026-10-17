@@ -1,0 +1,40 @@
+// t182 S129 差分用例 4：各类承载的遮蔽——Obj（同类名）/object/Arr/Tuple/number/
+// bool/tribool/decimal/byte/word/integer 十类同类型遮蔽各自取子类初值，父类
+// 自身实例仍取父类初值；byte/word 的被覆写声明与最终声明范围上限相同，故
+// 范围校验按遮蔽类声明走（越界面两端同运行期陷阱，见拒编锁与探针）
+class Thing4 { public integer n = 5; public function val() integer { return this.n; } }
+class Animal4 { public Thing4 slot = new Thing4(); public object any = 1; public array items = [1, 2]; public Tuple pair = (a: 1); public number num = 3; public bool flag = true; public tribool tri = unset; public decimal dec = 1.5; public function f() integer { return this.slot.val(); } }
+class Dog4 extends Animal4 { public Thing4 slot = new Thing4(); public object any = "s"; public array items = [3, 4]; public Tuple pair = (b: 2); public number num = 4; public bool flag = false; public tribool tri = false; public decimal dec = 2.5; }
+object o = new Dog4();
+print("1", o.slot.val());
+print("2", o.any);
+print("3", o.items);
+print("4", o.pair);
+print("5", o.num + 1);
+print("6", o.flag);
+print("7", o.tri);
+print("8", o.dec);
+print("9", o.f());
+Animal4 a = new Animal4();
+print("10", a.any);
+print("11", a.items);
+print("12", a.num);
+print("13", a.pair);
+print("14", a.pair.a);
+print("15", o.pair.get("b"));
+print("16", o.items[1]);
+
+class Animal5 { public byte b = 10; public word w = 20; public integer i = 30; public function getb() byte { return this.b; } }
+class Dog5 extends Animal5 { public byte b = 31; public word w = 42; public integer i = 53; }
+object p = new Dog5();
+print("17", p.b);
+print("18", p.w);
+print("19", p.i);
+print("20", p.getb());
+Dog5 q = new Dog5();
+q.b = 99;
+print("21", q.b);
+print("22", q.w + q.i);
+Animal5 base5 = new Animal5();
+print("23", base5.b);
+print("24", base5.getb());

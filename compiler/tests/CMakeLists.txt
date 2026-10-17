@@ -234,7 +234,15 @@ if(COLLIE_ENABLE_LLVM)
             s131_tuple_uninit_global
             s131_tuple_uninit_sig
             s131_tuple_uninit_consume
-            s131_tuple_uninit_kinds)
+            s131_tuple_uninit_kinds
+            s132_shadow_basic
+            s132_shadow_init_chain
+            s132_shadow_write
+            s132_shadow_kinds
+            s132_shadow_ctor
+            s132_shadow_consume
+            s132_shadow_sig
+            s132_shadow_flow)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -256,7 +264,11 @@ if(COLLIE_ENABLE_LLVM)
             s125_reject_none_bit_homog_array
             s129_reject_dyn_to_tuple_reassign
             s131_reject_tuple_uninit_conditional_assign
-            s131_reject_tuple_uninit_function_assign)
+            s131_reject_tuple_uninit_function_assign
+            s132_reject_shadow_type_mismatch
+            s132_reject_shadow_field_class
+            s132_reject_shadow_bit_max
+            s132_reject_shadow_uninit_no_ctor)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

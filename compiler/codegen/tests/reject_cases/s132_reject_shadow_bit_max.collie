@@ -1,0 +1,9 @@
+// t182 S129 拒编锁 3：byte 字段被 word 遮蔽（同为 i64 槽但范围上限不同）
+// 解释器按动态类声明转换（word 收 400，rc=0）；若合并成单槽并按遮蔽类的上限
+// 校验，父类静态类型接收者的写入校验会与解释器分歧（byte 上限的实例经父类变量
+// 写入 300 本应陷阱却被放行），故 bit_max 不一致维持保守拒编
+class AnimalR3 { public byte b = 10; }
+class DogR3 extends AnimalR3 { public word b = 400; }
+object o = new DogR3();
+print("1", o.b);
+print("2", o.toString());

@@ -1,0 +1,12 @@
+// t182 S129 拒编锁 2：类名（Obj）型字段被子类以**另一个类名**遮蔽
+// 解释器按动态类声明直存并读到 Other 的字段值（rc=0）；codegen 两侧静态解码
+// 用不同类的字段偏移，单槽合流会错值，故承载 cls 不一致时维持保守拒编
+// （与锁 1 同属字段槽动态承载化的表示层改造面）
+class ThingR2 { public integer n = 1; }
+class OtherR2 { public integer n = 2; }
+class AnimalR2 { public ThingR2 slot = new ThingR2(); public function peek() integer { return this.slot.n; } }
+class DogR2 extends AnimalR2 { public OtherR2 slot = new OtherR2(); }
+object o = new DogR2();
+print("1", o.peek());
+DogR2 d = new DogR2();
+print("2", d.slot);

@@ -1,0 +1,33 @@
+// t182 S129 差分用例 5：遮蔽与构造器的次序——解释器先 base-first 求值各层字段
+// 初值（被覆写的父类初值仍求值），再执行本类构造器体，故构造器写入是最后一笔；
+// 子类「无初值遮蔽 + 本类构造器前缀定赋」亦命中同一合并槽（t126 守卫按遮蔽后
+// 的单字段走）。含本类构造器读改写与父类自身实例的对照
+class Animal6 { public string tag = "a"; public function show() string { return this.tag; } }
+class Dog6 extends Animal6 { public string tag = "d"; public Dog6() { this.tag = "ctor"; } }
+object o = new Dog6();
+print("1", o.tag);
+print("2", o.show());
+Animal6 b = new Animal6();
+print("3", b.tag);
+print("4", b.show());
+
+class Base8 { public string name = "base-init"; public function hi() string { return this.name; } }
+class Mid8 extends Base8 { public string name = "mid-init"; public Mid8() { this.name = "mid-ctor"; } }
+class Leaf8 extends Mid8 { public string name; public Leaf8() { this.name = "leaf-ctor"; } }
+object m = new Mid8();
+print("5", m.name);
+print("6", m.hi());
+object lf = new Leaf8();
+print("7", lf.name);
+print("8", lf.hi());
+Base8 bb = new Leaf8();
+print("9", bb.name);
+print("10", bb.hi());
+
+class Animal9 { public integer n = 1; public Animal9() { this.n = this.n + 10; } }
+class Dog9 extends Animal9 { public integer n = 100; public Dog9() { this.n = this.n + 1; } }
+object g = new Dog9();
+print("11", g.n);
+print("12", new Animal9().n);
+Animal9 ab = new Dog9();
+print("13", ab.n);

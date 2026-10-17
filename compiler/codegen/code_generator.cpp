@@ -3714,6 +3714,23 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
                          builder_.CreateStructGEP(cls.type, obj, 0, "clsid"));
     for (unsigned i = 0; i < cls.fields.size(); ++i) {
         const CGField& field = cls.fields[i];
+        // 遮蔽链（t182）：被本类同名声明覆写的父链初值仍按 base-first 顺序
+        // 求值并写入同一槽（解释器同名键覆写，初值副作用可见），最后由本类
+        // 声明覆写定值
+        for (const VarDeclStmt* shadow_decl : field.shadowed) {
+            CGValue v = emit(shadow_decl->initializer());
+            llvm::Value* stored = coerce_for_slot(v, field.type,
+                                                  shadow_decl->name(), field.cls,
+                                                  true,
+                                                  bit_type_name(field.bit_max));
+            if (field.bit_max > 0) {
+                stored = check_bit_range(stored, field.bit_max,
+                                         field.bit_max == 255 ? "byte" : "word");
+            }
+            builder_.CreateStore(stored,
+                                 builder_.CreateStructGEP(cls.type, obj, i + 1,
+                                                          field.name));
+        }
         if (field.uninit) {
             // 无初值字段（t109）：零值占位——上方前缀定赋守卫保证赋值前
             // 不可观察，占位值任意且安全（解释器 none 同样不可观察）
@@ -5421,12 +5438,6 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         const auto* field = dynamic_cast<const VarDeclStmt*>(member.get());
         if (!field) continue;
         const std::string fname(field->name().lexeme());
-        if (cls.field_index.count(fname) != 0) {
-            // 本类重名或与父链字段同名（遮蔽）：解释器 base-first 覆写值，
-            // 静态布局下类型/初值歧义无法单槽承载，拒编不错编（t61 范围外）
-            unsupported("duplicate or shadowing field '" + fname + "'",
-                        field->name().line(), field->name().column());
-        }
         bool field_uninit = false;
         if (!field->initializer()) {
             // 无初值字段（t109）：解释器绑 none——实例化点（visitNew）守卫
@@ -5481,6 +5492,26 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         // 写入守卫在 coerce_for_slot（elem 限数值系，保 kind ∈ {0,1}）
         // number 字段放行（t74）：StructType 按 llvm_type_of 逐字段拼装，
         // {i64,i64} 自动占位；malloc 上界在 visitNew 按字段类型累计（Num 16）
+        // 遮蔽（子类重名声明继承字段，t182）：解释器实例字段是 name→value 的
+        // 扁平表，父链 base-first 写入后被子类同名键覆写（父类初值仍求值，
+        // 副作用可见），读写一律按动态类的声明转换——故 LLVM 承载一致（type/cls/
+        // bit_max 全等）时本声明并入父链已有槽：下标与 field_index 不变（父类
+        // struct 与既有 GEP 一字不动），被覆写声明按序记入 shadowed、本声明成为
+        // 该槽最终声明，槽的类型/范围校验自此按遮蔽类声明走（与解释器 find_field
+        // 的「子类优先沿链」一致）；承载不一致时单槽无法同时满足两侧静态解码，
+        // 维持保守拒编（解释器按动态类直存，属字段槽表示层改造面）
+        auto shadow = cls.field_index.find(fname);
+        if (shadow != cls.field_index.end()) {
+            CGField& prev = cls.fields[shadow->second];
+            if (prev.type != ftype || prev.cls != fcls || prev.bit_max != fbit_max) {
+                unsupported("duplicate or shadowing field '" + fname + "'",
+                            field->name().line(), field->name().column());
+            }
+            if (!prev.uninit) prev.shadowed.push_back(prev.decl);
+            prev.decl = field;
+            prev.uninit = field_uninit;
+            continue;
+        }
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
         cls.fields.push_back({fname, ftype, field, fcls, fbit_max, field_uninit});
         field_types.push_back(llvm_type_of(ftype));

@@ -1,0 +1,39 @@
+// t182 S129 差分用例 7：遮蔽字段经签名与各类落点——实参、返回值、object 中转、
+// 进 kind 7 异质数组元素与 tuple 元素、数组字段动态域写后读回，父类自身实例
+// 与子类实例同程序共存（各读各槽）
+class Animal16 { public string tag = "a"; public object slot = 1; public array items = [1, 2]; }
+class Dog16 extends Animal16 { public string tag = "d"; public object slot = new Animal16(); public array items = [3, 4]; }
+function give() object { return new Dog16(); }
+function take(x string) string { return x + "<"; }
+function back(x object) object { return x; }
+object o = give();
+print("1", take(o.tag));
+print("2", back(o).tag);
+print("3", o.slot);
+print("4", o.items);
+o.items[0] = 9;
+print("5", o.items);
+print("6", o.items[0]);
+object p = give();
+p.slot = "text";
+print("7", p.slot);
+print("8", p.slot.length);
+array bag = [o.tag, o.items, o.slot];
+print("9", bag);
+print("10", bag[0] + "!");
+Tuple t = (s: o.tag, a: o.items, q: o.slot);
+print("11", t);
+print("12", t.s);
+print("13", t.a.length);
+print("14", back(o.tag) == o.tag);
+object q = give();
+print("15", q.tag ==? "d": "yes", "no");
+switch (q.tag) { "d" { print("16", "hit"); } default { print("17", "miss"); } }
+print("18", toString(o.tag) + toString(o.items));
+integer n = 0;
+for (integer i = 0; i < 2; i = i + 1) { object w = give(); n = n + w.tag.length; }
+print("19", n);
+object z = new Animal16();
+print("20", z.items);
+print("21", z.slot);
+print("22", z.tag);

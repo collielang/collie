@@ -1,0 +1,29 @@
+// t182 S129 差分用例 6：遮蔽字段的消费矩阵——读出即该槽最终声明的类型，
+// 全部落既有消费面（串属性/方法、拼接、判等、`==?`、`switch`、进 kind 7
+// 异质数组元素、进 tuple 元素、转串、拆槽进类型化槽、作实参）
+class Animal14 { public string tag = "aaa"; }
+class Dog14 extends Animal14 { public string tag = " bb "; }
+object o = new Dog14();
+print("1", o.tag.length);
+print("2", o.tag.trim());
+string s = o.tag;
+print("3", s);
+print("4", s + "!");
+print("5", s == " bb ");
+print("6", (o.tag ==? "x": 1, " bb ": 2, 3));
+array bag = [0, o.tag];
+print("7", bag);
+print("8", bag[1]);
+Tuple t = (k: o.tag);
+print("9", t);
+print("10", t.k);
+print("11", toString(o.tag));
+switch (o.tag) { " bb " { print("13", "hit"); } default { print("14", "miss"); } }
+object p = new Dog14();
+p.tag = "cc";
+print("15", p.tag);
+print("16", o.tag);
+function take(x string) string { return x + "|"; }
+print("17", take(o.tag));
+print("18", s.trim() + "?");
+print("19", bag[1].length);

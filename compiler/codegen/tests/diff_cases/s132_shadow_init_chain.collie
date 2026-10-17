@@ -1,0 +1,28 @@
+// t182 S129 差分用例 2：遮蔽链的初值求值次序——解释器 base-first 逐字段写入
+// 同名键，父类初值表达式照常求值（副作用可见），子类初值随后覆写；codegen
+// 把被覆写的声明按序记入同一槽并在实例化点逐个求值写入，最后一次定值。
+// 本例钉住计数器副作用与「父类无初值 + 子类有初值」「链上多层各带初值」两类
+// 混合形态（后者解释器绑 none 再被子类覆写，none 态在实例化前不可观察）
+integer counter = 0;
+function bump() integer { counter = counter + 1; return counter; }
+class Animal2 { public integer n = bump(); }
+class Dog2 extends Animal2 { public integer n = bump(); }
+Animal2 b = new Animal2();
+print("1", counter);
+print("2", b.n);
+Dog2 d = new Dog2();
+print("3", counter);
+print("4", d.n);
+object o = new Dog2();
+print("5", counter);
+print("6", o.n);
+
+class Base7 { public string s = "one"; public string t = "two"; }
+class Mid7 extends Base7 { public string s = "three"; public string t; }
+class Leaf7 extends Mid7 { public string s; public string t = "four"; public Leaf7() { this.s = "five"; } }
+object x = new Leaf7();
+print("7", x.s);
+print("8", x.t);
+Base7 z = new Base7();
+print("9", z.s);
+print("10", z.t);

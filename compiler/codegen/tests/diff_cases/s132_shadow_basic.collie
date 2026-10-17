@@ -1,0 +1,35 @@
+// t182 S129 差分用例 1：子类同类型遮蔽继承字段的最小面——解释器实例字段是
+// name→value 扁平表（父链 base-first 写入后被子类同名键覆写），读写一律按
+// 动态类的声明走；codegen 此前对任何遮蔽整面保守拒编。本例钉住遮蔽值的
+// 四处可见面：子类变量直读、父类静态类型变量读（不切片、读到子类值）、
+// object 动态读、父类方法副本内 this 读，以及父类自身实例仍读父类初值；
+// 另含三层链（子类再被子类遮蔽）逐层取值
+class Animal1 { public string tag = "a"; public function show() string { return this.tag; } }
+class Dog1 extends Animal1 { public string tag = "d"; }
+Dog1 d = new Dog1();
+print("1", d.tag);
+print("2", d.show());
+Animal1 a = new Dog1();
+print("3", a.tag);
+print("4", a.show());
+object o = new Dog1();
+print("5", o.tag);
+print("6", o.show());
+Animal1 b = new Animal1();
+print("7", b.tag);
+print("8", b.show());
+
+class Base3 { public string lv = "base"; public function who() string { return this.lv; } }
+class Mid3 extends Base3 { public string lv = "mid"; }
+class Leaf3 extends Mid3 { public string lv = "leaf"; }
+object l = new Leaf3();
+print("9", l.lv);
+print("10", l.who());
+Mid3 m = new Leaf3();
+print("11", m.lv);
+print("12", m.who());
+Base3 bb = new Mid3();
+print("13", bb.lv);
+print("14", bb.who());
+print("15", new Leaf3().lv);
+print("16", new Mid3().lv);

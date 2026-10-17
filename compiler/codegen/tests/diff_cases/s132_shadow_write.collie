@@ -1,0 +1,26 @@
+// t182 S129 差分用例 3：遮蔽字段的写侧——解释器只有一份同名键，写父类静态
+// 类型变量、子类变量或 object 动态位都命中同一槽，且赋值表达式值即转换后的
+// 那份值。codegen 单槽合并后各静态/动态接收者的读写天然同位，本例钉住三形态
+// 接收者互写互读、赋值表达式作为值、以及别名可见性
+class Animal3 { public string tag = "a"; public function show() string { return this.tag; } }
+class Dog3 extends Animal3 { public string tag = "d"; }
+object o = new Dog3();
+o.tag = "written";
+print("1", o.tag);
+print("2", o.show());
+Animal3 a = new Dog3();
+a.tag = "via-parent";
+print("3", a.tag);
+print("4", o.tag);
+Dog3 d = new Dog3();
+d.tag = "via-child";
+print("5", d.tag);
+object alias = d;
+print("6", alias.tag);
+a.tag = "again";
+print("7", a.show());
+print("8", d.tag);
+object r = (o.tag = "expr");
+print("9", r);
+print("10", o.tag);
+print("11", alias.tag);

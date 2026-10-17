@@ -1,0 +1,36 @@
+// t182 S129 差分用例 8：遮蔽在控制流/闭包/延迟类下的稳定性——全局槽跨轮换承载
+// 实例后函数内读回、if 臂与三目、循环逐轮新建实例、实例数组元素读出后进动态
+// 字段读、函数体内嵌套函数与按引用捕获、函数内声明的类（t127/t130 延迟类）
+// 内部同样可遮蔽，方法体经 object 形参改写外部实例字段
+class Animal17 { public string tag = "a"; public function show() string { return this.tag; } }
+class Dog17 extends Animal17 { public string tag = "d"; }
+object cur = new Dog17();
+function readtag() string { return cur.tag; }
+integer i = 0;
+while (i < 2) { cur = new Animal17(); i = i + 1; }
+print("1", readtag());
+print("2", cur.show());
+function pick(flag bool) object { if (flag) { return new Dog17(); } return new Animal17(); }
+print("3", pick(true).tag);
+print("4", pick(false).tag);
+object other = pick(true);
+print("5", (other == cur) ==? true: "same", "diff");
+array zoo = [new Animal17(), new Dog17()];
+object e0 = zoo[0];
+object e1 = zoo[1];
+print("6", e0.tag);
+print("7", e1.tag);
+print("8", e1.show());
+function mut(o object) none { o.tag = "M"; }
+mut(e1);
+print("9", e1.tag);
+print("10", zoo[1]);
+function outer17() string { object local = new Dog17(); function inner() string { return local.tag; } return inner(); }
+print("11", outer17());
+function mk() object { class Inner17 { public string tag = "i"; } class InnerDog17 extends Inner17 { public string tag = "dd"; } object x = new InnerDog17(); return x; }
+print("12", mk().tag);
+object tr = pick(true);
+if (tr.tag.length > 0) { tr = new Animal17(); }
+print("13", tr.tag);
+print("14", tr.show());
+print("15", pick(true).tag + "/" + pick(false).tag);
