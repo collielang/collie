@@ -1,0 +1,35 @@
+// t180 S127 差分用例：类字段/方法与 Tuple 变量声明槽互喂
+// Tuple 型类字段读出即动态 tuple 堆对象（t179），经 object 槽再落 Tuple 变量声明
+// 与本批的声明拆槽臂同源；方法的 Tuple 形参/返回值同样只认运行期 tag
+class Box {
+    public Tuple p = (a: 1, b: 2);
+    public function grab() Tuple {
+        return this.p;
+    }
+    public function size(t Tuple) integer {
+        return t.length;
+    }
+    public function renamed(t Tuple) Tuple {
+        object w = (renamed: t.length);
+        this.p = w;
+        return w;
+    }
+}
+
+Box b = new Box();
+object o = (x: 9, y: "s");
+Tuple q = o;
+print("1", q);
+print("2", b.size(o));
+print("3", b.size(q));
+print("4", b.grab());
+Tuple m = b.grab();
+print("5", m.b);
+b.p = q;
+print("6", b.p);
+object via = b.p;
+print("7", via.x);
+Tuple r = b.renamed(q);
+print("8", r);
+print("9", b.p);
+print("10", b.p.renamed);

@@ -1,8 +1,12 @@
-// t179 S126 拒编锁：动态承载值（Dyn）重赋 Tuple 型变量
-// t179 的 tag == 8 守卫只接在 coerce_for_slot（类字段落点与数组元素落点用），
-// visitAssign 对 Tuple 型变量槽另有「右值静态可知是 tuple」的专臂，仍拒编。
-// 解释器 coerce_to_declared 只看运行期 is_tuple()：`q = o` 换形状 rc=0 并可
-// 直接命名读取，属活跃差分面（列 t180 候选，与声明/实参/返回三面同族）
+// t179 S126 拒编锁（t180 保留）：动态承载值（Dyn）重赋静态解构的 Tuple 型变量
+// 声明初值静态可知是 tuple 时，变量解构为逐元素槽组（t68/t112），Dyn 右值形状
+// 静态不可知、无从逐槽写入，故本面仍拒编。解释器 coerce_to_declared 只看运行期
+// is_tuple()：`q = o` 整值替换后 rc=0 且能直接命名读取，属活跃差分面
+// （列 t181 候选：把 Tuple 变量槽布局改为形状运行期自带，与
+// s130_reject_dyn_to_tuple_uninit_first_assign 同族）。
+// 注：声明初值即为动态承载位（或三元异形状合流）的 Tuple 变量已按 TupDyn 单 ptr
+// 槽建（t180），其重赋/换形状面由 t179 的 coerce_for_slot 动态拆槽臂接通，
+// 见差分用例 s130_tuple_var_dyn_reassign
 Tuple q = (a: 1, b: 2);
 object o = (x: 9, y: "s");
 q = o;

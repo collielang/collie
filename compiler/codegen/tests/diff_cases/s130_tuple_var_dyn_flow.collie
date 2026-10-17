@@ -1,0 +1,43 @@
+// t180 S127 差分用例：动态 tuple 变量声明/重赋在五类控制流下
+// 单 ptr 整槽替换语义与 object 动态承载槽同规则：赋值发射顺序即支配顺序，
+// 条件区/循环体内的换形状不需 t117 的槽组重建守卫（形状运行期自带于堆对象）
+bool flag = true;
+object o = (x: 9, y: "s");
+Tuple q = flag ? o : (z: 1);
+print("1", q);
+
+if (flag) {
+    object w = (branch: 1);
+    q = w;
+} else {
+    object v = (other: 2);
+    q = v;
+}
+print("2", q);
+print("3", q.branch);
+
+for (integer i = 0; i < 2; i = i + 1) {
+    object w = (v: i);
+    Tuple t = w;
+    print("4", t.v);
+    q = t;
+}
+print("5", q.v);
+
+integer n = 0;
+while (n < 2) {
+    object w = (m: n, s: "w");
+    Tuple t = w;
+    q = t;
+    print("6", q);
+    n = n + 1;
+}
+print("7", q.m);
+print("8", q.s);
+
+function use(t Tuple) string {
+    return toString(t);
+}
+print("9", use(q));
+Tuple tri = flag ? q : o;
+print("10", tri.m);

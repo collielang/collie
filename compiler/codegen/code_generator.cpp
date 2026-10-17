@@ -4072,12 +4072,18 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
     CGType elem = CGType::Int;
     std::string elem_cls; // 仅 type==Arr && elem==Obj 有意义：元素类名（t100）
     llvm::Value* stored = nullptr;
-    if (type == CGType::Tup && init.type == CGType::TupDyn) {
+    if (type == CGType::Tup &&
+        (init.type == CGType::TupDyn || init.type == CGType::Dyn)) {
         // 动态 tuple 变量（t140）：初始值为三元不同形状合流/函数返回的动态对象
         // ——单 ptr 槽（引用语义，指针拷贝），形状运行期自带于堆对象；改判类型后
-        // 落下方通用建槽（llvm_type_of(TupDyn)=ptr），消费面见各 TupDyn 臂
+        // 落下方通用建槽（llvm_type_of(TupDyn)=ptr），消费面见各 TupDyn 臂。
+        // 初始值为动态承载位（t180）：解释器 coerce_to_declared 的 KW_TUPLE 分支
+        // 只看运行期 is_tuple()，object/Dyn 槽里的 tuple 位直存 Tuple 变量——tag 8
+        // 守卫后取堆对象 ptr，其余位落运行期同消息陷阱（形状静态不可知，故本
+        // 变量后续一律走动态消费面，不做静态解构）
         type = CGType::TupDyn;
-        stored = init.value;
+        stored = init.type == CGType::Dyn ? dyn_to_tuple_slot(init.value)
+                                          : init.value;
     } else if (type == CGType::Tup) {
         // Tuple 变量（t68）：解构为逐元素独立槽（无单一 slot，形状入
         // tuple_vars_）；声明无元素类型标注，形状取自初始值
@@ -4614,6 +4620,12 @@ void CodeGenerator::visitReturn(const ReturnStmt& stmt) {
                 v = {materialize_tuple_dynamic(v.tup, stmt.keyword().line(),
                                                stmt.keyword().column()),
                      CGType::TupDyn};
+            } else if (current_ret_type_ == CGType::TupDyn &&
+                       v.type == CGType::Dyn) {
+                // 动态承载值作 Tuple 返回值（t180）：解释器在 return 处按声明
+                // 返回类型走同一 coerce_to_declared 的 KW_TUPLE 分支，只要求
+                // is_tuple()——tag 8 守卫后直传堆对象，其余位运行期同消息陷阱
+                v = {dyn_to_tuple_slot(v.value), CGType::TupDyn};
             } else if (v.type == CGType::Dyn &&
                        is_dyn_unbox_target(current_ret_type_)) {
                 // 动态承载值作返回值（t147）：解释器在 return 处按声明返回
@@ -4868,6 +4880,12 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
     // 静态 tuple 实参传给动态 tuple 形参（t140）：物化为堆对象再传 ptr
     if (want == CGType::TupDyn && a.type == CGType::Tup) {
         return materialize_tuple_dynamic(a.tup, line, column);
+    }
+    // 动态承载值做 Tuple 形参实参（t180）：解释器绑定实参处同走 coerce_to_declared
+    // 的 KW_TUPLE 分支（只要求 is_tuple()），tag 8 位守卫后 ptr 直传形参，
+    // 其余位落运行期 "cannot assign <kind> to 'Tuple' variable" 同消息陷阱
+    if (want == CGType::TupDyn && a.type == CGType::Dyn) {
+        return dyn_to_tuple_slot(a.value);
     }
     // 隐式 number/bool → string（t131，对齐解释器 coerce_to_declared KW_STRING
     // 分支：number/bool 隐式转 string；其余类型拒编）

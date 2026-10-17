@@ -1,0 +1,31 @@
+// t180 S127 差分用例：动态 tuple 变量的消费全臂
+// 声明落点改判 TupDyn 后，变量的每个消费点都落在 t140/t163/t170/t177/t179 既有
+// 动态 tuple 臂上——打印/转串/长度/位置与命名索引/内建 get/进容器位/进 object 槽/
+// 三元与 `==?`·`switch` 合流与深比较，本用例逐臂覆盖
+object o = (x: 9, y: "s");
+Tuple q = o;
+print("1", q);
+print("2", q.length);
+print("3", q.get("y"));
+print("4", q[1]);
+object back = q;
+print("5", back);
+bool flag = true;
+Tuple t2 = flag ? q : (k: 1);
+print("6", t2);
+print("7", q ==? (x: 9, y: "s"): "same", "other");
+switch (q) {
+    (x: 9, y: "s") { print("8", "hit"); }
+    default { print("8", "miss"); }
+}
+array bag = [q, 7];
+print("9", bag);
+print("10", bag[0]);
+Tuple nest = (outer: q, plain: 5);
+print("11", nest);
+print("12", nest.outer.x);
+object dynbit = q;
+print("13", dynbit.y);
+print("14", toString(q));
+Tuple same = o;
+print("15", q.get("x") == same.get("x"));

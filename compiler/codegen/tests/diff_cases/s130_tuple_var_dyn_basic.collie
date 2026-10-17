@@ -1,0 +1,20 @@
+// t180 S127 差分用例：动态承载值进 Tuple 型变量声明槽
+// 解释器 coerce_to_declared 的 KW_TUPLE 分支只看运行期 is_tuple()，object 槽里的
+// tuple 位可直接存进 Tuple 变量；codegen 侧该落点原要求初值静态可知是 tuple，
+// t180 把 t179 的 dyn_to_tuple_slot（tag == 8 守卫）从类字段落点接到声明落点：
+// 命中即按动态 tuple 变量建槽（CGType::TupDyn 单 ptr 槽，与 t140 同表示，形状
+// 运行期自带），后续消费一律走动态面；其余承载位在运行期落同消息陷阱，不入差分用例
+object o = (x: 9, y: "s");
+Tuple q = o;
+print("1", q);
+print("2", q.length);
+print("3", q.x);
+print("4", q.get("y"));
+print("5", q[0]);
+print("6", toString(q));
+
+// 同形状再取一次承载位：object 中转与 tuple 位互赋不改变堆对象内容
+object relay = o;
+Tuple r = relay;
+print("7", r);
+print("8", r.x == q.x);

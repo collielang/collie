@@ -1,0 +1,36 @@
+// t180 S127 差分用例：进 Tuple 变量声明槽的动态承载值来源多样
+// object 变量位 / kind 7 数组元素位 / Tuple 型类字段读出 / 函数返回的 Dyn 位 /
+// 三目合流位 / 内建 get 的返回位皆是同一 {tag,bits} 承载，声明落点只认运行期 tag
+class Holder {
+    public Tuple slot = (init: 0);
+}
+
+Holder h = new Holder();
+array bag = [(k: 1), 2];
+object o = (m: 3);
+function give(t Tuple) Tuple {
+    return t;
+}
+
+Tuple a = o;
+Tuple b = bag[0];
+Tuple c = h.slot;
+Tuple e = give(o);
+bool flag = true;
+Tuple g = flag ? o : (z: 9);
+print("1", a);
+print("2", b);
+print("3", c);
+print("4", e);
+print("5", g);
+
+// tuple 元素位再进 Tuple 变量（嵌套形状由堆对象自带）
+object nested = (outer: o);
+Tuple deep = nested;
+print("6", deep);
+print("7", deep.outer.m);
+h.slot = a;
+print("8", h.slot);
+Tuple pair = (left: a, right: b);
+print("9", pair);
+print("10", pair.left.m);

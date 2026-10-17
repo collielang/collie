@@ -1,0 +1,38 @@
+// t180 S127 差分用例：动态承载值进 Tuple 形参与 Tuple 返回值落点
+// 签名侧 Tuple 早按动态 tuple 堆对象承载（t140），缺的只是调用点/返回点的拆槽臂：
+// t180 给 coerce_call_arg 与 visitReturn 各接一枚 dyn_to_tuple_slot，守卫 tag == 8
+// 后把 bits 还原为形参/返回值槽的堆对象 ptr，与声明落点同源
+object o = (x: 9, y: "s");
+function show(t Tuple) integer {
+    return t.length;
+}
+function echo(t Tuple) Tuple {
+    return t;
+}
+function first(t Tuple) object {
+    return t.x;
+}
+function pick(flag bool) Tuple {
+    if (flag) {
+        return (a: 1);
+    }
+    object w = (b: 2, c: "x");
+    return w;
+}
+
+print("1", show(o));
+print("2", first(o));
+Tuple r = echo(o);
+print("3", r);
+print("4", r.y);
+
+// 返回值落点：Dyn 位（if 支静态 tuple、else 支 object 承载位）合流到同一 Tuple 返回类型
+print("5", pick(true));
+print("6", pick(false));
+Tuple p1 = pick(true);
+Tuple p2 = pick(false);
+print("7", p1.a);
+print("8", p2.c);
+object back = echo(o);
+print("9", back);
+print("10", show((q: 1, w: 2)));

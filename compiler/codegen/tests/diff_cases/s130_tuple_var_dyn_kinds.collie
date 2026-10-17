@@ -1,0 +1,27 @@
+// t180 S127 差分用例：动态 tuple 变量的元素读出进各静态落点
+// 命名字段读出恒为动态承载值（Dyn），进六个标量槽/数组槽/类名槽走 t147/t165/t158
+// 既有的运行期 tag 守卫拆槽——元素实际 kind 与落点不符时两端同消息陷阱（不入本用例）
+class Box2 {
+    public integer v = 7;
+}
+
+object o = (i: 3, s: "abc", f: true, n: 4.5, arr: [1, 2], obj: new Box2());
+Tuple q = o;
+integer i = q.i;
+string s = q.s;
+bool f = q.f;
+decimal d = q.n;
+array arr = q.arr;
+Box2 b2 = q.obj;
+print("1", i);
+print("2", s);
+print("3", f);
+print("4", d);
+print("5", arr);
+print("6", b2.v);
+
+// 实例位经 object 中转读出（t161 承载槽）与数组位取元素
+object w = q.obj;
+print("7", w.v);
+print("8", q.arr);
+print("9", q.n + 1);

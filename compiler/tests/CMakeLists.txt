@@ -218,7 +218,15 @@ if(COLLIE_ENABLE_LLVM)
             s129_tuple_field_receivers
             s129_tuple_field_tree
             s129_tuple_field_consume
-            s129_tuple_field_flow)
+            s129_tuple_field_flow
+            s130_tuple_var_dyn_basic
+            s130_tuple_var_dyn_kinds
+            s130_tuple_var_dyn_sources
+            s130_tuple_var_dyn_sig
+            s130_tuple_var_dyn_reassign
+            s130_tuple_var_dyn_fields
+            s130_tuple_var_dyn_consume
+            s130_tuple_var_dyn_flow)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -238,8 +246,8 @@ if(COLLIE_ENABLE_LLVM)
             s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
             s123_reject_object_uninit_conditional_assign
             s125_reject_none_bit_homog_array
-            s129_reject_dyn_to_tuple_var_slot s129_reject_dyn_to_tuple_reassign
-            s129_reject_dyn_to_tuple_arg s129_reject_dyn_to_tuple_return)
+            s129_reject_dyn_to_tuple_reassign
+            s130_reject_dyn_to_tuple_uninit_first_assign)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

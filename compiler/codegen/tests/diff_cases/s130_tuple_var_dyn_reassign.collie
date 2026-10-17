@@ -1,0 +1,30 @@
+// t180 S127 差分用例：动态 tuple 变量的重赋面顺带接通
+// 声明落点改判 TupDyn 后，变量槽即单 ptr 整槽替换，重赋走 t179 已接的
+// coerce_for_slot 动态拆槽臂（allow_dyn_unbox）——故「换承载重赋」在本表示下
+// 天然可达；换形状同样只需指针拷贝（形状随堆对象自带），无 t117 的槽组重建守卫。
+// 声明为静态解构槽组的 Tuple 变量被动态承载值重赋仍拒编（锁 s129_reject_dyn_to_tuple_reassign）
+bool flag = true;
+Tuple q = flag ? (a: 1) : (b: 2, c: "x");
+print("1", q);
+object o = (x: 9, y: "s");
+q = o;
+print("2", q);
+print("3", q.y);
+
+// 承载位之间反复换形状：数组位 / 实例位 / tuple 位经 object 中转
+array bag = [q, 7];
+q = bag[0];
+print("4", q);
+Tuple stat = (fresh: true);
+q = stat;
+print("5", q);
+print("6", q.fresh);
+object relay = bag[0];
+q = relay;
+print("7", q.x);
+
+// 静态 tuple 初值声明的变量不参与本面（形状静态可知，走 t112 解构槽组）
+Tuple s = (m: 1, n: 2);
+s = (m: 8, n: 9);
+print("8", s);
+print("9", s.n);

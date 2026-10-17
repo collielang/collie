@@ -1,9 +1,0 @@
-// t179 S126 拒编锁：动态承载值（Dyn）进 Tuple 型**变量**槽
-// t179 只把 tag == 8 守卫接到类字段落点（coerce_for_slot 的 allow_dyn_unbox
-// 路径）；变量声明 / 形参 / 返回值三处 Tuple 落点仍按「初值必须静态可知是
-// tuple」拒编。解释器 coerce_to_declared 的 KW_TUPLE 分支只看运行期
-// is_tuple()，`object o = (x: 9); Tuple q = o;` rc=0 直存并读回，属活跃差分面，
-// 解锁要接 dyn_to_tuple_slot 同款守卫（列 t180 候选）
-object o = (x: 9, y: "s");
-Tuple q = o;
-print("1", q);
