@@ -1,0 +1,55 @@
+// t177 S124 差分用例：动态 tuple 目标/候选参与 switch——原判定只看静态 Tup，
+// TupDyn 目标落到恒 false 是静默不命中（解释器 rc=0 命中）；现族内
+// （Tup/TupDyn 任意组合）取或物化堆对象后交既有 rt_tuple_eq 深比较（长度+名字表
+// +元素），族 × 非族恒 false
+bool flag = true;
+Tuple dyn = flag ? (1, "a") : (2, "b");
+Tuple stat = (1, "a");
+switch (dyn) {
+    (1, 2, 3) { print("1a", "wrong-len"); }
+    stat { print("1b", "dyn-vs-stat hit"); }
+    default { print("1c", "miss"); }
+}
+switch (stat) {
+    dyn { print("2a", "stat-vs-dyn hit"); }
+    (1, "a") { print("2b", "static hit"); }
+    default { print("2c", "miss"); }
+}
+
+// 4) 命名动态 tuple：名字表参与深比较（顺序不同即不等）
+Tuple d1 = flag ? (a: 1, b: 2) : (b: 2, a: 1);
+Tuple n1 = (a: 1, b: 2);
+Tuple n2 = (b: 2, a: 1);
+switch (d1) {
+    n2 { print("4a", "reordered hit"); }
+    n1 { print("4b", "named hit"); }
+    default { print("4c", "miss"); }
+}
+
+// 5) 元素含数组位/实例位的深比较（t164 物化面）
+class Box { public integer v = 1; }
+Tuple d2 = flag ? ([1, 2], 3) : (4, 5);
+switch (d2) {
+    ([1, 2], 3) { print("5a", "array-elem hit"); }
+    default { print("5b", "miss"); }
+}
+Tuple d3 = flag ? (new Box(), 1) : (2, 2);
+switch (d3) {
+    (new Box(), 1) { print("5c", "instance-elem hit"); }
+    default { print("5d", "miss"); }
+}
+
+// 6) tuple 族 × 非族候选恒 false（串/整数/数组/none）
+function noise() none { print("n"); }
+switch (stat) {
+    "s" { print("6a", "str"); }
+    7 { print("6b", "int"); }
+    [1, 2] { print("6c", "arr"); }
+    noise() { print("6d", "void"); }
+    default { print("6e", "miss"); }
+}
+
+// 7) 动态域元素读出为 Dyn 承载后与 tuple 候选比较（走 S116 运行期 tag 面）
+object elem = dyn[1];
+print("7a", elem ==? "a": "str-bit", "no");
+print("END");

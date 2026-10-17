@@ -1,0 +1,43 @@
+// t177 S124 差分用例：数值族目标（integer/decimal/number/byte/word）与跨 kind
+// 候选、跨表示候选——integer/decimal/number 同属 Number kind，故彼此可命中
+// （5 == 5.0 按 double 视图），与串/bool/none 候选恒不命中
+number x = 5;
+switch (x) {
+    "s" { print("1a", "str"); }
+    true { print("1b", "bool"); }
+    5 { print("1c", "five"); }
+    default { print("1d", "miss"); }
+}
+byte y = 3;
+switch (y) {
+    "z" { print("2a", "str"); }
+    unset { print("2b", "tri"); }
+    3 { print("2c", "byte hit"); }
+    default { print("2d", "miss"); }
+}
+word w = 40000;
+switch (w) {
+    4 { print("3a", "int"); }
+    40000 { print("3b", "word hit"); }
+    default { print("3c", "miss"); }
+}
+decimal d = 2.5;
+switch (d) {
+    2 { print("4a", "int-2"); }
+    2.5 { print("4b", "dec hit"); }
+    "2.5" { print("4c", "str"); }
+    default { print("4d", "miss"); }
+}
+// 5) number 槽内换承载（整数↔小数）后候选序与首命中不变
+object k = 5;
+switch (k) {
+    2.5 { print("5a", "dec"); }
+    5 { print("5b", "int five"); }
+    default { print("5c", "miss"); }
+}
+k = 5.0;
+switch (k) {
+    5 { print("5d", "int five again"); }
+    default { print("5e", "miss"); }
+}
+print("END");

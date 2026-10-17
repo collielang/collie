@@ -1,0 +1,56 @@
+// t177 S124 差分用例：switch 的候选字面量不经语义层可比性检查，静态 kind 互斥
+// 组合（string × integer/decimal/bool/none 等）解释器 values_equal 在 kind 对齐
+// 处直接 false、恒走兜底支，codegen 原整面保守拒编（"'==?' comparison of these
+// value types"），现按 kind 折叠为常量 false/true
+string s = "hello";
+switch (s) {
+    7 { print("1a", "int"); }
+    1.5 { print("1b", "dec"); }
+    true { print("1c", "bool"); }
+    unset { print("1d", "tri"); }
+    "world" { print("1e", "world"); }
+    default { print("1f", "miss"); }
+}
+
+// 2) integer 目标：串/bool 候选恒不命中，等值整数命中
+integer n = 7;
+switch (n) {
+    "hello" { print("2a", "str"); }
+    true { print("2b", "bool"); }
+    8 { print("2c", "eight"); }
+    7 { print("2d", "seven"); }
+    default { print("2e", "miss"); }
+}
+
+// 3) decimal 目标：整数候选按 double 视图比较（5 == 5.0），跨 kind 恒不命中
+decimal d = 1.5;
+switch (d) {
+    "s" { print("3a", "str"); }
+    2 { print("3b", "int"); }
+    true { print("3c", "bool"); }
+    default { print("3d", "miss"); }
+}
+decimal e = 5.0;
+switch (e) {
+    5 { print("3e", "five-from-int"); }
+    default { print("3f", "miss"); }
+}
+
+// 4) 函数返回值作目标：候选序与求值顺序不变
+function label() string { return "L"; }
+switch (label()) {
+    3 { print("4a", "num"); }
+    "L" { print("4b", "hit"); }
+    default { print("4c", "miss"); }
+}
+
+// 5) 循环内逐轮命中，验证折叠不破坏分支可达性
+for (integer i = 0; i < 4; i = i + 1) {
+    switch (i) {
+        "x" { print("5a", i); }
+        1 { print("5b", "one"); }
+        2 { print("5c", "two"); }
+        default { print("5d", i, "other"); }
+    }
+}
+print("END");

@@ -1,0 +1,48 @@
+// t177 S124 差分用例：tribool 参与 switch 候选比较——解释器 values_equal 的
+// tribool 首段先于 kind 比较，任一侧 tribool 而另一侧非 bool/tribool 直接 false；
+// codegen 原对该面拒编（"'==?' comparison of tribool with this value type"），
+// 现折叠为常量 false，tribool×bool/tribool 仍走加宽三态 icmp
+tribool t = unset;
+switch (t) {
+    "x" { print("1a", "str"); }
+    7 { print("1b", "int"); }
+    1.5 { print("1c", "dec"); }
+    true { print("1d", "true"); }
+    unset { print("1e", "unset"); }
+    default { print("1f", "miss"); }
+}
+
+// 2) tribool 目标 × bool 候选：true 加宽三态后判等
+tribool u = true;
+switch (u) {
+    false { print("2a", "false"); }
+    true { print("2b", "true"); }
+    default { print("2c", "miss"); }
+}
+
+// 3) bool 目标 × tribool 候选：同首段规则
+bool b = false;
+switch (b) {
+    unset { print("3a", "unset"); }
+    true { print("3b", "true"); }
+    false { print("3c", "false"); }
+    default { print("3d", "miss"); }
+}
+
+// 4) 非 tribool 目标 × tribool 候选（string/integer）恒不命中
+string s = "s";
+switch (s) {
+    u { print("4a", "tri-hit"); }
+    default { print("4b", "miss"); }
+}
+integer n = 3;
+switch (n) {
+    t { print("4c", "tri-hit"); }
+    3 { print("4d", "int-hit"); }
+    default { print("4e", "miss"); }
+}
+
+// 5) object 槽承载 tribool 位后仍走运行期 tag 判定（S116 面零漂移）
+object o = unset;
+print("5a", o ==? unset: "unset", true: "true", "no");
+print("END");

@@ -195,7 +195,14 @@ if(COLLIE_ENABLE_LLVM)
             s126_field_mismatch_typed_slots
             s126_field_mismatch_container_bits
             s126_field_mismatch_signature
-            s126_field_mismatch_control_flow)
+            s126_field_mismatch_control_flow
+            s127_match_static_kind_exclusion
+            s127_match_tribool_kinds
+            s127_match_none_slot_candidates
+            s127_match_dynamic_tuple_targets
+            s127_match_container_instance_kinds
+            s127_match_numeric_kind_mix
+            s127_match_control_flow_nesting)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

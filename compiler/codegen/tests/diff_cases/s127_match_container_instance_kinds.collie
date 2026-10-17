@@ -1,0 +1,57 @@
+// t177 S124 差分用例：容器位/实例位目标与跨 kind 候选的组合——数组目标 × 串/tuple
+// /none 候选、tuple 目标 × 数组候选、实例目标与自身或别名候选（解释器 values_equal
+// 无 Instance 分支，kind 对齐后仍落 default 恒 false，同一实例亦不命中）
+class Box { public integer v = 1; }
+Box p = new Box();
+switch (p) {
+    p { print("1a", "self hit"); }
+    5 { print("1b", "num"); }
+    "s" { print("1c", "str"); }
+    default { print("1d", "miss"); }
+}
+Box q = p;
+switch (p) {
+    q { print("2a", "alias hit"); }
+    default { print("2b", "miss"); }
+}
+
+// 3) 数组目标 × 跨 kind 候选（串/整数/tuple/none），双数组候选按元素深比较
+array a = [1, 2];
+function noise() none { print("n"); }
+switch (a) {
+    "s" { print("3a", "str"); }
+    7 { print("3b", "int"); }
+    (1, 2) { print("3c", "tup"); }
+    noise() { print("3d", "void"); }
+    [1, 2] { print("3e", "arr hit"); }
+    default { print("3f", "miss"); }
+}
+
+// 4) bool 目标 × 容器/实例候选
+bool b = true;
+object o = new Box();
+switch (b) {
+    [1] { print("4a", "arr"); }
+    (1, 2) { print("4b", "tup"); }
+    o { print("4c", "obj-slot"); }
+    true { print("4d", "bool hit"); }
+    default { print("4e", "miss"); }
+}
+
+// 5) 串目标 × 容器候选（含动态 tuple 候选，族 × 非族折叠）
+bool flag = true;
+Tuple dyn = flag ? (1, "a") : (2, "b");
+string s = "s";
+switch (s) {
+    dyn { print("5a", "dyn-tup"); }
+    a { print("5b", "arr"); }
+    default { print("5c", "miss"); }
+}
+
+// 6) object 槽承载实例位后参与 switch（S116 运行期 tag 面，实例位恒 false）
+object slot = new Box();
+switch (slot) {
+    slot { print("6a", "hit"); }
+    default { print("6b", "miss"); }
+}
+print("END");

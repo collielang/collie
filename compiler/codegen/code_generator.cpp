@@ -5793,11 +5793,13 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
         return builder_.CreateICmpEQ(c, builder_.getInt32(0), "matcheq");
     }
     if (target.type == CGType::Tri || cand.type == CGType::Tri) {
-        // tribool 三态判等（t65）：双方限 tribool/bool（bool 加宽三态后 icmp）
+        // tribool 三态判等（t65）：双方限 tribool/bool（bool 加宽三态后 icmp）；
+        // 与其余 kind 恒不等（t177，对齐解释器 values_equal 的 tribool 首段——
+        // 该段先于 kind 比较，任一侧 tribool 而另一侧非 bool/tribool 直接 false），
+        // 故折成常量 false 而非拒编（switch 的候选字面量不经语义层可比性检查）
         if ((target.type != CGType::Tri && target.type != CGType::Bool) ||
             (cand.type != CGType::Tri && cand.type != CGType::Bool)) {
-            unsupported("'==?' comparison of tribool with this value type",
-                        op.line(), op.column());
+            return builder_.getInt1(false);
         }
         return builder_.CreateICmpEQ(to_tri(target), to_tri(cand), "matcheq");
     }
@@ -5824,13 +5826,33 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
         }
         return builder_.CreateICmpEQ(target.value, cand.value, "matcheq");
     }
-    // tuple 目标/候选（t78）：双 Tup 走 t75 静态展开深比较（含 Arr 元素
-    // 已于 t79 下沉 rt_arr_eq 深比较）；Tup × 非 Tup 恒 false（对齐解释器
-    // values_equal kind 不等，语义层通常更早拦截，此为防御性双保险）
-    if (target.type == CGType::Tup || cand.type == CGType::Tup) {
-        return target.type == CGType::Tup && cand.type == CGType::Tup
-                   ? gen_tuple_eq(target, cand, op)
-                   : builder_.getInt1(false);
+    // tuple 目标/候选（t78 建，t177 补动态 tuple 位）：tuple 族（静态 Tup / t140
+    // 动态 TupDyn）之间才深比较——双静态走 t75 静态展开（含 Arr 元素已于 t79
+    // 下沉 rt_arr_eq、Dyn 位叶已于 t175 改走物化），任一侧为 TupDyn 时双方取/物化
+    // 堆对象后交既有 rt_tuple_eq（与 visitBinary 的 tuple 族比较同源）；族 × 非族
+    // 恒 false（对齐解释器 values_equal kind 不等）。原判定只看 CGType::Tup，
+    // 动态 tuple 目标落到下方 `getInt1(false)` 是**静默不命中**（`switch (dyn)` 的
+    // 同名静态候选恒判不等，解释器 rc=0 命中），t177 探针 t177_p17 抓到
+    const auto is_tup = [](CGType ty) {
+        return ty == CGType::Tup || ty == CGType::TupDyn;
+    };
+    if (is_tup(target.type) || is_tup(cand.type)) {
+        if (!is_tup(target.type) || !is_tup(cand.type)) {
+            return builder_.getInt1(false);
+        }
+        if (target.type == CGType::Tup && cand.type == CGType::Tup) {
+            return gen_tuple_eq(target, cand, op);
+        }
+        llvm::Value* l =
+            target.type == CGType::TupDyn
+                ? target.value
+                : materialize_tuple_dynamic(target.tup, op.line(), op.column());
+        llvm::Value* r =
+            cand.type == CGType::TupDyn
+                ? cand.value
+                : materialize_tuple_dynamic(cand.tup, op.line(), op.column());
+        llvm::Value* c = builder_.CreateCall(rt_tuple_eq_, {l, r}, "tupmatch");
+        return builder_.CreateICmpNE(c, builder_.getInt64(0), "matcheq");
     }
     // 数组目标/候选（t79）：双 Arr 下沉 rt_arr_eq 深比较；Arr × 非 Arr 恒
     // false（对齐解释器 values_equal kind 不等，语义层通常更早拦截，双保险）
@@ -5848,7 +5870,35 @@ llvm::Value* CodeGenerator::gen_match_eq(const CGValue& target, const CGValue& c
     if (target.type == CGType::Obj || cand.type == CGType::Obj) {
         return builder_.getInt1(false);
     }
-    // object 等候选比较范围外，拒编不错编
+    // 静态 kind 互斥即恒不命中（t177）：解释器 values_equal 在 tribool 首段之后
+    // 先比 kind、不等直接 false，而 switch 的候选字面量不经语义层可比性检查，
+    // 故这类组合按 kind 折叠（探针 t177_p3~p8/p10~p12/p16/p18/p23 实证解释器
+    // rc=0 恒走兜底支，none×none 反而恒命中）
+    const auto static_kind = [](CGType ty) {
+        switch (ty) {
+            case CGType::Int:
+            case CGType::Double:
+            case CGType::Num: return 1; // integer/decimal/number 同属 Number kind
+            case CGType::Str: return 2;
+            case CGType::Bool: return 3;
+            case CGType::Void: return 4; // none
+            default: return 0; // Dyn/Tri/Arr/Obj/tuple 族/Fn 已由上方各臂接管
+        }
+    };
+    const int lhs_kind = static_kind(target.type);
+    const int rhs_kind = static_kind(cand.type);
+    if (lhs_kind != 0 && rhs_kind != 0) {
+        if (lhs_kind != rhs_kind) {
+            return builder_.getInt1(false);
+        }
+        // 同 kind 却仍走到这里只剩空位×空位：values_equal 的 None 分支在 kind
+        // 对齐后恒 true（与 t81 的 `nop() == nop()` 折叠同源，解释器
+        // `switch (noise()) { noise() {...} }` 命中该支）
+        return builder_.getInt1(target.type == CGType::Void &&
+                                cand.type == CGType::Void);
+    }
+    // 现行 CGType 全集的两两组合已由上方各臂接管，此网只为新增承载类型未补
+    // 比较臂时兜底（拒编不错编）
     unsupported("'==?' comparison of these value types", op.line(), op.column());
 }
 

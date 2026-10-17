@@ -1,0 +1,44 @@
+// t177 S124 差分用例：none 位参与 switch 候选比较——解释器 values_equal 的 None
+// 分支在 kind 对齐后恒 true（none == none 为真）、跨 kind 恒 false；候选表达式
+// 的副作用只求值一次且首命中后不再求值（惰性序不变）
+function noise() none { print("n"); }
+function other() none { print("o"); }
+
+// 1) none 目标 × none 候选命中，后续候选与 default 均不求值/不执行
+switch (noise()) {
+    noise() { print("1a", "void hit"); }
+    other() { print("1b", "second"); }
+    default { print("1c", "miss"); }
+}
+
+// 2) none 目标 × 标量候选恒不命中，且候选副作用保留
+switch (noise()) {
+    "s" { print("2a", "str"); }
+    7 { print("2b", "int"); }
+    true { print("2c", "bool"); }
+    default { print("2d", "miss"); }
+}
+
+// 3) 标量目标 × none 候选：候选仍求值（副作用可见），比较恒 false
+string s = "hello";
+switch (s) {
+    noise() { print("3a", "void"); }
+    7 { print("3b", "int"); }
+    "hello" { print("3c", "hit"); }
+    default { print("3d", "miss"); }
+}
+
+// 4) number 目标 × none 候选后接等值候选
+number x = 5;
+switch (x) {
+    noise() { print("4a", "void"); }
+    5 { print("4b", "five"); }
+    default { print("4c", "miss"); }
+}
+
+// 5) 无 default：全部不命中时直接结束（候选副作用仍逐段可见）
+switch (s) {
+    noise() { print("5a", "void"); }
+    1 { print("5b", "int"); }
+}
+print("END");

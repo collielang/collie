@@ -1,0 +1,73 @@
+// t177 S124 差分用例：折叠分支在控制流嵌套下的可达性与副作用序——switch 套
+// switch、循环逐轮换承载、函数/方法体内的比较链，验证常量折叠只删本支 body
+// 而不影响后续候选块与前段副作用
+class Pet {
+    public string tag_name = "pet";
+    public function classify(v object) string {
+        switch (v) {
+            "s" { return "str"; }
+            7 { return "seven"; }
+            unset { return "unset"; }
+            true { return "bool-true"; }
+            default { return "other"; }
+        }
+    }
+}
+
+Pet p = new Pet();
+print("1a", p.classify("s"));
+print("1b", p.classify(7));
+print("1c", p.classify(true));
+print("1d", p.classify(unset));
+print("1e", p.classify(1.5));
+
+// 2) 嵌套 switch：内层目标为串、候选含跨 kind，外层目标为整数
+integer n = 2;
+switch (n) {
+    "x" { print("2a", "str-case"); }
+    2 {
+        string s = "in";
+        switch (s) {
+            1 { print("2b", "num"); }
+            "in" { print("2c", "inner hit"); }
+            default { print("2d", "inner miss"); }
+        }
+    }
+    default { print("2e", "outer miss"); }
+}
+
+// 3) while 循环逐轮换承载（整数→串→none→tuple），每轮候选链重走
+object slot = 1;
+integer i = 0;
+while (i < 4) {
+    switch (slot) {
+        "a" { print("3a", slot); }
+        1 { print("3b", "int one"); }
+        (1, 2) { print("3c", "tup"); }
+        default { print("3d", "none/other"); }
+    }
+    i = i + 1;
+    if (i == 1) { slot = "a"; }
+    if (i == 2) { slot = (1, 2); }
+    if (i == 3) { slot = new Pet(); }
+}
+
+// 4) for 循环内的 tuple 目标：动态 tuple 逐轮换形状后与静态候选深比较
+bool flag = true;
+for (integer k = 0; k < 3; k = k + 1) {
+    Tuple t = flag ? (k, "x") : (k, k);
+    switch (t) {
+        (1, "x") { print("4a", "hit", k); }
+        0 { print("4b", "int"); }
+        default { print("4c", "miss", k); }
+    }
+}
+
+// 5) 三目里的 switch 候选链（各 body 只 print，无结果 PHI）
+string out = "z";
+switch (out) {
+    flag ? "y" : "z" { print("5a", "ternary case"); }
+    "z" { print("5b", "plain hit"); }
+    default { print("5c", "miss"); }
+}
+print("END");
