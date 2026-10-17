@@ -1,0 +1,63 @@
+// t179 S126 差分用例：Tuple 型字段的继承树布局与跨类同名字段合流
+// 字段偏移沿用 t60 的「父类字段前缀 + 子类自有字段」布局，Tuple 槽占单 ptr；
+// 多类树的同名字段读侧沿用 t176 的一致性扫描——各定义者字段类型全等时维持单型
+// PHI（本轮 Tuple×Tuple 即保持 TupDyn 直读，不打框），不一致时（Tuple×string）
+// 逐臂 to_dyn 打框合流为 Dyn；写侧同理走 t178 的逐臂动态拆槽。
+
+class Base {
+    public Tuple p = (a: 1);
+}
+class Sub extends Base {
+    public Tuple q = (k: true);
+    public integer n = 5;
+}
+class Deep extends Sub {
+    public Tuple r = (deep: 9);
+}
+
+// 1) 三层继承链：同一子实例上父/中/末层字段各自可读，槽不串位
+Deep dd = new Deep();
+print("1", dd.p);
+print("2", dd.q);
+print("3", dd.r);
+print("4", dd.n);
+dd.p = (a: 11, s: "x");
+print("5", dd.p.s);
+print("6", dd.q);
+
+// 7) 多类树同名字段且类型全等（皆 Tuple）：维持单型读、按动态类取值
+class Alpha {
+    public Tuple p = (a: 1);
+}
+class Beta {
+    public Tuple p = (b: 2, c: 3);
+}
+Alpha x = new Alpha();
+Beta y = new Beta();
+object o = x;
+print("7", o.p);
+o = y;
+print("8", o.p);
+print("9", o.p.c);
+
+// 10) 跨类同名但声明类型不一致（Tuple × string）：读侧逐臂打框为 Dyn
+class Dog {
+    public string tag = "rex";
+}
+class Cat {
+    public Tuple tag = (a: 1);
+}
+Dog d = new Dog();
+Cat c = new Cat();
+object p1 = d;
+object p2 = c;
+print("10", p1.tag);
+print("11", p2.tag);
+print("12", p2.tag.a);
+
+// 13) 不一致字段的写侧：值按动态类各自转换后落各自槽位
+p2.tag = (k: "v");
+print("14", p2.tag);
+p1 = d;
+p1.tag = "renamed";
+print("15", p1.tag);

@@ -324,6 +324,12 @@ private:
     /// 记录的 elem 降 Num 动态域哨兵（t70），读写按运行期 kind 产出 Dyn
     llvm::Value* dyn_to_arr_slot(llvm::Value* dyn);
 
+    /// @brief 动态承载值进 Tuple 落点（t179）：解释器 coerce_to_declared 的 KW_TUPLE
+    /// 分支只要求 is_tuple()——运行期守卫 tag == 8（t170 的 tuple 位）时把 bits 还原
+    /// 为堆 tuple 对象 ptr，其余位落 collie_rt_trap_dyn_convert（落点类型名 "Tuple"，
+    /// 消息核心即解释器 "Type mismatch: cannot assign <kind> to 'Tuple' variable"）
+    llvm::Value* dyn_to_tuple_slot(llvm::Value* dyn);
+
     /// @brief 三目/`==?` 臂的静态类型合流（t93/t94/t65 规则）：成功时 result_*
     /// 即合流结果并返回 Ok；失败只报告失败种类（此时 result_* 不可用），由调用方决定
     /// 「全臂动态承载 → 合流为 Dyn」回退或维持原拒编消息

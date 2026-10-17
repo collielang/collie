@@ -1049,9 +1049,10 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                                CGType::Bool};
                 return;
             }
-            // tuple 相等（t75）：任一侧 Tup 且 ==/!= 时静态展开深比较；
-            // Tup × 非 Tup 恒 false（对齐解释器 values_equal kind 不等，且语义层
-            // 不允许 Tuple 与 object/标量互比，故动态承载位到不了这里）；
+            // tuple 相等（t75）：任一侧 tuple 族且 ==/!= 时深比较；tuple 族 ×
+            // 非承载、非 tuple 静态侧恒 false（对齐解释器 values_equal kind 不等，
+            // 语义层不允许 Tuple 变量与 object/标量互比）；tuple 族 × Dyn 承载位
+            // 走 rt_dyn_eq（t179，见下）；
             // 动态 tuple（t140）：两侧皆 tuple 族时静态侧先物化为动态对象，
             // 交 rt_tuple_eq 深比较（len+名字表+元素，含 t164 的数组位/实例位与
             // t170 的嵌套 tuple 位）；tuple 关系比较落下方 require_numeric 拒编
@@ -1079,6 +1080,21 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                                 rt_tuple_eq_, {l, r}, "tupeqdyn");
                             eq = builder_.CreateICmpNE(c, builder_.getInt64(0), "cmptmp");
                         }
+                    } else if (has_dyn) {
+                        // tuple 族 × Dyn 承载位（t179）：Tuple 型类字段读出为
+                        // TupDyn，进 object 槽即 tag 8 位，两者回比在解释器是
+                        // values_equal 的 tuple 分支（按名字表与元素深比较）——
+                        // 原 else 分支把它折成常量 false 属静默错值。改法与 t169
+                        // 的 Arr 折叠修正同形：tuple 族侧经 to_dyn 打 tag 8（静态
+                        // 展开侧先物化），两侧交既有 rt_dyn_eq 的 case 8 深比较，
+                        // 非 tuple 承载位天然落 kind 不等 → false，与解释器同源
+                        llvm::Value* a = to_dyn(lhs, op.line(), op.column());
+                        llvm::Value* b = to_dyn(rhs, op.line(), op.column());
+                        llvm::Value* c = builder_.CreateCall(
+                            rt_dyn_eq_, {num_tag(a), num_bits(a), num_tag(b),
+                                         num_bits(b)},
+                            "dyneq");
+                        eq = builder_.CreateICmpNE(c, builder_.getInt32(0), "cmptmp");
                     } else {
                         eq = builder_.getInt1(false);
                     }
@@ -5063,6 +5079,14 @@ llvm::Value* CodeGenerator::coerce_for_slot(const CGValue& v, CGType slot_type,
         // collie_rt_trap_dyn_convert("array")，两端同消息报错退出
         return dyn_to_arr_slot(v.value);
     }
+    if (allow_dyn_unbox && v.type == CGType::Dyn &&
+        slot_type == CGType::TupDyn) {
+        // 动态承载值进 Tuple 落点（t179）：解释器 coerce_to_declared 的 KW_TUPLE
+        // 分支只要求 is_tuple()，tag 8 位的 bits 即堆 tuple 对象 ptr——守卫后直接
+        // 还原并入既有动态 tuple 消费面；其余位落运行期同消息陷阱（Tuple 字段与
+        // 动态 tuple 形参/返回值同表示，整条链无需新转换）
+        return dyn_to_tuple_slot(v.value);
+    }
     unsupported("implicit conversion for variable '" + std::string(where.lexeme()) + "'",
                 where.line(), where.column());
 }
@@ -5422,6 +5446,16 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
             // t133/t142 方法/字段动态分派。Tup/Fn 无编码，落 coerce_for_slot
             // 拒编不错编
             ftype = CGType::Dyn;
+        } else if (field->type().type() == TokenType::KW_TUPLE) {
+            // Tuple 型类字段（t179，S126）：tuple 是静态展开虚值（CGType::Tup，
+            // 无单一 LLVM 承载，见 llvm_type_of），字段槽无从落位——与 t140 的
+            // tuple 进函数签名同解：以动态 tuple 堆对象承载（CGType::TupDyn，
+            // 单 ptr 槽，malloc 上界按 ≤ 8 计入），初值/赋值经 coerce_for_slot
+            // 物化，读出即 TupDyn 落 t140/t163/t170/t177 全部既有消费面
+            // （打印/转串/`.length`/位置与命名索引/get(键)/判等/`==?`·`switch`
+            // 深比较/进 object 槽与 kind 7 元素槽）；tuple 运行期不可变，
+            // 堆对象多槽共享无别名风险
+            ftype = CGType::TupDyn;
         } else if (field->type().type() == TokenType::KW_BYTE ||
                    field->type().type() == TokenType::KW_WORD) {
             // byte/word 字段（t87）：i64 槽承载 + 记 bit_max，初始化/赋值
@@ -6989,6 +7023,33 @@ llvm::Value* CodeGenerator::dyn_to_arr_slot(llvm::Value* dyn) {
     builder_.SetInsertPoint(trap_bb);
     builder_.CreateCall(rt_trap_dyn_convert_,
                         {tag, builder_.CreateGlobalString("array")});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return ptr;
+}
+
+llvm::Value* CodeGenerator::dyn_to_tuple_slot(llvm::Value* dyn) {
+    // 动态承载值进 Tuple 落点（t179）：解释器 coerce_to_declared 的 KW_TUPLE 分支
+    // 只要求 is_tuple()，而 tag 8（t170）的 bits 就是堆 tuple 对象 ptr——守卫命中即
+    // 还原并入既有动态 tuple 消费面（t140/t163/t170/t177）；tuple 运行期不可变，
+    // 多槽共享同一堆对象无别名风险。其余位落既有 collie_rt_trap_dyn_convert，
+    // 复刻解释器 "Type mismatch: cannot assign <kind> to 'Tuple' variable"
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::Value* tag = num_tag(dyn);
+    auto* ok_bb = llvm::BasicBlock::Create(context_, "dyntup.ok", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dyntup.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dyntup.cont", fn);
+    builder_.CreateCondBr(
+        builder_.CreateICmpEQ(tag, builder_.getInt64(8), "dyntupis8"), ok_bb,
+        trap_bb);
+    builder_.SetInsertPoint(ok_bb);
+    llvm::Value* ptr = builder_.CreateIntToPtr(num_bits(dyn),
+                                               llvm_type_of(CGType::TupDyn),
+                                               "dyntupptr");
+    builder_.CreateBr(cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_dyn_convert_,
+                        {tag, builder_.CreateGlobalString("Tuple")});
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(cont_bb);
     return ptr;

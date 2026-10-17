@@ -1,0 +1,56 @@
+// t179 S126 差分用例：Tuple 型类字段的接收者形态与签名面
+// 字段槽表示换成动态 tuple 堆对象（CGType::TupDyn，单 ptr）后，接收者一侧的三种
+// 形态——静态类名变量、父类名变量（子实例装入）、object 动态承载——读同一字段
+// 都走同一条 load；Tuple 进/出函数签名早已由 t140 打通，本批只是让字段值成为
+// 它们的可达来源。
+
+class Base {
+    public Tuple p = (a: 1);
+    public function grab() Tuple {
+        return this.p;
+    }
+    public function take(t Tuple) integer {
+        return t.length;
+    }
+    public function put(t Tuple) none {
+        this.p = t;
+    }
+}
+
+class Sub extends Base {
+    public Tuple q = (k: true, n: 2);
+}
+
+// 1) 静态类名接收者：读、命名访问、方法返回/形参/体内赋值
+Base bb = new Base();
+print("1", bb.p);
+print("2", bb.grab());
+print("3", bb.take(bb.p));
+bb.put((a: 7, s: "x"));
+print("4", bb.p);
+print("5", bb.grab().s);
+
+// 2) 父类名变量装子实例：继承字段与子类自有字段各按动态类读
+Sub s = new Sub();
+print("6", s.q);
+print("7", s.q.n);
+Base via_base = s;
+print("8", via_base.p);
+print("9", via_base.grab().a);
+
+// 10) object 接收者：实例位经动态字段分派取 Tuple 字段
+object o = s;
+print("10", o.p);
+print("11", o.q);
+print("12", o.grab());
+
+// 13) Tuple 字段作 Tuple 型变量初值（TupDyn → 静态展开虚值）
+Tuple direct = bb.p;
+print("14", direct);
+print("15", direct.a);
+
+// 16) 方法体内 this.p 整体换形状后再经签名传出
+Sub s2 = new Sub();
+s2.put((only: "v"));
+print("17", s2.p);
+print("18", s2.take(s2.p));

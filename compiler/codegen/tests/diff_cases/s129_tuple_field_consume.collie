@@ -1,0 +1,86 @@
+// t179 S126 差分用例：Tuple 型类字段读出后的消费面
+// 字段读出即 CGType::TupDyn，直接落 t140/t163/t170/t172/t175/t177 已建好的动态
+// tuple 消费通道：打印/转串、`.length`、常量与动态与负数索引、`get(常量键/动态键)`、
+// 嵌套取值、判等与 `==?`/`switch` 深比较、装进 kind 7 数组与静态 tuple 与 object 槽。
+
+class Thing {
+    public string tag = "rex";
+}
+
+class Box {
+    public Tuple p = (s: "abc", i: 3, d: 1.5, bo: true, t: unset, o: 7);
+}
+
+Box b = new Box();
+
+// 1) 整体打印 / toString / 长度
+print("1", b.p);
+print("2", b.p.toString());
+print("3", b.p.length);
+
+// 4) 常量索引、负数索引、动态索引与两种 get
+print("4", b.p[0]);
+print("5", b.p[-1]);
+integer k = 2;
+print("6", b.p[k]);
+string key = "bo";
+print("7", b.p.get(key));
+print("8", b.p.get("d"));
+
+// 9) 命名访问后的数值与串面消费
+print("9", b.p.d + 1);
+print("10", b.p.s.length);
+object z = b.p.t;
+print("11", z);
+print("12", b.p.i * 2);
+
+// 13) 容器位嵌套：数组位 / 实例位 / 内层 tuple
+class Nest {
+    public Tuple q = (arr: [7, 8, 9], obj: "s", inner: (x: 8));
+}
+Nest n = new Nest();
+Thing tt = new Thing();
+n.q = (arr: [1, 2, 3], obj: tt, inner: (x: 4, y: 5));
+print("13", n.q);
+print("14", n.q.arr.length);
+print("15", n.q.arr[1]);
+print("16", n.q.obj.tag);
+print("17", n.q.inner.y);
+
+// 18) 判等与深比较：自身、跨类同形状字段、经 object 承载
+class Other {
+    public Tuple r = (s: "abc", i: 3, d: 1.5, bo: true, t: unset, o: 7);
+}
+Other ot = new Other();
+object e1 = b.p == b.p;
+print("18", e1);
+object e2 = b.p == ot.r;
+print("19", e2);
+object m = b.p;
+print("20", m == ot.r);
+
+// 21) `==?` 与 `switch` 的动态 tuple 目标 / 候选
+object w = b.p ==? (s: "abc", i: 3, d: 1.5, bo: true, t: unset, o: 7): "same", "other";
+print("21", w);
+switch (b.p) {
+    (s: "abc", i: 3, d: 1.5, bo: true, t: unset, o: 7) { print("22 hit"); }
+    default { print("22 miss"); }
+}
+integer x = 3;
+object g = x ==? 3: b.p, 4: "other", "fallback";
+print("23", g);
+print("24", g.i);
+
+// 25) 装进 kind 7 数组 / 静态 tuple / object 型类字段
+array bag = [b.p, 7];
+print("25", bag);
+print("26", bag[0]);
+Tuple outer = (inner: b.p, k: 5);
+print("27", outer);
+print("28", outer.inner.s);
+class Holder {
+    public object payload = 0;
+}
+Holder h = new Holder();
+h.payload = b.p;
+print("29", h.payload);

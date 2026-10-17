@@ -1,0 +1,39 @@
+// t179 S126 差分用例：Tuple 型类字段的嵌套 tuple 位与实例位元素
+// 嵌套 tuple 元素在物化处打 tag 8（t170）、实例位打 tag 5（t144），字段读出后
+// 继续按运行期 tag 分派取内层命名字段与实例成员——全部走既有消费面，零新增接口
+
+class Thing {
+    public string tag = "rex";
+    public function speak() string { return "woof"; }
+}
+
+class Box {
+    public Tuple p = (inner: (x: 1, y: 2), arr: [3, 4]);
+}
+
+Box b = new Box();
+Thing tt = new Thing();
+
+// 1) 整值替换：内层 tuple 换形状、混入实例位与数组位
+b.p = (inner: (x: 8), obj: tt, arr: [7, 8, 9]);
+print("1", b.p);
+
+// 2) 内层 tuple 位元素的成员访问（Dyn 接收者按 tag 8 扫名）
+print("2", b.p.inner);
+print("3", b.p.inner.x);
+
+// 4) 数组位元素取长与索引、实例位成员与方法
+print("5", b.p.arr.length);
+print("6", b.p.arr[2]);
+object e = b.p.obj;
+print("7", e.tag);
+print("8", e.speak());
+
+// 9) tuple 字段整体嵌进静态 tuple（t170 的 tag 8 元素物化）
+Tuple outer = (wrap: b.p, k: 5);
+print("10", outer);
+print("11", outer.wrap.inner.x);
+
+// 12) 从外层 tuple 取回内层位再写回字段
+b.p = outer.wrap;
+print("13", b.p);

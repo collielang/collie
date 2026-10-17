@@ -1,0 +1,10 @@
+// t179 S126 拒编锁：动态承载值（Dyn）重赋 Tuple 型变量
+// t179 的 tag == 8 守卫只接在 coerce_for_slot（类字段落点与数组元素落点用），
+// visitAssign 对 Tuple 型变量槽另有「右值静态可知是 tuple」的专臂，仍拒编。
+// 解释器 coerce_to_declared 只看运行期 is_tuple()：`q = o` 换形状 rc=0 并可
+// 直接命名读取，属活跃差分面（列 t180 候选，与声明/实参/返回三面同族）
+Tuple q = (a: 1, b: 2);
+object o = (x: 9, y: "s");
+q = o;
+print("1", q);
+print("2", q.y);

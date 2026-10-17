@@ -1,0 +1,98 @@
+// t179 S126 差分用例：Tuple 型类字段在控制流与函数体内的写侧
+// 字段槽为单 ptr 的动态 tuple 对象，每次整体赋值即物化新堆对象后直存（tuple
+// 运行期不可变，多槽共享无别名风险），故分支/循环/函数体内的重赋与静态类名
+// 接收者一律走同一条 store；三目与 `==?` 臂含 Tuple 字段时按 t168 承载族回退。
+
+class Box {
+    public Tuple p = (a: 1);
+    public Tuple q = (a: 1, b: 2);
+    public function bump() integer {
+        this.p = (a: this.p.a + 1, tag: "bumped");
+        return this.p.a;
+    }
+}
+
+Box b = new Box();
+
+// 1) if/else 两支形状不同：各自物化后合流点读同一槽
+bool flag = true;
+if (flag) {
+    b.p = (a: 2, s: "x");
+} else {
+    b.p = (a: 3);
+}
+print("1", b.p);
+flag = false;
+if (flag) {
+    b.p = (a: 2, s: "x");
+} else {
+    b.p = (a: 3);
+}
+print("2", b.p);
+print("3", b.p.a);
+
+// 4) for / while 每轮整体换形状
+for (integer i = 0; i < 3; i = i + 1) {
+    b.p = (n: i);
+    print("4", b.p.n);
+}
+integer c = 0;
+while (c < 2) {
+    b.p = (cc: c, t: c * 10);
+    print("5", b.p.t);
+    c = c + 1;
+}
+
+// 6) 循环后槽仍承载最后一轮的值
+object late = b.p;
+print("6", late);
+
+// 7) 方法体内 this.p 依赖自身旧值重赋
+b.p = (a: 4);
+print("7", b.bump());
+print("8", b.p);
+print("9", b.bump());
+print("10", b.p.tag);
+
+// 11) 三目两支皆 Tuple 字段：静态合流即 Tuple（t168 精度不丢）
+Box other = new Box();
+other.p = (z: "q");
+bool pick = true;
+object m = pick ? b.p : other.p;
+print("11", m);
+Tuple both = pick ? b.p : other.p;
+print("12", both);
+print("13", both.a);
+
+// 14) `switch` 目标为 Tuple 字段的内层位（Dyn 比较面）
+Box sw = new Box();
+sw.p = (a: 2);
+switch (sw.p.a) {
+    1 { print("14 one"); }
+    2 { print("14 two"); }
+    default { print("14 other"); }
+}
+
+// 15) 数组承载多实例：经实例位接收者读写各自字段
+Box b1 = new Box();
+Box b2 = new Box();
+b2.p = (a: 5, s: "hh");
+array boxes = [b1, b2];
+object one = boxes[1];
+print("15", one.p);
+print("16", one.p.a);
+one.p = boxes[0].p;
+print("17", one.p);
+print("18", boxes[0].p);
+
+// 19) 嵌套函数体写外层可见实例的 Tuple 字段
+function outer() string {
+    function inner() string {
+        b.q = (a: 99, s: "g");
+        object d = b.q;
+        return "" + d.length;
+    }
+    return inner();
+}
+print("19", outer());
+print("20", b.q);

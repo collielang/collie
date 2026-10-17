@@ -1,0 +1,9 @@
+// t179 S126 拒编锁：动态承载值（Dyn）作 Tuple 形参的实参
+// 同 s129_reject_dyn_to_tuple_var_slot：t179 的 dyn_to_tuple_slot 守卫只接在
+// 类字段落点，调用点仍要求实参静态可知是 tuple。解释器按运行期 is_tuple()
+// 校验，`show(o)`（o 承载 tuple 位）rc=0 返回长度，属活跃差分面（列 t180 候选）
+object o = (x: 9);
+function show(t Tuple) integer {
+    return t.length;
+}
+print("1", show(o));

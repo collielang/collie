@@ -1,0 +1,35 @@
+// t179 S126 差分用例：Tuple 型类字段的元素种类面
+// tuple 元素在物化处逐位打 {tag,bits}（t164/t170/t171/t175 的承载集），故字段里的
+// 标量/串/小数/bool/tribool/数组位读出即落全部既有运行期 tag 分派消费面
+
+class Bag {
+    public Tuple p = (s: "a", i: 3, d: 1.5, bo: true, t: unset, o: 7);
+}
+
+// 1) 整值打印逐元素转串
+Bag g = new Bag();
+print("1", g.p);
+
+// 2) 串位元素的方法面（.length 按运行期 tag 分派）
+print("2", g.p.s.length);
+
+// 3) 小数位元素参与算术
+print("3", g.p.d + 1);
+
+// 4) tribool / bool 位元素进 object 承载槽
+object z = g.p.t;
+print("4", z);
+object n = g.p.bo;
+print("5", n);
+
+// 6) 整值替换为含数组位的形状（数组位 tag 4 入 tuple 堆对象）
+g.p = (arr: [1, "x"], num: 2.5);
+print("7", g.p);
+print("8", g.p.arr.length);
+print("9", g.p.arr[1]);
+
+// 10) 数组位元素先经 t165 的 dyn_to_arr_slot 落进静态 array 变量，再与字面量深比较
+array copy = g.p.arr;
+print("11", copy);
+object same = copy == [1, "x"];
+print("12", same);

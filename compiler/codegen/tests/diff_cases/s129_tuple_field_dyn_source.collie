@@ -1,0 +1,43 @@
+// t179 S126 差分用例：动态承载值写进 Tuple 型类字段
+// 解释器 coerce_to_declared 的 KW_TUPLE 分支只要求 is_tuple()，运行期才定的 tuple
+// 位照样可直存字段槽；codegen 侧新增 dyn_to_tuple_slot——守卫 tag == 8 后把 bits
+// 还原为堆 tuple 对象 ptr，其余位落既有 collie_rt_trap_dyn_convert（同消息报错）
+
+class Box {
+    public Tuple p = (a: 1, b: 2);
+}
+
+Box b = new Box();
+
+// 1) 字段读出进 object 承载槽（tag 8），再写回另一形状
+object o = b.p;
+print("1", o);
+object q = (x: 5);
+b.p = q;
+print("2", b.p);
+print("3", b.p.x);
+
+// 4) kind 7 异质数组元素位（tuple 位）写回字段
+array bag = [b.p, 7];
+print("5", bag);
+b.p = bag[0];
+print("6", b.p);
+
+// 7) 实例位装在 kind 7 数组里，经 object 接收者读 tuple 字段再写回
+Box c = new Box();
+array boxes = [b, c];
+object one = boxes[0];
+print("8", one.p);
+one.p = boxes[1].p;
+print("9", one.p);
+print("10", one.p.a);
+
+// 11) object 型类字段作中转（t162 承载槽 → t179 字段槽）
+class Holder {
+    public object payload = 0;
+}
+Holder h = new Holder();
+h.payload = b.p;
+b.p = (fresh: true);
+b.p = h.payload;
+print("12", b.p);

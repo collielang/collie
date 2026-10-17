@@ -1,0 +1,32 @@
+// t179 S126 差分用例：Tuple 型类字段以动态 tuple 堆对象承载
+// 解释器把 Tuple 字段当普通值直存（coerce_to_declared 的 KW_TUPLE 分支只要求
+// is_tuple()），codegen 原先在 register_class_layout 就落 "tuple value in this
+// position" 整面拒编——tuple 是静态展开虚值，无单一 LLVM 承载。本批与 t140 的
+// tuple 进函数签名同解：字段槽取 CGType::TupDyn（堆 tuple 对象 ptr），初值与赋值
+// 经物化落入，读出即动态 tuple 消费面（t140/t163/t170/t177 既有臂，零新增 rt 接口）
+
+class Box {
+    public Tuple p = (a: 1, b: 2);
+    public Tuple q = (10, 20);
+}
+
+// 1) 声明期初值物化，整值打印保型
+Box b = new Box();
+print("1", b.p);
+
+// 2) 命名字段与 .length（交 rt_tuple_key_dyn / rt_tuple_len）
+print("2", b.p.a);
+print("3", b.p.length);
+
+// 3) 位置 tuple 字段的常量索引
+print("4", b.q[1]);
+
+// 5) 整值替换为不同形状（解释器同为整值替换）
+b.p = (k: "v");
+print("6", b.p);
+print("7", b.p.k);
+
+// 8) 赋值表达式的值即所赋整值（对齐解释器 result_）
+object r = (b.q = (9, 8, 7));
+print("9", r);
+print("10", b.q);
