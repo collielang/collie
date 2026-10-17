@@ -3470,7 +3470,8 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     // 类均入 switch case（不限同树，同 t133 方法动态分派），按对象头类 id
     // 运行期分派存储；lone_tree 恒 false（真实类可能不在 defs 中，须留 default
     // 兜底）。原空 cls 直落 classes_.at("") 抛 out_of_range 使编译进程崩溃，
-    // 现纳入动态面。各定义者字段声明类型须全等（同 t102 防御）否则拒编不错编
+    // 现纳入动态面。各定义者字段声明类型全等时 switch 前单一 coerce，不一致
+    // 时逐臂动态拆槽后合流为 Dyn（t176 读侧 / t178 写侧）
     std::vector<const CGClass*> defs;
     bool lone_tree = true;
     if (object.cls.empty()) {
@@ -3522,21 +3523,83 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
                        field.cls};
         return;
     }
-    // 多类树：字段类型一致防御后值在 switch 前求值/coerce（求值顺序
-    // object → value 不变，bit 陷阱仍在赋值点前），各 arm 按定义者布局存储
+    // 多类树：值在 switch 前求值（求值顺序 object → value 不变），各 arm 按
+    // 定义者布局存储。字段声明全等时沿用 switch 前单一 coerce + 单型 PHI
+    // （t86 静态精度不丢）；不一致时逐臂动态拆槽后合流为 Dyn（t178，见下）
     const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
     std::sort(defs.begin(), defs.end(),
               [](const CGClass* a, const CGClass* b) {
                   return a->id < b->id;
               });
+    bool uniform = true;
     for (const CGClass* sub : defs) {
         const CGField& f = sub->fields.at(sub->field_index.at(name));
         if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
-            unsupported("inherited field '" + name + "' with a different type",
-                        expr.name().line(), expr.name().column());
+            uniform = false;
         }
     }
     CGValue v = emit(expr.value());
+    if (!uniform) {
+        // 不一致字段的写侧（t178）：解释器 visitPropertyAssign 按**运行期动态类**
+        // 的字段声明 coerce_to_declared 后直存，且赋值表达式的值就是那份按动态类
+        // 转换后的值。各臂静态类型无法统一，若逐臂按静态类型 coerce，则「某臂的
+        // 转换静态不可行」（串位写 array 字段等）会拖垮整个赋值点，而解释器只在
+        // 动态类命中该臂时才报错——故先把所赋的值打框为 {tag,bits}，再逐臂交既有
+        // 动态拆槽通道（coerce_for_slot 的 allow_dyn_unbox 路径：标量/串/数值互转
+        // 即解释器 coerce_to_declared 接受表，Arr 走 tag ∈ {4,7} 守卫、Obj 走
+        // tag 5 + 类 id 守卫、Dyn 直存），守卫未命中落该臂内运行期同消息陷阱。
+        // store 后按各臂类型 to_dyn 打框，在 {i64,i64} 第一类 struct 上 PHI 合流
+        // 为 Dyn（与 t176 读侧同源），消费面全落 S92–S122 既有 tag 分派臂
+        CGValue boxed{to_dyn(v, expr.name().line(), expr.name().column()),
+                      CGType::Dyn, CGType::Int, std::string()};
+        llvm::Value* clsid = builder_.CreateLoad(
+            builder_.getInt64Ty(), object.value, "clsid");
+        llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+        auto* trap_bb = llvm::BasicBlock::Create(context_, "propasg.trap", fn);
+        auto* merge_bb = llvm::BasicBlock::Create(context_, "propasg.end", fn);
+        llvm::SwitchInst* sw = builder_.CreateSwitch(
+            clsid, trap_bb, static_cast<unsigned>(defs.size()));
+        std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+        for (const CGClass* sub : defs) {
+            auto* bb = llvm::BasicBlock::Create(
+                context_,
+                "propasg." + std::string(sub->stmt->name().lexeme()), fn);
+            sw->addCase(builder_.getInt64(sub->id), bb);
+            builder_.SetInsertPoint(bb);
+            const CGField& f = sub->fields.at(sub->field_index.at(name));
+            llvm::Value* stored =
+                coerce_for_slot(boxed, f.type, expr.name(), f.cls, true,
+                                bit_type_name(f.bit_max));
+            if (f.bit_max > 0) {
+                // byte/word 字段赋值点范围陷阱（t87，按各臂自身声明上限）
+                stored = check_bit_range(stored, f.bit_max,
+                                         f.bit_max == 255 ? "byte" : "word");
+            }
+            const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
+            builder_.CreateStore(
+                stored, builder_.CreateStructGEP(sub->type, object.value, idx, name));
+            // 臂的表达式值 = 按该臂声明类型转换后的值（对齐解释器 result_）
+            CGValue arm{stored, f.type,
+                        f.type == CGType::Arr ? CGType::Num : CGType::Int, f.cls};
+            incoming.emplace_back(
+                builder_.GetInsertBlock(),
+                to_dyn(arm, expr.name().line(), expr.name().column()));
+            builder_.CreateBr(merge_bb);
+        }
+        builder_.SetInsertPoint(trap_bb);
+        builder_.CreateCall(rt_trap_undefined_property_,
+                            {builder_.CreateGlobalString(name)});
+        builder_.CreateUnreachable();
+        builder_.SetInsertPoint(merge_bb);
+        llvm::PHINode* dyn_phi = builder_.CreatePHI(
+            llvm_type_of(CGType::Dyn), static_cast<unsigned>(incoming.size()),
+            "propasgdyn");
+        for (const auto& in : incoming) {
+            dyn_phi->addIncoming(in.second, in.first);
+        }
+        last_value_ = {dyn_phi, CGType::Dyn, CGType::Int, std::string()};
+        return;
+    }
     llvm::Value* stored = coerce_for_slot(v, ref.type, expr.name(), ref.cls, true,
                                           bit_type_name(ref.bit_max));
     if (ref.bit_max > 0) {

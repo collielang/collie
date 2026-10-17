@@ -1,0 +1,57 @@
+// t178 S125 差分用例 7：控制流与函数体内的不一致字段写侧——if/else 两路、while、
+// for、switch 各臂、嵌套函数捕获、类方法内写动态对象、全局槽在函数内改值
+class P7 { public string memo = "p"; }
+class F7 { public integer memo = 0; }
+class Box7 { public object memo = 7; }
+
+object g = new P7();
+function bump() none {
+    g.memo = 11;
+}
+bump();
+print("1", g.memo);
+
+bool go = true;
+if (go) {
+    g.memo = 12;
+    print("2", g.memo);
+} else {
+    print("2 unreachable");
+}
+
+g = new F7();
+integer i = 0;
+while (i < 3) {
+    g.memo = i;
+    i = i + 1;
+}
+print("3", g.memo);
+
+for (integer k = 0; k < 2; k = k + 1) {
+    g.memo = 10 + k;
+}
+print("4", g.memo);
+
+g = new Box7();
+switch (i) {
+    3 { g.memo = [1, 2]; print("5 case-three"); }
+    default { print("5 other"); }
+}
+print("6", g.memo);
+
+object outer = new F7();
+function use(x object) object {
+    x.memo = 77;
+    return x.memo;
+}
+print("7", use(outer));
+
+class Writer7 {
+    public function write(target object) object {
+        target.memo = 5;
+        return target.memo;
+    }
+}
+Writer7 w = new Writer7();
+print("8", w.write(new P7()));
+print("9", w.write(new F7()) + 1);

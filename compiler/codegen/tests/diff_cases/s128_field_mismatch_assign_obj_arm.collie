@@ -1,0 +1,23 @@
+// t178 S125 差分用例 8：不一致字段中含类名（Obj）臂——同树实例（自身类与后代类）
+// 经运行期 tag 5 + 对象头类 id 守卫后进类名字段槽，其余臂按各自声明类型拆槽
+class Animal8 { public string kind = "a"; public function voice() string { return "an"; } }
+class Dog8 extends Animal8 { }
+class Pet8 { public Dog8 pick = new Dog8(); public string other = "o"; }
+class Box8 { public Animal8 pick = new Animal8(); public integer other = 0; }
+
+object o = new Pet8();
+Dog8 d = new Dog8();
+o.pick = d;
+print("1", o.pick);
+print("2", o.pick.voice());
+object r = (o.pick = d);
+print("3", r.voice());
+o = new Box8();
+Animal8 a = new Animal8();
+o.pick = a;
+print("4", o.pick.voice());
+Dog8 dd = new Dog8();
+o.pick = dd;
+print("5", o.pick.voice());
+o.other = 9;
+print("6", o.other);

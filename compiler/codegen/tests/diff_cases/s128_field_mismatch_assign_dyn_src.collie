@@ -1,0 +1,37 @@
+// t178 S125 差分用例 3：写侧的值本身是动态承载值（object 槽读出、kind 7 元素读出、
+// tuple 位），逐臂按各自声明类型运行期拆槽或直接透传
+class P3 { public string slot = "s"; }
+class F3 { public integer slot = 1; }
+class O3 { public object slot = 0; }
+class D3 { public decimal slot = 1.5; }
+
+object o = new O3();
+object src = 7;
+o.slot = src;
+print("1", o.slot);
+o = new F3();
+o.slot = src;
+print("2", o.slot + 1);
+o = new D3();
+o.slot = src;
+print("3", o.slot);
+o = new P3();
+o.slot = src;
+print("4", o.slot);
+
+// 5) kind 7 元素读出的 Dyn 位写各臂
+array bag = [1, "x"];
+P3 pp = new P3();
+bag[0] = pp;
+bag[0].slot = 51;
+print("5", bag[0].slot);
+F3 ff = new F3();
+bag[1] = ff;
+bag[1].slot = 51;
+print("6", bag[1].slot);
+
+// 7) tuple 位进 object 臂
+Tuple tp = (a: 1, b: 2);
+o = new O3();
+o.slot = tp;
+print("7", o.slot);

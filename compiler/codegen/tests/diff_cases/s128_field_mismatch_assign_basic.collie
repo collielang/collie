@@ -1,0 +1,36 @@
+// t178 S125 差分用例：跨类同名但声明类型不一致的字段**写**侧逐臂动态拆槽
+// 解释器 visitPropertyAssign 按运行期动态类的字段声明 coerce_to_declared 后直存，
+// 赋值表达式的值即那份按动态类转换后的值；codegen 原在多类树写路径要求全部定义者
+// 字段类型全等，不一致即整面拒编（退役锁 s126_reject_field_mismatch_assign）。
+// 本批先把所赋的值打框为 {tag,bits}，再逐臂交既有动态拆槽通道，合流值恒 Dyn
+
+class Pet { public string name = "pet"; }
+class Farm { public integer name = 7; }
+
+// 1) 退役锁程序：串字段写数值（解释器隐式转串），读回即该串
+object o = new Pet();
+o.name = 9;
+print("1", o.name);
+
+// 2) 同一变量换动态类后写整数字段：值按整数保型
+o = new Farm();
+o.name = 9;
+print("2", o.name);
+o.name = 40;
+print("3", o.name + 2);
+
+// 3) 赋值表达式的值 = 按动态类转换后的值
+o = new Farm();
+object r1 = (o.name = 12);
+print("4", r1);
+o = new Pet();
+object r2 = (o.name = 12);
+print("5", r2);
+
+// 4) 写后立即读回，两臂各自保型
+o = new Pet();
+(o.name = 100);
+print("6", o.name);
+o = new Farm();
+(o.name = 100);
+print("7", o.name);

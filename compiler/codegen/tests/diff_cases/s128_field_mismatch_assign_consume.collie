@@ -1,0 +1,40 @@
+// t178 S125 差分用例 6：合流为 Dyn 的赋值表达式值的消费面——打印/转串/拼接/自相加、
+// .length·索引、六类类型化槽拆槽、判等与 ==?·switch、进容器、进签名
+class P6 { public string v = "s"; }
+class F6 { public integer v = 0; }
+
+object o = new P6();
+object r = (o.v = 12);
+print("1", r);
+print("2", r.toString());
+print("3", "x" + r);
+print("4", r + r);
+print("5", r.length);
+print("6", r[1]);
+print("7", r.trim());
+print("8", r.toNumber() + 1);
+print("9", r ==? 12: "num-hit", "str-view");
+o = new F6();
+object n = (o.v = 12);
+print("10", n ==? 12: "num-hit", "miss");
+switch (n) {
+    12 { print("11 case-twelve"); }
+    default { print("11 other"); }
+}
+integer got = n;
+print("12", got + 1);
+string back = r;
+print("13", back + "!");
+number wid = n;
+print("14", wid / 2);
+object carry = r;
+print("15", carry);
+array bag = [r, n, 1];
+print("16", bag);
+Tuple tp = (a: r, b: n);
+print("17", tp);
+print("18", tp.get("a"));
+function take(x object) object { return x; }
+print("19", take(r));
+function ret() object { return n; }
+print("20", ret());

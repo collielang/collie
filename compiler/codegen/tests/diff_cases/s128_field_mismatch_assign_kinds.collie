@@ -1,0 +1,41 @@
+// t178 S125 差分用例 2：不一致字段写侧的各臂类型组合（bool/tribool/decimal/
+// number/object/byte/word × 串与整数系），逐臂按各自声明类型运行期拆槽
+class B2 { public bool flag = true; }
+class S2 { public string flag = "f"; }
+class T2 { public tribool flag = unset; }
+class N2 { public number flag = 1; }
+class O2 { public object flag = 0; }
+class D2 { public decimal flag = 1.5; }
+class Y2 { public byte flag = 3; }
+class W2 { public word flag = 300; }
+class I2 { public integer flag = 3; }
+
+object o = new B2();
+object r = (o.flag = false);
+print("1", r);
+print("2", o.flag);
+o = new S2();
+print("3", (o.flag = true));
+print("4", o.flag);
+o = new T2();
+print("5", (o.flag = true));
+print("6", o.flag);
+o = new D2();
+print("7", (o.flag = 3));
+print("8", o.flag);
+print("9", o.flag + 0.5);
+o = new N2();
+print("10", (o.flag = 2.5));
+print("11", o.flag);
+o = new O2();
+print("12", (o.flag = [1, 2]));
+print("13", o.flag);
+o = new Y2();
+print("14", (o.flag = 200));
+print("15", o.flag);
+o = new W2();
+print("16", (o.flag = 60000));
+print("17", o.flag);
+o = new I2();
+print("18", (o.flag = 42));
+print("19", o.flag + 1);

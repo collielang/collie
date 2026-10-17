@@ -1,0 +1,45 @@
+// t178 S125 差分用例 5：继承树上的不一致字段写侧（子类继承父类字段位、静态类名
+// 接收者的多类树路径）与全等字段的单型快路径精度保留
+class Animal5 { public string tag = "a"; }
+class Dog5 extends Animal5 { }
+class Cat5 extends Animal5 { }
+class Farm5 { public integer tag = 7; }
+
+// 1) 动态接收者：继承树上的子类与旁支树同类字段名不一致
+object o = new Dog5();
+object r = (o.tag = 9);
+print("1", r);
+print("2", o.tag);
+o = new Cat5();
+o.tag = "renamed";
+print("3", o.tag);
+o = new Farm5();
+o.tag = 100;
+print("4", o.tag + 1);
+
+// 5) 静态类名接收者（同树多类）：字段声明全等，走原单型路径
+Animal5 a = new Cat5();
+a.tag = "static-path";
+print("5", a.tag);
+string s = (a.tag = "s");
+print("6", s);
+
+// 7) 跨类同名全等字段的单型快路径精度（静态类名接收者与构造器内 this.tag 写）
+class U5a { public integer n = 1; }
+class U5b { public integer n = 2; }
+object u = new U5b();
+integer v = (u.n = 33);
+print("7", v);
+print("8", u.n);
+u = new U5a();
+print("9", (u.n = 44) + 1);
+
+// 10) 构造器内 this.tag 写：静态接收者路径不受本批影响
+class Ctor10 { public string tag = "x"; public Ctor10() { this.tag = "ctor"; } }
+class Other10 { public integer tag = 1; }
+Ctor10 c = new Ctor10();
+print("10", c.tag);
+object co = c;
+print("11", co.tag);
+co = new Other10();
+print("12", (co.tag = 3) + 1);

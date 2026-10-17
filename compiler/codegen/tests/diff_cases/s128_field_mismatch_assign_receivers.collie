@@ -1,0 +1,47 @@
+// t178 S125 差分用例 4：写侧接收者的各动态来源——object 形参/返回值、object 型
+// 类字段、kind 7 数组元素位、三目合流的 Dyn 实例位，以及 array 字段臂与串字段臂混排
+class Bag4 { public array items = [1]; }
+class Note4 { public string items = "n"; }
+class Hold4 { public object cell = 0; }
+
+function paint(x object) object {
+    x.items = 8;
+    return x.items;
+}
+function make(flag bool) object {
+    if (flag) {
+        return new Bag4();
+    }
+    return new Note4();
+}
+
+print("1", paint(new Note4()));
+print("2", make(true));
+object o = make(false);
+print("3", paint(o));
+print("4", o.items);
+
+// 5) object 型类字段承载实例后写其不一致字段
+Hold4 h = new Hold4();
+h.cell = new Bag4();
+h.cell.items = [7, 8];
+print("5", h.cell.items);
+h.cell = new Note4();
+h.cell.items = "written";
+print("6", h.cell.items);
+
+// 7) 三目合流的 Dyn 实例位写侧
+bool flip = true;
+object t = flip ? new Note4() : new Bag4();
+t.items = 12;
+print("7", t.items);
+print("8", paint(t));
+
+// 9) kind 7 数组元素位作接收者
+array bag = [1, "x"];
+bag[0] = new Bag4();
+bag[0].items = [3, 4];
+print("9", bag[0].items);
+bag[1] = new Note4();
+bag[1].items = 5;
+print("10", bag[1].items);
