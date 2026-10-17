@@ -1,0 +1,22 @@
+// t181 S128 差分用例：无初值 Tuple 槽首赋后的消费面
+Tuple q;
+q = (a: 1, b: "x", c: true);
+print("1", q);
+print("2", q.length);
+print("3", q.a);
+print("4", q.get("b"));
+print("5", q[2]);
+print("6", q[-1]);
+print("7", toString(q));
+Tuple p;
+p = q;
+print("8", p);
+print("9", p == q);
+print("10", p != q);
+object o = q;
+print("11", o);
+print("12", o.a + 1);
+integer n = q.a;
+print("13", n * 2);
+string s = q.b;
+print("14", s.length);

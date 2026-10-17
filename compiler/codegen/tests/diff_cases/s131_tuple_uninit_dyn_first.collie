@@ -1,0 +1,14 @@
+// t181 S128 差分用例：动态承载值首赋无初始化 Tuple 变量槽
+object o = (x: 9, y: "s");
+Tuple q;
+q = o;
+print("1", q);
+print("2", q.length);
+print("3", q.x);
+print("4", q.get("y"));
+print("5", q[0]);
+object relay = o;
+Tuple r;
+r = relay;
+print("6", r);
+print("7", r.x == q.x);

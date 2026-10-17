@@ -1,0 +1,15 @@
+// t181 S128 差分用例：无初值 Tuple 槽换形状重赋（原 t117 槽组重建守卫面）
+Tuple q;
+q = (a: 1, b: "x");
+print("1", q);
+print("2", q.b);
+q = (a: 2, b: "y");
+print("3", q);
+q = (c: 3, d: 4, e: 5);
+print("4", q);
+print("5", q.e);
+print("6", q.length);
+object o = (f: "g");
+q = o;
+print("7", q.f);
+print("8", q.length);

@@ -1,0 +1,20 @@
+// t181 S128 差分用例：无初值 Tuple 槽承载混合 kind 与嵌套容器
+class Point {
+    public integer px = 7;
+}
+Tuple q;
+object inst = new Point();
+q = (n: 3, d: 1.5, s: "abc", b: true, arr: [1, "x"], obj: inst, nested: (m: 2));
+print("1", q.n);
+print("2", q.d);
+print("3", q.s);
+print("4", q.b);
+print("5", q.arr);
+print("6", q.arr[1]);
+print("7", q.nested.m);
+print("8", q.length);
+print("9", toString(q));
+print("10", q.obj.px);
+print("11", q.nested.length);
+integer raw = q.n;
+print("12", raw * 2);

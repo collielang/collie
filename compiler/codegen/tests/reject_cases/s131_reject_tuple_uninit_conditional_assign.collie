@@ -1,0 +1,12 @@
+// t181 S128 拒编锁：条件发射区内首赋、区外读（类型无关的 t110 定赋面）
+// `Tuple q;` 槽在 t181 起为动态 tuple 承载，形状运行期自带，换形状本身不再受限；
+// 但「运行期可能不执行的分支里首赋、其后在区外读」仍是 t110 的 uninit 读守卫
+//（与 object 槽的 s123_reject_object_uninit_conditional_assign 同一族，非 Tuple
+// 表示问题）。解释器按实际执行路径取值：flag 为真时 q 已定赋，rc=0 可整值打印
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (a: 1);
+}
+print("1", q);
+print("2", q.a);

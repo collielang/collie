@@ -1,0 +1,16 @@
+// t181 S128 差分用例：循环体内反复换形状（循环回边在动态槽下天然安全）
+Tuple q;
+for (integer i = 0; i < 3; i = i + 1) {
+    q = (v: i);
+    print("1", q.v);
+}
+object o = (w: 9);
+q = o;
+print("2", q.w);
+for (integer i = 0; i < 2; i = i + 1) {
+    object t = (idx: i, pair: i * 2);
+    q = t;
+    print("3", q.idx, q.pair);
+}
+print("4", q);
+print("5", q.length);

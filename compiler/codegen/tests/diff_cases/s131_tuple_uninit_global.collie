@@ -1,0 +1,17 @@
+// t181 S128 差分用例：全局无初值 Tuple 槽跨函数读（动态槽无静态形状快照问题）
+Tuple q;
+q = (a: 1);
+function read() object {
+    return q;
+}
+print("1", read());
+object o = (b: 2, c: "x");
+q = o;
+print("2", read());
+object r = read();
+print("3", r.c);
+print("4", r.length);
+Tuple q2;
+q2 = q;
+print("5", q2);
+print("6", q2 == q);

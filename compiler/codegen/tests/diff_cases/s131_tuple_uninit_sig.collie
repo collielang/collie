@@ -1,0 +1,31 @@
+// t181 S128 差分用例：函数内局部无初值 Tuple 槽经 return/实参/声明落点外传
+Tuple q;
+q = (x: 5);
+function as_object() object {
+    return q;
+}
+function as_tuple() Tuple {
+    Tuple local;
+    object o = (y: "s", z: true);
+    local = o;
+    return local;
+}
+function static_local() Tuple {
+    Tuple local;
+    local = (n: 1);
+    return local;
+}
+function take(t Tuple) object {
+    return t;
+}
+print("1", as_object());
+Tuple r = as_object();
+print("2", r.x);
+Tuple d = as_tuple();
+print("3", d);
+print("4", d.z);
+Tuple s = static_local();
+print("5", s.n);
+object back = take(s);
+print("6", back);
+print("7", take(d));

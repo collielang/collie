@@ -1,0 +1,20 @@
+// t181 S128 差分用例：条件分支两侧各赋不同形状（原 t117 条件发射区守卫面）
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (a: 1);
+} else {
+    q = (b: 2, c: "x");
+}
+print("1", q);
+print("2", q.a);
+print("3", q.length);
+flag = false;
+if (flag) {
+    q = (a: 1);
+} else {
+    q = (b: 2, c: "x");
+}
+print("4", q);
+print("5", q.c);
+print("6", q.length);
