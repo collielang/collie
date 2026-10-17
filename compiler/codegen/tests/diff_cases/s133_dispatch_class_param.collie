@@ -1,0 +1,16 @@
+// s133_dispatch_class_param：同名方法返回类型不同且形参为类名（t183）
+// 实参（实例位 tag 5）在每臂按声明类经 dyn_unbox_to_obj 守卫还原
+class W0 {
+    public string v = "w0";
+}
+class W1 {
+    public function f(x W0) string { return "got"; }
+}
+class W2 {
+    public function f(x W0) integer { return 11; }
+}
+object w = new W0();
+object a = new W1();
+object b = new W2();
+print("1", a.f(w));
+print("2", b.f(w));

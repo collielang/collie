@@ -1,0 +1,16 @@
+// s133_dispatch_diff_return：跨类同名方法仅返回类型不同（t183，S130）
+// object 接收者按对象头类 id 分派，返回值逐臂打框后合流为动态承载值
+class A {
+    public function f() string { return "a"; }
+}
+class B {
+    public function f() integer { return 7; }
+}
+object o = new A();
+object p = new B();
+print("1", o.f());
+print("2", p.f());
+string s = o.f();
+integer n = p.f();
+print("3", s);
+print("4", n);

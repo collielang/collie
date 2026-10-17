@@ -1,0 +1,35 @@
+// s133_dispatch_ret_kinds：各臂返回数组/bool/number/Tuple/string 位（t183）
+// 合流值为动态承载值，下游全部走既有 tag 分派消费面
+class C1 {
+    public function f() array { return [1, "x"]; }
+}
+class C2 {
+    public function f() bool { return true; }
+}
+class C3 {
+    public function f() number { return 2.5; }
+}
+class C4 {
+    public function f() Tuple { return (a: 7); }
+}
+class C5 {
+    public string s = " hello ";
+    public function f() string { return this.s; }
+}
+object k1 = new C1();
+object k2 = new C2();
+object k3 = new C3();
+object k4 = new C4();
+object k5 = new C5();
+object r1 = k1.f();
+object r2 = k2.f();
+object r3 = k3.f();
+object r4 = k4.f();
+object r5 = k5.f();
+print("1", r1);
+print("2", r1.length);
+print("3", r1[1]);
+print("4", r2);
+print("5", r3);
+print("6", r4);
+print("7", r5.trim());

@@ -1,0 +1,11 @@
+// s133_reject_arity_across_arms：各臂元数不同（t183 范围外）
+// 命中哪个臂由运行期类 id 决定，实参无法静态对齐——保守拒编不错编
+class AR1 {
+    public function f() string { return "one"; }
+}
+class AR2 {
+    public function f(x integer) string { return "two"; }
+}
+object a = new AR1();
+object b = new AR2();
+print("1", a.f());

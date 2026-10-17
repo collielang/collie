@@ -1,0 +1,11 @@
+// s133_dispatch_override_diff：子类覆写签名与父类不同（t183，静态父类型接收者）
+class Base4 {
+    public function f() string { return "base"; }
+}
+class Sub4 extends Base4 {
+    public function f() integer { return 5; }
+}
+Base4 v = new Sub4();
+Base4 w = new Base4();
+print("1", v.f());
+print("2", w.f());

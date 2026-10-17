@@ -1,0 +1,12 @@
+// s133_dispatch_diff_params：形参类型不同（t183）——实参一次打框，
+// 每个臂按自身形参类型运行期拆槽（不符者落 coerce_call_arg 既有陷阱）
+class P1 {
+    public function f(x integer) string { return "int:" + "" + x; }
+}
+class P2 {
+    public function f(x string) string { return "str:" + x; }
+}
+object a = new P1();
+object b = new P2();
+print("1", a.f(3));
+print("2", b.f("hi"));

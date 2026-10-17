@@ -1,0 +1,17 @@
+// s133_dispatch_dyn_domain_receiver：kind 7 动态域元素读出作接收者（t183）
+// 元素位是 {tag,bits}，经 dyn_obj_guard 还原实例 ptr 后并入异签名逐臂分派
+class R1 {
+    public string s = "s1";
+    public integer n = 1;
+    public function f(x integer) string { return this.s + x; }
+}
+class R2 {
+    public string s = "s2";
+    public integer n = 2;
+    public function f(x integer) integer { return this.n * x; }
+}
+array bag = [new R1(), new R2()];
+object e0 = bag[0];
+object e1 = bag[1];
+print("1", e0.f(3));
+print("2", e1.f(3));

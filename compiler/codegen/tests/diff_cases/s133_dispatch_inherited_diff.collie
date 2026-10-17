@@ -1,0 +1,16 @@
+// s133_dispatch_inherited_diff：静态类未定义、树内两继承者签名互异（t183）
+class Base3 {
+    public integer id = 3;
+}
+class Mid3 extends Base3 {
+    public function g() string { return "mid"; }
+}
+class Sub3 extends Base3 {
+    public function g() integer { return this.id + 1; }
+}
+Base3 v = new Mid3();
+Base3 w = new Sub3();
+print("1", v.g());
+print("2", w.g());
+object r = v.g();
+print("3", r);

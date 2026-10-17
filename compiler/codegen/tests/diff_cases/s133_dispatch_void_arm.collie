@@ -1,0 +1,14 @@
+// s133_dispatch_void_arm：一臂返回 none、另一臂返回值（t183）
+// none 臂打 tag 10 空位（t175），与解释器无显式 return 即 none 一致
+class U1 {
+    public function f() none { print("u1-side"); }
+}
+class U2 {
+    public function f() integer { return 9; }
+}
+object a = new U1();
+object b = new U2();
+print("1", a.f());
+print("2", b.f());
+object r = b.f();
+print("3", r);

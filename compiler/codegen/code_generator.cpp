@@ -2754,26 +2754,32 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             // 解释器运行期报错；codegen 静态可判，拒编不错编（同命中路径）
             unsupported("method arity mismatch for '" + name + "'", line, column);
         }
+        std::sort(defs.begin(), defs.end(),
+                  [](const CGClass* a, const CGClass* b) {
+                      return a->id < b->id;
+                  });
+        if (!signatures_consistent(defs, name, dm)) {
+            // 各定义者签名不一致（t183，S130）：object 面跨树同名异签无法静态
+            // 排除，改逐臂按各自签名动态拆槽、返回值合流为 Dyn
+            std::vector<CGValue> evaluated;
+            evaluated.reserve(arguments.size());
+            for (const auto& arg : arguments) {
+                evaluated.push_back(emit(arg.get()));
+            }
+            llvm::Value* clsid =
+                dyn_cls_override
+                    ? dyn_cls_override
+                    : builder_.CreateLoad(builder_.getInt64Ty(), object.value,
+                                          "clsid");
+            emit_mismatched_dispatch(defs, name, object.value, evaluated, clsid,
+                                     dyn_tag, dyn_bits, line, column);
+            return;
+        }
         std::vector<llvm::Value*> args{object.value};
         for (size_t i = 0; i < arguments.size(); ++i) {
             CGValue a = emit(arguments[i].get());
             args.push_back(coerce_call_arg(a, dm.param_types[i], dm.param_cls[i],
                                            line, column));
-        }
-        std::sort(defs.begin(), defs.end(),
-                  [](const CGClass* a, const CGClass* b) {
-                      return a->id < b->id;
-                  });
-        // 各定义者签名须一致（t86 防御，同 t102）：不一致统一 PHI 不可行，
-        // 拒编不错编——object 面跨树同名异签无法静态排除
-        for (const CGClass* sub : defs) {
-            const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
-            if (m.ret_type != dm.ret_type || m.ret_cls != dm.ret_cls ||
-                m.param_types != dm.param_types || m.param_cls != dm.param_cls) {
-                unsupported("method '" + name +
-                                "' with a different signature across classes",
-                            line, column);
-            }
         }
         // Dyn 接收者的 toString 拆分（t159）：类 id 由 tag==5 分支的守卫载入
         // （哨兵路径不解引用非指针位模式）；其余方法调用沿用无条件载入
@@ -2851,12 +2857,6 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                 // 解释器运行期报错；codegen 静态可判，拒编不错编
                 unsupported("method arity mismatch for '" + name + "'", line, column);
             }
-            std::vector<llvm::Value*> args{object.value};
-            for (size_t i = 0; i < arguments.size(); ++i) {
-                CGValue a = emit(arguments[i].get());
-                args.push_back(coerce_call_arg(a, info.param_types[i],
-                                               info.param_cls[i], line, column));
-            }
             // 同树定义者收集（t86/t103）：downcast 放行后动态类可为整棵
             // 继承树上任意类（旁支可经共同祖先中转写入槽），case 只挂
             // 树内定义了该方法的类；按类 id 排序保证 case 生成顺序确定
@@ -2876,23 +2876,31 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                       [](const CGClass* a, const CGClass* b) {
                           return a->id < b->id;
                       });
+            if (!lone_tree && !signatures_consistent(defs, name, info)) {
+                // 覆写者签名与静态类不一致（t183，S130）：统一 PHI 无法承载
+                // 不同签名，改逐臂按各自签名动态拆槽、返回值合流为 Dyn
+                std::vector<CGValue> evaluated;
+                evaluated.reserve(arguments.size());
+                for (const auto& arg : arguments) {
+                    evaluated.push_back(emit(arg.get()));
+                }
+                llvm::Value* clsid = builder_.CreateLoad(
+                    builder_.getInt64Ty(), object.value, "clsid");
+                emit_mismatched_dispatch(defs, name, object.value, evaluated,
+                                         clsid, nullptr, nullptr, line, column);
+                return;
+            }
+            std::vector<llvm::Value*> args{object.value};
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                CGValue a = emit(arguments[i].get());
+                args.push_back(coerce_call_arg(a, info.param_types[i],
+                                               info.param_cls[i], line, column));
+            }
             llvm::Value* result = nullptr;
             if (lone_tree) {
                 // 单类树：动态类必为静态类，直调零开销（现状保持）
                 result = builder_.CreateCall(info.fn, args);
             } else {
-                // 各定义者副本签名须与静态类一致（覆写同签名，语义层校验的
-                // 防御；不一致则统一 PHI 不可行，拒编不错编）
-                for (const CGClass* sub : defs) {
-                    const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
-                    if (m.ret_type != info.ret_type || m.ret_cls != info.ret_cls ||
-                        m.param_types != info.param_types ||
-                        m.param_cls != info.param_cls) {
-                        unsupported("overriding method '" + name +
-                                        "' with a different signature",
-                                    line, column);
-                    }
-                }
                 // 读头部类 id（struct 元素 0，偏移 0 即对象指针本身）后
                 // switch：case = 各定义者，default = 陷阱（t103：downcast 放
                 // 行后动态类可为无此方法的祖先/旁支，t86 期 default 直走静态
@@ -2982,26 +2990,29 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
             // 解释器运行期报错；codegen 静态可判，拒编不错编（同命中路径）
             unsupported("method arity mismatch for '" + name + "'", line, column);
         }
+        std::sort(defs.begin(), defs.end(),
+                  [](const CGClass* a, const CGClass* b) {
+                      return a->id < b->id;
+                  });
+        if (!signatures_consistent(defs, name, dm)) {
+            // 树内各定义者签名不一致（t183，S130）：静态类本身未定义该方法，
+            // 命中哪个继承者由运行期类 id 决定，改逐臂动态拆槽、合流为 Dyn
+            std::vector<CGValue> evaluated;
+            evaluated.reserve(arguments.size());
+            for (const auto& arg : arguments) {
+                evaluated.push_back(emit(arg.get()));
+            }
+            llvm::Value* clsid = builder_.CreateLoad(
+                builder_.getInt64Ty(), object.value, "clsid");
+            emit_mismatched_dispatch(defs, name, object.value, evaluated, clsid,
+                                     nullptr, nullptr, line, column);
+            return;
+        }
         std::vector<llvm::Value*> args{object.value};
         for (size_t i = 0; i < arguments.size(); ++i) {
             CGValue a = emit(arguments[i].get());
             args.push_back(coerce_call_arg(a, dm.param_types[i], dm.param_cls[i],
                                            line, column));
-        }
-        std::sort(defs.begin(), defs.end(),
-                  [](const CGClass* a, const CGClass* b) {
-                      return a->id < b->id;
-                  });
-        // 各定义者副本签名须与首个一致（同 t86 防御：语义层校验的兜底，
-        // 不一致则统一 PHI 不可行，拒编不错编）
-        for (const CGClass* sub : defs) {
-            const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
-            if (m.ret_type != dm.ret_type || m.ret_cls != dm.ret_cls ||
-                m.param_types != dm.param_types || m.param_cls != dm.param_cls) {
-                unsupported("inherited method '" + name +
-                                "' with a different signature",
-                            line, column);
-            }
         }
         // switch：case 各定义者（按 id 排序，同 t86），default = 陷阱
         llvm::Value* clsid = builder_.CreateLoad(
@@ -4925,6 +4936,112 @@ llvm::Value* CodeGenerator::coerce_call_arg(const CGValue& a, CGType want,
         return to_dyn(a);
     }
     unsupported("argument type mismatch", line, column);
+}
+
+bool CodeGenerator::signatures_consistent(const std::vector<const CGClass*>& defs,
+                                          const std::string& name,
+                                          const CGMethod& base) {
+    // 签名全等判定（t86 防御的谓词化，t183）：返回类型（含类名）与形参类型/
+    // 类名逐项相等才算一致——byte/word 形参与返回在签名登记处即拒编（t98/t99），
+    // 故无位类型上限差异需比较；一致时调用侧按基线签名一次对齐即可
+    for (const CGClass* sub : defs) {
+        const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+        if (m.ret_type != base.ret_type || m.ret_cls != base.ret_cls ||
+            m.param_types != base.param_types || m.param_cls != base.param_cls) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void CodeGenerator::emit_mismatched_dispatch(
+    const std::vector<const CGClass*>& defs, const std::string& name,
+    llvm::Value* receiver, const std::vector<CGValue>& arguments,
+    llvm::Value* clsid, llvm::Value* dyn_tag, llvm::Value* dyn_bits, size_t line,
+    size_t column) {
+    // 跨类同名异签名方法的动态分派（t183）：原三类落点（object/Dyn 接收者、
+    // 静态 cls 覆写、静态 cls 继承）一律拒编，因为统一 PHI 无法承载不同签名。
+    // 解释器按动态命中方法各自校验实参与返回值，所以正确形态是逐臂拆槽：
+    // 实参只求值一次并打框（与解释器同序，且 tuple/数组等需堆物化的类型不重复
+    // 物化），臂内按该臂形参类型经 coerce_call_arg 的 Dyn 源分支运行期还原
+    for (const CGClass* sub : defs) {
+        const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+        if (m.param_types.size() != arguments.size()) {
+            // 各臂元数不同 → 命中哪个臂运行期才定，实参无从静态对齐，拒编不错编
+            //（解释器对元数不符同为运行期报错）
+            unsupported("method arity mismatch for '" + name + "'", line, column);
+        }
+    }
+    std::vector<llvm::Value*> boxed;
+    boxed.reserve(arguments.size());
+    for (const CGValue& a : arguments) {
+        boxed.push_back(to_dyn(a, line, column));
+    }
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dispatch.trap", fn);
+    auto* merge_bb = llvm::BasicBlock::Create(context_, "dispatch.end", fn);
+    llvm::SwitchInst* sw = builder_.CreateSwitch(
+        clsid, trap_bb, static_cast<unsigned>(defs.size()));
+    bool all_void = true;
+    std::vector<std::pair<llvm::BasicBlock*, llvm::Value*>> incoming;
+    for (const CGClass* sub : defs) {
+        const CGMethod& m = sub->instances.at(sub->dispatch.at(name));
+        auto* bb = llvm::BasicBlock::Create(
+            context_, "dispatch." + std::string(sub->stmt->name().lexeme()), fn);
+        sw->addCase(builder_.getInt64(sub->id), bb);
+        builder_.SetInsertPoint(bb);
+        std::vector<llvm::Value*> args{receiver};
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            args.push_back(coerce_call_arg({boxed[i], CGType::Dyn},
+                                           m.param_types[i], m.param_cls[i],
+                                           line, column));
+        }
+        llvm::Value* call = builder_.CreateCall(m.fn, args);
+        // 返回值按该臂声明类型打框：Void → tag 10 空位（t175，对齐解释器
+        // 无显式 return 即 Value::none）；Arr 位带内层数组 ptr、Obj 位带实例 ptr
+        if (m.ret_type != CGType::Void) {
+            all_void = false;
+        }
+        incoming.emplace_back(
+            builder_.GetInsertBlock(),
+            to_dyn({call, m.ret_type,
+                    m.ret_type == CGType::Arr ? CGType::Num : CGType::Int,
+                    m.ret_cls},
+                   line, column));
+        builder_.CreateBr(merge_bb);
+    }
+    builder_.SetInsertPoint(trap_bb);
+    if (name == "toString" && arguments.empty()) {
+        // 动态类未定义 toString → 内建兜底（对齐解释器 find_method 优先顺序）：
+        // Dyn 接收者拆分路径（t159）的兜底位按运行期 tag 转自身表示串，其余取
+        // 常量 "<object>"（静态 cls 接收者的无该方法祖先/旁支动态类）
+        llvm::Value* fallback =
+            dyn_tag ? builder_.CreateCall(rt_num_to_str_, {dyn_tag, dyn_bits},
+                                          "dynstr")
+                    : static_cast<llvm::Value*>(
+                          builder_.CreateGlobalString("<object>"));
+        incoming.emplace_back(trap_bb,
+                              to_dyn({fallback, CGType::Str}, line, column));
+        builder_.CreateBr(merge_bb);
+    } else {
+        builder_.CreateCall(rt_trap_undefined_method_,
+                            {builder_.CreateGlobalString(name)});
+        builder_.CreateUnreachable();
+    }
+    builder_.SetInsertPoint(merge_bb);
+    if (all_void) {
+        // 全臂返回 none：结果仍记 Void（无需占位 tag，与既有 Void 消费面一致）
+        last_value_ = {nullptr, CGType::Void};
+        return;
+    }
+    // 合流为动态承载值：{i64,i64} 第一类 struct PHI，下游全走既有 tag 分派消费
+    llvm::PHINode* phi = builder_.CreatePHI(
+        llvm_type_of(CGType::Dyn), static_cast<unsigned>(incoming.size()),
+        "dispatchdyn");
+    for (const auto& in : incoming) {
+        phi->addIncoming(in.second, in.first);
+    }
+    last_value_ = {phi, CGType::Dyn};
 }
 
 std::string CodeGenerator::find_defining_class(const std::string& start,

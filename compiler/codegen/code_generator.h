@@ -334,6 +334,28 @@ private:
     /// 消息核心即解释器 "Type mismatch: cannot assign <kind> to 'Tuple' variable"）
     llvm::Value* dyn_to_tuple_slot(llvm::Value* dyn);
 
+    /// @brief 同名方法在各定义者间的签名是否全等（t86 防御谓词化，t183）：全等时
+    /// 调用侧沿用既有静态分派（实参/返回值按基线签名对齐、结果静态类型），
+    /// 否则交 emit_mismatched_dispatch 逐臂按各自签名动态拆槽
+    static bool signatures_consistent(const std::vector<const CGClass*>& defs,
+                                      const std::string& name,
+                                      const CGMethod& base);
+
+    /// @brief 跨类同名异签名方法的动态分派（t183）：解释器 call_class_method 先
+    /// 求值实参、再按**动态命中方法**的形参逐个 coerce_to_declared，返回值同按该法
+    /// 声明类型转换——异签名并非语义错误，只是结果静态类型不可定。形态取「实参
+    /// 一次 to_dyn 打框 → 每个定义者臂按自身签名经 coerce_call_arg 的 Dyn 源分支
+    /// 运行期拆槽后调用 → 返回值逐臂打框，在 {i64,i64} PHI 合流为 Dyn」，
+    /// 消费侧即落全部既有 tag 分派臂；全臂返回 none 时结果仍记 Void。
+    /// dyn_tag/dyn_bits 非空表示接收者来自 toString 拆分（t159），未命中臂的兜底
+    /// 按运行期 tag 转串；调用侧保证 defs 已按类 id 排序且元数与 arguments 相符
+    void emit_mismatched_dispatch(const std::vector<const CGClass*>& defs,
+                                  const std::string& name, llvm::Value* receiver,
+                                  const std::vector<CGValue>& arguments,
+                                  llvm::Value* clsid, llvm::Value* dyn_tag,
+                                  llvm::Value* dyn_bits, size_t line,
+                                  size_t column);
+
     /// @brief 三目/`==?` 臂的静态类型合流（t93/t94/t65 规则）：成功时 result_*
     /// 即合流结果并返回 Ok；失败只报告失败种类（此时 result_* 不可用），由调用方决定
     /// 「全臂动态承载 → 合流为 Dyn」回退或维持原拒编消息

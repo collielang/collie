@@ -242,7 +242,17 @@ if(COLLIE_ENABLE_LLVM)
             s132_shadow_ctor
             s132_shadow_consume
             s132_shadow_sig
-            s132_shadow_flow)
+            s132_shadow_flow
+            s133_dispatch_diff_return
+            s133_dispatch_diff_params
+            s133_dispatch_receiver_reassign
+            s133_dispatch_override_diff
+            s133_dispatch_inherited_diff
+            s133_dispatch_ret_kinds
+            s133_dispatch_void_arm
+            s133_dispatch_class_param
+            s133_dispatch_dyn_domain_receiver
+            s133_dispatch_flow)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -268,7 +278,8 @@ if(COLLIE_ENABLE_LLVM)
             s132_reject_shadow_type_mismatch
             s132_reject_shadow_field_class
             s132_reject_shadow_bit_max
-            s132_reject_shadow_uninit_no_ctor)
+            s132_reject_shadow_uninit_no_ctor
+            s133_reject_arity_across_arms)
         add_test(NAME codegen_reject_${_rej}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

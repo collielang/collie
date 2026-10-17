@@ -1,0 +1,22 @@
+// s133_dispatch_flow：异签名分派在循环/函数/`==?` 消费中的形态（t183）
+class F1 {
+    public function f(x integer) integer { return x * 2; }
+}
+class F2 {
+    public function f(x string) string { return x + "!"; }
+}
+function show(o object) none {
+    print("got", o);
+}
+object a = new F1();
+object b = new F2();
+integer i = 0;
+while (i < 2) {
+    object r = a.f(21);
+    show(r);
+    object r2 = b.f("hi");
+    show(r2);
+    i = i + 1;
+}
+string m = a.f(1) ==? 2: "two", "other";
+print("flow", m);

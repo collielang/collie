@@ -1,0 +1,18 @@
+// s133_dispatch_receiver_reassign：object 变量重赋换动态类（t183）
+// 同一接收者槽先后承载两个异签名定义者，分派臂随运行期类 id 切换
+class S1 {
+    public string tag = "s1";
+    public function f(x integer) string { return this.tag + x; }
+}
+class S2 {
+    public string tag = "s2";
+    public function f(x string) string { return this.tag + x; }
+}
+object a = new S1();
+object b = new S2();
+print("1", a.f(3));
+print("2", b.f("hi"));
+object r = a;
+print("3", r.f(4));
+r = b;
+print("4", r.f("yo"));
