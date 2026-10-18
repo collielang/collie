@@ -41,7 +41,7 @@ jobs:
         uses: actions/configure-pages@v6
 
       - name: Setup pnpm & Node.js
-        uses: pnpm/setup@v4
+        uses: pnpm/setup@v3
         with:
           runtime: node@24
           cache: true
