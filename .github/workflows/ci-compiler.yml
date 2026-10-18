@@ -31,11 +31,11 @@ jobs:
             os: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 缓存第三方源码（GoogleTest 的持久 .deps/），避免每次联网克隆
       - name: Cache third-party sources
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: compiler/.deps
           key: collie-deps-${{ runner.os }}-gtest-1.12.1
