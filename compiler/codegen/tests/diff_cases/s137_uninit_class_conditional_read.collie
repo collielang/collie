@@ -1,0 +1,56 @@
+// t187 S134 差分用例（第一节取自退役锁 s136_reject_ptr_uninit_conditional_assign
+// 的类名段）：无初值类名变量槽与 object 声明变量同表示（{tag,bits} 动态承载 +
+// 声明点预存 tag 10 空位），条件区内首赋后区外读取运行期分派消费面；未命中
+// 分支读到空位打 none（解释器无初值即绑 none）。
+class Dog {
+    public integer v = 7;
+    public string name = "rex";
+    public function speak() string {
+        return "woof";
+    }
+}
+bool flag = true;
+Dog d;
+if (flag) {
+    d = new Dog();
+}
+print("1", d);
+print("2", d.v);
+d.v = 3;
+print("3", d.v);
+print("4", d.name);
+print("5", d.speak());
+print("6", toString(d));
+object o = d;
+print("7", o.v);
+Dog e = d;
+print("8", e.v);
+e.v = 4;
+print("9", d.v);
+print("10", d == d);
+// 双臂首赋：汇合点两臂均已定赋，槽位仍是动态承载
+Dog two;
+if (flag) {
+    two = new Dog();
+} else {
+    two = 5;
+}
+print("11", two.v);
+// 未命中分支：读到声明点预存的空位
+bool off = false;
+Dog z;
+if (off) {
+    z = new Dog();
+}
+print("12", z);
+print("13", toString(z));
+print("14", z == z);
+object pz = z;
+print("15", pz);
+// 区外写入异型值再读（整槽替换，解释器类名落点不校验）
+Dog w;
+if (off) {
+    w = new Dog();
+}
+w = true;
+print("16", w);

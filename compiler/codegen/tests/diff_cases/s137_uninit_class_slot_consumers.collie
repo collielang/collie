@@ -1,0 +1,83 @@
+// t187 S134 差分用例：无初值类名变量的动态承载位读出落既有运行期分派消费面——
+// 方法按对象头类 id 动态分派（t130/t133）、字段读写按运行期类 id 定位（t142/
+// t176/t184）、类名形参/返回落点经 t158 unbox 守卫、容器成员与数组位、闭包
+// 捕获单元（t141）。子类特有字段经父类名声明槽访问亦放行（解释器动态取属性）。
+class Animal {
+    public integer legs = 4;
+    public Animal() {
+        this.legs = 4;
+    }
+    public function describe() string {
+        return "legs=" + toString(this.legs);
+    }
+}
+class Dog extends Animal {
+    public integer v = 7;
+    public string name = "rex";
+    public Dog(n string) : base() {
+        this.name = n;
+    }
+    public function add(a integer, b integer) integer {
+        return a + b;
+    }
+    public function speak() string {
+        return this.name + " says woof";
+    }
+}
+function whois(d Dog) string {
+    return d.speak();
+}
+function makeDog() Dog {
+    Dog local;
+    local = new Dog("inner");
+    return local;
+}
+bool flag = true;
+Dog d;
+if (flag) {
+    d = new Dog("bob");
+}
+print("1", d.v);
+print("2", d.name);
+print("3", d.legs);
+print("4", d.describe());
+print("5", d.add(1, 2));
+print("6", whois(d));
+print("7", makeDog().name);
+d = makeDog();
+print("8", d.name);
+print("9", d.speak());
+// 父类名声明槽接子类实例：继承字段与方法 + 子类特有字段均按运行期类 id 取
+Animal an;
+an = d;
+print("10", an.describe());
+print("11", an.legs);
+print("12", an.v);
+print("13", an.name);
+// 容器成员与别名引用语义（同一堆对象）
+object bag = [d, 1, "t"];
+print("14", bag);
+print("15", bag[0].v);
+Tuple t = (p: d);
+print("16", t);
+print("17", t.p.v);
+Dog other;
+other = d;
+other.v = 42;
+print("18", d.v);
+// 函数体内声明 + 同块赋值 + 局部读
+function localTest() none {
+    Dog l;
+    l = new Dog("loc");
+    print("19", l.name);
+    print("20", l.speak());
+}
+localTest();
+// 循环体内声明 + 条件区内赋值 + 区内读
+for (integer i = 0; i < 2; i = i + 1) {
+    Dog loop;
+    if (i == 1) {
+        loop = new Dog("round");
+    }
+    print("21", loop);
+}

@@ -1,0 +1,46 @@
+// t187 S134 差分用例：无初值 array 的动态承载槽无静态 elem 记录，故
+// ① 循环回边异型互赋不再需要 t106 降级/回边守卫（kind 随数组对象自带，
+// 每轮读按运行期 tag 分派）；② 全局槽跨函数写读不再受链底快照旧 elem 约束。
+integer i = 0;
+array acc;
+while (i < 3) {
+    if (i == 0) {
+        acc = [1, 2];
+    } else if (i == 1) {
+        acc = ["x", "y"];
+    } else {
+        acc = [true];
+    }
+    print("1", acc);
+    print("2", acc.length);
+    i = i + 1;
+}
+print("3", acc[0]);
+for (integer k = 0; k < 2; k = k + 1) {
+    array inside;
+    if (k == 1) {
+        inside = [k, "mix"];
+    }
+    print("4", inside);
+}
+integer m = 0;
+do {
+    m = m + 1;
+    if (m == 2) {
+        acc = [100];
+    }
+    print("5", acc);
+} while (m < 2);
+// 全局无初值 array：一函数写、另一函数读、区外再读
+array g;
+function fillg() none {
+    g = [7];
+}
+function readg() none {
+    print("6", g);
+}
+fillg();
+readg();
+g = ["z"];
+print("7", g);
+print("8", g[0] + "!");

@@ -1,0 +1,49 @@
+// t187 S134 差分用例：无初值 array 的动态承载槽读出恒 Dyn，落既有运行期 tag
+// 分派的全部消费面——函数传参/返回（Dyn→array 落点经 dyn_to_arr_slot 守卫）、
+// 静态 array 别名落点、容器成员、动态下标、异型赋入的运行期陷阱由探针单独验证。
+function sum(arr array) integer {
+    integer total = 0;
+    integer i = 0;
+    while (i < arr.length) {
+        total = total + arr[i];
+        i = i + 1;
+    }
+    return total;
+}
+function twice(arr array) array {
+    array local;
+    local = [arr[0], arr[1]];
+    return local;
+}
+array a;
+a = [3, 4];
+print("1", sum(a));
+print("2", twice(a));
+a = twice(a);
+print("3", sum(a));
+object dyn_idx = 1;
+print("4", a[dyn_idx]);
+integer i = a[0];
+print("5", i + 1);
+object o = a;
+print("6", o[0]);
+print("7", o.length);
+array alias = a;
+alias[0] = 99;
+print("8", a[0]);
+print("9", a == alias);
+// 异质元素与嵌套（kind 随数组对象自带）
+a = [1, "x"];
+array bag = [a, 2, true];
+print("10", bag);
+print("11", bag[0][1]);
+bag[0] = [9];
+print("12", bag);
+print("13", bag[0].length);
+Tuple t = (k: a);
+print("14", t);
+print("15", t.k[0]);
+print("16", t.get("k").length);
+a = [1.5, 2];
+print("17", a);
+print("18", a[0] + a[1]);

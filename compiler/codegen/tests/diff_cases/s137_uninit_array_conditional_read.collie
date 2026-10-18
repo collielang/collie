@@ -1,0 +1,44 @@
+// t187 S134 差分用例（第一节取自退役锁 s136_reject_ptr_uninit_conditional_assign
+// 的 array 段）：无初值 array 槽换成 {tag,bits} 动态承载并预存 tag 10 空位后，
+// 条件发射区内首赋、区外读放行——分支命中读到数组位，未命中读到空位打 none，
+// 两端一致（原 ptr 单字槽无空位表示，读守卫整面拒编）。
+bool flag = true;
+array a;
+if (flag) {
+    a = [1, 2, 3];
+}
+print("1", a);
+print("2", a.length);
+print("3", len(a));
+print("4", a[0]);
+print("5", a[-1]);
+a[0] = 100;
+print("6", a);
+array b = a;
+print("7", b[1]);
+b[1] = 200;
+print("8", a[1]);
+print("9", a == b);
+// 双臂首赋（汇合点两臂均定赋）
+array c;
+if (flag) {
+    c = [1];
+} else {
+    c = [2, 3];
+}
+print("10", c);
+print("11", c.length);
+// 未命中分支：槽值即声明点预存的空位
+bool off = false;
+array z;
+if (off) {
+    z = [1];
+}
+print("12", z);
+print("13", toString(z));
+print("14", z == z);
+print("15", z == [1]);
+object p = z;
+print("16", p);
+p = p;
+print("17", p);

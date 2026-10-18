@@ -1,0 +1,61 @@
+// t187 S134 差分用例：无初值类名变量与 object 声明变量同规则——解释器
+// coerce_to_declared 对类名走 default 分支不校验，故异型赋入、跨树互赋直存，
+// 读出按运行期 tag 分派（原 Obj 静态 cls 槽的「同类或子类放行、异型/跨树拒编」
+// 与「uninit 期读拒编」两支对本声明退役）。
+class Dog {
+    public integer v = 7;
+    public string name = "rex";
+}
+class Cat {
+    public integer v = 9;
+    public string sound = "meow";
+}
+bool flag = true;
+Dog d;
+d = 5;
+print("1", d);
+print("2", d + 1);
+d = "str";
+print("3", d);
+print("4", d.length);
+print("5", d + "!");
+d = true;
+print("6", d);
+d = [1, 2];
+print("7", d);
+print("8", d[0]);
+Tuple t = (a: 1);
+d = t;
+print("9", d);
+print("10", d.a);
+integer n = 3;
+d = n;
+print("11", n + d);
+// 跨树赋入：Cat 声明槽存 Dog 实例，字段按运行期类 id 解码
+Cat c;
+c = new Cat();
+print("12", c.sound);
+d = c;
+print("13", d);
+print("14", d.v);
+Dog e;
+e = new Dog();
+c = e;
+print("15", c.v);
+print("16", c);
+// 条件区内首赋 + 区外读空位
+Cat q;
+if (flag) {
+    q = new Cat();
+}
+print("17", q.sound);
+print("18", q.v);
+bool off = false;
+Dog p;
+if (off) {
+    p = new Dog();
+}
+print("19", p);
+print("20", toString(p));
+object bag = p;
+print("21", bag);
