@@ -36,21 +36,25 @@ jobs:
         with:
             # Use `fetch-depth: 0` to ensure Docusaurus's last update time displays correctly.
             fetch-depth: 0
+
       - name: Setup Pages
         uses: actions/configure-pages@v6
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+
+      - name: Setup pnpm & Node.js
+        uses: pnpm/setup@v4
         with:
-          node-version: 24.x
-      - name: Install dependencies
-        working-directory: ./document
-        run: |
-          npm ci
+          runtime: node@24
+          cache: true
+          working-directory: ./document
+          cache-dependency-path: document/pnpm-lock.yaml
+          require-lockfile: true    # 以 --frozen-lockfile 安装，保证 CI 可复现
+
       - name: Build
         working-directory: ./document
         run: |
-          npm run clear
-          npm run build
+          pnpm run clear
+          pnpm run build
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:

@@ -3,7 +3,7 @@ Initialize the i18n folder
 1. Initialize the JSON translation files:
 
 ```bash
-npm run write-translations -- --locale zh-Hans
+pnpm write-translations -- --locale zh-Hans
 ```
 
 2. 把未翻译的 Markdown 文件复制到简体中文文件夹：

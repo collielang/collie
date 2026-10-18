@@ -2,6 +2,7 @@
   "name": "collie-lang-document",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@12.11.2",
   "scripts": {
     "postinstall": "patch-package",
     "en": "docusaurus start --locale en",
@@ -37,10 +38,8 @@
     "@docusaurus/tsconfig": "3.10.2",
     "@docusaurus/types": "3.10.2",
     "@types/react": "^19.0.0",
+    "prismjs": "*",
     "typescript": "~6.0.2"
-  },
-  "overrides": {
-    "open-ask-ai": "file:./packages/empty-deps"
   },
   "browserslist": {
     "production": [
@@ -55,10 +54,7 @@
     ]
   },
   "engines": {
-    "node": ">=20.0"
-  },
-  "allowScripts": {
-    "@swc/core@1.15.46": true,
-    "core-js@3.49.0": true
+    "node": ">=20.0",
+    "pnpm": ">=12"
   }
 }
