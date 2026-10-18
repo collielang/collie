@@ -1,0 +1,97 @@
+// t190 S137 差分用例：无初值裸值声明槽的 none 可观察面——十个单值类型各覆盖
+// 分支命中（读到实值）与未命中（读到声明点预存的空位，打印 none）两条路径。
+// 取代原 s136_reject_num_uninit_conditional_assign 拒编锁（number/tribool/byte
+// 条件区内首赋、区外读的保守拒编面）
+bool yes = true;
+bool no = false;
+
+number n1;
+if (yes) {
+    n1 = 3;
+}
+print("1", n1);
+number n2;
+if (no) {
+    n2 = 3;
+}
+print("2", n2);
+integer i1;
+if (yes) {
+    i1 = 7;
+}
+print("3", i1);
+integer i2;
+if (no) {
+    i2 = 7;
+}
+print("4", i2);
+decimal d1;
+if (yes) {
+    d1 = 2.5;
+}
+print("5", d1);
+decimal d2;
+if (no) {
+    d2 = 2.5;
+}
+print("6", d2);
+bool b1;
+if (yes) {
+    b1 = true;
+}
+print("7", b1);
+bool b2;
+if (no) {
+    b2 = true;
+}
+print("8", b2);
+tribool t1;
+if (yes) {
+    t1 = unset;
+}
+print("9", t1);
+tribool t2;
+if (no) {
+    t2 = unset;
+}
+print("10", t2);
+string s1;
+if (yes) {
+    s1 = "hi";
+}
+print("11", s1);
+string s2;
+if (no) {
+    s2 = "hi";
+}
+print("12", s2);
+char c1;
+if (yes) {
+    c1 = 'a';
+}
+print("13", c1);
+character c2;
+if (no) {
+    c2 = 'a';
+}
+print("14", c2);
+byte y1;
+if (yes) {
+    y1 = 200;
+}
+print("15", y1);
+byte y2;
+if (no) {
+    y2 = 200;
+}
+print("16", y2);
+word w1;
+if (yes) {
+    w1 = 65535;
+}
+print("17", w1);
+word w2;
+if (no) {
+    w2 = 65535;
+}
+print("18", w2);

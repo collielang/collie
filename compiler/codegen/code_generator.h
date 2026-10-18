@@ -158,7 +158,9 @@ private:
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_vars_ 下标（slot 恒 nullptr，t68）
         long long bit_max = 0;     // byte/word 声明的范围上限 255/65535，0 即非位类型（t69）
         std::string fn_key;        // 非空即嵌套函数绑定（t91）：functions_ 改编键，slot 恒 nullptr
-        bool uninit = false;       // 无初始化声明（t92/t110）：读拒编；直线区域赋值清，
+        bool uninit = false;       // 无初始化裸值槽尚未被支配性定赋（t92/t110 登记、
+                                   // 区域跟踪，t190 起只作读出表示的判据：true 读
+                                   // Dyn、false 读静态承载型）；直线区域赋值清，
                                    // 条件发射区（分支/循环体/三目臂等）快照隔离，
                                    // if/else 汇合点取两分支清除集交集
         // dyn_guard 仅 type == Dyn 有意义：无初值声明槽整槽换动态承载后的写侧
@@ -166,6 +168,15 @@ private:
         // 分支同规则。静态落点（有初值 array/Tuple 变量、形参、返回值、类字段）
         // 由 dyn_to_arr_slot / dyn_to_tuple_slot 同规则把关，不需要此标记
         DynGuard dyn_guard = DynGuard::None;
+        // 无初值裸值声明槽（t190）：槽整槽换 {tag,bits} 动态承载（type == Dyn），
+        // bare_carrier 记声明的静态承载型（Int/Double/Num/Bool/Tri/Str），byte/word
+        // 另带 bit_max。写侧据二者把右值先经既有 coerce_for_slot 静态转换（integer→
+        // decimal 加宽、bool→tribool 加宽、number/bool→串、Dyn 右值按运行期 tag 守卫
+        // 拆槽、byte/word 范围陷阱），再打框整槽存入——与解释器 coerce_to_declared
+        // 「先按声明类型转换后存」逐支同规则。裸值单字槽本无空位表示，故换承载而非加守卫
+        bool bare_box = false;
+        // 承载型同时是已定赋时的读出型别（未定赋读恒 Dyn，见 visitIdentifier）
+        CGType bare_carrier = CGType::Int;
         int cell_id = 0;           // 变量单元唯一标识（t141）：闭包按引用捕获的身份键——
                                    // 每个真实存储槽（形参/局部）创建时分配自增非零值，
                                    // 捕获项在宿主侧登记此 id，被捕获方在体内以收到的
@@ -227,6 +238,8 @@ private:
                                        // 可能为 none，槽零值会错值），写则放行
             DynGuard dyn_guard = DynGuard::None; // 宿主声明槽的写侧守卫种类（t187/t188）：
                                                  // 被捕获方体内的写同走该守卫
+            bool bare_box = false;               // 宿主为无初值裸值声明槽（t190）：体内写
+            CGType bare_carrier = CGType::Int;   // 同走静态转换后打框一路（bit_max 随行）
         };
         std::vector<Capture> captures;
     };
@@ -335,6 +348,21 @@ private:
     /// （byte/word 落点）；调用侧保证 slot_type 属六类之一
     llvm::Value* dyn_unbox_to(llvm::Value* dyn, CGType slot_type, size_t line,
                               size_t column, const char* target_name = nullptr);
+
+    /// @brief 已定赋裸值声明槽的静态位还原（t190）：无初值裸值声明槽整槽换
+    /// `{tag,bits}` 承载后，读出表示随定赋支配状态二选一——已定赋时写侧不变量
+    /// （先按 bare_carrier 转换再打框）保证 tag 恒为承载型自身编码、空位不可达，
+    /// 故直接取位还原（Num 整值透传、Int 即 bits、Double bitcast、Bool/Tri trunc、
+    /// Str inttoptr），零守卫零分支，消费面与换承载前的单字槽读逐位一致；
+    /// 调用侧保证 carrier 属 integer/decimal/number/bool/tribool/string 之一
+    llvm::Value* bare_bits_of(llvm::Value* box, CGType carrier, size_t line,
+                              size_t column);
+
+    /// @brief 动态承载位的真值 i1（t190）：条件／&&／||／! 的静态型别由语义层强制
+    /// 为 bool，能落到 Dyn 的只有无初值 bool 槽的未定赋读，tag 不变量属
+    /// {2 bool 位, 10 空位}——空位即解释器 none（is_truthy 恒 false），故
+    /// `(tag == 2) & (bits != 0)` 纯算术一步出，无分支、无新增运行期接口
+    llvm::Value* dyn_truthy_i1(llvm::Value* box);
 
     /// @brief 动态承载值进类名（Obj 非空 cls）落点（t158）：解释器 coerce_to_declared
     /// 对类名 default 直存不校验，codegen 需静态布局才可解码——运行期守卫 tag==5

@@ -1,0 +1,52 @@
+// t190 S137 差分用例：闭包捕获裸值槽——声明在体内的槽被嵌套函数读写，
+// 未定赋时体内读到 none，体内写走同一静态转换加打框一路（含 byte 范围与 bool 取非）
+function b_late() integer {
+    integer x;
+    x = 5;
+    function get() integer { return x; }
+    return get();
+}
+print("1", b_late());
+
+function b_none() none {
+    bool flag = false;
+    integer x;
+    if (flag) {
+        x = 5;
+    }
+    function show() none { print("2", x); }
+    show();
+}
+b_none();
+
+function b_write() none {
+    integer x;
+    x = 1;
+    function bump() none { x = x + 10; }
+    bump();
+    bump();
+    print("3", x);
+}
+b_write();
+
+function b_byte() none {
+    byte y;
+    y = 1;
+    function set(v integer) none { y = v; }
+    set(200);
+    print("4", y, y + 1);
+}
+b_byte();
+
+function b_bool() none {
+    bool b;
+    b = false;
+    function flip() none { b = !b; }
+    flip();
+    if (b) {
+        print("5 yes");
+    } else {
+        print("5 no");
+    }
+}
+b_bool();

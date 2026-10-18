@@ -1204,9 +1204,10 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
             // 恒 false，该路径解释器不报错）；关系比较下沉 rt_dyn_rel（双侧数值
             // 态走 num_cmp、同串走 strcmp，其余落 "Comparison operands must be
             // both numbers or both strings" 陷阱，与解释器 eval_comparison 同为
-            // 运行期报错，陷阱路径 stdout 无增量）。静态侧仅 Int/Double/Num/Str
-            // 可盒化为比较表示，其余（含 Obj/Arr/Tup——语义层多已同拒）维持拒编
-            // 不错编：既有 Obj/Fn/Tup/Arr 等值折叠臂在本分支之前，行为不变
+            // 运行期报错，陷阱路径 stdout 无增量）。静态侧 Int/Double/Num/Str/
+            // Arr/Obj/Tup/Fn/Bool/Tri 均可盒化为比较表示（t187/t190），其余
+            //（Void／TupDyn 等，语义层多已同拒）维持拒编不错编：既有 Obj/Fn/
+            // Tup/Arr 等值折叠臂在本分支之前，行为不变
             if (has_dyn) {
                 const auto cmp_side_ok = [](CGType ty) {
                     return ty == CGType::Dyn || ty == CGType::Int ||
@@ -1220,7 +1221,11 @@ void CodeGenerator::visitBinary(const BinaryExpr& expr) {
                            // 侧由 rt_dyn_rel 对非数值/非串位陷阱，与解释器同为
                            // 运行期报错
                            ty == CGType::Arr || ty == CGType::Obj ||
-                           ty == CGType::Tup || ty == CGType::Fn;
+                           ty == CGType::Tup || ty == CGType::Fn ||
+                           // bool/tribool 侧（t190）：无初值 bool 槽的动态承载读
+                           // 与静态 bool 混比（==/!=/switch/==?）同走 to_dyn +
+                           // rt_dyn_eq，等值判定与解释器 values_equal 同源
+                           ty == CGType::Bool || ty == CGType::Tri;
                 };
                 if (!cmp_side_ok(lhs.type) || !cmp_side_ok(rhs.type)) {
                     unsupported("comparison of dynamic value with this type",
@@ -1357,6 +1362,13 @@ void CodeGenerator::visitUnary(const UnaryExpr& expr) {
         if (v.type == CGType::Tri) {
             last_value_ = {builder_.CreateSub(builder_.getInt8(2), v.value, "nottmp"),
                            CGType::Tri};
+            return;
+        }
+        if (v.type == CGType::Dyn) {
+            // 无初值 bool 槽未定赋读（t190）：解释器 `!` 走 is_truthy，空位（none）
+            // 取反为 true，bool 位取反为标准非
+            last_value_ = {builder_.CreateNot(dyn_truthy_i1(v.value), "nottmp"),
+                           CGType::Bool};
             return;
         }
         if (v.type != CGType::Bool) {
@@ -1625,6 +1637,11 @@ void CodeGenerator::gen_logical(const BinaryExpr& expr) {
     const bool is_and = op.type() == TokenType::OP_AND;
 
     CGValue lhs = emit(expr.left());
+    if (lhs.type == CGType::Dyn) {
+        // 无初值 bool 槽未定赋读（t190）：解释器 &&／|| 的非 tribool 侧走 is_truthy
+        //（空位记 false），折成 i1 后并入既有 Kleene 短路降级
+        lhs = {dyn_truthy_i1(lhs.value), CGType::Bool};
+    }
     if (lhs.type != CGType::Bool && lhs.type != CGType::Tri) {
         unsupported("non-bool operand of '" + std::string(op.lexeme()) + "'",
                     op.line(), op.column());
@@ -1644,6 +1661,9 @@ void CodeGenerator::gen_logical(const BinaryExpr& expr) {
     CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     builder_.SetInsertPoint(rhs_bb);
     CGValue rhs = emit(expr.right());
+    if (rhs.type == CGType::Dyn) {
+        rhs = {dyn_truthy_i1(rhs.value), CGType::Bool};
+    }
     if (rhs.type != CGType::Bool && rhs.type != CGType::Tri) {
         unsupported("non-bool operand of '" + std::string(op.lexeme()) + "'",
                     op.line(), op.column());
@@ -1704,11 +1724,24 @@ void CodeGenerator::visitIdentifier(const IdentifierExpr& expr) {
         last_value_ = {fit->second.fn, CGType::Fn};
         return;
     }
-    if (var->uninit) {
-        // 无初始化声明未经支配性定赋（t92/t110）：解释器此值为 none（流不
-        // 敏感放行但运行期可能未经赋值），槽值静态不可知，拒编不错编
-        unsupported("use of uninitialized variable '" + name + "'",
-                    expr.name().line(), expr.name().column());
+    if (var->bare_box) {
+        // 无初值裸值声明槽读（t190）：槽布局恒 {tag,bits}，读出表示按定赋支配状态
+        // 二选一。未经支配性定赋（uninit）时解释器此处可观察 none，故出 Dyn 落运行期
+        // tag 分派消费面（print/toString/插值/判等/toNumber/落点守卫，其余消费点保守
+        // 拒编，与换承载前的整面拒编相比只增不减）；已定赋时写侧一律先按 bare_carrier
+        // 转换再打框，tag 恒为该承载型自身编码（byte/word→0、number→0/1 且与 Num 同
+        // 布局），none 不可达，故直接还原静态表示、零守卫零分支——保持与换承载前完全
+        // 相同的消费面（算术/比较/条件/逻辑/索引全部不变）
+        llvm::Value* box =
+            builder_.CreateLoad(llvm_type_of(CGType::Dyn), var->slot, name);
+        if (var->uninit) {
+            last_value_ = {box, CGType::Dyn};
+            return;
+        }
+        last_value_ = {bare_bits_of(box, var->bare_carrier, expr.name().line(),
+                                     expr.name().column()),
+                       var->bare_carrier};
+        return;
     }
     if (var->type == CGType::Tup) {
         // tuple 变量（t68）：无单一 slot，逐解构槽 load 重组展开值
@@ -1851,10 +1884,42 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // 无初值 array／Tuple 声明槽（t187/t188）额外按 dyn_guard 过写侧运行期
         // 守卫：解释器 coerce_to_declared 的 KW_ARRAY 分支只放行 is_array()、
         // KW_TUPLE 分支只放行 is_tuple()，静态 Arr／Tup 右值天然满足，Dyn 右值
-        // 须运行期 tag ∈ {4,7}／tag == 8 命中否则陷阱（异型赋入若直存会错值）
+        // 须运行期 tag ∈ {4,7}／tag == 8 命中否则陷阱（异型赋入若直存会错值）。
+        // 无初值裸值十型声明槽（t190）不走这条直存：见下方 bare_box 的「先按声明
+        // 静态承载型转换、再打框存入」
         if (!is_dyn_carrier(v.type)) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
+        }
+        if (var->bare_box) {
+            // 无初值裸值声明槽（t190）：右值先按声明的静态承载型转换再打框存入，
+            // 转换与校验全部沿用既有落点通道——integer→decimal 加宽、bool→tribool
+            // 加宽、number/bool→串、byte/word 的 check_bit_range 范围陷阱，Dyn 右值
+            // 按运行期 tag 守卫拆槽（coerce_for_slot 的 allow_dyn_unbox 一路，消息与
+            // 解释器 coerce_to_declared 逐字同源）。取「先转换后打框」而非直存是
+            // 为让存入位的 tag 即解释器转换后的表示（decimal 收整数即小数态）
+            const bool was_uninit = var->uninit;
+            llvm::Value* stored =
+                coerce_for_slot(v, var->bare_carrier, expr.name(), "", true,
+                                bit_type_name(var->bit_max));
+            if (var->bit_max > 0) {
+                stored = check_bit_range(stored, var->bit_max,
+                                         var->bit_max == 255 ? "byte" : "word");
+            }
+            llvm::Value* boxed =
+                to_dyn({stored, var->bare_carrier}, expr.name().line(),
+                       expr.name().column());
+            builder_.CreateStore(boxed, var->slot);
+            // 定赋区域跟踪沿用 t110：本处清除只作读出表示的判据（已定赋 → 静态
+            // 承载读，见 visitIdentifier），条件发射区内清除由快照隔离
+            var->uninit = false;
+            // 赋值表达式自身的值与换承载前同型别：已定赋即出静态承载（否则
+            // `n = 3` 的 Dyn 值会收窄算术/比较/条件消费面）；首赋后 none 不再
+            // 可达，静态位直取无守卫
+            last_value_ = was_uninit
+                              ? CGValue{boxed, CGType::Dyn}
+                              : CGValue{stored, var->bare_carrier};
+            return;
         }
         llvm::Value* boxed =
             to_dyn(v, expr.name().line(), expr.name().column());
@@ -3880,40 +3945,42 @@ void CodeGenerator::visitBaseMethodCall(const BaseMethodCallExpr& expr) {
 }
 
 void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
-    // 无初始化时解释器绑 none（动态哨兵值）；静态类型放行（t92 四类型，
-    // t96 扩展 number/tribool/byte/word/char/character）：槽照常创建（顶层
-    // 零初始化全局槽/函数内 alloca 不预存），CGVar 记 uninit——uninit 期间
-    // 读拒编（语义层流不敏感放行的未定赋读，解释器运行期仍是 none，
-    // 零初始化槽会错值，拒编不错编），支配性定赋后清（t110 定赋区域
-    // 跟踪：if/else 全路径定赋取交集）；Tuple 建动态 tuple 槽（t181）；其余
-    // （object/未注册类名）维持拒编
+    // 无初始化时解释器绑 none（动态哨兵值）：声明槽一律整槽建 CGType::Dyn 的
+    // {tag,bits} 动态承载并在声明点预存 tag 10 空位——array／类名（t187）、Tuple
+    //（t188）、object（t173）同法，单字槽表不出空位故换承载。首赋与重赋一律走
+    // visitAssign 的 Dyn 分支；条件区/循环体/函数体内首赋后在区外读（原 t110 保守
+    // 拒编面）命中读到实值、未命中读到空位打 "none"，与解释器按实际路径的观察逐一
+    // 对应。裸值十型（t190）另带 bare_box 标记：其读出表示随定赋支配状态二选一
+    //（见 visitIdentifier），静态消费面不因换承载而收窄。语义层的 use-before-init
+    // 仍按文本顺序拦先读后赋（codegen 无需另设守卫）；其余类型（未注册类名等）维持拒编
     if (!stmt.initializer()) {
         const TokenType tt = stmt.type().type();
-        if (tt == TokenType::KW_BYTE || tt == TokenType::KW_WORD) {
-            // byte/word（t96）：i64 承载 + bit_max，赋值走 visitAssign 通用
-            // 路径——既有赋值点 check_bit_range 陷阱自动生效，不丢范围校验
-            const std::string name(stmt.name().lexeme());
-            CGVar var;
-            var.slot = create_var_slot(builder_.getInt64Ty(), name);
-            var.type = CGType::Int;
-            var.bit_max = tt == TokenType::KW_BYTE ? 255 : 65535;
-            var.uninit = true;
-            var.cell_id = next_cell_id_++; // 可捕获单元（t141）
-            scopes_.back()[name] = var;
-            return;
-        }
-        if (tt == TokenType::KW_INTEGER || tt == TokenType::KW_DECIMAL ||
+        if (tt == TokenType::KW_BYTE || tt == TokenType::KW_WORD ||
+            tt == TokenType::KW_INTEGER || tt == TokenType::KW_DECIMAL ||
             tt == TokenType::KW_BOOL || tt == TokenType::KW_STRING ||
             tt == TokenType::KW_NUMBER || tt == TokenType::KW_TRIBOOL ||
             tt == TokenType::KW_CHAR || tt == TokenType::KW_CHARACTER) {
-            // Num（struct{i64,i64}）/Tri（i8）/Str（ptr）零初始化全局槽均
-            // 合法常量，uninit 期读拒编保证零值不可达（t96）
-            CGType type = declared_cgtype(stmt.type());
+            // bare_carrier 记声明的静态承载型（byte/word 为 Int + bit_max），写侧据其
+            // 先经既有 coerce_for_slot 转换再打框，故 integer→decimal 加宽、bool→
+            // tribool 加宽、number/bool→串与 byte/word 的 check_bit_range 范围陷阱
+            // 全部留在写入点，Dyn 右值的运行期 tag 拆槽守卫同走该路径
+            CGType carrier = (tt == TokenType::KW_BYTE || tt == TokenType::KW_WORD)
+                                 ? CGType::Int
+                                 : declared_cgtype(stmt.type());
             const std::string name(stmt.name().lexeme());
             CGVar var;
-            var.slot = create_var_slot(llvm_type_of(type), name);
-            var.type = type;
+            var.slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
+            var.type = CGType::Dyn;
+            var.bare_box = true;
+            var.bare_carrier = carrier;
+            // 登记 uninit 作读出表示的判据（非拒编判据）：未经支配性定赋时读
+            // Dyn（none 可观察），定赋后读静态承载型（消费面与换承载前一致）
             var.uninit = true;
+            var.bit_max = tt == TokenType::KW_BYTE   ? 255
+                          : tt == TokenType::KW_WORD ? 65535
+                                                     : 0;
+            builder_.CreateStore(
+                make_num(builder_.getInt64(10), builder_.getInt64(0)), var.slot);
             var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
@@ -3998,11 +4065,8 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             // 槽值自此恒可观察且与解释器「无初值绑 none」逐一对应，故不再登记
             // uninit——条件区/循环体/函数体内首赋后在区外读（t110 保守拒编面）
             // 落运行期 tag 分派：分支命中读到实值、未命中读到 tag 10 打 "none"，
-            // 两端一致；静态裸值类型（integer/decimal/number/bool/tribool/string/
-            // byte/word/char/character）与 TupDyn 单字槽无空位表示，仍按 uninit
-            // 期读拒编（锁 s136_reject_num_uninit_conditional_assign、
-            // s131_reject_tuple_uninit_{conditional,function}_assign）；
-            // array/类名声明槽已于 t187 同法换动态承载解锁
+            // 两端一致。array（t187）／类名（t187）／Tuple（t188）／裸值十型（t190）
+            // 声明槽同此表示，`object` 与它们自此无差别
             const std::string name(stmt.name().lexeme());
             CGVar var;
             var.slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
@@ -4180,6 +4244,11 @@ void CodeGenerator::visitBlock(const BlockStmt& stmt) {
 void CodeGenerator::visitIf(const IfStmt& stmt) {
     // 条件必须为 bool（t43c 语义层已强制，此处防御）
     CGValue cond = emit(stmt.condition());
+    if (cond.type == CGType::Dyn) {
+        // 无初值 bool 槽未定赋读（t190）：解释器 condition_truthy 走 is_truthy，
+        // 空位（none）即假路径
+        cond = {dyn_truthy_i1(cond.value), CGType::Bool};
+    }
     if (cond.type != CGType::Bool) {
         unsupported("non-bool 'if' condition",
                     stmt.if_token().line(), stmt.if_token().column());
@@ -4266,6 +4335,9 @@ void CodeGenerator::visitWhile(const WhileStmt& stmt) {
     CondDepthGuard _cdg(cond_depth_); // t117：区内 tuple 换形状拒编
     builder_.SetInsertPoint(cond_bb);
     CGValue cond = emit(stmt.condition());
+    if (cond.type == CGType::Dyn) {
+        cond = {dyn_truthy_i1(cond.value), CGType::Bool}; // t190 未定赋 bool 槽
+    }
     if (cond.type != CGType::Bool) {
         unsupported("non-bool 'while' condition",
                     stmt.while_token().line(), stmt.while_token().column());
@@ -4308,6 +4380,9 @@ void CodeGenerator::visitFor(const ForStmt& stmt) {
     builder_.SetInsertPoint(cond_bb);
     if (stmt.condition()) {
         CGValue cond = emit(stmt.condition());
+        if (cond.type == CGType::Dyn) {
+            cond = {dyn_truthy_i1(cond.value), CGType::Bool}; // t190 未定赋 bool 槽
+        }
         if (cond.type != CGType::Bool) {
             unsupported("non-bool 'for' condition",
                         stmt.for_token().line(), stmt.for_token().column());
@@ -4367,6 +4442,9 @@ void CodeGenerator::visitDoWhile(const DoWhileStmt& stmt) {
 
     builder_.SetInsertPoint(cond_bb);
     CGValue cond = emit(stmt.condition());
+    if (cond.type == CGType::Dyn) {
+        cond = {dyn_truthy_i1(cond.value), CGType::Bool}; // t190 未定赋 bool 槽
+    }
     if (cond.type != CGType::Bool) {
         unsupported("non-bool 'do-while' condition",
                     stmt.do_token().line(), stmt.do_token().column());
@@ -4553,8 +4631,11 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         binding.bit_max = cap.bit_max;
         binding.cell_id = cap.cell_id; // 透传宿主单元 id：体内更深嵌套/自递归转发时
                                         // visitCall 据 id 一致性取本 ptr 再传
-        binding.uninit = cap.uninit;   // 宿主登记时未定赋 → 体内读保守拒编（同 t92）
+        binding.uninit = cap.uninit;   // 宿主的定赋支配状态随捕获转发（t190）：体内读
+                                       // 表示同按此二选一（未定赋读 Dyn、定赋读静态位）
         binding.dyn_guard = cap.dyn_guard; // 宿主声明槽的写侧守卫种类随捕获转发（t187/t188）
+        binding.bare_box = cap.bare_box;   // 无初值裸值声明槽随捕获转发（t190）：体内写
+        binding.bare_carrier = cap.bare_carrier; // 同走「先按声明静态承载型转换再打框」
         scopes_.back()[cap.name] = binding;
     }
     for (size_t i = 0; i < nparams; ++i) {
@@ -5461,6 +5542,8 @@ void CodeGenerator::build_closure_prototype(const FunctionStmt& stmt,
         cap.bit_max = cv->bit_max;
         cap.uninit = cv->uninit;
         cap.dyn_guard = cv->dyn_guard;
+        cap.bare_box = cv->bare_box; // 裸值声明槽的「先转换后打框」写规则随捕获转发（t190）
+        cap.bare_carrier = cv->bare_carrier;
         captures.push_back(std::move(cap));
     }
     if (captures.empty()) return;
@@ -6050,6 +6133,9 @@ void CodeGenerator::gen_ternary(const TernaryExpr& expr) {
         llvm::Value* cond_i1 = nullptr;
         if (cond.type == CGType::Bool) {
             cond_i1 = cond.value;
+        } else if (cond.type == CGType::Dyn) {
+            // 无初值 bool 槽未定赋读（t190）：空位（none）走 false 分支
+            cond_i1 = dyn_truthy_i1(cond.value);
         } else if (cond.type == CGType::Tri) {
             // tribool 条件的两分支形式：仅 true 走 then（unset 归 false 分支）
             cond_i1 = builder_.CreateICmpEQ(cond.value, builder_.getInt8(2), "istrue");
@@ -7271,6 +7357,44 @@ llvm::Value* CodeGenerator::dyn_unbox_to(llvm::Value* dyn, CGType slot_type,
     return phi;
 }
 
+llvm::Value* CodeGenerator::bare_bits_of(llvm::Value* box, CGType carrier,
+                                        size_t line, size_t column) {
+    // 已定赋裸值声明槽的 {tag,bits} → 静态位还原（t190）：写侧一律先按声明承载型
+    // 经 coerce_for_slot 转换再 to_dyn 打框，故 tag 恒为该承载型自身编码、tag 10
+    // 空位在此判据下不可达——直取位表示，零守卫零分支（dyn_unbox_to 的免守卫特化，
+    // 换承载前的单字槽读输出逐位相同）
+    llvm::Value* bits = num_bits(box);
+    switch (carrier) {
+        case CGType::Num:
+            return box; // Num 与 Dyn 同 {i64,i64} 布局、tag 0/1 编码兼容
+        case CGType::Int:
+            return bits;
+        case CGType::Double:
+            return builder_.CreateBitCast(bits, builder_.getDoubleTy(), "baredec");
+        case CGType::Bool:
+            return builder_.CreateTrunc(bits, builder_.getInt1Ty(), "barebool");
+        case CGType::Tri:
+            return builder_.CreateTrunc(bits, builder_.getInt8Ty(), "baretri");
+        case CGType::Str:
+            return builder_.CreateIntToPtr(bits, llvm_type_of(CGType::Str),
+                                           "barestr");
+        default:
+            unsupported("bare value slot carrier", line, column);
+    }
+}
+
+llvm::Value* CodeGenerator::dyn_truthy_i1(llvm::Value* box) {
+    // 动态承载位的真值（t190，对齐解释器 Value::is_truthy）：条件/逻辑/取反位的
+    // 静态型别由语义层强制为 bool，能到这里的只有无初值 bool 槽的未定赋读，其
+    // tag 不变量属 {2 bool 位, 10 空位}——空位即解释器的 none，is_truthy 恒 false，
+    // 故真值 = (tag == 2) & (bits != 0) 纯算术一步出，无分支无新增运行期接口
+    llvm::Value* is_bool = builder_.CreateICmpEQ(num_tag(box), builder_.getInt64(2),
+                                                 "dynkindbool");
+    llvm::Value* non_zero = builder_.CreateICmpNE(num_bits(box), builder_.getInt64(0),
+                                                  "dynbitsnz");
+    return builder_.CreateAnd(is_bool, non_zero, "dyndtruthy");
+}
+
 llvm::Value* CodeGenerator::dyn_unbox_to_obj(llvm::Value* dyn,
                                              const std::string& cls,
                                              size_t line, size_t column) {
@@ -7570,9 +7694,14 @@ llvm::Value* CodeGenerator::dyn_cmp_box(const CGValue& v, const Token& op) {
         case CGType::Obj:
         case CGType::Tup:
         case CGType::Fn:
+        case CGType::Bool:
+        case CGType::Tri:
             // 静态承载族侧（t187）：与动态承载位混比时经 to_dyn 打对应 tag
             // （数组 4/7、实例 5、tuple 8、函数 9、空位 10）后交 rt_dyn_eq
-            // 单点判定，规则与解释器 values_equal 同源
+            // 单点判定，规则与解释器 values_equal 同源。bool/tribool 侧（t190）
+            // 同理：无初值 bool 槽换动态承载后 `b == false`／`switch (b)`／
+            // `b ==? …` 全是 Dyn × 静态 bool 混比，tag 2/6 交 rt_dyn_eq
+            //（tribool×bool 加宽在其内，none×任何值恒 false 同 values_equal）
             return to_dyn(v, op.line(), op.column());
         default:
             unsupported("comparison of dynamic value with this type",

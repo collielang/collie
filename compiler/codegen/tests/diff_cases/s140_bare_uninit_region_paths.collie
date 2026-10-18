@@ -1,0 +1,59 @@
+// t190 S137 差分用例：区域路径上的裸值槽——while/for/do-while 回边、switch 分支、
+// || 短路、三目与 ==? 臂内的定赋，配合区外读演示支配性判定两侧各自的表示
+bool yes = true;
+bool no = false;
+
+integer k = 0;
+number n;
+while (k < 2) {
+    n = k;
+    print("1", n);
+    k = k + 1;
+}
+print("2", n);
+
+for (integer j = 0; j < 3; j = j + 1) {
+    decimal d;
+    d = j / 2;
+    print("3", d);
+}
+
+bool again;
+integer m = 0;
+do {
+    m = m + 1;
+    again = m < 3;
+} while (again);
+print("4", m, again);
+
+integer sel = 1;
+string label;
+switch (sel) {
+    1 {
+        label = "one";
+    }
+    2 {
+        label = "two";
+    }
+}
+print("5", label);
+
+number both;
+if (yes) {
+    both = 1;
+} else {
+    both = 2;
+}
+print("6", both + 1);
+
+bool shortcircuit;
+yes || (shortcircuit = true);
+print("7", shortcircuit);
+
+number armv;
+armv = sel ==? 1: 10, 20;
+print("8", armv);
+
+string tern;
+no ? (tern = "t") : (tern = "f");
+print("9", tern);

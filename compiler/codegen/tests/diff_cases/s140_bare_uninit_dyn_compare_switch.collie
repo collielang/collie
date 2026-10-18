@@ -1,0 +1,54 @@
+// t190 S137 差分用例：未定赋裸值槽读出的 Dyn 表示与静态值混比面——==/!=/自身比较、
+// 三目、if 条件、! 与 &&/||、switch 目标、==? 目标全部走动态承载比较一路
+bool no = false;
+bool b;
+if (no) {
+    b = true;
+}
+print("1", b);
+print("2", b == true, b != true, b == b);
+print("3", b ? "y" : "n");
+if (b) {
+    print("4 yes");
+} else {
+    print("4 no");
+}
+print("5", !b, b && true, b || true);
+number n;
+if (no) {
+    n = 1;
+}
+print("6", n == 1, n != 1, n == n);
+string s;
+if (no) {
+    s = "x";
+}
+print("7", s == "x", s + "-tail");
+integer t;
+if (no) {
+    t = 5;
+}
+switch (t) {
+    5 {
+        print("8 five");
+    }
+    default {
+        print("8 other");
+    }
+}
+print("9", t ==? 5: "five", "other");
+tribool tb;
+if (no) {
+    tb = true;
+}
+print("10", tb == true, tb != true);
+byte y;
+if (no) {
+    y = 200;
+}
+print("11", y == 200);
+decimal d;
+if (no) {
+    d = 1.5;
+}
+print("12", d == 1.5);

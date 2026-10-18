@@ -1,0 +1,54 @@
+// t190 S137 差分用例：无初值裸值槽经支配性定赋后的静态消费面——算术／比较／
+// 条件／逻辑／三目／tribool 方法／串拼接与 .length／byte·word 赋值点范围陷阱
+// 全部与换承载前的单字槽读逐位一致（动态承载只用于 none 可观察的未定赋读）
+integer i;
+i = 7;
+print("1", i + 1, i * 2, i - 3, i / 2, i % 2, -i);
+decimal d;
+d = 2;
+print("2", d * 1.5, d + 0.5, d);
+number n;
+n = 3;
+print("3", n - 1, n == 3, n > 2, n.toNumber());
+n = 2.5;
+print("4", n + 0.5, n < 3);
+bool b;
+b = true;
+if (b) {
+    print("5 yes");
+} else {
+    print("5 no");
+}
+print("6", !b, b && false, b || false, b ? "T" : "F");
+b = false;
+if (b) {
+    print("7 yes");
+} else {
+    print("7 no");
+}
+tribool t;
+t = unset;
+print("8", t.isTrue(), t.isFalse(), t.isUnset());
+t = true;
+print("9", t.isTrue(), t && true, t || false);
+string s;
+s = 42;
+print("10", s + "x", s.length, s == "42");
+char c;
+c = 'a';
+print("11", c, c == 'a');
+byte y;
+y = 200;
+print("12", y + 55, y);
+y = y + 1;
+print("13", y);
+word w;
+w = 65535;
+print("14", w, w - 1);
+integer k = 0;
+bool go = true;
+while (go) {
+    k = k + 1;
+    go = k < 2;
+}
+print("15", k);

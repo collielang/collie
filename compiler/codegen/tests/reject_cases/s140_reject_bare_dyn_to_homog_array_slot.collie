@@ -1,0 +1,11 @@
+// t190 S137 拒编锁：未定赋裸值槽读出的 Dyn 表示写静态同质数组元素槽维持保守拒编
+// 同质数组元素槽要求静态 kind 与数组一致，Dyn 位运行期 tag 无法静态保证（解释器
+// 数组无类型，此处得 [none, 0]）；与 s97_reject_dyn_to_homog_array_slot 同一面
+bool flag = false;
+number n;
+if (flag) {
+    n = 3;
+}
+array a = [0, 0];
+a[0] = n;
+print("1", a);

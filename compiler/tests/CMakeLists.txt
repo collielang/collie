@@ -293,7 +293,13 @@ if(COLLIE_ENABLE_LLVM)
             s139_dyn_key_get_tupdyn_receiver
             s139_dyn_key_get_static_paths
             s139_dyn_key_get_slot_consumers
-            s139_dyn_key_get_nested_and_sources)
+            s139_dyn_key_get_nested_and_sources
+            s140_bare_uninit_none_observable
+            s140_bare_uninit_dominated_consumers
+            s140_bare_uninit_region_paths
+            s140_bare_uninit_dyn_compare_switch
+            s140_bare_uninit_write_coercions
+            s140_bare_uninit_closure_capture)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -311,7 +317,7 @@ if(COLLIE_ENABLE_LLVM)
             s115_reject_dyn_array_slot_downgrade_in_loop
             s117_reject_arr_elem_to_homog_domain
             s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
-            s136_reject_num_uninit_conditional_assign
+            s140_reject_bare_dyn_to_homog_array_slot
             s125_reject_none_bit_homog_array
             s129_reject_dyn_to_tuple_reassign
             s133_reject_arity_across_arms)
