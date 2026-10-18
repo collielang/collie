@@ -1,0 +1,18 @@
+// t185 S132 差分用例：构造器体内**先观察后定赋**（t126 走查旧实现在此处误判定赋，
+// 产物把零值占位当值打印，属静默错编）——走查改为中断即整树动态承载，
+// 观察点读到 tag 10 空位打印 none，与解释器一致
+
+class Early {
+    public integer a;
+
+    public Early() {
+        print(this.a);
+        this.a = 5;
+    }
+}
+
+Early e = new Early();
+print("1", e.a);
+Early f = new Early();
+print("2", f.a);
+print("END");

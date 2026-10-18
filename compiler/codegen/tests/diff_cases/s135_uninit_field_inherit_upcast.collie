@@ -1,0 +1,33 @@
+// t185 S132 差分用例：继承树内某类构造器不定赋（乃至无构造器）即整树换动态承载
+// ——父类静态接收者、上转型接收者与 object 接收者读同一枚槽都得到 none，
+// 子类定赋后三者又同步见到新值（解释器本只有一份扁平存储）
+
+class Base15 {
+    public integer bv;
+
+    public function show() string { return "base"; }
+}
+class Sub15 extends Base15 {
+    public integer sv = 1;
+
+    public Sub15(k integer) { this.bv = k; }
+}
+class Sub15b extends Base15 {
+    public Sub15b(k integer) { if (k > 0) { this.bv = k; } }
+}
+
+Base15 p = new Base15();
+print("1", p.bv);
+print("2", p.show());
+Sub15 q = new Sub15(9);
+print("3", q.bv);
+print("4", q.sv);
+object o = q;
+print("5", o.bv);
+print("6", o.show());
+Base15 r = new Sub15b(-3);
+print("7", r.bv);
+r.bv = 4;
+print("8", r.bv);
+print("9", o.bv);
+print("END");

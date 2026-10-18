@@ -1,0 +1,23 @@
+// t185 S132 差分用例：构造器仅在一臂定赋（单臂 if）——解释器按实际路径运行，
+// 未走该臂的实例该键仍是 none；codegen 走查中断即把该槽整树换动态承载，
+// 不再有「构造器前缀定赋」拒编分支（原 t126 拒编面）
+
+class Cond {
+    public integer a;
+    public integer b;
+
+    public Cond(k integer) {
+        if (k > 0) { this.a = k; }
+        this.b = k * 2;
+    }
+}
+
+Cond x = new Cond(5);
+print("1", x.a);
+print("2", x.b);
+Cond y = new Cond(-1);
+print("3", y.a);
+print("4", y.b);
+y.a = 8;
+print("5", y.a + 1);
+print("END");

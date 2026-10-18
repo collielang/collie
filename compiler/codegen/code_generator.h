@@ -227,15 +227,16 @@ private:
         const VarDeclStmt* decl = nullptr; // 初始值表达式/错误位置取自声明节点
         std::string cls;                   // 仅 type == Obj 时有意义：类名（t72）
         long long bit_max = 0;             // byte/word 字段的范围上限 255/65535，0 即非位类型（t87）
-        bool uninit = false;               // 无初始值字段（t109）：实例化点守卫构造器前缀定赋
+        bool uninit = false;               // 无初始值字段（t109/S132）：本树内并非每个类都必被定赋时槽升级为 Dyn、实例化点预存 tag 10 空位
         // 遮蔽链（t182）：子类重名声明并入本槽时被覆写的历史声明，base-first
         // 顺序且仅登记带初值者——实例化点按序求值并逐个覆写同一槽（解释器实例
         // 字段是 name→value 扁平表，同名键父类初值仍求值、末次写入胜）
         std::vector<const VarDeclStmt*> shadowed;
-        // 遮蔽冲突槽（t184，S131）：本继承树内该字段名存在承载不一致的遮蔽声明，
-        // 物理槽类型/类名/上限三字段被 resolve_shadow_conflicts 统一改判为 Dyn 的
-        // {tag,bits}（type=Dyn、cls/bit_max 清空）；写侧校验不用这三项，按本类生效
-        // 声明现算 field_carrier_of，与解释器 find_field 的「子类优先沿链」同源
+        // 动态承载槽（t184/S131 + t185/S132）：本继承树内该字段名有承载不一致的
+        // 遮蔽声明、或无初值且 none 可观察，物理槽类型/类名/上限三字段被
+        // resolve_dyn_slots 统一改判为 Dyn 的 {tag,bits}（type=Dyn、cls/bit_max
+        // 清空）；写侧校验不用这三项，按本类生效声明现算 field_carrier_of，与
+        // 解释器 find_field 的「子类优先沿链」同源
         bool dyn_slot = false;
     };
 
@@ -509,21 +510,31 @@ private:
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
     /// 自身追加登记字段描述符；同名字段遮蔽按承载一致合并（t182）、承载不一致
-    /// 记入 shadow_conflicts_ 待 resolve_shadow_conflicts 升级（S131）；
-    /// 无初值字段/范围外字段类型拒编；父类须先声明（合并依赖父类已注册）。
-    /// struct 本体延后到 finalize_class_layout 建（遮蔽冲突要回改祖先槽类型）
+    /// 记入 dyn_slots_ 待 resolve_dyn_slots 升级（S131）；范围外字段类型拒编；
+    /// 无初值字段（S132）与可观察 none 的判定都在 resolve_dyn_slots 统一做，
+    /// 注册遍只记 uninit 标记。父类须先声明（合并依赖父类已注册）。
+    /// struct 本体延后到 finalize_class_layout 建（槽升级要回改祖先槽类型）
     void register_class_layout(const ClassStmt& stmt);
 
-    /// @brief 遮蔽冲突槽升级（第一遍阶段一之后，S131）：解释器实例字段是
+    /// @brief 动态承载槽升级（第一遍阶段一之后，S131/S132）：解释器实例字段是
     /// name→value 一张扁平表、读写按**动态类**声明逐笔 coerce_to_declared，故
-    /// 承载不一致的同名遮蔽只有一份存储——把该字段名在所属继承树的**全部**持有者
-    /// （祖先/兄弟/后代，前缀偏移须继续对齐）统一升级为 CGType::Dyn 的 {tag,bits}
-    /// 物理槽；声明各自的校验承载由 field_carrier_of 现算，不受本升级影响
-    void resolve_shadow_conflicts();
+    /// 一个字段名只有一份存储——把 dyn_slots_ 里的字段名在所属继承树的**全部**
+    /// 持有者（祖先/兄弟/后代，前缀偏移须继续对齐）统一升级为 CGType::Dyn 的
+    /// {tag,bits} 物理槽。两个来源：承载不一致的同名遮蔽（S131）、无初值字段
+    /// 在本树内并非每个类都必被定赋因而 none 可观察（S132）。
+    /// 声明各自的校验承载由 field_carrier_of 现算，不受本升级影响
+    void resolve_dyn_slots();
+
+    /// @brief 无初值字段槽是否「实例化即必被定赋」（S132）：root 树内每个类都要
+    /// 满足——本类合并布局里该字段生效声明带初值（解释器 visitNew 沿链 base-first
+    /// 逐层写扁平表，末次写入胜），否则本类构造器（不继承、父构造器不隐式调用）
+    /// 体必须在走查到尾前定赋该字段；走查中断或字段未清空即 none 可观察
+    bool tree_always_assigns_field(const std::string& root,
+                                   const std::string& field_name) const;
 
     /// @brief 类 struct 建体（第一遍阶段一之后，S131）：按 cls.fields 的物理类型
-    /// 拼装（元素 0 恒 i64 类 id 头部）——须在 resolve_shadow_conflicts 之后，
-    /// 因遮蔽冲突要把祖先槽改判 Dyn
+    /// 拼装（元素 0 恒 i64 类 id 头部）——须在 resolve_dyn_slots 之后，
+    /// 因槽升级要把祖先槽改判 Dyn
     void finalize_class_layout(const ClassStmt& stmt);
 
     /// @brief 字段声明的承载（t87/t162/t179 映射单点，S131 抽出）：类名 → Obj + cls、
@@ -904,9 +915,10 @@ private:
     std::unordered_map<const FunctionStmt*, std::string> fn_stmt_to_key_;
     /// 类表（t60）：类名 → struct 布局 + 方法原型；第一遍注册，前向 new 可用
     std::unordered_map<std::string, CGClass> classes_;
-    /// 承载不一致的同名遮蔽（t184，S131）：键为 "继承树根.字段名"，注册遍收集、
-    /// resolve_shadow_conflicts 消费后把该树内全部持有者的槽升级为 Dyn
-    std::set<std::string> shadow_conflicts_;
+    /// 需统一为动态承载 {tag,bits} 的槽（t184/S131 + t185/S132）：键为
+    /// "继承树根.字段名"，注册遍收集承载不一致遮蔽、resolve_dyn_slots 收集可观察
+    /// none 的无初值字段，消费后把该树内全部持有者的槽升级为 Dyn
+    std::set<std::string> dyn_slots_;
     /// 当前方法的 this 实参与所属类名（t60）：仅方法体生成期非空
     llvm::Value* current_this_ = nullptr;
     std::string current_class_name_;

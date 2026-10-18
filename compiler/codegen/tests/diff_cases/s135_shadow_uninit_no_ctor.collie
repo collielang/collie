@@ -1,0 +1,23 @@
+// t185 S132 差分用例：子类以**无初值**字段遮蔽父类有初值字段且本类构造器不定赋
+// ——第一节即退役锁 s132_reject_shadow_uninit_no_ctor 的原程序（退订前实证
+// I=0 C=0 SAME）：解释器 base-first 求值父类初值后把同名键绑回 none，
+// 父链初值表达式的副作用仍可见
+
+class AnimalR4 { public string tag = "animal"; }
+class DogR4 extends AnimalR4 { public string tag; }
+object o = new DogR4();
+print("1", o.tag);
+AnimalR4 a = new DogR4();
+print("2", a.tag);
+
+class Base35 { public string tag = "base"; }
+class Mid35 extends Base35 { public string tag = "mid"; }
+class Leaf35 extends Mid35 { public string tag; }
+Leaf35 l = new Leaf35();
+print("3", l.tag);
+Mid35 m = l;
+print("4", m.tag);
+l.tag = "named";
+print("5", l.tag);
+print("6", m.tag);
+print("END");

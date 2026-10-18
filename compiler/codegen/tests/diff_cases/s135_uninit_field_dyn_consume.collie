@@ -1,0 +1,35 @@
+// t185 S132 差分用例：none 字段读出的动态承载值进全部既有消费面——object 形参/
+// 返回值、判等、`==?`/switch 目标、数组与 tuple 字面量元素、`+` 拼接、长度与
+// 下标等运行期 tag 守卫（此处只走 none 位可安全通过的分支）
+
+class Switchy {
+    public integer code;
+    public string name;
+}
+
+function show(v object) string {
+    print("p", v);
+    return "done";
+}
+
+Switchy s = new Switchy();
+object o = s.code;
+print("1", o);
+print("2", show(s.code));
+print("3", show(s.name));
+string m = s.code ==? 0: "zero", "dflt";
+print("4", m);
+switch (s.code) {
+    0 { print("5 was zero"); }
+    default { print("5 other"); }
+}
+array bag = [s.code, s.name];
+print("6", bag);
+Tuple pair = (x: s.code, y: s.name);
+print("7", pair);
+print("8", "v=" + s.code);
+print("9", s.code == s.code);
+s.code = 3;
+string m2 = s.code ==? 0: "zero", 3: "three", "dflt";
+print("10", m2);
+print("END");

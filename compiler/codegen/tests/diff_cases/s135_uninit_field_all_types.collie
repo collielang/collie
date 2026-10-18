@@ -1,0 +1,32 @@
+// t185 S132 差分用例：无初值字段的 none 可观察面——解释器 visitNew 沿链 base-first
+// 把无初值字段声明的键绑成 none，本批把「树内并非每个类都必被定赋」的槽整树升级
+// 为 {tag,bits} 动态承载并在实例化点预存 tag 10 空位，读出即落既有 tag 分派消费面
+// 第一节即 t109/t126 守卫原先拒编的「各声明类型无初值字段直接打印」面
+
+class Counter {
+    public integer n;
+    public decimal rate;
+    public string label;
+    public bool ready;
+    public byte level;
+}
+
+Counter c = new Counter();
+print("1", c.n);
+print("2", c.rate);
+print("3", c.label);
+print("4", c.ready);
+print("5", c.level);
+c.n = 7;
+c.rate = 1.5;
+c.label = "ok";
+c.ready = true;
+c.level = 200;
+print("6", c.n + 1);
+print("7", c.rate * 2);
+print("8", c.label);
+print("9", c.level * 2);
+object asobj = c.n;
+print("10", asobj);
+print("11", c.n ==? 7: "seven", "other");
+print("END");

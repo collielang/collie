@@ -1,0 +1,33 @@
+// t185 S132 差分用例：容器/实例/object 四类声明的无初值字段同样可读为 none，
+// 定赋后落既有消费面（实例位字段读内层、数组位长度与索引、tuple 位命名取键、
+// object 位方法动态分派）
+
+class Node {
+    public integer v = 3;
+    public function hi() string { return "hi"; }
+}
+
+class Bag {
+    public Node node;
+    public array items;
+    public Tuple pair;
+    public object any;
+}
+
+Bag b = new Bag();
+print("1", b.node);
+print("2", b.items);
+print("3", b.pair);
+print("4", b.any);
+b.node = new Node();
+b.items = [1, "x"];
+b.pair = (a: 1, b: 2);
+b.any = new Node();
+print("5", b.node.v);
+print("6", b.items.length);
+print("7", b.items[1]);
+print("8", b.pair.a);
+print("9", b.any.hi());
+object copy = b.items;
+print("10", copy);
+print("END");

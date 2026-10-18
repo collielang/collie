@@ -153,32 +153,35 @@ struct CondDepthGuard {
     return false;
 }
 
-/// 构造器体定赋走查（t126）：从 pending（尚未定赋的 uninit 字段名）出发就地
+/// 构造器体定赋走查（t126/S132）：从 pending（尚未定赋的 uninit 字段名）出发就地
 /// 删减——直线 `this.f = <this-free>` 赋值删 f；裸块原地递归（必执行）；this-free
 /// 条件且双臂齐备的 if：各臂在 pending 副本上递归后，仅"两臂皆删"的字段才视为
 /// 定赋（保留仍存在于任一臂副本者）；不观察 this 的表达式语句跳过（无从触及
-/// uninit 字段）。一旦出现观察 this 的非定赋语句、缺 else 的 if、或任何循环 /
-/// switch / return / 声明，保守停止（pending 保留 → 上层拒编）——拒编不错编：
-/// none 可能被观察或非定赋。
-void ctor_definite_assign_stmts(
+/// uninit 字段）。返回值表示「走查是否走到体尾」：一旦出现观察 this 的非定赋
+/// 语句、缺 else 的 if、或任何循环 / switch / return / 声明即中断返回 false——
+/// 中断之后即便又见到 `this.f = …` 也不能判定 f 在每次观察前已定赋（S132 修正：
+/// 旧实现只跳过该语句而继续走查，会把"先观察后定赋"误判为定赋）。
+/// S132 起中断不再落拒编，而是让该字段槽保留 none 的动态表示（tag 10）。
+bool ctor_definite_assign_stmts(
     const std::vector<std::unique_ptr<Stmt>>& stmts,
     std::vector<std::string>& pending);
 
-void ctor_definite_assign_stmt(const Stmt* s, std::vector<std::string>& pending) {
-    if (pending.empty()) return; // 全部定赋：后续无从暴露 none
+bool ctor_definite_assign_stmt(const Stmt* s, std::vector<std::string>& pending) {
+    if (pending.empty()) return true; // 全部定赋：后续无从暴露 none
     if (const auto* blk = dynamic_cast<const BlockStmt*>(s)) {
-        ctor_definite_assign_stmts(blk->statements(), pending);
-        return;
+        return ctor_definite_assign_stmts(blk->statements(), pending);
     }
     if (const auto* ifs = dynamic_cast<const IfStmt*>(s)) {
-        // 条件观察 this → 可能在定赋前读 uninit 字段，保守停止
-        if (expr_observes_this(ifs->condition())) return;
+        // 条件观察 this → 可能在定赋前读 uninit 字段，中断走查
+        if (expr_observes_this(ifs->condition())) return false;
         const Stmt* els = ifs->else_branch();
-        if (els == nullptr) return; // 缺 else：某路径 none 可观察，非定赋
+        if (els == nullptr) return false; // 缺 else：某路径 none 可观察，非定赋
         std::vector<std::string> then_pending = pending;
         std::vector<std::string> else_pending = pending;
-        ctor_definite_assign_stmt(ifs->then_branch(), then_pending);
-        ctor_definite_assign_stmt(els, else_pending);
+        const bool then_ok =
+            ctor_definite_assign_stmt(ifs->then_branch(), then_pending);
+        const bool else_ok = ctor_definite_assign_stmt(els, else_pending);
+        if (!then_ok || !else_ok) return false; // 任一臂中断则整体中断
         // 求交：仅两臂皆定赋的字段离开 pending（任一臂仍缺则保守保留）
         std::vector<std::string> keep;
         for (const auto& f : pending) {
@@ -189,28 +192,30 @@ void ctor_definite_assign_stmt(const Stmt* s, std::vector<std::string>& pending)
             if (un_t || un_e) keep.push_back(f);
         }
         pending.swap(keep);
-        return;
+        return true;
     }
     const auto* es = dynamic_cast<const ExpressionStmt*>(s);
-    if (!es) return; // 循环 / switch / return / 声明等：保守停止
+    if (!es) return false; // 循环 / switch / return / 声明等：中断走查
     const auto* pa = dynamic_cast<const PropertyAssignExpr*>(es->expression());
     if (pa && dynamic_cast<const ThisExpr*>(pa->object()) != nullptr &&
         !expr_observes_this(pa->value())) {
         const std::string assigned(pa->name().lexeme());
         pending.erase(std::remove(pending.begin(), pending.end(), assigned),
                       pending.end());
-        return;
+        return true;
     }
-    // 观察 this 的非定赋表达式语句：保守停止；否则（this-free）跳过安全
+    // 观察 this 的非定赋表达式语句：中断走查；否则（this-free）跳过安全
+    return !expr_observes_this(es->expression());
 }
 
-void ctor_definite_assign_stmts(
+bool ctor_definite_assign_stmts(
     const std::vector<std::unique_ptr<Stmt>>& stmts,
     std::vector<std::string>& pending) {
     for (const auto& s : stmts) {
-        if (pending.empty()) return;
-        ctor_definite_assign_stmt(s.get(), pending);
+        if (pending.empty()) return true;
+        if (!ctor_definite_assign_stmt(s.get(), pending)) return false;
     }
+    return true;
 }
 
 // ---- 闭包自由变量收集（t141）----
@@ -673,7 +678,7 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     winning_stmt_.clear();
     fn_stmt_to_key_.clear();
     classes_.clear();
-    shadow_conflicts_.clear();
+    dyn_slots_.clear();
     in_function_ = false;
     current_this_ = nullptr;
     current_class_name_.clear();
@@ -695,7 +700,7 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // 遮蔽冲突槽升级 + struct 建体（S131）：register_class_layout 只登记字段
     // 描述符，因为承载不一致的同名遮蔽要把该树内祖先/兄弟的槽一并改判 Dyn
     // （父子前缀偏移必须继续对齐），布局须待全树字段合并完毕才能定
-    resolve_shadow_conflicts();
+    resolve_dyn_slots();
     for (const ClassStmt* c : class_decls) {
         finalize_class_layout(*c);
     }
@@ -3684,30 +3689,10 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
                         " is not visible here",
                     line, column);
     }
-    // 无初值字段守卫（t109/t125/t126）：解释器字段先绑 none、构造器随后覆写——
-    // 仅当实例化类自身构造器体在 any 观察点前以 this.f = expr（RHS 不含
-    // this/base，实例未逃逸故无他径可观察）覆盖全部 uninit 字段（含继承）时
-    // none 态不可观察，放行并零值占位；否则拒编不错编（none 无静态表示）。
-    // 走查逻辑见 ctor_definite_assign_stmt：直线定赋、this-free 表达式跳过、
-    // 裸块递归、双臂 if 各臂副本求交；单臂 if / 循环 / switch / return / 声明 /
-    // 观察 this 的非定赋语句一律保守停止落拒编。
-    std::vector<std::string> pending;
-    for (const CGField& field : cls.fields) {
-        if (field.uninit) pending.push_back(field.name);
-    }
-    if (!pending.empty()) {
-        auto cit = cls.dispatch.find(name);
-        if (cit != cls.dispatch.end()) {
-            const FunctionStmt* ctor_stmt = cls.instances.at(cit->second).stmt;
-            ctor_definite_assign_stmts(ctor_stmt->body()->statements(), pending);
-        }
-        if (!pending.empty()) {
-            unsupported("field '" + pending.front() +
-                            "' without initializer not definitely assigned at "
-                            "start of constructor of class '" + name + "'",
-                        line, column);
-        }
-    }
+    // 无初值字段（t109/S132）：可观察性已在第一遍 resolve_dyn_slots 按整棵继承树
+    // 判定——必被定赋的槽保留静态表示（本类构造器体走查见
+    // ctor_definite_assign_stmts），其余槽换 {tag,bits} 动态承载、下方预存 tag 10
+    // 空位，读出即落 S92–S131 全部 tag 分派臂；实例化点不再有拒编分支
     uint64_t size = 8; // i64 类 id 头部（t86）
     for (const CGField& field : cls.fields) {
         // Num/Dyn 均为 {i64,i64} 双字槽（t62/t162），其余字段 ≤ 8 字节
@@ -3734,11 +3719,18 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
                                                           field.name));
         }
         if (field.uninit) {
-            // 无初值字段（t109）：零值占位——上方前缀定赋守卫保证赋值前
-            // 不可观察，占位值任意且安全（解释器 none 同样不可观察）
-            builder_.CreateStore(
-                llvm::Constant::getNullValue(llvm_type_of(field.type)),
-                builder_.CreateStructGEP(cls.type, obj, i + 1, field.name));
+            // 无初值字段（t109/S132）：动态承载槽预存 tag 10、bits 恒 0 的空位——
+            // 解释器此刻把该键绑成 none，读出即打印 none、可传参、可判等，消费面
+            // 的类型不符一律落 S92–S131 既有运行期 tag 守卫陷阱；保留静态表示的
+            // 槽已由本类构造器定赋保证 none 不可观察，零值占位任意且安全
+            llvm::Value* box =
+                field.dyn_slot
+                    ? make_num(builder_.getInt64(10), builder_.getInt64(0))
+                    : static_cast<llvm::Value*>(llvm::Constant::getNullValue(
+                          llvm_type_of(field.type)));
+            builder_.CreateStore(box,
+                                 builder_.CreateStructGEP(cls.type, obj, i + 1,
+                                                          field.name));
             continue;
         }
         CGValue v = emit(field.decl->initializer());
@@ -5535,9 +5527,10 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         const std::string fname(field->name().lexeme());
         bool field_uninit = false;
         if (!field->initializer()) {
-            // 无初值字段（t109）：解释器绑 none——实例化点（visitNew）守卫
-            // 构造器前缀定赋后 none 态不可观察，槽零值占位；守卫不满足
-            // 处拒编不错编（none 无静态表示）
+            // 无初值字段（t109/S132）：解释器把该键绑成 none——本树内是否必被
+            // 定赋要到 resolve_dyn_slots 才能判（要连子类/兄弟类一起看），此处
+            // 只记标记：判为必定赋的槽零值占位，否则整树升级为 {tag,bits} 承载
+            // 并在实例化点预存 tag 10 空位
             field_uninit = true;
         }
         CGType ftype;
@@ -5557,13 +5550,13 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         // 下标与 field_index 不变（父类 struct 与既有 GEP 一字不动），被覆写声明
         // 按序记入 shadowed、本声明成为该槽最终声明（与解释器 find_field 的
         // 「子类优先沿链」一致）。承载一致时槽类型自此按遮蔽类声明走（t182）；
-        // 承载不一致时登记冲突，由 resolve_shadow_conflicts 把本树全部持有者的
+        // 承载不一致时登记冲突，由 resolve_dyn_slots 把本树全部持有者的
         // 槽统一升级为 {tag,bits}（S131），写侧校验仍按各类自身声明现算
         auto shadow = cls.field_index.find(fname);
         if (shadow != cls.field_index.end()) {
             CGField& prev = cls.fields[shadow->second];
             if (prev.type != ftype || prev.cls != fcls || prev.bit_max != fbit_max) {
-                shadow_conflicts_.insert(
+                dyn_slots_.insert(
                     (cls.super.empty() ? name : class_root_of(cls.super)) + "." +
                     fname);
             }
@@ -5685,17 +5678,68 @@ std::string CodeGenerator::class_root_of(const std::string& name) const {
     }
 }
 
-void CodeGenerator::resolve_shadow_conflicts() {
-    // 遮蔽冲突槽动态承载化（S131）：解释器一个实例只有一份 name→value 扁平表，
-    // 子类同名声明是**覆写同一个键**而非追加字段——故冲突槽必须在整棵继承树内
-    // 统一换表示（父子 struct 前缀偏移要继续保持对齐），不能只在子类侧加槽。
-    // 物理槽换 Dyn 后：读出即落 S92–S130 全部 tag 分派臂，写侧校验按各类自身
+bool CodeGenerator::tree_always_assigns_field(
+    const std::string& root, const std::string& field_name) const {
+    // 无初值字段槽的可观察性判定（S132）：解释器 visitNew 沿链 base-first 逐层把
+    // **该层生效声明**写进扁平表——本类合并布局里该字段带初值即实例化即定赋；
+    // 无初值则该键此刻是 none，只有本类构造器体（构造器不继承、父构造器不隐式
+    // 调用）在走查到尾前定赋它才谈得上「none 不可观察」。树内任一类不满足即整槽
+    // 换动态承载（槽型必须整树统一以保前缀偏移，见 resolve_dyn_slots）
+    for (const auto& entry : classes_) {
+        if (class_root_of(entry.first) != root) continue;
+        const CGClass& cls = entry.second;
+        auto fit = cls.field_index.find(field_name);
+        if (fit == cls.field_index.end()) continue; // 该类的合并布局无此槽
+        const CGField& field = cls.fields[fit->second];
+        if (!field.uninit) continue; // 生效声明带初值：实例化即定赋
+        const FunctionStmt* ctor = nullptr;
+        for (const auto& member : cls.stmt->members()) {
+            const auto* fn = dynamic_cast<const FunctionStmt*>(member.get());
+            if (fn && std::string(fn->name().lexeme()) == entry.first) {
+                ctor = fn;
+                break;
+            }
+        }
+        if (ctor == nullptr) return false; // 无构造器：解释器直接留 none
+        std::vector<std::string> pending{field_name};
+        if (!ctor_definite_assign_stmts(ctor->body()->statements(), pending)) {
+            return false; // 走查中断：观察点/控制流形态在定赋之前
+        }
+        if (!pending.empty()) return false; // 走到体尾仍未定赋
+    }
+    return true;
+}
+
+void CodeGenerator::resolve_dyn_slots() {
+    // 动态承载槽判定与整树升级（S131/S132）：解释器一个实例只有一份 name→value
+    // 扁平表，子类同名声明是**覆写同一个键**而非追加字段——故同一字段名必须在整棵
+    // 继承树内统一换表示（父子 struct 前缀偏移要继续保持对齐），不能只在子类侧加槽。
+    // 两个来源：① 承载不一致的同名遮蔽（S131，register_class_layout 登记）；
+    // ② 无初值字段的 none 可观察（S132：树内并非每个类都必被定赋，解释器会把该键
+    // 绑成 none 并可被 print/传参读到，静态槽无 none 表示）。
+    // 物理槽换 Dyn 后：读出即落 S92–S131 全部 tag 分派臂，写侧校验按各类自身
     // 生效声明现算（field_carrier_of），与解释器 find_field 子类优先沿链同源
-    if (shadow_conflicts_.empty()) return;
+    std::set<std::string> none_candidates;
+    for (const auto& entry : classes_) {
+        for (const CGField& field : entry.second.fields) {
+            if (field.uninit) {
+                none_candidates.insert(class_root_of(entry.first) + "." +
+                                       field.name);
+            }
+        }
+    }
+    for (const std::string& key : none_candidates) {
+        const size_t dot = key.rfind('.');
+        if (!tree_always_assigns_field(key.substr(0, dot),
+                                       key.substr(dot + 1))) {
+            dyn_slots_.insert(key);
+        }
+    }
+    if (dyn_slots_.empty()) return;
     for (auto& entry : classes_) {
         const std::string root = class_root_of(entry.first);
         for (CGField& field : entry.second.fields) {
-            if (shadow_conflicts_.count(root + "." + field.name) == 0) continue;
+            if (dyn_slots_.count(root + "." + field.name) == 0) continue;
             field.dyn_slot = true;
             field.type = CGType::Dyn;
             field.cls.clear();
