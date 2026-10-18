@@ -1,0 +1,39 @@
+// t186 S133 差分用例：无初值 object 槽在各类条件发射区内首赋、区外读
+// （while / do-while / for / switch / 区内嵌套 if —— 原 t110 定赋区域跟踪一律拒编）
+integer i = 0;
+object w;
+while (i < 2) {
+    w = i * 10;
+    i = i + 1;
+}
+print("1", w);
+object f;
+for (integer j = 0; j < 3; j = j + 1) {
+    if (j == 2) {
+        f = "three";
+    }
+}
+print("2", f);
+object d;
+do {
+    d = 9;
+} while (false);
+print("3", d);
+object sw;
+switch (1) {
+    1 {
+        sw = "one";
+    }
+    default {
+        sw = "def";
+    }
+}
+print("4", sw);
+// 区内首赋、循环外读后继续换承载（整槽替换语义）
+object mix;
+for (integer k = 0; k < 2; k = k + 1) {
+    mix = k;
+}
+mix = [1, 2];
+print("5", mix);
+print("6", mix.length);

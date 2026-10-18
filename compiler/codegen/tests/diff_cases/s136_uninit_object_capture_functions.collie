@@ -1,0 +1,32 @@
+// t186 S133 差分用例：无初值 object 全局槽在函数体内首赋、其后区外读；
+// 写者与读者闭包共享同一 cell（t141 捕获面此前因 uninit 期读守卫不可达）
+object g;
+function fill() none {
+    g = (k: 1, m: 2);
+}
+fill();
+print("1", g);
+print("2", g.m);
+object cell;
+function write_cell() none {
+    cell = 5;
+}
+function read_cell() none {
+    print("read", cell);
+}
+read_cell();
+write_cell();
+read_cell();
+cell = "after";
+read_cell();
+// 空值经 object 形参/返回值往返（t161 签名承载）
+function take(x object) object {
+    return x;
+}
+object h;
+if (take(1) == take(1)) {
+    h = "branch";
+}
+print("3", h);
+object ret = take(cell);
+print("4", ret);

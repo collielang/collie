@@ -1,0 +1,25 @@
+// t186 S133 差分用例：条件分支未命中时区外读到空位，与解释器「无初值绑 none」一致
+// （原 t110 保守拒编的另一半：not-taken 路径此前无从静态排除）
+bool flag = false;
+object z;
+if (flag) {
+    z = 5;
+}
+print("1", z);
+print("2", toString(z));
+object a;
+if (flag) {
+    a = [1, 2];
+}
+print("3", a);
+// 空位入 object 槽、空位自赋、空位相等比较均按 tag 10 承载
+object p;
+p = z;
+print("4", p);
+object q;
+if (flag) {
+    q = 1;
+}
+q = q;
+print("5", q);
+print("6", q == q);

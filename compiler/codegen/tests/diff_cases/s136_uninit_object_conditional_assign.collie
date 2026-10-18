@@ -1,0 +1,32 @@
+// t186 S133 差分用例（正文第一节取自退役锁 s123_reject_object_uninit_conditional_assign）：
+// 无初值 object 槽在条件发射区内首赋、区外读。声明点预存 tag 10 空位后槽值恒可
+// 观察，uninit 期读守卫不再到达本面——分支命中读到实值，与解释器按实际路径取值一致。
+bool flag = true;
+object z;
+if (flag) {
+    z = 5;
+}
+print("1", z);
+object w;
+if (flag) {
+    w = "hit";
+} else {
+    w = 9;
+}
+print("2", w);
+// 区外读到数值/串属性面与跨槽落点（读出恒 Dyn 落既有运行期 tag 分派消费面）
+object s;
+if (flag) {
+    s = "abcd";
+}
+print("3", s.length);
+object n;
+if (flag) {
+    n = 7;
+}
+print("4", n + 1);
+print("5", n * 2);
+integer back = n;
+print("6", back);
+string text = s;
+print("7", text);

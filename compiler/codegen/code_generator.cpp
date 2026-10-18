@@ -3950,20 +3950,28 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             return;
         }
         if (tt == TokenType::KW_OBJECT) {
-            // 无初始化 object 变量（t121 引入，t173 换表示）：槽直接建
+            // 无初始化 object 变量（t121 引入，t173 换表示，t186 预存空位）：槽直接建
             // CGType::Dyn 的 {tag,bits} 动态承载（与 t146 有初值路径同表示），
             // 首赋与重赋一律走 visitAssign 的 Dyn 分支（is_dyn_carrier 判定 +
-            // to_dyn 打框），读出即 Dyn 落 S92–S119 全部运行期 tag 分派消费面
+            // to_dyn 打框），读出即 Dyn 落 S92–S122 全部运行期 tag 分派消费面
             // ——原 t121「Obj ptr 槽 + 首赋吸收 RHS 类名」与 t143「首赋函数值
             // 重绑 Fn 槽」两支随之退役：ptr 单字槽不可中段改 {i64,i64}，故首赋
             // 吸收后异型重赋只能保守拒编（解释器 coerce_to_declared default
-            // 直存任意值）；uninit 期读仍拒编（同块赋值后清，t92/t110 定赋
-            // 区域跟踪）
+            // 直存任意值）。
+            // t186/S133：声明点即预存 tag 10 空位（对齐字段侧 t185 的实例化点预存），
+            // 槽值自此恒可观察且与解释器「无初值绑 none」逐一对应，故不再登记
+            // uninit——条件区/循环体/函数体内首赋后在区外读（t110 保守拒编面）
+            // 落运行期 tag 分派：分支命中读到实值、未命中读到 tag 10 打 "none"，
+            // 两端一致；静态类型（integer/decimal/number/bool/tribool/string/
+            // byte/word/char/character）与 Arr/Obj/TupDyn 单字槽无空位表示，
+            // 仍按 uninit 期读拒编（新锁 s136_reject_num_uninit_conditional_assign /
+            // s136_reject_ptr_uninit_conditional_assign）
             const std::string name(stmt.name().lexeme());
             CGVar var;
             var.slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
             var.type = CGType::Dyn;
-            var.uninit = true;
+            builder_.CreateStore(
+                make_num(builder_.getInt64(10), builder_.getInt64(0)), var.slot);
             var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;

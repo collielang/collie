@@ -1,0 +1,38 @@
+// t186 S133 差分用例：区内首赋的 object 槽读出后进入全部既有消费面
+// （数组下标/长度、三目臂、类实例位方法/字段、异质数组元素槽、tuple 位）
+class Dog {
+    public string name = "rex";
+    public function speak() string {
+        return "woof";
+    }
+}
+bool flag = true;
+object arr;
+if (flag) {
+    arr = [1, 2, 3];
+}
+print("1", arr[1]);
+print("2", arr.length);
+object bag;
+bag = arr;
+print("3", bag);
+object ternary = flag ? arr : "none-arm";
+print("4", ternary);
+object dog;
+if (flag) {
+    dog = new Dog();
+}
+print("5", dog.name);
+print("6", dog.speak());
+object tup;
+if (flag) {
+    tup = (a: 1, b: "x");
+}
+print("7", tup.b);
+print("8", tup.length);
+object boxed;
+if (flag) {
+    boxed = 42;
+}
+print("9", [boxed, 1, "t", tup, dog]);
+print("10", boxed.toNumber());

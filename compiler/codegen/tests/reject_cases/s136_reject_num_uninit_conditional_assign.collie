@@ -1,0 +1,19 @@
+// t186 S133 拒编锁：无初值**静态单值槽**在条件区内首赋、区外读维持保守拒编不错编
+// （object 槽的空位表示已由 S133 解锁，但 number/tribool/byte 等槽只有一个裸值位、
+//  无运行期 tag，未命中分支时槽值是零初始化而非可观察空位，解释器读到 none）
+bool flag = true;
+number n;
+if (flag) {
+    n = 3;
+}
+print("1", n);
+tribool t;
+if (flag) {
+    t = true;
+}
+print("2", t);
+byte b;
+if (flag) {
+    b = 3;
+}
+print("3", b);

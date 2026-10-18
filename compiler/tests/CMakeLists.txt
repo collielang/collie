@@ -270,7 +270,12 @@ if(COLLIE_ENABLE_LLVM)
             s135_uninit_field_observe_before_assign
             s135_shadow_uninit_no_ctor
             s135_uninit_field_inherit_upcast
-            s135_uninit_field_dyn_consume)
+            s135_uninit_field_dyn_consume
+            s136_uninit_object_conditional_assign
+            s136_uninit_object_none_observable
+            s136_uninit_object_region_paths
+            s136_uninit_object_capture_functions
+            s136_uninit_object_slot_consumers)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -288,7 +293,8 @@ if(COLLIE_ENABLE_LLVM)
             s115_reject_dyn_array_slot_downgrade_in_loop
             s117_reject_arr_elem_to_homog_domain
             s120_reject_tuple_elem_homog_array s120_reject_dyn_tuple_prop_assign
-            s123_reject_object_uninit_conditional_assign
+            s136_reject_num_uninit_conditional_assign
+            s136_reject_ptr_uninit_conditional_assign
             s125_reject_none_bit_homog_array
             s129_reject_dyn_to_tuple_reassign
             s131_reject_tuple_uninit_conditional_assign
