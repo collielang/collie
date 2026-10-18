@@ -1,0 +1,33 @@
+// t189 S136 差分用例：object 承载位（Dyn）接收者上的动态键——rt_dyn_tuple_get
+// 先按接收者 tag 分派（8=tuple 位扫键、其余落方法接收者陷阱），键位同样运行期判定
+Tuple t = (a: 1, b: "x");
+object o = t;
+object k = "a";
+print("1", o.get(k));
+k = "b";
+print("2", o.get(k));
+// 键来自数组元素与函数返回值
+array bag = [0, "b"];
+print("3", o.get(bag[1]));
+function pick() object {
+    return "a";
+}
+print("4", o.get(pick()));
+// 无初值 Tuple 槽（t188）读出的 tuple 位作接收者
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (deep: 7, other: 8);
+}
+object qk = "deep";
+print("5", q.get(qk));
+object qb = q;
+print("6", qb.get(qk));
+// 动态键取到的值再进消费面
+object val = q.get(qk);
+print("7", val);
+print("8", toString(val));
+print("9", val + 1);
+// 串位直传（静态 Str 键零守卫）与动态键同结果
+print("10", o.get("b"));
+print("11", o.get(k));

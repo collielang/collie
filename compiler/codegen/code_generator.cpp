@@ -479,6 +479,13 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
         "collie_rt_trap_dyn_convert",
         llvm::FunctionType::get(builder_.getVoidTy(),
                                {builder_.getInt64Ty(), ptr_ty}, false));
+    // collie_rt tuple get() 动态键非串位陷阱声明（t189）：解释器 get 分支运行期
+    // 先判 key.is_string()，非串键按 key.kind_name() 报错，消息对齐
+    // "get() key must be a string, got <kind>"
+    rt_trap_tuple_key_kind_ = module_->getOrInsertFunction(
+        "collie_rt_trap_tuple_key_kind",
+        llvm::FunctionType::get(builder_.getVoidTy(),
+                               {builder_.getInt64Ty()}, false));
     // collie_rt 动态承载值长度面声明（t152）：Dyn 上的 .length / len() 按运行期
     // tag 分派（3=串码点、4/7=数组元素数、其余按 mode 落解释器同消息陷阱），
     // mode 0 = .length 属性、1 = len() 内建
@@ -2622,17 +2629,16 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         if (expr.arguments().size() != 1) {
             unsupported("get() with this arity", line, column);
         }
-        CGValue key_val = emit(expr.arguments()[0].get());
-        if (key_val.type != CGType::Str) {
-            unsupported("non-string tuple get() key", line, column);
-        }
+        // 键运行期定串位（t189）：静态非串键箱为动态承载值后按 tag 判定
+        llvm::Value* key_ptr =
+            dyn_key_to_str(emit(expr.arguments()[0].get()), line, column);
         llvm::AllocaInst* otag =
             create_entry_alloca(builder_.getInt64Ty(), "dyntupget.otag");
         llvm::AllocaInst* obits =
             create_entry_alloca(builder_.getInt64Ty(), "dyntupget.obits");
         builder_.CreateCall(
-            rt_dyn_tuple_get_, {num_tag(object.value), num_bits(object.value),
-                                key_val.value, otag, obits});
+            rt_dyn_tuple_get_,
+            {num_tag(object.value), num_bits(object.value), key_ptr, otag, obits});
         last_value_ = {make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag),
                                 builder_.CreateLoad(builder_.getInt64Ty(), obits)),
                        CGType::Dyn};
@@ -3101,22 +3107,21 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
 
     if (object.type == CGType::TupDyn && name == "get") {
         // 动态 tuple.get(key)（t140）：形状运行期才定，常量/动态键同路——
-        // 键求值为 Str 后 rt_tuple_key_dyn 按非空名 strcmp 扫描取 {tag,bits}
+        // 键还原为串后 rt_tuple_key_dyn 按非空名 strcmp 扫描取 {tag,bits}
         // 拼 Dyn（未命中陷阱 "Undefined tuple field '<key>'" 在 rt 内，对齐解释器）；
         // 结果仅 print/toString/插值可消费
         if (expr.arguments().size() != 1) {
             unsupported("get() with this arity", line, column);
         }
-        CGValue key_val = emit(expr.arguments()[0].get());
-        if (key_val.type != CGType::Str) {
-            unsupported("non-string tuple get() key", line, column);
-        }
+        // 键运行期定串位（t189）：静态非串键箱为动态承载值后按 tag 判定
+        llvm::Value* key_ptr =
+            dyn_key_to_str(emit(expr.arguments()[0].get()), line, column);
         llvm::AllocaInst* otag =
             create_entry_alloca(builder_.getInt64Ty(), "tupdyn.otag");
         llvm::AllocaInst* obits =
             create_entry_alloca(builder_.getInt64Ty(), "tupdyn.obits");
         builder_.CreateCall(
-            rt_tuple_key_dyn_, {object.value, key_val.value, otag, obits});
+            rt_tuple_key_dyn_, {object.value, key_ptr, otag, obits});
         last_value_ = {make_num(builder_.CreateLoad(builder_.getInt64Ty(), otag),
                                 builder_.CreateLoad(builder_.getInt64Ty(), obits)),
                        CGType::Dyn};
@@ -3152,8 +3157,9 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         // names 复用一份、同一键两次 rt_tuple_get 拼 Num 动态值（未命中陷阱
         // 在首次，零新增 rt 接口）。含 Bool/Str/Tri 的异质/同质 tribool
         //（t138）走 Dyn 承载。嵌套元素异质/无统一表示元素/空 tuple/
-        // 无命名字段/非 Str 键保持拒编——结果类型静态不可定或
-        // 无统一表示，拒编不错编
+        // 无命名字段保持拒编——结果类型静态不可定或无统一表示，拒编不错编。
+        // 键的静态类型不限（t189）：解释器运行期才判 key.is_string()，静态非串键
+        // 先箱动态承载位、由 dyn_key_to_str 按 tag 判定（非串位落同消息陷阱）
         const long long n = static_cast<long long>(t.elems.size());
         if (n == 0) {
             unsupported("non-constant get() on empty tuple", line, column);
@@ -3204,10 +3210,9 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         if (!has_named) {
             unsupported("non-constant get() on tuple with no named fields", line, column);
         }
-        CGValue key_val = emit(expr.arguments()[0].get());
-        if (key_val.type != CGType::Str) {
-            unsupported("non-string tuple get() key", line, column);
-        }
+        // 键运行期定串位（t189）：静态非串键箱为动态承载值后按 tag 判定
+        llvm::Value* key_ptr =
+            dyn_key_to_str(emit(expr.arguments()[0].get()), line, column);
         // names 数组（kind 3 string）：无名元素存空串 ""（rt 侧非空名匹配天然跳过）
         llvm::Value* names = builder_.CreateCall(
             rt_arr_new_,
@@ -3227,9 +3232,9 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
         if (use_dyn) {
             auto [tags, bits_arr] = materialize_dyn_scalars(t, line, column);
             llvm::Value* tag = builder_.CreateCall(
-                rt_tuple_get_, {names, tags, key_val.value}, "dyntag");
+                rt_tuple_get_, {names, tags, key_ptr}, "dyntag");
             llvm::Value* bits = builder_.CreateCall(
-                rt_tuple_get_, {names, bits_arr, key_val.value}, "dynbits");
+                rt_tuple_get_, {names, bits_arr, key_ptr}, "dynbits");
             last_value_ = {make_num(tag, bits), CGType::Dyn};
             return;
         }
@@ -3252,9 +3257,9 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                     {bits_arr, builder_.getInt64(static_cast<uint64_t>(i)), num_bits(num)});
             }
             llvm::Value* tag = builder_.CreateCall(
-                rt_tuple_get_, {names, tags, key_val.value}, "tuptag");
+                rt_tuple_get_, {names, tags, key_ptr}, "tuptag");
             llvm::Value* bits = builder_.CreateCall(
-                rt_tuple_get_, {names, bits_arr, key_val.value}, "tupbit");
+                rt_tuple_get_, {names, bits_arr, key_ptr}, "tupbit");
             last_value_ = {make_num(tag, bits), CGType::Num};
             return;
         }
@@ -3270,7 +3275,7 @@ void CodeGenerator::visitMethodCall(const MethodCallExpr& expr) {
                  elem_to_bits(t.elems[static_cast<size_t>(i)])});
         }
         llvm::Value* bits =
-            builder_.CreateCall(rt_tuple_get_, {names, vals, key_val.value}, "tupget");
+            builder_.CreateCall(rt_tuple_get_, {names, vals, key_ptr}, "tupget");
         last_value_ = tuple_dynamic_result(bits, elem, t, line, column);
         return;
     }
@@ -7416,6 +7421,38 @@ llvm::Value* CodeGenerator::dyn_guard_store(llvm::Value* boxed, DynGuard guard,
             break;
     }
     return boxed;
+}
+
+llvm::Value* CodeGenerator::dyn_key_to_str(const CGValue& key, size_t line,
+                                           size_t column) {
+    // tuple get() 的动态键（t189）：解释器 visitMethodCall 的 get 分支在运行期先判
+    // key.is_string() 再按名扫描，故键的静态类型不限——静态非串键（integer/bool/
+    // object 槽等）只要运行期是串位就能取到值。键箱为动态承载值后 tag 运行期才定：
+    // 串位（tag 3）的 bits 即串 ptr，还原后并入既有扫键面；其余位落
+    // collie_rt_trap_tuple_key_kind，复刻解释器 "get() key must be a string,
+    // got <kind>"（陷阱路径 stdout 无增量）
+    if (key.type == CGType::Str) {
+        return key.value;
+    }
+    llvm::Value* boxed = to_dyn(key, line, column);
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::Value* tag = num_tag(boxed);
+    auto* ok_bb = llvm::BasicBlock::Create(context_, "dynkey.ok", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dynkey.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dynkey.cont", fn);
+    builder_.CreateCondBr(
+        builder_.CreateICmpEQ(tag, builder_.getInt64(3), "dynkeyis3"), ok_bb,
+        trap_bb);
+    builder_.SetInsertPoint(ok_bb);
+    llvm::Value* ptr = builder_.CreateIntToPtr(num_bits(boxed),
+                                               llvm_type_of(CGType::Str),
+                                               "dynkeyptr");
+    builder_.CreateBr(cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_tuple_key_kind_, {tag});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return ptr;
 }
 
 llvm::Value* CodeGenerator::dyn_to_tuple_slot(llvm::Value* dyn) {

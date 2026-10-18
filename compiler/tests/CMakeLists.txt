@@ -287,7 +287,13 @@ if(COLLIE_ENABLE_LLVM)
             s138_uninit_tuple_region_paths
             s138_uninit_tuple_slot_consumers
             s138_uninit_tuple_dyn_reassign
-            s138_uninit_tuple_signature_field)
+            s138_uninit_tuple_signature_field
+            s139_dyn_key_get_object_slot
+            s139_dyn_key_get_dyn_receiver
+            s139_dyn_key_get_tupdyn_receiver
+            s139_dyn_key_get_static_paths
+            s139_dyn_key_get_slot_consumers
+            s139_dyn_key_get_nested_and_sources)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>

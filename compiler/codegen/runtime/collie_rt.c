@@ -157,6 +157,11 @@
  *     // 6=tribool/7=异质数组/8=tuple），消息核心对齐 "Type mismatch: cannot assign
  *     // <kind> to '<target>' variable"（integer 收小数态用特例文案）
  *
+ * tuple get() 动态键的非串位陷阱（t189）：键位 tag 非 3（串）时报错退出，
+ * 解释器 visitMethodCall 的 get 分支先判 key.is_string() 再扫名，消息核心
+ *   void collie_rt_trap_tuple_key_kind(long long tag);
+ *     // 对齐 "get() key must be a string, got <kind>"（stderr + exit(1)）
+ *
  * 动态承载值参与算术的类型陷阱（t148）：tag 非数值态（0/1 以外）参与
  *   + - * / % 时按解释器同消息报错退出：
  *   void collie_rt_trap_non_numeric_arith(void);
@@ -653,6 +658,16 @@ static const char* collie_rt_dyn_kind_name(long long tag) {
         case 10: return "none";
         default: return "unknown";
     }
+}
+
+/* tuple get() 的动态键非串位陷阱（t189）：键在解释器是运行期才定的值，
+ * visitMethodCall 的 get 分支先判 key.is_string() 再按名扫描，非串键即按
+ * key.kind_name() 报错；此处键位 tag 非 3（串）走同一消息核心
+ * "get() key must be a string, got <kind>"（kind 表单点复用） */
+void collie_rt_trap_tuple_key_kind(long long tag) {
+    fprintf(stderr, "get() key must be a string, got %s\n",
+            collie_rt_dyn_kind_name(tag));
+    exit(1);
 }
 
 /* 动态承载值作索引接收者（t153）：`dyn[i]` 按运行期 tag 复刻解释器 visitIndex

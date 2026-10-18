@@ -1,0 +1,34 @@
+// t189 S136 差分用例：逐层动态键与更多键源——类字段、Tuple 型字段、串切片与
+// 拼接结果作键，嵌套 tuple 两层键串联
+class Cfg {
+    public object key = "a";
+    public Tuple conf = (a: 1, b: 2);
+}
+Cfg c = new Cfg();
+print("1", c.conf.get(c.key));
+c.key = "b";
+print("2", c.conf.get(c.key));
+// 键来自串方法结果与拼接
+object full = "prefix_a";
+print("3", c.conf.get(full.subString(7, 8)));
+string s1 = "a";
+object joined = s1 + "";
+print("4", c.conf.get(joined));
+// 嵌套 tuple 两层动态键
+Tuple outer = (inner: (deep: 7, other: 8), solo: 9);
+object ko = "inner";
+object kd = "other";
+object mid = outer.get(ko);
+print("5", mid);
+print("6", mid.get(kd));
+print("7", outer.get(ko).get(kd));
+print("8", outer.get("solo"));
+// 动态 tuple（三目合流）接收者上的逐层键
+bool flag = true;
+Tuple dynouter = flag ? (inner: (deep: 1, other: 2)) : (inner: (deep: 3));
+print("9", dynouter.get(ko).get(kd));
+// 数组元素位中的 tuple 用动态键取
+array bag = [0, (a: 10, b: 20)];
+object item = bag[1];
+print("10", item.get(c.key));
+print("11", item.get("a"));

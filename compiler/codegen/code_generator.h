@@ -366,6 +366,13 @@ private:
     /// 类型已能保证满足声明时原样返回（不打无用的运行期分支）
     llvm::Value* dyn_guard_store(llvm::Value* boxed, DynGuard guard, CGType rhs);
 
+    /// @brief tuple get() 的键还原为串（t189）：解释器 visitMethodCall 的 get 分支
+    /// 在运行期先判 key.is_string() 再按名扫描，故静态非串键（integer/bool/object 槽
+    /// 等）解释器可运行、只是非串位报错；此处把键箱为动态承载值，tag == 3（串）
+    /// 还原 ptr 并入既有扫键面，其余位落 collie_rt_trap_tuple_key_kind
+    /// （消息核心即解释器 "get() key must be a string, got <kind>"）；静态 Str 键直传
+    llvm::Value* dyn_key_to_str(const CGValue& key, size_t line, size_t column);
+
     /// @brief 动态承载值进 Tuple 落点（t179）：解释器 coerce_to_declared 的 KW_TUPLE
     /// 分支只要求 is_tuple()——运行期守卫 tag == 8（t170 的 tuple 位）时把 bits 还原
     /// 为堆 tuple 对象 ptr，其余位落 collie_rt_trap_dyn_convert（落点类型名 "Tuple"，
@@ -852,6 +859,9 @@ private:
     /// 槽接受表内时报错退出，消息对齐解释器 "Type mismatch: cannot assign
     /// <kind> to '<type>' variable"
     llvm::FunctionCallee rt_trap_dyn_convert_;  // void(i64 tag, ptr type_name)
+    /// collie_rt tuple get() 动态键非串位陷阱（t189）：键位 tag != 3 时报错退出，
+    /// 消息对齐解释器 "get() key must be a string, got <kind>"
+    llvm::FunctionCallee rt_trap_tuple_key_kind_;  // void(i64 tag)
     /// collie_rt 动态承载值参与算术的类型陷阱（t148）：Dyn 侧 tag 非数值态
     /// （0/1 以外）时报错退出，消息对齐解释器
     /// "Arithmetic operands must be numbers"

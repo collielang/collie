@@ -1,0 +1,51 @@
+// t189 S136 差分用例：动态键取位后的落点与消费面——进类型化槽走 t147 拆槽守卫、
+// 进 object/array/Tuple 落点、作实参与返回值、参与判等与 ==?/switch
+class Point {
+    public integer x = 5;
+}
+object k = "num";
+object k2 = "str";
+Tuple u = (num: 7, str: "s", pt: new Point(), tup: (deep: 8), box: [1, "a"]);
+// 进类型化槽（键位命中串位，取到的值位按声明拆槽）
+integer n = u.get(k);
+print("1", n);
+string w = u.get(k2);
+print("2", w);
+number nb = u.get(k);
+print("3", nb + 1);
+object o = u.get(k);
+print("4", o);
+print("5", toString(o));
+// 作函数实参与返回值
+function show(v object) none {
+    print("6", v);
+}
+show(u.get(k));
+function give() integer {
+    return u.get(k);
+}
+print("7", give());
+// 判等与 ==?/switch 目标
+object seven = 7;
+print("8", o == seven);
+print("9", o ==? 7: "seven", "other");
+switch (o) {
+    7 { print("10", "case7"); }
+    default { print("11", "dflt"); }
+}
+// 进数组元素槽与 Tuple 字面量位
+array bag = [0, "x"];
+bag[0] = u.get(k);
+print("12", bag[0]);
+Tuple pair = (u.get(k), 2);
+print("13", pair);
+// 取到的数组位/tuple 位/实例位继续按运行期 tag 消费
+object k3 = "tup";
+print("14", u.get(k3));
+print("15", u.get(k3).deep);
+object k4 = "box";
+print("16", u.get(k4).length);
+print("17", u.get(k4)[1]);
+object k5 = "pt";
+print("18", u.get(k5).x);
+print("19", toString(u.get(k5)));

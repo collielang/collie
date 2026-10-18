@@ -1,0 +1,38 @@
+// t189 S136 差分用例：静态 Tuple 接收者上的非串静态键——解释器 get 分支运行期
+// 才判 key.is_string()，故 object 槽/数组元素/函数返回值等「静态非串、动态是串」
+// 的键此前编译期拒编「non-string tuple get() key」，现键箱为动态承载位、
+// tag == 3 还原串 ptr 后并入既有扫键面
+Tuple t = (a: 1, b: 2, c: 3);
+object k = "a";
+print("1", t.get(k));
+// 同一槽换键值：运行期换串位内容即换字段
+k = "c";
+print("2", t.get(k));
+k = "b";
+print("3", t.get(k));
+// 无初值 object 槽首赋串位后用作键
+object late;
+late = "b";
+print("4", t.get(late));
+// 键来自异质数组元素（kind 7 读出 Dyn 串位）
+array bag = [1, "a", 2, "c"];
+print("5", t.get(bag[1]));
+print("6", t.get(bag[3]));
+// 键来自函数返回值
+function pick() string {
+    return "c";
+}
+print("7", t.get(pick()));
+// 循环内逐轮换键
+array keys = ["a", "c"];
+for (integer i = 0; i < keys.length; i = i + 1) {
+    object round = keys[i];
+    print("8", t.get(round));
+}
+// 串加宽为 object 承载位、再作键（tag 3 与 tag 5 无关：串直存仍是串位）
+object carry = k;
+print("9", t.get(carry));
+// 三目合流的串键（静态 Str，走直传零守卫）
+bool flag = true;
+object merged = flag ? "a" : "c";
+print("10", t.get(merged));

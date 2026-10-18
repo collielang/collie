@@ -1,0 +1,34 @@
+// t189 S136 差分用例：动态 tuple（TupDyn，三目/==? 合流或动态来源）接收者上的
+// 动态键——rt_tuple_key_dyn 按非空名扫描取 {tag,bits}，键位运行期判定
+bool flag = true;
+Tuple d = flag ? (a: 1, b: 2) : (x: 10, y: 20);
+object k = "b";
+print("1", d.get(k));
+k = "a";
+print("2", d.get(k));
+// 换臂后同键命中另一形状
+Tuple e = flag ? (p: "s", q: 3) : (r: 4);
+object k2 = "q";
+print("3", e.get(k2));
+// 键来自数组元素
+array bag = [0, "b"];
+print("4", d.get(bag[1]));
+// 取到的位再消费：转串、算术、判等、进 object 槽与类型化槽
+object v = d.get(k);
+print("5", v);
+print("6", toString(v));
+print("7", v + 1);
+object one = 1;
+print("8", v == one);
+integer n = d.get(k);
+print("9", n * 2);
+object o = d;
+print("10", o.get(k));
+// 位置 tuple 混命名（无名位天然跳过扫描）
+Tuple mix = flag ? (1, name: 2) : (3, other: 4);
+object k3 = "name";
+print("11", mix.get(k3));
+print("12", mix[0]);
+// 串位直传（静态 Str 键零守卫）与动态键同结果
+print("13", d.get("a"));
+print("14", d.get(k));

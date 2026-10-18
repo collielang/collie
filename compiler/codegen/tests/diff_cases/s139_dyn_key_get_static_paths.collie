@@ -1,0 +1,48 @@
+// t189 S136 差分用例：静态 Tuple 接收者三条 values 物化路径上的动态键——
+// 同质单数组（t84）、数值系 tags+bits（t108）、标量 Dyn 承载（t138）
+object ka = "b";
+object kb = "c";
+// 同质整数 tuple：单数组 values + bits_to_elem 还原
+Tuple ints = (a: 1, b: 2, c: 3);
+print("1", ints.get(ka));
+print("2", ints.get(kb));
+// 同质串 tuple（kind 3 单数组）
+Tuple strs = (a: "x", b: "y", c: "z");
+print("3", strs.get(ka));
+print("4", strs.get(kb));
+// 同质小数 / bool / tribool
+Tuple decs = (a: 1.5, b: 2.5, c: 3.5);
+print("5", decs.get(ka));
+Tuple bools = (a: true, b: false, c: true);
+print("6", bools.get(ka));
+Tuple tris = (a: true, b: unset, c: false);
+print("7", tris.get(ka));
+print("8", tris.get(kb));
+// 数值系异质：tags+bits 双数组拼 Num
+Tuple mixed = (a: 1, b: 2.5, c: 3);
+print("9", mixed.get(ka));
+print("10", mixed.get(kb));
+print("11", mixed.get(ka) + 1);
+// 含 Bool/Str/Tri 的异质走 Dyn 承载：tags+bits 物化后运行期分派消费
+Tuple dyn = (a: 1, b: "x", c: true);
+object vd = dyn.get(ka);
+print("12", vd);
+print("13", toString(vd));
+print("14", dyn.get(kb));
+// 含数组/实例/函数/nested tuple 位的元素（t164/t172）
+class Box {
+    public integer v = 42;
+}
+function helper() integer {
+    return 7;
+}
+Tuple rich = (a: [1, 2], b: new Box(), c: helper);
+print("15", rich.get("a").length);
+object objk = "b";
+print("16", rich.get(objk).v);
+print("17", rich.get(objk));
+object fnk = "c";
+print("18", rich.get(fnk));
+// 静态 Str 键与动态键同结果
+print("19", ints.get("b"));
+print("20", ints.get(ka));
