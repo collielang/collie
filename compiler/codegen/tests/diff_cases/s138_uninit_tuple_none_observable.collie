@@ -1,0 +1,41 @@
+// t188 S135 差分用例：未命中分支时读到的空位（tag 10）在 tuple 槽上处处可观察
+//——解释器无初值绑定 none，可整值打印/转串/进 object 承载/判等/进容器
+bool off = false;
+Tuple q;
+if (off) {
+    q = (a: 1);
+}
+print("1", q);
+print("2", toString(q));
+object o = q;
+print("3", o);
+print("4", o == o);
+print("5", o != o);
+array bag = [1, "x"];
+bag[0] = q;
+print("6", bag[0]);
+print("7", bag);
+Tuple r;
+if (off) {
+    r = (b: 2);
+}
+object p = r;
+object p2 = r;
+print("8", p == p2);
+print("9", p.toString());
+string s = "head-" + toString(r);
+print("10", s);
+// 空位与实位在同一个三目合流里（合流值为 Dyn）
+Tuple u;
+u = (m: 1);
+u = off ? (z: 1) : u;
+print("11", u);
+// 空位经 object 形参与返回值往返
+function give() object {
+    return q;
+}
+print("12", give());
+function eq2(x object, y object) object {
+    return x == y;
+}
+print("13", eq2(q, give()));

@@ -1,0 +1,62 @@
+// t188 S135 差分用例：无初值 Tuple 槽首赋后的全部消费面——读出恒 Dyn，落
+// S92–S134 的运行期 tag 分派臂（打印/转串/长度/位置索引/命名字段与 get/
+// 嵌套索引/深比较/进 object 承载/进 Tuple 静态槽/进 kind 7 元素槽/签名往返）
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (a: 1, b: (2, 3), c: [4, 5]);
+}
+print("1", q);
+print("2", q.length);
+print("3", q.a);
+print("4", q[1]);
+print("5", q[-1]);
+print("6", q.get("b"));
+print("7", q.b.length);
+print("8", q.c[0]);
+print("9", toString(q));
+print("10", q == q);
+object o = q;
+print("11", o.a);
+print("12", o.b[0]);
+Tuple w = q;
+print("13", w.a);
+array bag = [1, "x"];
+bag[0] = q;
+print("14", bag[0]);
+print("15", bag[0].c.length);
+function show(t Tuple) none {
+    print("16", t.b);
+}
+show(q);
+function give() object {
+    return q;
+}
+print("17", give().c);
+print("18", q.toString());
+// 元素位为串/bool/tribool/函数时同样按运行期 tag 消费
+function helper() integer {
+    return 7;
+}
+if (flag) {
+    q = (s: "abc", b: true, t: unset, f: helper, n: 1.5);
+}
+print("19", q.s.trim());
+print("20", q.b);
+print("21", q.t);
+print("22", q.n + 1);
+print("23", q.f);
+print("24", q.length);
+// 深比较：同形状同内容 vs 换形状
+Tuple m;
+if (flag) {
+    m = (s: "abc", b: true, t: unset, f: helper, n: 1.5);
+}
+print("25", q == m);
+print("26", q == w);
+// 命名/位置混合、嵌套 tuple 与数组元素位写入
+if (flag) {
+    q = (1, k: 2);
+}
+print("27", q);
+print("28", q.k);

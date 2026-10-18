@@ -1,0 +1,66 @@
+// t188 S135 差分用例：无初值 Tuple 变量在条件发射区内首赋、其后区外读
+//（原 s131_reject_tuple_uninit_conditional_assign 锁程序作本节保留）——
+// 槽自 t188 起为 {tag,bits} 动态承载且声明点预存 tag 10 空位，故区外读恒有
+// 确定值：分支命中读到 tuple 位、未命中读到空位打 none，与解释器逐一对应
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (a: 1);
+}
+print("1", q);
+print("2", q.a);
+// if/else 双臂各首赋一支，汇合点读
+bool other = true;
+Tuple r;
+if (other) {
+    r = (x: 10, y: 20);
+} else {
+    r = (x: 30);
+}
+print("3", r);
+print("4", r.x);
+// 分支未命中：读到声明点预存的空位
+Tuple s;
+if (false) {
+    s = (k: 1);
+} else {
+    print("5", "else-branch");
+}
+print("6", s);
+// 体内嵌套 if：仅最内层首赋
+bool deep = true;
+Tuple t;
+if (deep) {
+    if (other) {
+        t = (n: 1, m: (2, 3));
+    }
+}
+print("7", t);
+print("8", t.m[1]);
+// 同一条件区内多枚无初值 Tuple 槽
+Tuple u;
+Tuple v;
+if (flag) {
+    u = (p: 1);
+    v = (p: 2);
+}
+print("9", u.p);
+print("10", v.p);
+print("11", u == v);
+// 赋入表达式带副作用的形状：位置 tuple 与命名字段混排
+Tuple w;
+if (flag) {
+    w = (1, "two", (3, 4));
+}
+print("12", w);
+print("13", w[1]);
+print("14", w[2][0]);
+// 条件区内首赋后，汇合点用三目在两支值之间换形状
+Tuple z;
+if (flag) {
+    z = (one: 1);
+} else {
+    z = (two: 2);
+}
+z = flag ? z : (three: 3);
+print("15", z);

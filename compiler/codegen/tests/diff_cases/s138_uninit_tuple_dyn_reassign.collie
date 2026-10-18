@@ -1,0 +1,65 @@
+// t188 S135 差分用例：同一无初值 Tuple 槽上的换形状与换承载位来源——整槽替换
+// 即换形状（无须 t117 槽组重建守卫），tuple 位内可含数组/实例/函数/嵌套 tuple 位
+class Box {
+    public integer v = 42;
+    public string tag = "box";
+}
+class Lid extends Box {
+    public string lid = "lid";
+}
+function nop() none {
+    print("n");
+}
+function helper() integer {
+    return 7;
+}
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (a: 1);
+}
+print("1", q.a);
+// 换形状：命名两位
+q = (x: 1, y: "s");
+print("2", q);
+print("3", q.y);
+// 换形状：位置 tuple
+q = (1, 2, 3);
+print("4", q[2]);
+print("5", q.length);
+// 换承载位来源：含数组位与实例位
+q = (arr: [1, 2], obj: new Box());
+print("6", q.arr.length);
+print("7", q.obj.v);
+object o = q.obj;
+print("8", o.tag);
+// 子类实例位（字段按对象头类 id 运行期分派）
+q = (sub: new Lid());
+print("9", q.sub.lid);
+print("10", q.sub.v);
+// 嵌套 tuple 位
+q = (t: (deep: 7));
+print("11", q.t.deep);
+print("12", q.t);
+// 函数位与空位混排
+q = (f: helper, n: nop());
+print("13", q.f);
+print("14", q.n);
+print("15", q);
+// 经 object 承载位回赋同一槽（tag == 8 守卫命中，整槽保留）
+object carry = (back: 9);
+q = carry;
+print("16", q.back);
+// 元组位再进数组 / 元组 / 类字段，逐轮回换
+array bag = [1, "x"];
+for (integer i = 0; i < 2; i = i + 1) {
+    q = (round: i, inner: (i: i));
+    bag[0] = q;
+    print("17", bag[0].round, "-", bag[0].inner.i);
+}
+// 同形状重赋（值不同、形状一致）
+q = (round: 99, inner: (i: 99));
+print("18", q.round);
+// 换回单元素命名 tuple 后按名字与位置读
+q = (solo: 5);
+print("19", q.solo, q[0]);

@@ -137,6 +137,17 @@ private:
         int tup = -1;              // 仅 type == Tup 时有意义：tuple_values_ 下标（t68）
     };
 
+    /// @brief 动态承载槽写侧的运行期类型守卫种类（t187/t188）：无初值声明槽整槽
+    /// 换 `{tag,bits}` 承载后，赋入位必须满足声明类型的运行期校验，规则与解释器
+    /// `coerce_to_declared` 的对应分支同源——命中即整槽保留，失配落
+    /// `collie_rt_trap_dyn_convert` 陷阱退出（`object`／类名声明槽走该函数的
+    /// `default:` 不校验分支，故置 None）
+    enum class DynGuard : uint8_t {
+        None,  // 无守卫
+        Array, // array 声明槽（t187）：tag ∈ {4,7}
+        Tuple, // Tuple 声明槽（t188）：tag == 8
+    };
+
     /// @brief 变量存储槽（entry 块 alloca；顶层变量为 GlobalVariable，t73）
     /// + 编译期类型（S3 t50）
     struct CGVar {
@@ -150,11 +161,11 @@ private:
         bool uninit = false;       // 无初始化声明（t92/t110）：读拒编；直线区域赋值清，
                                    // 条件发射区（分支/循环体/三目臂等）快照隔离，
                                    // if/else 汇合点取两分支清除集交集
-        bool arr_guard = false;    // 仅 type == Dyn 有意义：无初值 array 声明槽（t187）
-                                   // 的写侧运行期守卫——解释器 coerce_to_declared 的
-                                   // KW_ARRAY 分支只放行 is_array()，故赋入位须
-                                   // tag ∈ {4,7}，其余位陷阱退出（静态 array 落点由
-                                   // dyn_to_arr_slot 同规则把关，无需此标记）
+        // dyn_guard 仅 type == Dyn 有意义：无初值声明槽整槽换动态承载后的写侧
+        // 运行期类型守卫种类（t187/t188），与解释器 coerce_to_declared 的对应
+        // 分支同规则。静态落点（有初值 array/Tuple 变量、形参、返回值、类字段）
+        // 由 dyn_to_arr_slot / dyn_to_tuple_slot 同规则把关，不需要此标记
+        DynGuard dyn_guard = DynGuard::None;
         int cell_id = 0;           // 变量单元唯一标识（t141）：闭包按引用捕获的身份键——
                                    // 每个真实存储槽（形参/局部）创建时分配自增非零值，
                                    // 捕获项在宿主侧登记此 id，被捕获方在体内以收到的
@@ -214,8 +225,8 @@ private:
             bool uninit = false;       // 宿主登记时仍为无初始化态（t141）：体内读该捕获
                                        // 落 visitIdentifier uninit 守卫保守拒编（解释器此值
                                        // 可能为 none，槽零值会错值），写则放行
-            bool arr_guard = false;    // 宿主为无初值 array 声明槽（t187）：体内写同样
-                                       // 走 tag ∈ {4,7} 运行期守卫
+            DynGuard dyn_guard = DynGuard::None; // 宿主声明槽的写侧守卫种类（t187/t188）：
+                                                 // 被捕获方体内的写同走该守卫
         };
         std::vector<Capture> captures;
     };
@@ -345,6 +356,15 @@ private:
     /// 同一 tag ∈ {4,7} 判定与同一 collie_rt_trap_dyn_convert("array") 陷阱，
     /// 但整槽 {tag,bits} 原样返回（位内 kind 随数组对象自带，读侧按运行期 tag 分派）
     llvm::Value* dyn_guard_arr(llvm::Value* dyn);
+
+    /// @brief 动态承载值写 Tuple 声明的动态承载槽守卫（t188）：与 dyn_to_tuple_slot
+    /// 同一 tag == 8 判定与同一 collie_rt_trap_dyn_convert("Tuple") 陷阱，
+    /// 但整槽 {tag,bits} 原样返回（tuple 位本就等价于堆 tuple 对象 ptr + tag 8）
+    llvm::Value* dyn_guard_tuple(llvm::Value* dyn);
+
+    /// @brief 按声明槽的守卫种类对 Dyn 右值施加写侧守卫（t187/t188）：右值的静态
+    /// 类型已能保证满足声明时原样返回（不打无用的运行期分支）
+    llvm::Value* dyn_guard_store(llvm::Value* boxed, DynGuard guard, CGType rhs);
 
     /// @brief 动态承载值进 Tuple 落点（t179）：解释器 coerce_to_declared 的 KW_TUPLE
     /// 分支只要求 is_tuple()——运行期守卫 tag == 8（t170 的 tuple 位）时把 bits 还原

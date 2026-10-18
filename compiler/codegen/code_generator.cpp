@@ -1841,18 +1841,17 @@ void CodeGenerator::visitAssign(const AssignExpr& expr) {
         // （t160）：tag 4 + 内层数组 ptr 位模式；tuple 位放行（t170）：tag 8 +
         // 物化后的堆对象 ptr；函数位放行（t171）：tag 9；空位放行（t175）：
         // tag 10 + bits 恒 0（`none` 调用副作用已在 emit 时发生）。
-        // 无初值 array 声明槽（t187）额外过 dyn_guard_arr：解释器 KW_ARRAY
-        // 落点只放行 is_array()，静态 Arr 右值天然满足，Dyn 右值须运行期
-        // tag ∈ {4,7} 命中否则陷阱（异型赋入若直存会错值）
+        // 无初值 array／Tuple 声明槽（t187/t188）额外按 dyn_guard 过写侧运行期
+        // 守卫：解释器 coerce_to_declared 的 KW_ARRAY 分支只放行 is_array()、
+        // KW_TUPLE 分支只放行 is_tuple()，静态 Arr／Tup 右值天然满足，Dyn 右值
+        // 须运行期 tag ∈ {4,7}／tag == 8 命中否则陷阱（异型赋入若直存会错值）
         if (!is_dyn_carrier(v.type)) {
             unsupported("assigning incompatible value to '" + name + "'",
                         expr.name().line(), expr.name().column());
         }
         llvm::Value* boxed =
             to_dyn(v, expr.name().line(), expr.name().column());
-        if (var->arr_guard && v.type != CGType::Arr) {
-            boxed = dyn_guard_arr(boxed);
-        }
+        boxed = dyn_guard_store(boxed, var->dyn_guard, v.type);
         builder_.CreateStore(boxed, var->slot);
         var->uninit = false;
         last_value_ = {boxed, CGType::Dyn};
@@ -3923,13 +3922,13 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             // t106 的异型互赋降级/循环回边/全局跨函数快照守卫对本槽不再需要
             // （无静态 elem 可失真）；未命中分支时读到声明点预存的空位，与解释器
             // 「无初值绑 none」一致。
-            // 写侧补 dyn_guard_arr（arr_guard 标记）：解释器 coerce_to_declared 的
+            // 写侧补 dyn_guard_arr（dyn_guard = Array）：解释器 coerce_to_declared 的
             // KW_ARRAY 分支只放行 is_array()，异型赋入运行期陷阱而非错值
             const std::string name(stmt.name().lexeme());
             CGVar var;
             var.slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
             var.type = CGType::Dyn;
-            var.arr_guard = true;
+            var.dyn_guard = DynGuard::Array;
             builder_.CreateStore(
                 make_num(builder_.getInt64(10), builder_.getInt64(0)), var.slot);
             var.cell_id = next_cell_id_++; // 可捕获单元（t141）
@@ -3959,20 +3958,24 @@ void CodeGenerator::visitVarDecl(const VarDeclStmt& stmt) {
             return;
         }
         if (tt == TokenType::KW_TUPLE) {
-            // 无初始化 Tuple 变量（t112 引入，t181 换表示）：槽直接建
-            // CGType::TupDyn 的动态 tuple 堆对象 ptr（与 t140 有初值动态 tuple
-            // 变量、t180 声明落点同表示），首赋/重赋一律走 visitAssign 尾部的
-            // coerce_for_slot（allow_dyn_unbox）——静态 Tup 右值经
-            // materialize_tuple_dynamic 物化、Dyn 承载位经 dyn_to_tuple_slot 的
-            // tag == 8 守卫、TupDyn 透传，形状自此运行期自带（整槽替换即换形状，
-            // 无须 t117 的槽组重建守卫）；原「tup 恒 -1 哨兵 + 首赋按 RHS 静态
-            // 形状建解构槽组」支随之退役：槽组按静态形状建立后，动态承载位无从
-            // 逐槽写入（解释器 coerce_to_declared 只看运行期 is_tuple()）
+            // 无初始化 Tuple 变量（t112 引入 → t181 换 TupDyn 动态 tuple 承载 →
+            // t188 换 {tag,bits} 动态承载）：ptr 单字槽表不出空位，故与 object
+            // （t186）／array／类名（t187）同法整槽改建 CGType::Dyn 并预存 tag 10
+            // 空位、不登记 uninit——条件区/循环体/函数体内首赋后在区外读（t110
+            // 保守拒编面）落运行期 tag 分派：命中读到 tuple 位、未命中读到空位打
+            // "none"，与解释器「无初值绑 none」逐一对应。首赋/重赋一律走 visitAssign
+            // 的 Dyn 分支（静态 Tup 右值经 materialize_tuple_dynamic 物化后打 tag 8、
+            // Dyn 右值经 dyn_guard_tuple 的 tag == 8 守卫整槽保留），读出恒 Dyn 落
+            // S92–S134 全部运行期 tag 分派消费面（打印/转串/`.length`/位置索引/
+            // 命名字段与 get/深比较/进容器与签名），形状自此运行期自带（整槽替换
+            // 即换形状，无须 t117 的槽组重建守卫）
             const std::string name(stmt.name().lexeme());
             CGVar var;
-            var.slot = create_var_slot(llvm_type_of(CGType::TupDyn), name);
-            var.type = CGType::TupDyn;
-            var.uninit = true;
+            var.slot = create_var_slot(llvm_type_of(CGType::Dyn), name);
+            var.type = CGType::Dyn;
+            var.dyn_guard = DynGuard::Tuple;
+            builder_.CreateStore(
+                make_num(builder_.getInt64(10), builder_.getInt64(0)), var.slot);
             var.cell_id = next_cell_id_++; // 可捕获单元（t141）
             scopes_.back()[name] = var;
             return;
@@ -4546,7 +4549,7 @@ void CodeGenerator::visitFunction(const FunctionStmt& stmt) {
         binding.cell_id = cap.cell_id; // 透传宿主单元 id：体内更深嵌套/自递归转发时
                                         // visitCall 据 id 一致性取本 ptr 再传
         binding.uninit = cap.uninit;   // 宿主登记时未定赋 → 体内读保守拒编（同 t92）
-        binding.arr_guard = cap.arr_guard; // 宿主为无初值 array 槽 → 体内写同守卫（t187）
+        binding.dyn_guard = cap.dyn_guard; // 宿主声明槽的写侧守卫种类随捕获转发（t187/t188）
         scopes_.back()[cap.name] = binding;
     }
     for (size_t i = 0; i < nparams; ++i) {
@@ -5452,7 +5455,7 @@ void CodeGenerator::build_closure_prototype(const FunctionStmt& stmt,
         cap.cls = cv->cls;
         cap.bit_max = cv->bit_max;
         cap.uninit = cv->uninit;
-        cap.arr_guard = cv->arr_guard;
+        cap.dyn_guard = cv->dyn_guard;
         captures.push_back(std::move(cap));
     }
     if (captures.empty()) return;
@@ -7372,6 +7375,47 @@ llvm::Value* CodeGenerator::dyn_guard_arr(llvm::Value* dyn) {
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(cont_bb);
     return dyn;
+}
+
+llvm::Value* CodeGenerator::dyn_guard_tuple(llvm::Value* dyn) {
+    // 无初值 Tuple 声明的动态承载槽写侧守卫（t188）：判定与陷阱与 dyn_to_tuple_slot
+    // 同源（tag == 8，否则 collie_rt_trap_dyn_convert("Tuple") 复刻解释器
+    // "Type mismatch: cannot assign <kind> to 'Tuple' variable"），差别只在整槽
+    // {tag,bits} 原样保留——tuple 位的 bits 本就是堆 tuple 对象 ptr，而槽自身即
+    // 动态承载，读侧按运行期 tag 分派，无需拆回 ptr
+    llvm::Function* fn = builder_.GetInsertBlock()->getParent();
+    llvm::Value* tag = num_tag(dyn);
+    auto* ok_bb = llvm::BasicBlock::Create(context_, "dyntupg.ok", fn);
+    auto* trap_bb = llvm::BasicBlock::Create(context_, "dyntupg.trap", fn);
+    auto* cont_bb = llvm::BasicBlock::Create(context_, "dyntupg.cont", fn);
+    llvm::Value* is_tup =
+        builder_.CreateICmpEQ(tag, builder_.getInt64(8), "dyntupg8");
+    builder_.CreateCondBr(is_tup, ok_bb, trap_bb);
+    builder_.SetInsertPoint(ok_bb);
+    builder_.CreateBr(cont_bb);
+    builder_.SetInsertPoint(trap_bb);
+    builder_.CreateCall(rt_trap_dyn_convert_,
+                        {tag, builder_.CreateGlobalString("Tuple")});
+    builder_.CreateUnreachable();
+    builder_.SetInsertPoint(cont_bb);
+    return dyn;
+}
+
+llvm::Value* CodeGenerator::dyn_guard_store(llvm::Value* boxed, DynGuard guard,
+                                            CGType rhs) {
+    // 写侧守卫单点（t187/t188）：右值的静态类型已能保证满足声明时原样返回，
+    // 不打无用的运行期分支（静态 Arr 打 tag 4/7、静态 Tup/TupDyn 打 tag 8）
+    switch (guard) {
+        case DynGuard::Array:
+            return rhs == CGType::Arr ? boxed : dyn_guard_arr(boxed);
+        case DynGuard::Tuple:
+            return (rhs == CGType::Tup || rhs == CGType::TupDyn)
+                       ? boxed
+                       : dyn_guard_tuple(boxed);
+        case DynGuard::None:
+            break;
+    }
+    return boxed;
 }
 
 llvm::Value* CodeGenerator::dyn_to_tuple_slot(llvm::Value* dyn) {

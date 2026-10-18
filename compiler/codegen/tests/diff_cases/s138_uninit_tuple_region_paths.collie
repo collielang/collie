@@ -1,0 +1,82 @@
+// t188 S135 差分用例：函数体/循环体/switch 等各条件发射区内首赋无初值 Tuple 槽，
+// 其后区外读（原 s131_reject_tuple_uninit_function_assign 锁程序作本节保留）
+Tuple q;
+function fill() none {
+    q = (k: 1, m: 2);
+}
+fill();
+print("1", q);
+print("2", q.m);
+object o = (z: 8);
+q = o;
+print("3", q.z);
+// while 跨轮换形状：仅最后一轮的形状可被区外读到
+integer i = 0;
+Tuple r;
+while (i < 3) {
+    r = (round: i);
+    i = i + 1;
+}
+print("4", r);
+print("5", r.round);
+// for 循环体内条件首赋
+Tuple s;
+for (integer j = 0; j < 3; j = j + 1) {
+    if (j == 2) {
+        s = (n: j, t: (1, 2));
+    }
+}
+print("6", s);
+print("7", s.t[1]);
+// do-while 体内首赋
+Tuple u;
+do {
+    u = (d: 9);
+} while (false);
+print("8", u.d);
+// switch 分支体内首赋（含 default 支）
+Tuple v;
+switch (2) {
+    1 {
+        v = (x: 1);
+    }
+    2 {
+        v = (x: 2);
+    }
+    default {
+        v = (x: 0);
+    }
+}
+print("9", v.x);
+// 函数体内局部无初值 Tuple 槽，首赋后同区读
+function local() none {
+    Tuple w;
+    if (true) {
+        w = (in: 5);
+    }
+    print("10", w.in);
+}
+local();
+// 提前 return 路径：只有实际执行的一支赋值
+function early(hit bool) object {
+    Tuple e;
+    if (hit) {
+        e = (yes: 1);
+        return e;
+    }
+    e = (no: 2);
+    return e;
+}
+print("11", early(true));
+print("12", early(false).no);
+// 全局槽在函数内首赋、顶层区外读（写者读者分离）
+Tuple g;
+function write_g() none {
+    g = (w: 3);
+}
+function read_g() object {
+    return g;
+}
+write_g();
+print("13", read_g());
+print("14", g.w);

@@ -1,0 +1,86 @@
+// t188 S135 差分用例：无初值 Tuple 槽在签名（形参/返回值）、类字段与闭包共享
+// cell 之间的流转——读出恒 Dyn，进 Tuple 落点走既有 tag == 8 守卫，进 object
+// 落点整槽保留
+function nop() none {
+    print("n");
+}
+class Holder {
+    public Tuple payload = (d: 0);
+    public function put(t Tuple) none {
+        this.payload = t;
+    }
+    public function grab() Tuple {
+        return this.payload;
+    }
+    public function show() none {
+        print("fld", this.payload.a);
+    }
+    public function as_object() object {
+        return this.payload;
+    }
+}
+bool flag = true;
+Tuple q;
+if (flag) {
+    q = (a: 1, b: (2, 3));
+}
+// 经 Tuple 形参与返回值
+function take(t Tuple) integer {
+    return t.a;
+}
+function give() Tuple {
+    return q;
+}
+print("1", take(q));
+print("2", give());
+print("3", give().b[1]);
+// 经 object 形参与返回值（整槽保留，消费按运行期 tag）
+function obj_take(x object) object {
+    return x;
+}
+print("4", obj_take(q));
+print("5", obj_take(q).a);
+// 进类字段：Tuple 型字段落点守卫 + 方法读写
+Holder h = new Holder();
+h.put(q);
+h.show();
+print("6", h.grab());
+print("7", h.as_object().b);
+h.put((a: 100));
+h.show();
+// 全局 Tuple 槽被写者与读者两个闭包共享（t141 捕获面）
+Tuple cell;
+function write_cell() none {
+    cell = (w: 1);
+}
+function read_cell() none {
+    print("read", cell);
+}
+read_cell();
+write_cell();
+read_cell();
+cell = (w: 2, extra: (e: 3));
+read_cell();
+print("8", cell.extra.e);
+// 函数体内首赋全局槽、区外读入数组元素槽
+Tuple g;
+function fill_g() none {
+    g = (k: 5, fn: nop);
+}
+fill_g();
+array bag = [1, "x"];
+bag[0] = g;
+print("9", bag[0].k);
+print("10", bag[0].fn);
+// tuple 槽位再经数组形参层层穿透
+function sum_first(a array) integer {
+    return a[0].k;
+}
+print("11", sum_first(bag));
+// 判等：同内容不同来源
+Tuple m;
+if (flag) {
+    m = (k: 5, fn: nop);
+}
+print("12", g == m);
+print("13", g == q);
