@@ -1,0 +1,16 @@
+// t184 S131 差分用例：冲突树与无冲突树共用字段名（同一动态接收者 switch
+// 臂里 dyn_slot 与非冲突臂混合）——承载标志不一致即逐臂按各自声明拆槽
+
+class A17 { public string tag = "a"; }
+class B17 extends A17 { public integer tag = 7; }
+class Z17 { public string tag = "z"; }
+object o = new B17();
+print("1", o.tag);
+Z17 z = new Z17();
+print("2", z.tag);
+object w = new Z17();
+w.tag = "w2";
+print("3", w.tag);
+o.tag = 88;
+print("4", o.tag);
+print("5", z.tag);

@@ -1,0 +1,20 @@
+// t184 S131 差分用例：冲突槽读出值（Dyn）的消费面全景
+// 进 object 形参 / 深比较 / ==? / 数组字面量 / tuple 字面量 / '+' 拼接 / 转串
+
+class A20 { public string tag = "a"; }
+class B20 extends A20 { public integer tag = 7; }
+function show(v object) string { return "" + v; }
+function eq(a object, b object) bool { return a == b; }
+object o = new B20();
+object p = new A20();
+print("1", show(o.tag));
+print("2", show(p.tag));
+print("3", eq(o.tag, 7));
+print("4", eq(p.tag, "a"));
+print("5", o.tag ==? 7: "seven", "other");
+array bag = [o.tag, p.tag, 1];
+print("6", bag);
+Tuple tp = (k: o.tag);
+print("7", tp);
+print("8", o.tag + p.tag);
+print("9", o.tag.toString());

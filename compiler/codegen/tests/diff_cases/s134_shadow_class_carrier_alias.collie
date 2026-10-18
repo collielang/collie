@@ -1,0 +1,19 @@
+// t184 S131 差分用例：类名槽被另一个类名遮蔽后的整槽替换与跨接收者读
+// 槽内实例位读出即 tag 5，成员访问按对象头类 id 运行期分派（父类静态
+// 接收者读到的是动态类的字段，解释器不切片的语义保持）
+
+class Base23 { public integer n = 1; }
+class Other23 { public integer m = 2; }
+class A23 { public Base23 slot = new Base23(); }
+class B23 extends A23 { public Other23 slot = new Other23(); }
+B23 b = new B23();
+b.slot = new Other23();
+print("1", b.slot.m);
+A23 a = b;
+print("2", a.slot.m);
+object u = b;
+print("3", u.slot.m);
+Base23 q = new Base23();
+q.n = 7;
+print("4", q.n);
+print("5", b.slot.m + u.slot.m);

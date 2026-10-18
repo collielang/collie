@@ -673,6 +673,7 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     winning_stmt_.clear();
     fn_stmt_to_key_.clear();
     classes_.clear();
+    shadow_conflicts_.clear();
     in_function_ = false;
     current_this_ = nullptr;
     current_class_name_.clear();
@@ -690,6 +691,13 @@ void CodeGenerator::generate(const std::vector<std::unique_ptr<Stmt>>& statement
     // Undefined class rc=1，两端不一致）
     for (const ClassStmt* c : class_decls) {
         register_class_layout(*c);
+    }
+    // 遮蔽冲突槽升级 + struct 建体（S131）：register_class_layout 只登记字段
+    // 描述符，因为承载不一致的同名遮蔽要把该树内祖先/兄弟的槽一并改判 Dyn
+    // （父子前缀偏移必须继续对齐），布局须待全树字段合并完毕才能定
+    resolve_shadow_conflicts();
+    for (const ClassStmt* c : class_decls) {
+        finalize_class_layout(*c);
     }
     for (const auto& entry : deferred_classes) {
         auto bit = classes_.find(entry.first);
@@ -3519,25 +3527,20 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
         auto it = cls.field_index.find(name);
         CGValue v = emit(expr.value());
         const CGField& field = cls.fields[it->second];
-        llvm::Value* stored = coerce_for_slot(v, field.type, expr.name(), field.cls,
-                                             true, bit_type_name(field.bit_max));
-        if (field.bit_max > 0) {
-            // byte/word 字段赋值点范围陷阱（t87，对齐解释器 coerce_to_declared）
-            stored = check_bit_range(stored, field.bit_max,
-                                     field.bit_max == 255 ? "byte" : "word");
-        }
+        // 校验按本类生效声明、落槽按物理承载（S131：遮蔽冲突槽为 {tag,bits}）
+        CGValue stored = field_slot_store(field, *field.decl, v, expr.name());
         builder_.CreateStore(
-            stored, builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name));
+            stored.value,
+            builder_.CreateStructGEP(cls.type, object.value, it->second + 1, name));
         // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
-        // Obj 字段带类名（t72）
-        last_value_ = {stored, field.type,
-                       field.type == CGType::Arr ? CGType::Num : CGType::Int,
-                       field.cls};
+        // Obj 字段带类名（t72），冲突槽带 Dyn
+        last_value_ = stored;
         return;
     }
     // 多类树：值在 switch 前求值（求值顺序 object → value 不变），各 arm 按
-    // 定义者布局存储。字段声明全等时沿用 switch 前单一 coerce + 单型 PHI
-    // （t86 静态精度不丢）；不一致时逐臂动态拆槽后合流为 Dyn（t178，见下）
+    // 定义者布局存储。各臂**声明承载**（含遮蔽冲突标志）全等时沿用 switch 前
+    // 单一转换 + 单型 PHI（t86 静态精度不丢）；不一致时逐臂按各自声明拆槽、
+    // 打框后合流为 Dyn（t178 读侧同源，S131 起冲突臂落 {tag,bits} 槽）
     const CGField& ref = defs[0]->fields.at(defs[0]->field_index.at(name));
     std::sort(defs.begin(), defs.end(),
               [](const CGClass* a, const CGClass* b) {
@@ -3546,7 +3549,9 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     bool uniform = true;
     for (const CGClass* sub : defs) {
         const CGField& f = sub->fields.at(sub->field_index.at(name));
-        if (f.type != ref.type || f.cls != ref.cls || f.bit_max != ref.bit_max) {
+        // 按声明承载比对（S131）：遮蔽冲突槽的物理类型已整树统一为 Dyn，只看
+        // 物理承载会让 byte×word、string×integer 这类分歧看着一致而漏判
+        if (!field_carrier_equal(ref, f)) {
             uniform = false;
         }
     }
@@ -3579,23 +3584,17 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
             sw->addCase(builder_.getInt64(sub->id), bb);
             builder_.SetInsertPoint(bb);
             const CGField& f = sub->fields.at(sub->field_index.at(name));
-            llvm::Value* stored =
-                coerce_for_slot(boxed, f.type, expr.name(), f.cls, true,
-                                bit_type_name(f.bit_max));
-            if (f.bit_max > 0) {
-                // byte/word 字段赋值点范围陷阱（t87，按各臂自身声明上限）
-                stored = check_bit_range(stored, f.bit_max,
-                                         f.bit_max == 255 ? "byte" : "word");
-            }
+            // 各臂按自身生效声明拆槽校验（S131：遮蔽冲突槽校验后还要打框，
+            // 落槽形态由 field_slot_store 一并按 f.dyn_slot 决定）
+            CGValue stored = field_slot_store(f, *f.decl, boxed, expr.name());
             const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
             builder_.CreateStore(
-                stored, builder_.CreateStructGEP(sub->type, object.value, idx, name));
+                stored.value,
+                builder_.CreateStructGEP(sub->type, object.value, idx, name));
             // 臂的表达式值 = 按该臂声明类型转换后的值（对齐解释器 result_）
-            CGValue arm{stored, f.type,
-                        f.type == CGType::Arr ? CGType::Num : CGType::Int, f.cls};
             incoming.emplace_back(
                 builder_.GetInsertBlock(),
-                to_dyn(arm, expr.name().line(), expr.name().column()));
+                to_dyn(stored, expr.name().line(), expr.name().column()));
             builder_.CreateBr(merge_bb);
         }
         builder_.SetInsertPoint(trap_bb);
@@ -3612,12 +3611,9 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
         last_value_ = {dyn_phi, CGType::Dyn, CGType::Int, std::string()};
         return;
     }
-    llvm::Value* stored = coerce_for_slot(v, ref.type, expr.name(), ref.cls, true,
-                                          bit_type_name(ref.bit_max));
-    if (ref.bit_max > 0) {
-        stored = check_bit_range(stored, ref.bit_max,
-                                 ref.bit_max == 255 ? "byte" : "word");
-    }
+    // 承载全等：switch 前单一转换 + 单型 PHI（t86 静态精度不丢；S131 起转换
+    // 用 ref 的声明承载，落槽形态随之——冲突槽各臂物理同为 {tag,bits}）
+    CGValue stored = field_slot_store(ref, *ref.decl, v, expr.name());
     llvm::Value* clsid = builder_.CreateLoad(
         builder_.getInt64Ty(), object.value, "clsid");
     llvm::Function* fn = builder_.GetInsertBlock()->getParent();
@@ -3634,8 +3630,8 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
         builder_.SetInsertPoint(bb);
         const unsigned idx = sub->field_index.at(name) + 1; // 跳过类 id 头部
         builder_.CreateStore(
-            stored, builder_.CreateStructGEP(sub->type, object.value, idx, name));
-        incoming.emplace_back(builder_.GetInsertBlock(), stored);
+            stored.value, builder_.CreateStructGEP(sub->type, object.value, idx, name));
+        incoming.emplace_back(builder_.GetInsertBlock(), stored.value);
         builder_.CreateBr(merge_bb);
     }
     builder_.SetInsertPoint(trap_bb);
@@ -3644,15 +3640,14 @@ void CodeGenerator::visitPropertyAssign(const PropertyAssignExpr& expr) {
     builder_.CreateUnreachable();
     builder_.SetInsertPoint(merge_bb);
     llvm::PHINode* phi = builder_.CreatePHI(
-        llvm_type_of(ref.type), static_cast<unsigned>(incoming.size()), "proptmp");
+        llvm_type_of(stored.type), static_cast<unsigned>(incoming.size()),
+        "proptmp");
     for (const auto& in : incoming) {
         phi->addIncoming(in.second, in.first);
     }
     // 赋值表达式的值 = 所赋的值（与解释器一致）；Arr 字段带 Num 哨兵（t71），
-    // Obj 字段带类名（t72）
-    last_value_ = {phi, ref.type,
-                   ref.type == CGType::Arr ? CGType::Num : CGType::Int,
-                   ref.cls};
+    // Obj 字段带类名（t72），冲突槽带 Dyn
+    last_value_ = {phi, stored.type, stored.elem, stored.cls};
 }
 void CodeGenerator::visitNew(const NewExpr& expr) {
     // 类实例化（t60）：collie_rt_obj_new 分配字段块（按字段类型累计上界：
@@ -3730,15 +3725,11 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
         // 声明覆写定值
         for (const VarDeclStmt* shadow_decl : field.shadowed) {
             CGValue v = emit(shadow_decl->initializer());
-            llvm::Value* stored = coerce_for_slot(v, field.type,
-                                                  shadow_decl->name(), field.cls,
-                                                  true,
-                                                  bit_type_name(field.bit_max));
-            if (field.bit_max > 0) {
-                stored = check_bit_range(stored, field.bit_max,
-                                         field.bit_max == 255 ? "byte" : "word");
-            }
-            builder_.CreateStore(stored,
+            // 逐层按**该层自身声明**转换（解释器 visitNew 对每层字段各调一次
+            // coerce_to_declared，副作用可见、末次写入胜），冲突槽再打框落 {tag,bits}
+            CGValue stored = field_slot_store(field, *shadow_decl, v,
+                                              shadow_decl->name());
+            builder_.CreateStore(stored.value,
                                  builder_.CreateStructGEP(cls.type, obj, i + 1,
                                                           field.name));
         }
@@ -3751,16 +3742,9 @@ void CodeGenerator::visitNew(const NewExpr& expr) {
             continue;
         }
         CGValue v = emit(field.decl->initializer());
-        // 字段初始值按声明类型对齐（解释器 coerce_to_declared 等价静态检查）
-        llvm::Value* stored = coerce_for_slot(v, field.type, field.decl->name(),
-                                              field.cls, true,
-                                              bit_type_name(field.bit_max));
-        if (field.bit_max > 0) {
-            // byte/word 字段初始化范围陷阱（t87，对齐解释器 coerce_to_declared）
-            stored = check_bit_range(stored, field.bit_max,
-                                     field.bit_max == 255 ? "byte" : "word");
-        }
-        builder_.CreateStore(stored,
+        // 字段初始值按本类生效声明类型对齐（解释器 coerce_to_declared 等价静态检查）
+        CGValue stored = field_slot_store(field, *field.decl, v, field.decl->name());
+        builder_.CreateStore(stored.value,
                              builder_.CreateStructGEP(cls.type, obj, i + 1, field.name));
     }
     // 构造器实参在字段初始化之后求值（对齐解释器顺序）
@@ -5530,10 +5514,7 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
     cls.id = classes_.size();
 
     // 继承布局（t61）：直接复用父类已合并好的字段列表作前缀（base-first，
-    // 父类字段的 GEP 索引在子类 struct 中不变，父类方法副本可直接复用）；
-    // struct 元素 0 恒为 i64 类 id 头部（t86），字段 GEP 下标 = 逻辑下标 + 1
-    std::vector<llvm::Type*> field_types;
-    field_types.push_back(builder_.getInt64Ty()); // 类 id 头部
+    // 父类字段的 GEP 索引在子类 struct 中不变，父类方法副本可直接复用）
     if (stmt.has_superclass()) {
         cls.super = std::string(stmt.superclass().lexeme());
         auto sit = classes_.find(cls.super);
@@ -5545,9 +5526,6 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         }
         cls.fields = sit->second.fields;
         cls.field_index = sit->second.field_index;
-        for (const CGField& field : cls.fields) {
-            field_types.push_back(llvm_type_of(field.type));
-        }
     }
 
     // 自身字段追加（下标即 GEP 索引）；类型限 declared_cgtype 支持面
@@ -5565,45 +5543,9 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         CGType ftype;
         std::string fcls;
         long long fbit_max = 0;
-        if (field->type().type() == TokenType::IDENTIFIER) {
-            // 类实例字段（t72）：IDENTIFIER 视为类名，须已注册（声明在前，
-            // 同父类/签名要求）；自引用字段本类尚未入表自然落此拒编——
-            // 解释器侧自引用 + 字段必有初始值 = 无限递归 new，拒编不错编
-            fcls = std::string(field->type().lexeme());
-            if (classes_.count(fcls) == 0) {
-                unsupported("field type '" + fcls + "'",
-                            field->name().line(), field->name().column());
-            }
-            ftype = CGType::Obj;
-        } else if (field->type().type() == TokenType::KW_OBJECT) {
-            // object 型类字段（t162，S109）：解释器对 object 声明走
-            // coerce_to_declared default 直存任意值，字段槽运行期可带标量、
-            // 数组或实例——与 object 变量（t146/t160）及动态签名（t161）统一
-            // 以 {tag,bits} 承载（CGType::Dyn，无静态 cls）；读出即 Dyn，消费
-            // 走 S92–S108 全部既有 tag 分派；实例位经 dyn_obj_guard 并回
-            // t133/t142 方法/字段动态分派。Tup/Fn 无编码，落 coerce_for_slot
-            // 拒编不错编
-            ftype = CGType::Dyn;
-        } else if (field->type().type() == TokenType::KW_TUPLE) {
-            // Tuple 型类字段（t179，S126）：tuple 是静态展开虚值（CGType::Tup，
-            // 无单一 LLVM 承载，见 llvm_type_of），字段槽无从落位——与 t140 的
-            // tuple 进函数签名同解：以动态 tuple 堆对象承载（CGType::TupDyn，
-            // 单 ptr 槽，malloc 上界按 ≤ 8 计入），初值/赋值经 coerce_for_slot
-            // 物化，读出即 TupDyn 落 t140/t163/t170/t177 全部既有消费面
-            // （打印/转串/`.length`/位置与命名索引/get(键)/判等/`==?`·`switch`
-            // 深比较/进 object 槽与 kind 7 元素槽）；tuple 运行期不可变，
-            // 堆对象多槽共享无别名风险
-            ftype = CGType::TupDyn;
-        } else if (field->type().type() == TokenType::KW_BYTE ||
-                   field->type().type() == TokenType::KW_WORD) {
-            // byte/word 字段（t87）：i64 槽承载 + 记 bit_max，初始化/赋值
-            // 两触点插 check_bit_range 陷阱（对齐解释器 coerce_to_declared
-            // 赋值点校验）；读出恒 Int，表达式域无截断（同 t69 变量语义）
-            ftype = CGType::Int;
-            fbit_max = field->type().type() == TokenType::KW_BYTE ? 255 : 65535;
-        } else {
-            ftype = declared_cgtype(field->type());
-        }
+        // 承载映射单点见 field_carrier_of（S131 抽出：类名/object/Tuple/byte·word
+        // 的分派与写侧校验共用同一份，避免遮蔽槽物理类型与声明承载分叉后两处漂移）
+        field_carrier_of(*field, ftype, fcls, fbit_max);
         // array 字段放行（t71）：字段槽即 opaque ptr；无处标注元素类型，
         // 读出即动态域（visitProperty 置 Num 哨兵，t70 机制复用），
         // 写入守卫在 coerce_for_slot（elem 限数值系，保 kind ∈ {0,1}）
@@ -5611,18 +5553,19 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         // {i64,i64} 自动占位；malloc 上界在 visitNew 按字段类型累计（Num 16）
         // 遮蔽（子类重名声明继承字段，t182）：解释器实例字段是 name→value 的
         // 扁平表，父链 base-first 写入后被子类同名键覆写（父类初值仍求值，
-        // 副作用可见），读写一律按动态类的声明转换——故 LLVM 承载一致（type/cls/
-        // bit_max 全等）时本声明并入父链已有槽：下标与 field_index 不变（父类
-        // struct 与既有 GEP 一字不动），被覆写声明按序记入 shadowed、本声明成为
-        // 该槽最终声明，槽的类型/范围校验自此按遮蔽类声明走（与解释器 find_field
-        // 的「子类优先沿链」一致）；承载不一致时单槽无法同时满足两侧静态解码，
-        // 维持保守拒编（解释器按动态类直存，属字段槽表示层改造面）
+        // 副作用可见），读写一律按动态类的声明转换——故本声明并入父链已有槽：
+        // 下标与 field_index 不变（父类 struct 与既有 GEP 一字不动），被覆写声明
+        // 按序记入 shadowed、本声明成为该槽最终声明（与解释器 find_field 的
+        // 「子类优先沿链」一致）。承载一致时槽类型自此按遮蔽类声明走（t182）；
+        // 承载不一致时登记冲突，由 resolve_shadow_conflicts 把本树全部持有者的
+        // 槽统一升级为 {tag,bits}（S131），写侧校验仍按各类自身声明现算
         auto shadow = cls.field_index.find(fname);
         if (shadow != cls.field_index.end()) {
             CGField& prev = cls.fields[shadow->second];
             if (prev.type != ftype || prev.cls != fcls || prev.bit_max != fbit_max) {
-                unsupported("duplicate or shadowing field '" + fname + "'",
-                            field->name().line(), field->name().column());
+                shadow_conflicts_.insert(
+                    (cls.super.empty() ? name : class_root_of(cls.super)) + "." +
+                    fname);
             }
             if (!prev.uninit) prev.shadowed.push_back(prev.decl);
             prev.decl = field;
@@ -5631,11 +5574,148 @@ void CodeGenerator::register_class_layout(const ClassStmt& stmt) {
         }
         cls.field_index[fname] = static_cast<unsigned>(cls.fields.size());
         cls.fields.push_back({fname, ftype, field, fcls, fbit_max, field_uninit});
-        field_types.push_back(llvm_type_of(ftype));
+    }
+    classes_[name] = std::move(cls);
+}
+
+void CodeGenerator::field_carrier_of(const VarDeclStmt& field, CGType& type_out,
+                                     std::string& cls_out, long long& bit_max_out) {
+    // 字段声明 → 承载（t87/t162/t179 映射，S131 从 register_class_layout 抽出）
+    cls_out.clear();
+    bit_max_out = 0;
+    const Token& tt = field.type();
+    if (tt.type() == TokenType::IDENTIFIER) {
+        // 类实例字段（t72）：IDENTIFIER 视为类名，须已注册（声明在前，同父类/
+        // 签名要求）；自引用字段本类尚未入表自然落此拒编——解释器侧自引用 +
+        // 字段必有初始值 = 无限递归 new，拒编不错编
+        cls_out = std::string(tt.lexeme());
+        if (classes_.count(cls_out) == 0) {
+            unsupported("field type '" + cls_out + "'",
+                        field.name().line(), field.name().column());
+        }
+        type_out = CGType::Obj;
+        return;
+    }
+    if (tt.type() == TokenType::KW_OBJECT) {
+        // object 型类字段（t162，S109）：解释器对 object 声明走 coerce_to_declared
+        // default 直存任意值，字段槽运行期可带标量、数组或实例——与 object 变量
+        // （t146/t160）及动态签名（t161）统一以 {tag,bits} 承载（CGType::Dyn，
+        // 无静态 cls）；读出即 Dyn，消费走 S92–S130 全部既有 tag 分派；实例位经
+        // dyn_obj_guard 并回 t133/t142 方法/字段动态分派。Tup/Fn 无编码，落
+        // coerce_for_slot 拒编不错编
+        type_out = CGType::Dyn;
+        return;
+    }
+    if (tt.type() == TokenType::KW_TUPLE) {
+        // Tuple 型类字段（t179，S126）：tuple 是静态展开虚值（CGType::Tup，无单一
+        // LLVM 承载，见 llvm_type_of），字段槽无从落位——与 t140 的 tuple 进函数
+        // 签名同解：以动态 tuple 堆对象承载（CGType::TupDyn，单 ptr 槽，malloc
+        // 上界按 ≤ 8 计入），初值/赋值经 coerce_for_slot 物化，读出即 TupDyn 落
+        // t140/t163/t170/t177 全部既有消费面（打印/转串/`.length`/位置与命名索引/
+        // get(键)/判等/`==?`·`switch` 深比较/进 object 槽与 kind 7 元素槽）；
+        // tuple 运行期不可变，堆对象多槽共享无别名风险
+        type_out = CGType::TupDyn;
+        return;
+    }
+    if (tt.type() == TokenType::KW_BYTE || tt.type() == TokenType::KW_WORD) {
+        // byte/word 字段（t87）：i64 槽承载 + 记 bit_max，初始化/赋值两触点插
+        // check_bit_range 陷阱（对齐解释器 coerce_to_declared 赋值点校验）；
+        // 读出恒 Int，表达式域无截断（同 t69 变量语义）
+        type_out = CGType::Int;
+        bit_max_out = tt.type() == TokenType::KW_BYTE ? 255 : 65535;
+        return;
+    }
+    type_out = declared_cgtype(tt);
+}
+
+CodeGenerator::CGValue CodeGenerator::field_slot_store(const CGField& field,
+                                                       const VarDeclStmt& decl,
+                                                       const CGValue& v,
+                                                       const Token& where) {
+    // 字段写的校验承载（S131）：解释器 coerce_to_declared 用的是 find_field 沿链
+    // 命中的**当前生效声明**的类型（实例化点则是逐层各自的声明），遮蔽冲突槽把物理
+    // 表示统一换成 {tag,bits} 后，校验仍须按声明走——否则子类把父类 string 字段
+    // 改成 integer 时，写入值会跳过解释器会做的那次转换/范围校验而静默错值
+    CGType ctype;
+    std::string ccls;
+    long long cbit = 0;
+    field_carrier_of(decl, ctype, ccls, cbit);
+    llvm::Value* conv = coerce_for_slot(v, ctype, where, ccls, true,
+                                        bit_type_name(cbit));
+    if (cbit > 0) {
+        // byte/word 字段赋值点范围陷阱（t87，对齐解释器 coerce_to_declared）
+        conv = check_bit_range(conv, cbit, cbit == 255 ? "byte" : "word");
+    }
+    CGValue stored{conv, ctype, ctype == CGType::Arr ? CGType::Num : CGType::Int,
+                   ccls};
+    if (!field.dyn_slot) {
+        return stored;
+    }
+    // 遮蔽冲突槽：物理 {tag,bits}，把按本类声明转换后的值打框（object 声明的
+    // 承载本身即 Dyn，上方 coerce_for_slot 已打框/透传，to_dyn 对 Dyn 恒等）
+    return {to_dyn(stored, where.line(), where.column()), CGType::Dyn,
+            CGType::Int, std::string()};
+}
+
+bool CodeGenerator::field_carrier_equal(const CGField& a, const CGField& b) {
+    // 承载一致即「同一槽可同时满足两侧静态解码」（t182 合并判据，S131 改用
+    // 声明现算：遮蔽后 CGField 的 type/cls/bit_max 是物理承载，冲突槽恒 Dyn，
+    // 拿它比对会让 byte×word 这类上限分歧看着一致而漏判）
+    if (a.dyn_slot != b.dyn_slot) {
+        return false;
+    }
+    CGType ta;
+    std::string ca;
+    long long ba = 0;
+    CGType tb;
+    std::string cb;
+    long long bb = 0;
+    field_carrier_of(*a.decl, ta, ca, ba);
+    field_carrier_of(*b.decl, tb, cb, bb);
+    return ta == tb && ca == cb && ba == bb;
+}
+
+std::string CodeGenerator::class_root_of(const std::string& name) const {
+    // 沿 super 链上溯到根（要求 name 已注册：注册进行中的类传其父类名）
+    std::string cur = name;
+    while (true) {
+        const CGClass& cls = classes_.at(cur);
+        if (cls.super.empty()) return cur;
+        cur = cls.super;
+    }
+}
+
+void CodeGenerator::resolve_shadow_conflicts() {
+    // 遮蔽冲突槽动态承载化（S131）：解释器一个实例只有一份 name→value 扁平表，
+    // 子类同名声明是**覆写同一个键**而非追加字段——故冲突槽必须在整棵继承树内
+    // 统一换表示（父子 struct 前缀偏移要继续保持对齐），不能只在子类侧加槽。
+    // 物理槽换 Dyn 后：读出即落 S92–S130 全部 tag 分派臂，写侧校验按各类自身
+    // 生效声明现算（field_carrier_of），与解释器 find_field 子类优先沿链同源
+    if (shadow_conflicts_.empty()) return;
+    for (auto& entry : classes_) {
+        const std::string root = class_root_of(entry.first);
+        for (CGField& field : entry.second.fields) {
+            if (shadow_conflicts_.count(root + "." + field.name) == 0) continue;
+            field.dyn_slot = true;
+            field.type = CGType::Dyn;
+            field.cls.clear();
+            field.bit_max = 0;
+        }
+    }
+}
+
+void CodeGenerator::finalize_class_layout(const ClassStmt& stmt) {
+    // struct 建体（S131 起延后到遮蔽冲突解析之后）：元素 0 恒 i64 类 id 头部
+    // （t86），字段 GEP 下标 = 逻辑下标 + 1
+    const std::string name(stmt.name().lexeme());
+    CGClass& cls = classes_.at(name);
+    std::vector<llvm::Type*> field_types;
+    field_types.push_back(builder_.getInt64Ty()); // 类 id 头部
+    for (const CGField& field : cls.fields) {
+        field_types.push_back(llvm_type_of(field.type));
     }
     cls.type = llvm::StructType::create(context_, field_types,
                                         "collie.class." + name);
-    classes_[name] = std::move(cls);
 }
 
 void CodeGenerator::register_class_methods(const ClassStmt& stmt) {

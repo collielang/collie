@@ -1,0 +1,34 @@
+// t184 S131 差分用例：byte 字段被 word 遮蔽（同为 i64 槽但范围上限不同）
+// 第一节为退役锁 s132_reject_shadow_bit_max 的原程序（解释器按动态类声明
+// 转换，word 收 400；此前 codegen 单槽无法同时满足两侧上限而拒编）
+
+class AnimalR3 { public byte b = 10; }
+class DogR3 extends AnimalR3 { public word b = 400; }
+object o = new DogR3();
+print("1", o.b);
+print("2", o.toString());
+
+// 三层链（无覆写的最内层同样携带冲突槽）+ 各类静态接收者
+class A8 { public byte b = 10; }
+class B8 extends A8 { public word b = 400; }
+class C8 extends B8 { }
+object o8 = new C8();
+print("3", o8.b);
+C8 c8 = new C8();
+c8.b = 65535;
+print("4", c8.b);
+A8 a8 = c8;
+print("5", a8.b);
+B8 b8 = c8;
+print("6", b8.b);
+print("7", o8.toString());
+
+// 范围校验按动态类声明走：经父类静态接收者写 300 命中子类 word 上限即放行
+class A9 { public byte b = 10; }
+class B9 extends A9 { public word b = 400; }
+A9 a9 = new B9();
+a9.b = 300;
+print("8", a9.b);
+B9 d9 = new B9();
+d9.b = 300;
+print("9", d9.b);

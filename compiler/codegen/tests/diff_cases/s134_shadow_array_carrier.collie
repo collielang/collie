@@ -1,0 +1,18 @@
+// t184 S131 差分用例：array 型字段被 integer 遮蔽（数组位 tag 4 × 整数位）
+// 冲突槽读出即 Dyn，数组位的长度/索引/元素写回内层数组全走既有动态域机制
+
+class A19 { public array xs = [1, "s"]; }
+class B19 extends A19 { public integer xs = 4; }
+object o = new B19();
+print("1", o.xs);
+object p = new A19();
+print("2", p.xs);
+print("3", p.xs[0]);
+print("4", p.xs.length);
+B19 b = new B19();
+b.xs = 6;
+print("5", b.xs);
+A19 a = new A19();
+a.xs[1] = "t";
+print("6", a.xs[1]);
+print("7", a.xs);

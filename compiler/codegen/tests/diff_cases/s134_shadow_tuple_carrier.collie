@@ -1,0 +1,18 @@
+// t184 S131 差分用例：Tuple 型字段被 integer 遮蔽（TupDyn 堆对象位 × 整数位）
+// 冲突槽换 {tag,bits} 后，tuple 位读出即 tag 8，命名字段/.length/深比较
+// 全落既有动态 tuple 消费面
+
+class A18 { public Tuple tp = (x: 1, y: "s"); }
+class B18 extends A18 { public integer tp = 9; }
+object o = new B18();
+print("1", o.tp);
+object p = new A18();
+print("2", p.tp);
+print("3", p.tp.x);
+print("4", p.tp.length);
+B18 b = new B18();
+b.tp = 11;
+print("5", b.tp);
+A18 a = new A18();
+print("6", a.tp.y);
+print("7", a.tp ==? (x: 1, y: "s"): "same", "other");

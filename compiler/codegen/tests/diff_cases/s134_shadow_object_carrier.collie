@@ -1,0 +1,19 @@
+// t184 S131 差分用例：object 声明参与遮蔽（Dyn 承载 × 静态类型）双向
+// 父 string 子 object：槽内可带实例位并继续访问字段；
+// 父 object 子 string：读出按子类声明转换后打框
+
+class A15 { public string tag = "a"; }
+class B15 extends A15 { public object tag = new A15(); }
+object o = new B15();
+print("1", o.tag);
+print("2", o.tag.tag);
+B15 b = new B15();
+print("3", b.tag);
+
+class C15 { public object v = 1; }
+class D15 extends C15 { public string v = "s"; }
+object w = new D15();
+print("4", w.v);
+print("5", w.v.length);
+object u = new C15();
+print("6", u.v);

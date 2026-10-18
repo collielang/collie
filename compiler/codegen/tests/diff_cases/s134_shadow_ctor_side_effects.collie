@@ -1,0 +1,31 @@
+// t184 S131 差分用例：构造器对冲突槽定赋 + 父链字段初值的求值副作用
+
+function note(s string) string { print("side", s); return s; }
+
+// 子类构造器以整数定赋父类 string 声明遮蔽而来的冲突槽；父类方法读该槽
+// 后按返回类型转换（解释器 visitReturn 的 coerce_to_declared 同源）
+class A13 {
+    public string tag = "a";
+    public function show() string { return this.tag; }
+}
+class D13 extends A13 {
+    public integer tag = 7;
+    public D13() { this.tag = 99; }
+}
+class P13 extends D13 { }
+object o = new P13();
+print("1", o.tag);
+print("2", o.show());
+D13 d = new D13();
+print("3", d.tag);
+A13 a = d;
+print("4", a.tag);
+print("5", new A13().tag);
+
+// 遮蔽链上父层初值仍求值（同名键随后被子类覆写），副作用两端可见
+class A14 { public string tag = note("parent"); }
+class B14 extends A14 { public integer tag = 12; }
+object p14 = new B14();
+print("6", p14.tag);
+object q14 = new A14();
+print("7", q14.tag);

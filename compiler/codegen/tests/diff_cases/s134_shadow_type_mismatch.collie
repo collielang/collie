@@ -1,0 +1,35 @@
+// t184 S131 差分用例：遮蔽字段承载不一致（父 string × 子 integer）→ 冲突槽 {tag,bits}
+// 第一节为退役锁 s132_reject_shadow_type_mismatch 的原程序（此前 colliec 拒编
+// "duplicate or shadowing field 'tag'"，现双端 stdout 逐字节一致）
+
+class AnimalR1 { public string tag = "animal"; }
+class DogR1 extends AnimalR1 { public integer tag = 7; }
+object o = new DogR1();
+print("1", o.tag);
+DogR1 d = new DogR1();
+print("2", d.tag);
+
+// 各类静态接收者读同一槽；写入按动态类声明校验后打框落槽
+class A6 { public string tag = "animal"; }
+class D6 extends A6 { public integer tag = 7; }
+D6 d6 = new D6();
+d6.tag = 300;
+print("3", d6.tag);
+A6 a6 = d6;
+print("4", a6.tag);
+integer i = d6.tag;
+print("5", i);
+object o6 = d6;
+print("6", o6.tag);
+print("7", o6);
+print("8", d6);
+
+// 冲突槽读出的 Dyn 消费面：算术 / 进 string 槽 / ==? / toString
+class A7 { public string tag = "animal"; }
+class D7 extends A7 { public integer tag = 7; }
+object o7 = new D7();
+print("9", o7.tag + 1);
+string s7 = o7.tag;
+print("10", s7);
+print("11", o7.tag ==? 7: "seven", "other");
+print("12", o7.toString());

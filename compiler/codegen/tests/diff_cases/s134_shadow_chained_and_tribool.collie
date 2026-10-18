@@ -1,0 +1,21 @@
+// t184 S131 差分用例：冲突槽的链式写（对象位实例上继续写字段）+ bool × tribool 遮蔽
+// 读出的 Dyn 位经 dyn_obj_guard 还原实例 ptr 后并入既有字段动态分派，
+// 写回同一实例的字段两端可见；tribool 位保持 t65 的三态编码
+
+class A21 { public string tag = "a"; }
+class B21 extends A21 { public object tag = new A21(); }
+object o = new B21();
+o.tag.tag = "chained";
+print("1", o.tag.tag);
+print("2", o.tag);
+
+class C21 { public bool f = true; }
+class D21 extends C21 { public tribool f = unset; }
+object w = new D21();
+print("3", w.f);
+print("4", w.f.isUnset());
+w.f = false;
+print("5", w.f);
+C21 c = new D21();
+c.f = true;
+print("6", c.f);

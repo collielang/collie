@@ -252,7 +252,18 @@ if(COLLIE_ENABLE_LLVM)
             s133_dispatch_void_arm
             s133_dispatch_class_param
             s133_dispatch_dyn_domain_receiver
-            s133_dispatch_flow)
+            s133_dispatch_flow
+            s134_shadow_type_mismatch
+            s134_shadow_field_class
+            s134_shadow_bit_max
+            s134_shadow_ctor_side_effects
+            s134_shadow_tuple_carrier
+            s134_shadow_array_carrier
+            s134_shadow_object_carrier
+            s134_shadow_cross_tree_mixed
+            s134_shadow_dyn_consume
+            s134_shadow_chained_and_tribool
+            s134_shadow_class_carrier_alias)
         add_test(NAME codegen_diff_${_case}
             COMMAND ${CMAKE_COMMAND}
                 -DCOLLIEC=$<TARGET_FILE:colliec>
@@ -275,9 +286,6 @@ if(COLLIE_ENABLE_LLVM)
             s129_reject_dyn_to_tuple_reassign
             s131_reject_tuple_uninit_conditional_assign
             s131_reject_tuple_uninit_function_assign
-            s132_reject_shadow_type_mismatch
-            s132_reject_shadow_field_class
-            s132_reject_shadow_bit_max
             s132_reject_shadow_uninit_no_ctor
             s133_reject_arity_across_arms)
         add_test(NAME codegen_reject_${_rej}

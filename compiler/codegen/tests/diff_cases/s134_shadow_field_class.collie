@@ -1,0 +1,44 @@
+// t184 S131 差分用例：类名（Obj）型字段被子类以另一个类名遮蔽
+// 第一节为退役锁 s132_reject_shadow_field_class 的原程序（父类方法读
+// this.slot.n 按动态类的槽值分派，此前单槽无法同时解码两侧类名）
+
+class ThingR2 { public integer n = 1; }
+class OtherR2 { public integer n = 2; }
+class AnimalR2 {
+    public ThingR2 slot = new ThingR2();
+    public function peek() integer { return this.slot.n; }
+}
+class DogR2 extends AnimalR2 { public OtherR2 slot = new OtherR2(); }
+object o = new DogR2();
+print("1", o.peek());
+DogR2 d = new DogR2();
+print("2", d.slot);
+
+// 槽内实例位的字段/方法动态分派、整槽替换、父类静态接收者与别名联动
+class T10 {
+    public integer n = 1;
+    public function hi() string { return "T10"; }
+}
+class O10 {
+    public integer n = 2;
+    public function hi() string { return "O10"; }
+}
+class A10 {
+    public T10 slot = new T10();
+    public function peek() integer { return this.slot.n; }
+    public function callHi() string { return this.slot.hi(); }
+}
+class D10 extends A10 { public O10 slot = new O10(); }
+object o10 = new D10();
+print("3", o10.peek());
+print("4", o10.callHi());
+D10 d10 = new D10();
+print("5", d10.slot.n);
+print("6", d10.slot);
+d10.slot = new O10();
+print("7", d10.peek());
+A10 a10 = d10;
+print("8", a10.peek());
+T10 t10 = new T10();
+t10.n = 9;
+print("9", a10.slot.n);

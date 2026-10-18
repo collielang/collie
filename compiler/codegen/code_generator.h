@@ -232,6 +232,11 @@ private:
         // 顺序且仅登记带初值者——实例化点按序求值并逐个覆写同一槽（解释器实例
         // 字段是 name→value 扁平表，同名键父类初值仍求值、末次写入胜）
         std::vector<const VarDeclStmt*> shadowed;
+        // 遮蔽冲突槽（t184，S131）：本继承树内该字段名存在承载不一致的遮蔽声明，
+        // 物理槽类型/类名/上限三字段被 resolve_shadow_conflicts 统一改判为 Dyn 的
+        // {tag,bits}（type=Dyn、cls/bit_max 清空）；写侧校验不用这三项，按本类生效
+        // 声明现算 field_carrier_of，与解释器 find_field 的「子类优先沿链」同源
+        bool dyn_slot = false;
     };
 
     /// @brief 类信息（t60/t61）：注册遍登记合并布局与单态化方法原型，
@@ -503,10 +508,45 @@ private:
         const Stmt* owner = nullptr);
 
     /// @brief 类布局注册（第一遍阶段一，t60/t61）：父链字段 base-first 合并 +
-    /// 自身追加建 struct；同名字段遮蔽按承载一致合并（t182，不一致拒编）、
-    /// 无初值字段/范围外字段类型拒编；
-    /// 父类须先声明（合并依赖父类已注册）
+    /// 自身追加登记字段描述符；同名字段遮蔽按承载一致合并（t182）、承载不一致
+    /// 记入 shadow_conflicts_ 待 resolve_shadow_conflicts 升级（S131）；
+    /// 无初值字段/范围外字段类型拒编；父类须先声明（合并依赖父类已注册）。
+    /// struct 本体延后到 finalize_class_layout 建（遮蔽冲突要回改祖先槽类型）
     void register_class_layout(const ClassStmt& stmt);
+
+    /// @brief 遮蔽冲突槽升级（第一遍阶段一之后，S131）：解释器实例字段是
+    /// name→value 一张扁平表、读写按**动态类**声明逐笔 coerce_to_declared，故
+    /// 承载不一致的同名遮蔽只有一份存储——把该字段名在所属继承树的**全部**持有者
+    /// （祖先/兄弟/后代，前缀偏移须继续对齐）统一升级为 CGType::Dyn 的 {tag,bits}
+    /// 物理槽；声明各自的校验承载由 field_carrier_of 现算，不受本升级影响
+    void resolve_shadow_conflicts();
+
+    /// @brief 类 struct 建体（第一遍阶段一之后，S131）：按 cls.fields 的物理类型
+    /// 拼装（元素 0 恒 i64 类 id 头部）——须在 resolve_shadow_conflicts 之后，
+    /// 因遮蔽冲突要把祖先槽改判 Dyn
+    void finalize_class_layout(const ClassStmt& stmt);
+
+    /// @brief 字段声明的承载（t87/t162/t179 映射单点，S131 抽出）：类名 → Obj + cls、
+    /// object → Dyn、Tuple → TupDyn、byte/word → Int + bit_max，其余走 declared_cgtype；
+    /// 未注册类名拒编。注册遍与读写校验点（visitNew/visitPropertyAssign）共用，
+    /// 避免遮蔽槽物理类型与声明承载分叉后两处各算一遍漂移
+    void field_carrier_of(const VarDeclStmt& field, CGType& type_out,
+                          std::string& cls_out, long long& bit_max_out);
+
+    /// @brief 类所在继承树的根（t182/t184）：沿 CGClass.super 上溯；
+    /// 要求 name 已在 classes_ 中（注册进行中的类传其父类名）
+    std::string class_root_of(const std::string& name) const;
+
+    /// @brief 字段写入值（S131）：按**本类生效声明**的承载（field_carrier_of）做
+    /// 转换与 byte/word 范围校验（对齐解释器 coerce_to_declared 用 find_field 沿链
+    /// 命中的那份声明，而非槽的物理表示），再在遮蔽冲突槽（dyn_slot）上打框为
+    /// {tag,bits}；返回值的 type/cls/elem 即落槽与赋值表达式值应携带的元数据
+    CGValue field_slot_store(const CGField& field, const VarDeclStmt& decl,
+                             const CGValue& v, const Token& where);
+
+    /// @brief 两字段声明的校验承载是否一致（S131）：遮蔽冲突标志 + 类型 + 类名 +
+    /// 位类型上限全等；写侧多定义者分派用它决定能否沿用单一转换
+    bool field_carrier_equal(const CGField& a, const CGField& b);
 
     /// @brief 类方法单态化原型（第一遍阶段二，t61）：继承父类全部实例的
     /// 本类副本 collie.C.D.m + 自身方法 collie.C.C.m（覆写即 dispatch 改指）
@@ -864,6 +904,9 @@ private:
     std::unordered_map<const FunctionStmt*, std::string> fn_stmt_to_key_;
     /// 类表（t60）：类名 → struct 布局 + 方法原型；第一遍注册，前向 new 可用
     std::unordered_map<std::string, CGClass> classes_;
+    /// 承载不一致的同名遮蔽（t184，S131）：键为 "继承树根.字段名"，注册遍收集、
+    /// resolve_shadow_conflicts 消费后把该树内全部持有者的槽升级为 Dyn
+    std::set<std::string> shadow_conflicts_;
     /// 当前方法的 this 实参与所属类名（t60）：仅方法体生成期非空
     llvm::Value* current_this_ = nullptr;
     std::string current_class_name_;
